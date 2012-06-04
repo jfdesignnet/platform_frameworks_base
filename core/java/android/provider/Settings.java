@@ -6005,6 +6005,12 @@ public final class Settings {
                 "camera_double_tap_power_gesture_disabled";
 
         /**
+         * The hostname for this device
+         * @hide
+         */
+        public static final String DEVICE_HOSTNAME = "device_hostname";
+
+        /**
          * @hide
          */
         public static final String NAVIGATION_BAR_HEIGHT_LANDSCAPE = "navigation_bar_height_landscape";
