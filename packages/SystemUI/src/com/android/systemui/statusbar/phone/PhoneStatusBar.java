@@ -77,6 +77,7 @@ import android.view.animation.AnimationUtils;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -519,6 +520,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
         }
 
         mTicker = new MyTicker(context, mStatusBarView);
+
 
         TickerView tickerView = (TickerView)mStatusBarView.findViewById(R.id.tickerText);
         tickerView.mTicker = mTicker;
@@ -2277,7 +2279,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
     private void addStatusBarWindow() {
         // Put up the view
         final int height = getStatusBarHeight();
-
         // Now that the status bar window encompasses the sliding panel and its
         // translucent backdrop, the entire thing is made TRANSLUCENT and is
         // hardware-accelerated.
