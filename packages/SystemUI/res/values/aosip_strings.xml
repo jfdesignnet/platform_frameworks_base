@@ -48,6 +48,10 @@
     <string name="quick_settings_expanded_desktop_off">Normal</string>
     <string name="quick_settings_screen_off">Screen off</string>
 
+    <!-- Navbar cursor -->
+    <string name="accessibility_dpad_left">Cursor left</string>
+    <string name="accessibility_dpad_right">Cursor right</string>
+
     <!-- Navigation ring shortcuts -->
     <string name="navigation_ring_title">Quick launch shortcuts</string>
     <string name="navring_target_reset_message">Delete all user created navigation bar shortcuts and restore to default?</string>
