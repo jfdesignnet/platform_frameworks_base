@@ -20,6 +20,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
+import android.provider.Settings;
 import android.util.AttributeSet;
 import android.util.EventLog;
 import android.view.MotionEvent;
@@ -36,13 +37,15 @@ public class NotificationPanelView extends PanelView {
     private static final float STATUS_BAR_SWIPE_TRIGGER_PERCENTAGE = 0.05f;
     private static final float STATUS_BAR_SWIPE_VERTICAL_MAX_PERCENTAGE = 0.025f;
     private static final float STATUS_BAR_SWIPE_MOVE_PERCENTAGE = 0.2f;
+    private static final float STATUS_BAR_SETTINGS_LEFT_PERCENTAGE = 0.8f;
+    private static final float STATUS_BAR_SETTINGS_RIGHT_PERCENTAGE = 0.2f;
 
-    Drawable mHandleBar;
-    int mHandleBarHeight;
-    View mHandleView;
-    int mFingers;
-    PhoneStatusBar mStatusBar;
-    boolean mOkToFlip;
+    private Drawable mHandleBar;
+    private float mHandleBarHeight;
+    private View mHandleView;
+    private int mFingers;
+    private PhoneStatusBar mStatusBar;
+    private boolean mOkToFlip;
 
     private float mGestureStartX;
     private float mGestureStartY;
@@ -124,12 +127,22 @@ public class NotificationPanelView extends PanelView {
         if (PhoneStatusBar.SETTINGS_DRAG_SHORTCUT && mStatusBar.mHasFlipSettings) {
             boolean swipeFlipJustFinished = false;
             boolean swipeFlipJustStarted = false;
+            boolean flip = false;
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     mGestureStartX = event.getX(0);
                     mGestureStartY = event.getY(0);
                     mTrackingSwipe = isFullyExpanded();
                     mOkToFlip = getExpandedHeight() == 0;
+                    if (event.getX(0) > getWidth() * (1.0f - STATUS_BAR_SETTINGS_RIGHT_PERCENTAGE) &&
+                            Settings.System.getInt(getContext().getContentResolver(),
+                                    Settings.System.QS_QUICK_PULLDOWN, 0) == 1) {
+                        flip = true;
+                    } else if (event.getX(0) < getWidth() * (1.0f - STATUS_BAR_SETTINGS_LEFT_PERCENTAGE) &&
+                            Settings.System.getInt(getContext().getContentResolver(),
+                                    Settings.System.QS_QUICK_PULLDOWN, 0) == 2) {
+                        flip = true;
+                    }
                     break;
                 case MotionEvent.ACTION_MOVE:
                     final float deltaX = Math.abs(event.getX(0) - mGestureStartX);
@@ -184,6 +197,7 @@ public class NotificationPanelView extends PanelView {
                             mOkToFlip = false;
                         }
                     }
+                    flip = true;
                     break;
                 case MotionEvent.ACTION_UP:
                     swipeFlipJustFinished = mSwipeTriggered;
@@ -191,7 +205,23 @@ public class NotificationPanelView extends PanelView {
                     mTrackingSwipe = false;
                     break;
             }
-
+            if (mOkToFlip && flip) {
+                float miny = event.getY(0);
+                float maxy = miny;
+                for (int i=1; i<event.getPointerCount(); i++) {
+                    final float y = event.getY(i);
+                    if (y < miny) miny = y;
+                    if (y > maxy) maxy = y;
+                }
+                if (maxy - miny < mHandleBarHeight) {
+                    if (mJustPeeked || getExpandedHeight() < mHandleBarHeight) {
+                        mStatusBar.switchToSettings();
+                    } else {
+                        mStatusBar.flipToSettings();
+                    }
+                    mOkToFlip = false;
+                }
+            }
             if (mSwipeTriggered) {
                 final float deltaX = (event.getX(0) - mGestureStartX) * mSwipeDirection;
                 mStatusBar.partialFlip(mFlipOffset +
