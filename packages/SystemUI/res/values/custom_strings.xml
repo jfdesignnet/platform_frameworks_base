@@ -31,4 +31,8 @@
     <!-- Quick Settings Bluetooth Number of Paired Devices -->
     <string name="quick_settings_bluetooth_number_paired"><xliff:g id="number">%d</xliff:g> Devices paired</string>
 
+    <!-- Quick Settings -->
+    <!-- Power Menu tile -->
+    <string name="quick_settings_power_menu_label">Power Menu</string>
+
 </resources>
