@@ -48,4 +48,7 @@
     <!-- Theme reset notification -->
     <java-symbol type="string" name="theme_reset_notification_title" />
     <java-symbol type="string" name="theme_reset_notification_body" />
+
+    <!-- Package Manager -->
+    <java-symbol type="array" name="config_disabledComponents" />
 </resources>
