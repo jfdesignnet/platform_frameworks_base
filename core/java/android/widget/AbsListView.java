@@ -23,14 +23,15 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.TransitionDrawable;
-import android.provider.Settings;
 import android.os.Bundle;
 import android.os.Debug;
 import android.os.Message;
+import android.os.Handler;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.StrictMode;
 import android.os.Trace;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -692,7 +693,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     /**
      * Used for smooth scrolling at a consistent rate
      */
-    static final Interpolator sLinearInterpolator = new LinearInterpolator();
+    private static final Interpolator sLinearInterpolator = new LinearInterpolator();
 
     /**
      * The saved state that we will be restoring from when we next sync.
@@ -709,6 +710,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     private boolean mIsScrolling;
     private int mWidth, mHeight = 0;
     private int mvPosition;
+    private int mListViewDuration;
     private boolean mIsTap = false;
     private boolean mIsGridView = false;
 
@@ -2328,9 +2330,11 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     }
 
     View setAnimation(View view) {
-        final int mAnim = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_ANIMATION, 0);
+        int mAnim = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_ANIMATIONS, 0);
         int scrollY = 0;
         boolean mDown = false;
+        int temp = Settings.System.getInt(mContext.getContentResolver(), Settings.System.LISTVIEW_SCROLL_DURATION, 0);
+        mListViewDuration = temp * 15;
 
         try {
             scrollY = computeVerticalScrollOffset();
@@ -2346,11 +2350,74 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         mvPosition = scrollY;
 
         Animation anim = null;
-        if (mAnim == 1) {
-            anim = new AlphaAnimation(0.0f, 1.0f);
-            anim.setDuration(350);
+        switch (mAnim) {
+            case 1:	
+                anim = new ScaleAnimation(0.5f, 1.0f, 0.5f, 1.0f);
+                break;
+            case 2:
+                anim = new ScaleAnimation(0.5f, 1.0f, 0.5f, 1.0f, Animation.RELATIVE_TO_SELF,1.0f, Animation.RELATIVE_TO_SELF, 1.0f);
+                break;
+            case 3:
+                anim = new ScaleAnimation(0.5f, 1.0f, 0.5f, 1.0f, Animation.RELATIVE_TO_SELF,0.5f, Animation.RELATIVE_TO_SELF, 0.5f);	
+                break;
+            case 4:
+                anim = new AlphaAnimation(0.0f, 1.0f);
+                break;
+            case 5:
+                anim = new TranslateAnimation(0.0f, 0.0f, -mHeight, 0.0f);
+                break;
+            case 6:
+                anim = new TranslateAnimation(0.0f, 0.0f, mHeight, 0.0f);
+                break;
+            case 7:
+                if(mDown)
+                    anim = new TranslateAnimation(0.0f, 0.0f, -mHeight, 0.0f);
+                else
+                    anim = new TranslateAnimation(0.0f, 0.0f, mHeight, 0.0f);
+                break;
+            case 8:
+                if(mDown)
+                    anim = new TranslateAnimation(0.0f, 0.0f, mHeight, 0.0f);
+                else
+                    anim = new TranslateAnimation(0.0f, 0.0f, -mHeight, 0.0f);
+                break;
+            case 9:
+                anim = new TranslateAnimation(-mWidth, 0.0f, 0.0f, 0.0f);	
+                break;
+            case 10:
+                anim = new TranslateAnimation(mWidth, 0.0f, 0.0f, 0.0f);	
+                break;
+            case 11:
+                anim = new RotateAnimation(180, 0, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f);  
+                break;
         }
+ //       anim.setDuration(325);
+        anim.setDuration(mListViewDuration);
 
+        int mInterpolator = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_INTERPOLATOR, 0);
+        switch (mInterpolator) {
+            case 1:
+                anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.accelerate_interpolator));
+                break;
+            case 2:
+                anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.decelerate_interpolator));
+                break;
+            case 3:
+                anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.accelerate_decelerate_interpolator));
+                break;
+            case 4:
+                anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.anticipate_interpolator));
+                break;
+            case 5:
+                anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.overshoot_interpolator));
+                break;
+            case 6:
+                anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.anticipate_overshoot_interpolator));
+                break;
+            case 7:
+                anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.bounce_interpolator));
+                break;
+        } 
         if ((view != null) && (anim != null)) {
             view.startAnimation(anim);
         }
@@ -3227,7 +3294,13 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                 mTouchMode = TOUCH_MODE_SCROLL;
                 mMotionCorrection = deltaY > 0 ? mTouchSlop : -mTouchSlop;
             }
-            removeCallbacks(mPendingCheckForLongPress);
+            final Handler handler = getHandler();
+            // Handler should not be null unless the AbsListView is not attached to a
+            // window, which would make it very hard to scroll it... but the monkeys
+            // say it's possible.
+            if (handler != null) {
+                handler.removeCallbacks(mPendingCheckForLongPress);
+            }
             setPressed(false);
             final View motionView = getChildAt(mMotionPosition - mFirstPosition);
             if (motionView != null) {
@@ -3410,8 +3483,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                 mDirection = newDirection;
             }
         }
-    }        mIsTap = true;
-        Inverse.sendEmptyMessageDelayed(0,100);
+    }
 
     @Override
     public void onTouchModeChanged(boolean isInTouchMode) {
@@ -3681,9 +3753,11 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                     mResurrectToPosition = motionPosition;
 
                     if (mTouchMode == TOUCH_MODE_DOWN || mTouchMode == TOUCH_MODE_TAP) {
-                        removeCallbacks(mTouchMode == TOUCH_MODE_DOWN ?
-                                mPendingCheckForTap : mPendingCheckForLongPress);
-                        mLayoutMode = LAYOUT_NORMAL;
+                        final Handler handler = getHandler();
+                        if (handler != null) {
+                            handler.removeCallbacks(mTouchMode == TOUCH_MODE_DOWN ?
+                                    mPendingCheckForTap : mPendingCheckForLongPress);
+                        }
                         if (!mDataChanged && mAdapter.isEnabled(motionPosition)) {
                             mTouchMode = TOUCH_MODE_TAP;
                             setSelectedPositionInt(mMotionPosition);
@@ -3804,7 +3878,12 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
         // Need to redraw since we probably aren't drawing the selector anymore
         invalidate();
-        removeCallbacks(mPendingCheckForLongPress);
+
+        final Handler handler = getHandler();
+        if (handler != null) {
+        handler.removeCallbacks(mPendingCheckForLongPress);
+        }
+
         recycleVelocityTracker();
 
         mActivePointerId = INVALID_POINTER;
@@ -3843,7 +3922,12 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                 motionView.setPressed(false);
             }
             clearScrollingCache();
-            removeCallbacks(mPendingCheckForLongPress);
+
+            final Handler handler = getHandler();
+            if (handler != null) {
+            handler.removeCallbacks(mPendingCheckForLongPress);
+            }
+
             recycleVelocityTracker();
         }
 
