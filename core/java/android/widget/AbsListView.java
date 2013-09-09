@@ -23,8 +23,10 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.TransitionDrawable;
+import android.provider.Settings;
 import android.os.Bundle;
 import android.os.Debug;
+import android.os.Message;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.StrictMode;
@@ -75,6 +77,14 @@ import com.android.internal.R;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.lang.NullPointerException;
+
+import android.view.animation.Animation;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.RotateAnimation;
+import android.view.animation.ScaleAnimation;
+import android.view.animation.TranslateAnimation;
+import android.view.animation.AnimationUtils;
 
 /**
  * Base class that can be used to implement virtualized lists of items. A list does
@@ -693,6 +703,16 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     private SavedState mPendingSync;
 
     /**
+     * for ListView Animations
+     */
+    private boolean mIsWidget;
+    private boolean mIsScrolling;
+    private int mWidth, mHeight = 0;
+    private int mvPosition;
+    private boolean mIsTap = false;
+    private boolean mIsGridView = false;
+
+    /**
      * Interface definition for a callback to be invoked when the list or grid
      * has been scrolled.
      */
@@ -835,6 +855,8 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         mOverflingDistance = configuration.getScaledOverflingDistance();
 
         mDensityScale = getContext().getResources().getDisplayMetrics().density;
+
+        setPersistentDrawingCache(ViewGroup.PERSISTENT_ANIMATION_CACHE|ViewGroup.PERSISTENT_SCROLLING_CACHE);
     }
 
     @Override
@@ -2092,6 +2114,8 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         mInLayout = false;
 
         mOverscrollMax = (b - t) / OVERSCROLL_LIMIT_DIVISOR;
+        mHeight = getHeight();
+        mWidth = getWidth();
     }
 
     /**
@@ -2239,6 +2263,10 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         if (scrapView != null) {
             child = mAdapter.getView(position, scrapView, this);
 
+            if(mIsScrolling && !mIsWidget) {
+                child = setAnimation(child);
+            }
+
             if (child.getImportantForAccessibility() == IMPORTANT_FOR_ACCESSIBILITY_AUTO) {
                 child.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
             }
@@ -2297,6 +2325,40 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         Trace.traceEnd(Trace.TRACE_TAG_VIEW);
 
         return child;
+    }
+
+    View setAnimation(View view) {
+        final int mAnim = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_ANIMATION, 0);
+        int scrollY = 0;
+        boolean mDown = false;
+
+        try {
+            scrollY = computeVerticalScrollOffset();
+        } catch (NullPointerException e) {
+            scrollY = mvPosition;
+        }
+
+        if(mAnim == 0)
+            return view;
+
+        if(mvPosition < scrollY)
+        mDown = true;
+        mvPosition = scrollY;
+
+        Animation anim = null;
+        if (mAnim == 1) {
+            anim = new AlphaAnimation(0.0f, 1.0f);
+            anim.setDuration(350);
+        }
+
+        if ((view != null) && (anim != null)) {
+            view.startAnimation(anim);
+        }
+        return view;
+    }
+
+    public void setGridView(boolean bool){
+        mIsGridView = bool;
     }
 
     class ListItemAccessibilityDelegate extends AccessibilityDelegate {
@@ -3197,6 +3259,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                     mScrollProfilingStarted = true;
                 }
             }
+            mIsWidget = false;
 
             if (mScrollStrictSpan == null) {
                 // If it's non-null, we're already in a scroll.
@@ -3347,7 +3410,8 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                 mDirection = newDirection;
             }
         }
-    }
+    }        mIsTap = true;
+        Inverse.sendEmptyMessageDelayed(0,100);
 
     @Override
     public void onTouchModeChanged(boolean isInTouchMode) {
@@ -3383,6 +3447,12 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         }
     }
 
+    final Handler Inverse = new Handler() {
+        public void handleMessage(Message msg) {
+            mIsTap = !mIsTap;
+        }
+    };
+
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
         if (!isEnabled()) {
@@ -3416,6 +3486,8 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         final int actionMasked = ev.getActionMasked();
         switch (actionMasked) {
             case MotionEvent.ACTION_DOWN: {
+                mIsTap = true;
+                Inverse.sendEmptyMessageDelayed(0,100);
                 onTouchDown(ev);
                 break;
             }
@@ -3426,6 +3498,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
             }
 
             case MotionEvent.ACTION_UP: {
+                mIsTap = false;
                 onTouchUp(ev);
                 break;
             }
@@ -4038,6 +4111,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
      */
     void reportScrollStateChange(int newState) {
         if (newState != mLastScrollState) {
+            mIsScrolling = newState != OnScrollListener.SCROLL_STATE_IDLE;
             if (mOnScrollListener != null) {
                 mLastScrollState = newState;
                 mOnScrollListener.onScrollStateChanged(this, newState);
@@ -5423,6 +5497,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
     @Override
     protected void handleDataChanged() {
+        mIsWidget = true;
         int count = mItemCount;
         int lastHandledItemCount = mLastHandledItemCount;
         mLastHandledItemCount = mItemCount;

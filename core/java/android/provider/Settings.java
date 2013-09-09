@@ -2595,6 +2595,11 @@ public final class Settings {
         public static final String POWER_MENU_SILENT_ENABLED = "power_menu_silent_enabled";
 
         /**
+         * ListView Animation
+         */
+        public static final String LISTVIEW_ANIMATION = "listview_animation";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
