@@ -2667,6 +2667,7 @@ public final class Settings {
         public static final String EGG_MODE = "egg_mode";
 
         /**
+<<<<<<< HEAD
          * Show or hide clock
          * 0 - hide
          * 1 - show (default)
@@ -3023,6 +3024,13 @@ public final class Settings {
          * @hide
          */
         public static final String FORMAL_TEXT_INPUT = "formal_text_input";
+
+        /**
+         * Config for advanced power menu
+         *
+         * @hide
+         */
+        public static final String POWER_MENU_CONFIG = "power_menu_config";
 
         /**
          * Settings to backup. This is here so that it's in the same place as the settings
