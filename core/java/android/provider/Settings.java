@@ -2899,6 +2899,12 @@ public final class Settings {
         public static final String QS_QUICK_PULLDOWN = "qs_quick_pulldown";
 
         /**
+         * Quick settings tiles to show on status bar
+         * @hide
+         */
+        public static final String QUICK_SETTINGS_TILES = "quick_settings_tiles";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
