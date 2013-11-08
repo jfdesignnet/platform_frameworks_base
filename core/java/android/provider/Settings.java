@@ -2948,6 +2948,24 @@ public final class Settings {
         public static final String POWER_MENU_SCREENRECORD_ENABLED = "power_menu_screenrecord_enabled";
 
         /**
+         * Global immersive mode on/off state
+         * @hide
+         */
+        public static final String GLOBAL_IMMERSIVE_MODE_STATE = "global_immersive_mode_state";
+
+         /**
+         * Global immersive mode style (with status bar or without status bar)
+           * @hide
+           */
+        public static final String GLOBAL_IMMERSIVE_MODE_STYLE = "global_immersive_mode_style";
+
+        /**
+         * Whether power menu immersive mode is enabled
+         * @hide
+         */
+        public static final String POWER_MENU_GLOBAL_IMMERSIVE_MODE_ENABLED = "power_menu_global_immersive_mode_enabled";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
