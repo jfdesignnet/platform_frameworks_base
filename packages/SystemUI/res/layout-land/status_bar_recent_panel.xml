@@ -64,7 +64,7 @@
                   android:layout_marginRight="5dp" />
 
      <TextView android:id="@+id/recents_memory_text"
-                  android:textColor="@android:color/holo_blue_dark"
+                  android:textColor="@android:color/white"
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
                   android:layout_gravity="top|left"
