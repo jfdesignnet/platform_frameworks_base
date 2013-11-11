@@ -691,7 +691,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
             }
         }
 
-
         mWifiLabel = (TextView)mStatusBarWindow.findViewById(R.id.wifi_text);
         if (mWifiLabel != null) {
             mNetworkController.addWifiLabelView(mWifiLabel);
