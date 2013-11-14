@@ -31,4 +31,10 @@
     <string name="quick_settings_screen_off">Screen off</string>
     <string name="quick_settings_screenshot">Screenshot</string>
     <string name="quick_settings_screenrecord">Screen record</string>
+
+    <!-- Kill app toast -->
+    <string name="app_killed_message">App Killed</string>
+
+    <!-- Screenshot -->
+    <string name="shortcut_screenshot">Screenshot</string>
 </resources>
