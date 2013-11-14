@@ -58,6 +58,4 @@
     <color name="batterymeter_base_color">#FFFFFFFF</color>
     <!-- Color for notification icons -->
     <color name="notification_icon_color">#FFFFFFFF</color>
-    <!-- Navigation button ripple color -->
-    <color name="navbutton_ripple_color">#FFFFFFFF</color>
 </resources>
