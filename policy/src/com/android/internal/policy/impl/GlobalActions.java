@@ -27,12 +27,14 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.ContentResolver;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.graphics.drawable.Drawable;
+import android.Manifest;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.os.Bundle;
@@ -243,6 +245,7 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         };
         onAirplaneModeChanged();
 
+        final ContentResolver cr = mContext.getContentResolver();
         mItems = new ArrayList<Action>();
 
         // first: power off
@@ -272,8 +275,9 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
 
         // next: reboot
         // only shown if enabled, enabled by default
-        if (Settings.System.getInt(mContext.getContentResolver(),
-                Settings.System.POWER_MENU_REBOOT_ENABLED, 1) == 1) {
+        boolean showReboot = Settings.System.getIntForUser(cr,
+                Settings.System.POWER_MENU_REBOOT_ENABLED, 1, UserHandle.USER_CURRENT) == 1;
+        if (showReboot) {
             mItems.add(
                 new SinglePressAction(R.drawable.ic_lock_reboot, R.string.global_action_reboot) {
                     public void onPress() {
@@ -296,14 +300,16 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         }
 
         // next: airplane mode
-        if (Settings.System.getInt(mContext.getContentResolver(),
-                Settings.System.POWER_MENU_AIRPLANE_ENABLED, 1) == 1) {
+        boolean showAirplaneMode = Settings.System.getIntForUser(cr,
+                Settings.System.POWER_MENU_AIRPLANE_ENABLED, 1, UserHandle.USER_CURRENT) == 1;
+        if (showAirplaneMode) {
             mItems.add(mAirplaneModeOn);
         }
 
         // next: bug report, if enabled
-        if (Settings.Global.getInt(mContext.getContentResolver(),
-                Settings.Global.BUGREPORT_IN_POWER_MENU, 0) != 0 && isCurrentUserOwner()) {
+        boolean showBugReport = Settings.Secure.getIntForUser(cr,
+                Settings.Secure.BUGREPORT_IN_POWER_MENU, 0, UserHandle.USER_CURRENT) != 0;
+        if (showBugReport) {
             mItems.add(
                 new SinglePressAction(com.android.internal.R.drawable.stat_sys_adb,
                         R.string.global_action_bug_report) {
@@ -351,13 +357,33 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         }
 
         // next: screenshot
-        // only shown if enabled, disabled by default
-        if (Settings.System.getInt(mContext.getContentResolver(),
-                Settings.System.POWER_MENU_SCREENSHOT_ENABLED, 0) == 1) {
+        boolean showScreenshot = Settings.System.getIntForUser(cr,
+                Settings.System.POWER_MENU_SCREENSHOT_ENABLED, 1, UserHandle.USER_CURRENT) == 1;
+        if (showScreenshot) {
             mItems.add(
                 new SinglePressAction(R.drawable.ic_lock_screenshot, R.string.global_action_screenshot) {
                     public void onPress() {
                         takeScreenshot();
+                    }
+
+                    public boolean showDuringKeyguard() {
+                        return true;
+                    }
+
+                    public boolean showBeforeProvisioning() {
+                        return true;
+                    }
+                });
+        }
+
+        // next: screenrecord
+        boolean showScreenrecord = Settings.System.getIntForUser(cr,
+                Settings.System.POWER_MENU_SCREENRECORD_ENABLED, 1, UserHandle.USER_CURRENT) == 1;
+        if (showScreenrecord) {
+            mItems.add(
+                new SinglePressAction(R.drawable.ic_lock_screen_record, R.string.global_action_screen_record) {
+                    public void onPress() {
+                        toggleScreenRecord();
                     }
 
                     public boolean showDuringKeyguard() {
@@ -376,9 +402,9 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         }
 
         // last: silent mode
-        if ((Settings.System.getInt(mContext.getContentResolver(),
-                Settings.System.POWER_MENU_SILENT_ENABLED, 1) == 1) &&
-                (mShowSilentToggle)) {
+        boolean showSoundMode = SHOW_SILENT_TOGGLE && Settings.System.getIntForUser(cr,
+                Settings.System.POWER_MENU_SILENT_ENABLED, 1, UserHandle.USER_CURRENT) == 1;
+        if (showSoundMode) {
             mItems.add(mSilentModeAction);
         }
 
@@ -537,6 +563,11 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                 mHandler.postDelayed(mScreenshotTimeout, 10000);
             }
         }
+    }
+
+    private void toggleScreenRecord() {
+        final Intent recordIntent = new Intent("org.chameleonos.action.NOTIFY_RECORD_SERVICE");
+        mContext.sendBroadcast(recordIntent, Manifest.permission.RECORD_SCREEN);
     }
 
     private void prepareDialog() {
