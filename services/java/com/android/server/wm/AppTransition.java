@@ -61,7 +61,7 @@ import static com.android.internal.R.styleable.WindowAnimation_wallpaperIntraOpe
 import static com.android.internal.R.styleable.WindowAnimation_wallpaperIntraCloseEnterAnimation;
 import static com.android.internal.R.styleable.WindowAnimation_wallpaperIntraCloseExitAnimation;
 
-import com.vanir.util.VanirAnimationHelper;
+import com.androidx.util.AndroidxAnimationHelper;
 
 // State management of app transitions.  When we are preparing for a
 // transition, mNextAppTransition will be the kind of transition to
@@ -535,7 +535,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_ACTIVITY_OPEN:
                     if (mActivityAnimations[0] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[0]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[0]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -548,7 +548,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_ACTIVITY_CLOSE:
                     if (mActivityAnimations[1] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[1]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[1]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -561,7 +561,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_TASK_OPEN:
                     if (mActivityAnimations[2] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[2]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[2]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -574,7 +574,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_TASK_CLOSE:
                     if (mActivityAnimations[3] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[3]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[3]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -587,7 +587,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_TASK_TO_FRONT:
                     if (mActivityAnimations[4] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[4]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[4]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -600,7 +600,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_TASK_TO_BACK:
                     if (mActivityAnimations[5] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[5]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[5]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -613,7 +613,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_WALLPAPER_OPEN:
                     if (mActivityAnimations[6] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[6]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[6]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -626,7 +626,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_WALLPAPER_CLOSE:
                     if (mActivityAnimations[7] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[7]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[7]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -639,7 +639,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_WALLPAPER_INTRA_OPEN:
                     if (mActivityAnimations[8] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[8]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[8]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];
@@ -652,7 +652,7 @@ public class AppTransition implements Dump {
                 case TRANSIT_WALLPAPER_INTRA_CLOSE:
                     if (mActivityAnimations[9] != 0) {
                         mIsResId = true;
-                        int[] animArray = VanirAnimationHelper.getAnimations(mActivityAnimations[9]);
+                        int[] animArray = AndroidxAnimationHelper.getAnimations(mActivityAnimations[9]);
                         animAttr = enter
                                 ? animArray[1]
                                 : animArray[0];

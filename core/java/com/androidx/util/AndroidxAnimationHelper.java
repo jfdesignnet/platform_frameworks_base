@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-package com.vanir.util;
+package com.androidx.util;
 
 import android.content.Context;
 import android.content.res.Resources;
 
 import java.util.ArrayList;
 
-public class VanirAnimationHelper {
+public class AndroidxAnimationHelper {
 
     public final static int ANIMATION_DEFAULT = 0;
     public final static int ANIMATION_FADE = 1;

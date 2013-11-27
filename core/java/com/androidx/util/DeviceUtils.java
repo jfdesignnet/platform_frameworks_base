@@ -14,7 +14,7 @@
 * limitations under the License.
 */
 
-package com.vanir.util;
+package com.androidx.util;
 
 import android.content.Context;
 import android.util.DisplayMetrics;

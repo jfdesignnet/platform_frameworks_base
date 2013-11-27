@@ -1,4 +1,4 @@
-package com.vanir.util;
+package com.androidx.util;
 
 import android.util.Log;
 
@@ -6,7 +6,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.InputStream;
 
-import com.vanir.objects.EasyPair;
+import com.androidx.objects.EasyPair;
 
 public class CMDProcessor {
 

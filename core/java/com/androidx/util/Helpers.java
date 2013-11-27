@@ -1,4 +1,4 @@
-package com.vanir.util;
+package com.androidx.util;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -17,7 +17,7 @@ import android.text.format.DateFormat;
 import android.util.Log;
 import android.widget.Toast;
 
-import com.vanir.util.CMDProcessor.CommandResult;
+import com.androidx.util.CMDProcessor.CommandResult;
 
 public class Helpers {
 
