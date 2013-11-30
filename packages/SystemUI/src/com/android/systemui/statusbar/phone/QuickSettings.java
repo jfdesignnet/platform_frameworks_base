@@ -781,32 +781,6 @@ class QuickSettings {
         mModel.addLocationTile(locationTile,
                 new QuickSettingsModel.BasicRefreshCallback(locationTile));
         parent.addView(locationTile);
-
-    // Power Menu
-        final QuickSettingsBasicTile powermenuTile = new QuickSettingsBasicTile(mContext);
-        powermenuTile.setImageResource(R.drawable.ic_qs_power_menu);
-        powermenuTile.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                getService().animateCollapsePanels();
-                Intent intent = new Intent(Intent.ACTION_POWERMENU);
-                mContext.sendBroadcast(intent);
-            }
-        });
-        if (LONG_PRESS_TOGGLES) {
-            powermenuTile.setOnLongClickListener(new View.OnLongClickListener() {
-                @Override
-                public boolean onLongClick(View v) {
-                    getService().animateCollapsePanels();
-                    Intent intent = new Intent(Intent.ACTION_POWERMENU_REBOOT);
-                    mContext.sendBroadcast(intent);
-                    return true;
-                }
-            });
-            mModel.addPowerMenuTile(powermenuTile,
-                    new QuickSettingsModel.BasicRefreshCallback(powermenuTile));
-            parent.addView(powermenuTile);
-        }
     }
 
     private void addTemporaryTiles(final ViewGroup parent, final LayoutInflater inflater) {
