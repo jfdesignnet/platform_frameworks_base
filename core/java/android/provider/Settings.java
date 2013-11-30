@@ -2978,6 +2978,30 @@ public final class Settings {
          */
         public static final String POWER_MENU_GLOBAL_IMMERSIVE_MODE_ENABLED = "power_menu_global_immersive_mode_enabled";
 
+       /**
+        * Sets the portrait background of notification drawer
+        * @hide
+        */
+        public static final String NOTIFICATION_BACKGROUND = "notification_background";
+
+       /**
+        * Sets the landscape background of notification drawer
+        * @hide
+        */
+        public static final String NOTIFICATION_BACKGROUND_LANDSCAPE = "notification_background_landscape";
+
+       /**
+        * Sets the alpha (transparency) of notification wallpaper
+        * @hide
+        */
+        public static final String NOTIFICATION_BACKGROUND_ALPHA = "notification_background_alpha";
+
+       /**
+        * Sets the alpha (transparency) of the notification
+        * @hide
+        */
+        public static final String NOTIFICATION_ALPHA = "notification_alpha";
+
         /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
