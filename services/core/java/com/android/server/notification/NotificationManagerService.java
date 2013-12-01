@@ -115,6 +115,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -232,6 +233,9 @@ public class NotificationManagerService extends SystemService {
 
     // The last key in this list owns the hardware.
     ArrayList<String> mLights = new ArrayList<>();
+
+    private HashMap<String, Long> mAnnoyingNotifications = new HashMap<String, Long>();
+    private long mAnnoyingNotificationThreshold = -1;
 
     private AppOpsManager mAppOps;
 
@@ -817,6 +821,8 @@ public class NotificationManagerService extends SystemService {
                 = Settings.System.getUriFor(Settings.System.NOTIFICATION_LIGHT_PULSE);
         private final Uri ENABLED_NOTIFICATION_LISTENERS_URI
                 = Settings.Secure.getUriFor(Settings.Secure.ENABLED_NOTIFICATION_LISTENERS);
+        private final Uri MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD_URI
+                = Settings.System.getUriFor(Settings.System.MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD);
 
         LEDSettingsObserver(Handler handler) {
             super(handler);
@@ -842,6 +848,8 @@ public class NotificationManagerService extends SystemService {
                     false, this, UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.NOTIFICATION_LIGHT_PULSE_CUSTOM_VALUES),
+                    false, this, UserHandle.USER_ALL);
+            resolver.registerContentObserver(MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD_URI,
                     false, this, UserHandle.USER_ALL);
             update(null);
         }
@@ -880,6 +888,12 @@ public class NotificationManagerService extends SystemService {
                 parseNotificationPulseCustomValuesString(Settings.System.getStringForUser(resolver,
                         Settings.System.NOTIFICATION_LIGHT_PULSE_CUSTOM_VALUES,
                         UserHandle.USER_CURRENT));
+            }
+
+            if (uri == null || MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD_URI.equals(uri)) {
+            mAnnoyingNotificationThreshold = Settings.System.getLongForUser(resolver,
+               Settings.System.MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD, 0,
+               UserHandle.USER_CURRENT_OR_SELF);
             }
 
             updateNotificationPulse();
@@ -2028,6 +2042,26 @@ public class NotificationManagerService extends SystemService {
         idOut[0] = id;
     }
 
+    private boolean notificationIsAnnoying(String pkg) {
+        if (pkg == null
+                || mAnnoyingNotificationThreshold <= 0
+                || "android".equals(pkg)) {
+            return false;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        if (mAnnoyingNotifications.containsKey(pkg)
+                && (currentTime - mAnnoyingNotifications.get(pkg)
+                < mAnnoyingNotificationThreshold)) {
+            // less than threshold; it's an annoying notification!!
+            return true;
+        } else {
+            // not in map or time to re-add
+            mAnnoyingNotifications.put(pkg, currentTime);
+            return false;
+        }
+    }
+
     /**
      * Ensures that grouped notification receive their special treatment.
      *
@@ -2123,13 +2157,14 @@ public class NotificationManagerService extends SystemService {
     private void buzzBeepBlinkLocked(NotificationRecord record) {
         boolean buzzBeepBlinked = false;
         final Notification notification = record.sbn.getNotification();
+        final String pkg = record.sbn.getPackageName();
 
         // Should this notification make noise, vibe, or use the LED?
         final boolean aboveThreshold = record.score >= SCORE_INTERRUPTION_THRESHOLD;
         final boolean canInterrupt = aboveThreshold && !record.isIntercepted();
         if (DBG || record.isIntercepted())
             Slog.v(TAG,
-                    "pkg=" + record.sbn.getPackageName() + " canInterrupt=" + canInterrupt +
+                    "pkg=" + pkg + " canInterrupt=" + canInterrupt +
                             " intercept=" + record.isIntercepted()
             );
 
@@ -2154,6 +2189,7 @@ public class NotificationManagerService extends SystemService {
                     mUserProfiles.isCurrentProfile(record.getUserId()))
                 && canInterrupt
                 && mSystemReady
+                && !notificationIsAnnoying(pkg)
                 && mAudioManager != null) {
             if (DBG) Slog.v(TAG, "Interrupting!");
 
