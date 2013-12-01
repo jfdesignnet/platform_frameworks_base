@@ -63,6 +63,7 @@ import android.view.WindowManagerGlobal;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import com.androidx.util.TorchConstants;
 import com.android.systemui.BatteryMeterView;
 import com.android.systemui.BatteryCircleMeterView;
 import com.android.systemui.R;
@@ -100,12 +101,13 @@ class QuickSettings {
         BATTERY,
         AIRPLANE,
         BLUETOOTH,
-        LOCATION
+        LOCATION,
+        TORCH
     }
 
     public static final String NO_TILES = "NO_TILES";
     public static final String DELIMITER = ";";
-    public static final String DEFAULT_TILES = Tile.USER + DELIMITER + Tile.BRIGHTNESS
+    public static final String DEFAULT_TILES = Tile.TORCH + DELIMITER + Tile.BRIGHTNESS
         + DELIMITER + Tile.SETTINGS + DELIMITER + Tile.WIFI + DELIMITER + Tile.RSSI
         + DELIMITER + Tile.ROTATION + DELIMITER + Tile.BATTERY + DELIMITER
         + Tile.BLUETOOTH + DELIMITER + Tile.LOCATION;
@@ -684,6 +686,31 @@ class QuickSettings {
                         parent.addView(bluetoothTile);
                         if(addMissing) bluetoothTile.setVisibility(View.GONE);
                     }
+                } else if(Tile.TORCH.toString().equals(tile.toString())) { // Torch
+                    if (mModel.deviceSupportsLed()) {
+                    final QuickSettingsBasicTile torchTile
+                            = new QuickSettingsBasicTile(mContext);
+                    torchTile.setTileId(Tile.TORCH);
+                    torchTile.setImageResource(R.drawable.ic_qs_torch);
+                    torchTile.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            Intent intent = new Intent(TorchConstants.ACTION_TOGGLE_STATE);
+                            mContext.sendBroadcast(intent);
+                        }
+                    });
+                    torchTile.setOnLongClickListener(new View.OnLongClickListener() {
+                        @Override
+                        public boolean onLongClick(View v) {
+                            startSettingsActivity(TorchConstants.INTENT_LAUNCH_APP);
+                            return true; // Consume click
+                    }});
+                    mModel.addTorchTile(torchTile,
+                            new QuickSettingsModel.BasicRefreshCallback(torchTile));
+                    parent.addView(torchTile);
+                    mDynamicSpannedTiles.add(torchTile);
+                    if(addMissing) torchTile.setVisibility(View.GONE);
+                    }
                 } else if(Tile.LOCATION.toString().equals(tile.toString())) { // Location
                     final QuickSettingsBasicTile locationTile
                             = new QuickSettingsBasicTile(mContext);
@@ -706,7 +733,6 @@ class QuickSettings {
                             }
                         }
                     });
-
                     locationTile.setOnLongClickListener(new View.OnLongClickListener() {
                         @Override
                         public boolean onLongClick(View v) {

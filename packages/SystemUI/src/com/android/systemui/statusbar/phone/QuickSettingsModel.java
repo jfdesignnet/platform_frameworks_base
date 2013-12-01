@@ -272,6 +272,10 @@ class QuickSettingsModel implements BluetoothStateChangeCallback,
     private RefreshCallback mSslCaCertWarningCallback;
     private State mSslCaCertWarningState = new State();
 
+    private QuickSettingsTileView mTorchTile;
+    private RefreshCallback mTorchCallback;
+    private State mTorchState = new State();
+
     private RotationLockController mRotationLockController;
 
     public QuickSettingsModel(Context context) {
@@ -311,6 +315,7 @@ class QuickSettingsModel implements BluetoothStateChangeCallback,
         refreshRotationLockTile();
         refreshRssiTile();
         refreshLocationTile();
+        refreshTorchTile();
     }
 
     // Settings
@@ -780,6 +785,33 @@ class QuickSettingsModel implements BluetoothStateChangeCallback,
     }
     void refreshBrightnessTile() {
         onBrightnessLevelChanged();
+    }
+
+    // Torch
+    // show torch tile only on device with flash
+    boolean deviceSupportsLed() {
+        PackageManager pm = mContext.getPackageManager();
+        try {
+            return pm.getPackageInfo("net.cactii.flash2", 0) != null;
+        } catch (PackageManager.NameNotFoundException e) {
+            // ignored, just catched: return false below
+        }
+        return false;
+    }
+
+    void addTorchTile(QuickSettingsTileView view, RefreshCallback cb) {
+        mTorchTile = view;
+        mTorchCallback = cb;
+        refreshTorchTile();
+    }
+    void refreshTorchTile() {
+        if (deviceSupportsLed()) {
+            Resources r = mContext.getResources();
+            mTorchState.label = r.getString(R.string.quick_settings_torch_label);
+            mTorchCallback.refreshView(mTorchTile, mTorchState);
+        } else {
+            return;
+        }
     }
 
     // SSL CA Cert warning.
