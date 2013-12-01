@@ -102,7 +102,8 @@ class QuickSettings {
         AIRPLANE,
         BLUETOOTH,
         LOCATION,
-        TORCH
+        TORCH,
+        IMMERSIVE
     }
 
     public static final String NO_TILES = "NO_TILES";
@@ -711,6 +712,24 @@ class QuickSettings {
                     mDynamicSpannedTiles.add(torchTile);
                     if(addMissing) torchTile.setVisibility(View.GONE);
                     }
+                } else if(Tile.IMMERSIVE.toString().equals(tile.toString())) { // Immersive Mode
+                    final QuickSettingsBasicTile immersiveTile
+                            = new QuickSettingsBasicTile(mContext);
+                    immersiveTile.setTileId(Tile.IMMERSIVE);
+                    immersiveTile.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        boolean getExpandedDesktopState = Settings.System.getInt(mContext.getContentResolver(),
+                                Settings.System.GLOBAL_IMMERSIVE_MODE_STATE, 0) == 1;
+                        Settings.System.putInt(mContext.getContentResolver(),
+                                Settings.System.GLOBAL_IMMERSIVE_MODE_STATE, !getExpandedDesktopState ? 1 : 0);
+                        mModel.refreshImmersiveModeTile();
+                        }
+                    });
+                    mModel.addImmersiveModeTile(immersiveTile,
+                            new QuickSettingsModel.BasicRefreshCallback(immersiveTile));
+                    parent.addView(immersiveTile);
+                    if(addMissing) immersiveTile.setVisibility(View.GONE);
                 } else if(Tile.LOCATION.toString().equals(tile.toString())) { // Location
                     final QuickSettingsBasicTile locationTile
                             = new QuickSettingsBasicTile(mContext);
