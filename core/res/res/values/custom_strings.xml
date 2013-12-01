@@ -84,11 +84,4 @@
     <!-- label for screen record item in phone options dialog -->
     <string name="global_action_screen_record">Screen record</string>
 
-    <!-- label for item that toggles global immersive mode -->
-    <string name="global_actions_toggle_global_immersive_mode">Immersive mode</string>
-    <!-- status message in phone options dialog for when immersive mode is on -->
-    <string name="global_actions_global_immersive_mode_on_status">Enabled</string>
-    <!-- status message in phone options dialog for when immersive mode is off -->
-    <string name="global_actions_global_immersive_mode_off_status">Disabled</string>
-
 </resources> 
