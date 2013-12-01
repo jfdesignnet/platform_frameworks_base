@@ -276,10 +276,6 @@ class QuickSettingsModel implements BluetoothStateChangeCallback,
     private RefreshCallback mTorchCallback;
     private State mTorchState = new State();
 
-    private QuickSettingsTileView mImmersiveModeTile;
-    private RefreshCallback mImmersiveModeCallback;
-    private State mImmersiveModeState = new State();
-
     private RotationLockController mRotationLockController;
 
     public QuickSettingsModel(Context context) {
@@ -815,34 +811,6 @@ class QuickSettingsModel implements BluetoothStateChangeCallback,
             mTorchCallback.refreshView(mTorchTile, mTorchState);
         } else {
             return;
-        }
-    }
-
-    // Immersive Mode
-    void addImmersiveModeTile(QuickSettingsTileView view, RefreshCallback cb) {
-        mImmersiveModeTile = view;
-        mImmersiveModeCallback = cb;
-        onImmersiveModeChanged();
-    }
-
-    void onImmersiveModeChanged() {
-        boolean enabled = Settings.System.getBoolean(mContext.getContentResolver(), Settings.System.GLOBAL_IMMERSIVE_MODE_STATE, false);
-        mImmersiveModeState.enabled = enabled;
-        mImmersiveModeState.iconId = enabled
-            ? R.drawable.ic_qs_immersive_mode_on
-            : R.drawable.ic_qs_immersive_mode_off;
-        mImmersiveModeState.label = enabled
-            ? mContext.getString(R.string.quick_settings_immersive_mode)
-            : mContext.getString(R.string.quick_settings_immersive_mode_off);
-
-        if (mImmersiveModeTile != null && mImmersiveModeCallback != null) {
-            mImmersiveModeCallback.refreshView(mImmersiveModeTile, mImmersiveModeState);
-        }
-    }
-
-    void refreshImmersiveModeTile() {
-        if (mImmersiveModeTile != null) {
-            onImmersiveModeChanged();
         }
     }
 
