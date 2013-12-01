@@ -10918,4 +10918,10 @@ public class WindowManagerService extends IWindowManager.Stub
         return mPolicy.getCurrentNavigationBarSize();
     }
 
+    /* @hide */
+    @Override
+    public void addSystemUIVisibilityFlag(int flag) {
+        mLastStatusBarVisibility |= flag;
+    }
+
 }
