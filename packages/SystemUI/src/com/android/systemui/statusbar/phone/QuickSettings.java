@@ -144,11 +144,6 @@ class QuickSettings {
     private BatteryCircleMeterView mCircleBattery;
     private boolean mBatteryHasPercent;
 
-    // The set of QuickSettingsTiles that have dynamic spans (and need to be updated on
-    // configuration change)
-    private final ArrayList<QuickSettingsTileView> mDynamicSpannedTiles =
-            new ArrayList<QuickSettingsTileView>();
-
     public QuickSettings(Context context, QuickSettingsContainerView container) {
         mDisplayManager = (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
         mDevicePolicyManager
@@ -406,7 +401,6 @@ class QuickSettings {
                         }
                     });
                     parent.addView(userTile);
-                    mDynamicSpannedTiles.add(userTile);
                     if(addMissing) userTile.setVisibility(View.GONE);
                 } else if(Tile.BRIGHTNESS.toString().equals(tile.toString())) { // Brightness
                     final QuickSettingsBasicTile brightnessTile
@@ -423,7 +417,6 @@ class QuickSettings {
                     mModel.addBrightnessTile(brightnessTile,
                             new QuickSettingsModel.BasicRefreshCallback(brightnessTile));
                     parent.addView(brightnessTile);
-                    mDynamicSpannedTiles.add(brightnessTile);
                     if(addMissing) brightnessTile.setVisibility(View.GONE);
                 } else if(Tile.SETTINGS.toString().equals(tile.toString())) { // Settings tile
                     final QuickSettingsBasicTile settingsTile
@@ -439,7 +432,6 @@ class QuickSettings {
                     mModel.addSettingsTile(settingsTile,
                             new QuickSettingsModel.BasicRefreshCallback(settingsTile));
                     parent.addView(settingsTile);
-                    mDynamicSpannedTiles.add(settingsTile);
                     if(addMissing) settingsTile.setVisibility(View.GONE);
                 } else if(Tile.WIFI.toString().equals(tile.toString())) {
                     // Wi-fi
@@ -709,7 +701,6 @@ class QuickSettings {
                     mModel.addTorchTile(torchTile,
                             new QuickSettingsModel.BasicRefreshCallback(torchTile));
                     parent.addView(torchTile);
-                    mDynamicSpannedTiles.add(torchTile);
                     if(addMissing) torchTile.setVisibility(View.GONE);
                     }
                 } else if(Tile.LOCATION.toString().equals(tile.toString())) { // Location
@@ -910,12 +901,10 @@ class QuickSettings {
         // Update the model
         mModel.updateResources();
 
-        // Update the User, Time, and Settings tiles spans, and reset everything else
-        int span = r.getInteger(R.integer.quick_settings_user_time_settings_tile_span);
-        for (QuickSettingsTileView v : mDynamicSpannedTiles) {
-            v.setColumnSpan(span);
-        }
-        ((QuickSettingsContainerView)mContainerView).updateResources();
+        QuickSettingsContainerView container = ((QuickSettingsContainerView)mContainerView);
+
+        container.updateSpan();
+        container.updateResources();
         mContainerView.requestLayout();
     }
 
