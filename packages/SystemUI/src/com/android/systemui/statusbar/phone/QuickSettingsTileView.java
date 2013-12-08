@@ -52,8 +52,11 @@ class QuickSettingsTileView extends FrameLayout {
 
     private int mContentLayoutId;
     private int mColSpan;
+    private int mRowSpan;
+
     private boolean mPrepared;
     private OnPrepareListener mOnPrepareListener;
+
 
     private boolean mTemporary;
     private boolean mEditMode;
@@ -276,6 +279,7 @@ class QuickSettingsTileView extends FrameLayout {
         return true;
     }
 
+
     /**
      * Called when the view's parent becomes visible or invisible to provide
      * an opportunity for the client to provide new content.
@@ -285,4 +289,3 @@ class QuickSettingsTileView extends FrameLayout {
         void onUnprepare();
     }
 }
->>>>>>> android-4.4.1_r1

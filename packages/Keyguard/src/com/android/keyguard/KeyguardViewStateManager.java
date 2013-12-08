@@ -18,6 +18,7 @@ package com.android.keyguard;
 import android.animation.Animator;
 import android.animation.Animator.AnimatorListener;
 import android.animation.AnimatorListenerAdapter;
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.UserHandle;
