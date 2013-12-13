@@ -48,13 +48,15 @@ public class BluetoothTile extends QuickSettingsTile implements BluetoothStateCh
         connected = mBluetoothAdapter.getConnectionState() == BluetoothAdapter.STATE_CONNECTED;
 
         mOnClick = new OnClickListener() {
-
             @Override
             public void onClick(View v) {
                 if(enabled){
                     mBluetoothAdapter.disable();
                 }else{
                     mBluetoothAdapter.enable();
+                }
+                if (isFlipTilesEnabled()) {
+                    flipTile(0);
                 }
             }
         };
