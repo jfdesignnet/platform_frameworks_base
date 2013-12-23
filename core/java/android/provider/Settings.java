@@ -2998,6 +2998,19 @@ public final class Settings {
         */
         public static final String NOTIFICATION_ALPHA = "notification_alpha";
 
+       /**
+        * Number of QuickSettings tiles per row
+        * @hide
+        */
+       public static final String QUICK_TILES_PER_ROW = "quick_tiles_per_row";
+
+       /**
+        * Whether on landscape tiles quantity per row are duplicated
+        * @hide
+        */
+       public static final String QUICK_TILES_PER_ROW_DUPLICATE_LANDSCAPE =
+               "quick_tiles_per_row_duplicate_landscape";
+
         /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
