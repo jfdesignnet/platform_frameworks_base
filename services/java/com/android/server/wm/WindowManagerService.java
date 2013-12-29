@@ -10886,9 +10886,4 @@ public class WindowManagerService extends IWindowManager.Stub
     public Object getWindowManagerLock() {
         return mWindowMap;
     }
-
-    @Override
-    public void addSystemUIVisibilityFlag(int flag) {
-        mLastStatusBarVisibility |= flag;
-    }
 }
