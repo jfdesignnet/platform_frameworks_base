@@ -2943,14 +2943,6 @@ public final class Settings {
         public static final String QS_QUICK_PULLDOWN = "qs_quick_pulldown";
 
         /**
-         * Immersive mode global actions switch
-         * 0 = no
-         * 1 = yes
-         * @hide
-         */
-        public static final String IMMERSIVE_MODE = "immersive_mode";
-
-        /**
          * Quick settings tiles to show on status bar
          * @hide
          */
