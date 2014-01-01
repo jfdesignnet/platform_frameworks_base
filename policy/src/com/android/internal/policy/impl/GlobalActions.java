@@ -351,6 +351,24 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                             return true;
                         }
                     });
+            // screenrecord
+            } else if (config.getClickAction().equals(PolicyConstants.ACTION_SCREENRECORD)) {
+                mItems.add(
+                    new SinglePressAction(PolicyHelper.getPowerMenuIconImage(mContext,
+                            config.getClickAction(), config.getIcon(), true),
+                            config.getClickActionDescription()) {
+                        public void onPress() {
+                            SlimActions.processAction(
+                                mContext, config.getClickAction(), false);
+                        }
+
+                        public boolean showDuringKeyguard() {
+                            return true;
+                        }
+                        public boolean showBeforeProvisioning() {
+                            return true;
+                        }
+                    });
             // airplane mode
             } else if (config.getClickAction().equals(PolicyConstants.ACTION_AIRPLANE)) {
                 constructAirPlaneModeToggle(PolicyHelper.getPowerMenuIconImage(mContext,
@@ -385,26 +403,6 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                         }
                     });
             }
-        }
-
-        // next: screenrecord
-        boolean showScreenrecord = Settings.System.getIntForUser(cr,
-                Settings.System.POWER_MENU_SCREENRECORD_ENABLED, 1, UserHandle.USER_CURRENT) == 1;
-        if (showScreenrecord) {
-            mItems.add(
-                new SinglePressAction(R.drawable.ic_lock_screen_record, R.string.global_action_screen_record) {
-                    public void onPress() {
-                        toggleScreenRecord();
-                    }
-
-                    public boolean showDuringKeyguard() {
-                        return true;
-                    }
-
-                    public boolean showBeforeProvisioning() {
-                        return true;
-                    }
-                });
         }
 
         // one more thing: optionally add a list of users to switch to
