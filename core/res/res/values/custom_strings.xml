@@ -52,6 +52,7 @@
 
     <!-- label for item that screenshots in phone options dialog -->
     <string name="global_action_screenshot">Screenshot</string>
+    <string name="global_action_screenrecord">Screenrecord</string>
 
     <!-- Button to reboot the phone, within the Reboot Options dialog -->
     <string name="reboot_reboot">Reboot</string>
