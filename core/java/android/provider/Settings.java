@@ -2643,6 +2643,14 @@ public final class Settings {
             POWER_MENU_SILENT_ENABLED
         };
 
+        /**
+         * Settings to reset on user choice. They will fall back to their default value (0).
+         *
+         * @hide
+         */
+        public static final String[] SETTINGS_TO_RESET = {
+        };
+
         // Settings moved to Settings.Secure
 
         /**
