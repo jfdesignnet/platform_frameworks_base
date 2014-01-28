@@ -121,24 +121,6 @@ public class KeyguardViewManager {
         void onShown(IBinder windowToken);
     };
 
-    class SettingsObserver extends ContentObserver {
-        SettingsObserver(Handler handler) {
-            super(handler);
-        }
-
-        void observe() {
-            ContentResolver resolver = mContext.getContentResolver();
-            resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.LOCKSCREEN_SEE_THROUGH), false, this);
-        }
-
-        @Override
-        public void onChange(boolean selfChange) {
-            setKeyguardParams();
-            mViewManager.updateViewLayout(mKeyguardHost, mWindowLayoutParams);
-        }
-    }
-
     /**
      * @param context Used to create views.
      * @param viewManager Keyguard will be attached to this.
@@ -497,17 +479,12 @@ public class KeyguardViewManager {
     }
 
     void updateShowWallpaper(boolean show) {
-        if (isSeeThroughEnabled()) {
-            return;
+        if (show) {
+            mWindowLayoutParams.flags |= WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
         } else {
-            if (show) {
-                mWindowLayoutParams.flags |= WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
-            } else {
-                mWindowLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
-            }
-
-            mViewManager.updateViewLayout(mKeyguardHost, mWindowLayoutParams);
+            mWindowLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
         }
+        mViewManager.updateViewLayout(mKeyguardHost, mWindowLayoutParams);
     }
 
     public void setNeedsInput(boolean needsInput) {

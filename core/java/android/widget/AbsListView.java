@@ -2332,10 +2332,10 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     }
 
     View setAnimation(View view) {
-        int mAnim = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_ANIMATIONS, 0);
+        int mAnim = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_ANIMATIONS, 3);
         int scrollY = 0;
         boolean mDown = false;
-        int temp = Settings.System.getInt(mContext.getContentResolver(), Settings.System.LISTVIEW_SCROLL_DURATION, 0);
+        int temp = Settings.System.getInt(mContext.getContentResolver(), Settings.System.LISTVIEW_SCROLL_DURATION, 25);
         mListViewDuration = temp * 15;
 
         try {
@@ -2396,7 +2396,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
  //       anim.setDuration(325);
         anim.setDuration(mListViewDuration);
 
-        int mInterpolator = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_INTERPOLATOR, 0);
+        int mInterpolator = Settings.System.getInt(mContext.getContentResolver(),Settings.System.LISTVIEW_INTERPOLATOR, 6);
         switch (mInterpolator) {
             case 1:
                 anim.setInterpolator(AnimationUtils.loadInterpolator(mContext, android.R.anim.accelerate_interpolator));
