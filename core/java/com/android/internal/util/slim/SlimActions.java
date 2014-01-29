@@ -132,16 +132,6 @@ public class SlimActions {
                         Settings.System.EXPANDED_DESKTOP_STATE,
                         expandDesktopModeOn ? 0 : 1, UserHandle.USER_CURRENT);
                 return;
-            } else if (action.equals(ButtonsConstants.ACTION_SCREENRECORD)) {
-                boolean screenrecordModeOn = Settings.System.getIntForUser(
-                        context.getContentResolver(),
-                        Settings.System.POWER_MENU_SCREENRECORD_ENABLED,
-                        0, UserHandle.USER_CURRENT) == 1;
-                Settings.System.putIntForUser(
-                        context.getContentResolver(),
-                        Settings.System.POWER_MENU_SCREENRECORD_ENABLED,
-                        screenrecordModeOn ? 0 : 1, UserHandle.USER_CURRENT);
-                return;
             } else if (action.equals(ButtonsConstants.ACTION_KILL)) {
                 if (isKeyguardShowing) {
                     return;
