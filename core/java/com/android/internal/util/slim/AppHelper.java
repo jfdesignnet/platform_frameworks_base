@@ -27,7 +27,7 @@ import java.net.URISyntaxException;
 
 public class AppHelper {
 
-    private static final String SETTINGS_METADATA_NAME = "com.android.settings";
+    private static final String SETTINGS_METADATA_NAME = "org.androidx.settings";
 
     public static String getProperSummary(Context context, PackageManager pm,
             Resources settingsResources, String action, String values, String entries) {

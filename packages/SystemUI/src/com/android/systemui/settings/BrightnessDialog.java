@@ -90,8 +90,8 @@ public class BrightnessDialog extends Dialog implements
             @Override
             public void onClick(View view) {
                 Intent intent = new Intent();
-                intent.setClassName("com.android.settings",
-                        "com.android.settings.androidx.AutoBrightnessSetup");
+                intent.setClassName("org.androidx.settings",
+                        "org.androidx.settings.AutoBrightnessSetup");
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
