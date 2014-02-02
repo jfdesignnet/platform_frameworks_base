@@ -228,7 +228,7 @@ public:
      * Returns "true" on success, "false" on failure.
      */
     bool detachThemePath(const String8& packageName, void *cookie);
-    bool attachThemePath(const String8& path, void** cookie);
+    bool attachThemePath(const String8& path, int32_t* cookie);
     void addRedirections(PackageRedirectionMap* resMap);
     void clearRedirections();
 

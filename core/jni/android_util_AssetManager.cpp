@@ -1927,7 +1927,7 @@ static jint android_content_AssetManager_attachThemePath(
 
     const char* path8 = env->GetStringUTFChars(path, NULL);
 
-    void* cookie;
+    int32_t cookie;
     bool res = am->attachThemePath(String8(path8), &cookie);
 
     env->ReleaseStringUTFChars(path, path8);

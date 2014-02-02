@@ -2044,14 +2044,14 @@ int AssetManager::ZipSet::getIndex(const String8& zip) const
     return mZipPath.size()-1;
 }
 
-bool AssetManager::attachThemePath(const String8& path, void** cookie)
+bool AssetManager::attachThemePath(const String8& path, int32_t* cookie)
 {
     bool res = addAssetPath(path, cookie, true);
     ResTable* rt = mResources;
     if (res && rt != NULL && ((size_t)*cookie == mAssetPaths.size())) {
         AutoMutex _l(mLock);
         const asset_path& ap = mAssetPaths.itemAt((size_t)*cookie - 1);
-        updateResTableFromAssetPath(rt, ap, *cookie);
+        updateResTableFromAssetPath(rt, ap, cookie);
     }
     return res;
 }
