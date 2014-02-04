@@ -19,8 +19,10 @@
 package com.android.systemui.quicksettings;
 
 import android.content.Context;
+import android.content.Intent;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.View.OnLongClickListener;
 
 import com.android.systemui.R;
 import com.android.systemui.statusbar.phone.QuickSettingsContainerView;
@@ -32,10 +34,20 @@ public class PreferencesTile extends QuickSettingsTile{
         super(context, qsc);
 
         mOnClick = new View.OnClickListener() {
-
             @Override
             public void onClick(View v) {
                 startSettingsActivity(android.provider.Settings.ACTION_SETTINGS);
+            }
+        };
+
+        mOnLongClick = new OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                Intent intent = new Intent(Intent.ACTION_MAIN);
+                intent.setClassName("org.androidx.settings",
+                    "org.androidx.settings.SettingsActivity");
+                startSettingsActivity(intent);
+                return true;
             }
         };
     }
