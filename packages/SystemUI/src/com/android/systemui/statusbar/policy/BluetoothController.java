@@ -66,6 +66,10 @@ public class BluetoothController extends BroadcastReceiver {
         mChangeCallbacks.remove(cb);
     }
 
+    public void unregisterController(Context context) {
+        context.unregisterReceiver(this);
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
         final String action = intent.getAction();
