@@ -160,9 +160,15 @@ public class QuickSettingsTile implements OnClickListener {
                 Settings.System.QUICK_SETTINGS_TILES_FLIP, 1) == 1);
     }
 
-    public void flipTile(int delay){
+    public void flipTile(int delay) {
+        flipTile(delay, true);
+    }
+
+    public void flipTile(int delay, boolean flipRight) {
+        if (!isFlipTilesEnabled()) { return; }
         final AnimatorSet anim = (AnimatorSet) AnimatorInflater.loadAnimator(
-                mContext, R.anim.flip_right);
+                mContext,
+                (flipRight ? R.anim.flip_right : R.anim.flip_left));
         anim.setTarget(mTile);
         anim.setDuration(200);
         anim.addListener(new AnimatorListener(){
@@ -223,5 +229,6 @@ public class QuickSettingsTile implements OnClickListener {
         }
 
         vibrateTile(30);
+        flipTile(0);
     }
 }
