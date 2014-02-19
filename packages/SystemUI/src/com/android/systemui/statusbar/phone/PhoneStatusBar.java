@@ -289,7 +289,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     private int mHideLabels;
     private boolean mCarrierAndWifiViewBlocked = false;
 
-    private boolean mRecreating = false;
     private StatusHeaderMachine mStatusHeaderMachine;
     private Runnable mStatusHeaderUpdater;
     private ImageView mStatusHeaderImage;
@@ -3838,6 +3837,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             mNavigationBarView.recreateNavigationBar();
             repositionNavigationBar();
         }
+
+        rebuildRecentsScreen();
 
         // recreate StatusBarIconViews.
         for (int i = 0; i < nIcons; i++) {
