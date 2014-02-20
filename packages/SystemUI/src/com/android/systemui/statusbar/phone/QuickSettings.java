@@ -64,6 +64,7 @@ import android.widget.TextView;
 import com.android.internal.app.MediaRouteDialogPresenter;
 import com.android.systemui.BatteryMeterView;
 import com.android.systemui.BatteryCircleMeterView;
+import com.android.systemui.BatteryPercentMeterView;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.phone.QuickSettingsModel.ActivityState;
 import com.android.systemui.statusbar.phone.QuickSettingsModel.BluetoothState;
@@ -114,6 +115,7 @@ class QuickSettings {
     private QuickSettingsTileView mBatteryTile;
     private BatteryMeterView mBattery;
     private BatteryCircleMeterView mCircleBattery;
+    private BatteryPercentMeterView mPercentBattery;
     private int mBatteryStyle;
 
     private int mCurrentUserId = 0;
@@ -335,6 +337,7 @@ class QuickSettings {
         mBatteryStyle = Settings.System.getIntForUser(mContext.getContentResolver(),
                 Settings.System.STATUS_BAR_BATTERY_STYLE, 0, UserHandle.USER_CURRENT);
         mCircleBattery.updateSettings();
+        mPercentBattery.updateSettings();
         mBattery.updateSettings();
         mModel.refreshBatteryTile();
     }
@@ -557,6 +560,8 @@ class QuickSettings {
         mBattery.setVisibility(View.GONE);
         mCircleBattery = (BatteryCircleMeterView)
                 mBatteryTile.findViewById(R.id.circle_battery);
+        mPercentBattery = (BatteryPercentMeterView)
+                mBatteryTile.findViewById(R.id.percent_battery);
         updateBattery();
         mBatteryTile.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -574,12 +579,13 @@ class QuickSettings {
                     t = mContext.getString(R.string.quick_settings_battery_charged_label);
                 } else {
                     if (batteryState.pluggedIn) {
-                        t = mBatteryStyle != 3 // circle percent
+                                    t = mBatteryStyle != 4 && mBatteryStyle != 5 // circle percent or percent only
                             ? mContext.getString(R.string.quick_settings_battery_charging_label,
                                 batteryState.batteryLevel)
                         : mContext.getString(R.string.quick_settings_battery_charging);
-                    } else {     // battery bar or battery circle
-                        t = (mBatteryStyle == 0 || mBatteryStyle == 2)
+                                } else {     // battery bar or battery circle or none
+                                    t = (mBatteryStyle == 0 || mBatteryStyle == 2 || mBatteryStyle == 3
+                                        || mBatteryStyle == 6)
                             ? mContext.getString(R.string.status_bar_settings_battery_meter_format,
                                 batteryState.batteryLevel)
                             : mContext.getString(R.string.quick_settings_battery_discharging);
