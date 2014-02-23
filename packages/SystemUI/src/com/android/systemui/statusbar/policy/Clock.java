@@ -84,7 +84,8 @@ public class Clock extends TextView implements DemoMode {
     protected int mClockDateStyle = CLOCK_DATE_STYLE_UPPERCASE;
     protected int mClockFontStyle = FONT_NORMAL;
     protected int mClockStyle = STYLE_CLOCK_RIGHT;
-    protected boolean mShowClock;
+    protected boolean mShowClock = true;
+    protected boolean mShowClockStatusBar = true;
 
     private int mAmPmStyle;
 
@@ -361,6 +362,19 @@ public class Clock extends TextView implements DemoMode {
         }
     }
 
+    public void updateVisibilityFromStatusBar(boolean show) {
+        mShowClockStatusBar = show;
+        updateClockVisibility();
+    }
+
+    public void updateClockVisibility() {
+        if (mClockStyle == STYLE_CLOCK_RIGHT && mShowClock && mShowClockStatusBar) {
+            setVisibility(View.VISIBLE);
+        } else {
+            setVisibility(View.GONE);
+        }
+    }
+
     public void getFontStyle(int font) {
         switch (font) {
             case FONT_BOLD:
@@ -380,13 +394,6 @@ public class Clock extends TextView implements DemoMode {
                 setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
                 break;
         }
-    }
-
-    protected void updateClockVisibility() {
-        if (mClockStyle == STYLE_CLOCK_RIGHT && mShowClock)
-            setVisibility(View.VISIBLE);
-        else
-            setVisibility(View.GONE);
     }
 
     private boolean mDemoMode;
