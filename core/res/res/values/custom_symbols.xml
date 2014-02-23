@@ -34,4 +34,7 @@
 
   <!-- Expanding volume panel -->
   <java-symbol type="drawable" name="expander_open_mtrl_alpha" />
+
+  <!-- Screenrecorder -->
+  <java-symbol type="bool" name="config_enableScreenrecordChord" />
 </resources>
