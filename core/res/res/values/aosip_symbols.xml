@@ -51,4 +51,6 @@
   <!-- Config.xml entries -->
   <java-symbol type="integer" name="config_backKillTimeout" />
 
+  <!-- Screenrecorder -->
+  <java-symbol type="bool" name="config_enableScreenrecordChord" />
 </resources>
