@@ -2732,6 +2732,17 @@ public final class Settings {
         public static final String STATUSBAR_CLOCK_AM_PM_STYLE = "statusbar_clock_am_pm_style";
 
         /**
+         * Settings for clock font style
+         * 0 - Bold
+         * 1 - Condensed
+         * 2 - Light
+         * 3 - Light Italic
+         * 4 - Normal
+         * @hide
+         */
+        public static final String STATUSBAR_CLOCK_FONT_STYLE = "statusbar_clock_font_style";
+
+        /**
          * Style of clock
          * 0 - Hide Clock
          * 1 - Right Clock
