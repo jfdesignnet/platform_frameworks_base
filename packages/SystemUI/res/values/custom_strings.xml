@@ -37,7 +37,6 @@
     <string name="quick_settings_ringer_normal">Sound</string>
     <string name="quick_settings_lockscreen">Lock screen</string>
     <string name="quick_settings_network_type">Network mode</string>
-    <string name="quick_settings_network_unknown">Unknown</string>
     <string name="quick_settings_report_bug">Report bug</string>
     <string name="quick_settings_sync">Sync</string>
     <string name="quick_settings_sync_off">Sync off</string>
@@ -71,22 +70,5 @@
     <string name="quick_settings_reboot">Reboot</string>
     <string name="quick_settings_custom_toggle">Custom</string>
     <string name="quick_settings_contact_toggle">Contact</string>
-
-    <!-- battery saver mode -->
-    <string name="battery_saver_start">Battery Saver Enabled</string>
-    <string name="battery_saver_stop">Battery Saver Disabled</string>
-    <string name="battery_saver_change">Battery Saver Change network to</string>
-    <string name="battery_saver_network">Network restored</string>
-    <string name="battery_saver_brightness">Screen Brightness restored</string>
-    <string name="battery_saver_bluetooth">Bluetooth restored</string>
-    <string name="battery_saver_location">Gps restored</string>
-    <string name="battery_saver_wifi">Wifi restored</string>
-    <string name="battery_saver_all">All configuration restored</string>
-
-    <string name="network_4G">4G/LTE</string>
-    <string name="network_3G_only" translatable="false">3G Only</string>
-    <string name="network_3G_auto" translatable="false">2G/3G Auto</string>
-    <string name="network_3G" translatable="false">2G/3G Pref</string>
-    <string name="network_2G" translatable="false">2G Only</string>
 
 </resources>
