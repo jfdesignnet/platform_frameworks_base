@@ -108,7 +108,6 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
     private Action mSilentModeAction;
     private ToggleAction mAirplaneModeOn;
     private ToggleAction mExpandDesktopModeOn;
-    private ToggleAction mScreenRecordModeOn;
 
     private MyAdapter mAdapter;
 
@@ -336,12 +335,6 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                             return true;
                         }
                     });
-            // screenrecord
-            } else if (config.getClickAction().equals(PolicyConstants.ACTION_SCREENRECORD)) {
-                constructScreenRecordToggle(PolicyHelper.getPowerMenuIconImage(mContext,
-                            config.getClickAction(), config.getIcon(), true),
-                            config.getClickActionDescription());
-                mItems.add(mScreenRecordModeOn);
             // airplane mode
             } else if (config.getClickAction().equals(PolicyConstants.ACTION_AIRPLANE)) {
                 constructAirPlaneModeToggle(PolicyHelper.getPowerMenuIconImage(mContext,
@@ -453,28 +446,6 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
             }
         };
         onAirplaneModeChanged();
-    }
-
-    private void constructScreenRecordToggle(Drawable icon, String description) {
-        mScreenRecordModeOn = new ToggleAction(
-                icon,
-                icon,
-                description,
-                R.string.global_actions_screenrecord_mode_on_status,
-                R.string.global_actions_screenrecord_mode_off_status) {
-
-            void onToggle(boolean on) {
-                toggleScreenRecord();
-            }
-
-            public boolean showDuringKeyguard() {
-                return true;
-            }
-
-            public boolean showBeforeProvisioning() {
-                return false;
-            }
-        };
     }
 
     private void constructExpandedDesktopToggle(Drawable icon, String description) {
@@ -629,11 +600,6 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                 mHandler.postDelayed(mScreenshotTimeout, 10000);
             }
         }
-    }
-
-    private void toggleScreenRecord() {
-        final Intent recordIntent = new Intent("org.chameleonos.action.NOTIFY_RECORD_SERVICE");
-        mContext.sendBroadcast(recordIntent, Manifest.permission.RECORD_SCREEN);
     }
 
     private void prepareDialog() {

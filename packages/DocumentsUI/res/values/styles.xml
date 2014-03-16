@@ -32,7 +32,7 @@
     <style name="Theme" parent="@android:style/Theme.Holo">
         <item name="android:actionOverflowButtonStyle">@style/DarkerOverflow</item>
     </style>
-
+    
     <style name="DarkerOverflow" parent="@android:style/Widget.Holo.ActionButton.Overflow">
         <item name="android:src">@drawable/ic_menu_overflow</item>
     </style>
