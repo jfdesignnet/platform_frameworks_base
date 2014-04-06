@@ -39,6 +39,7 @@ import static com.android.internal.util.slim.QSConstants.TILE_NETWORKMODE;
 import static com.android.internal.util.slim.QSConstants.TILE_NFC;
 import static com.android.internal.util.slim.QSConstants.TILE_ONTHEGO;
 import static com.android.internal.util.slim.QSConstants.TILE_RINGER;
+import static com.android.internal.util.slim.QSConstants.TILE_SCREENRECORD;
 import static com.android.internal.util.slim.QSConstants.TILE_SCREENTIMEOUT;
 import static com.android.internal.util.slim.QSConstants.TILE_SETTINGS;
 import static com.android.internal.util.slim.QSConstants.TILE_SLEEP;
@@ -88,6 +89,7 @@ import com.android.systemui.quicksettings.OnTheGoTile;
 import com.android.systemui.quicksettings.PreferencesTile;
 import com.android.systemui.quicksettings.QuickSettingsTile;
 import com.android.systemui.quicksettings.RingerModeTile;
+import com.android.systemui.quicksettings.ScreenRecordTile;
 import com.android.systemui.quicksettings.ScreenTimeoutTile;
 import com.android.systemui.quicksettings.SleepScreenTile;
 import com.android.systemui.quicksettings.SyncTile;
@@ -241,6 +243,8 @@ public class QuickSettingsController {
                 qs = new ContactTile(mContext, this, findCustomKey(tile));
             } else if (tile.equals(TILE_ONTHEGO)) {
                 qs = new OnTheGoTile(mContext, this);
+            } else if (tile.equals(TILE_SCREENRECORD)) {
+                qs = new ScreenRecordTile(mContext, this, mHandler);
             }
 
             if (qs != null) {
