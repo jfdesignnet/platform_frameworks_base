@@ -3141,6 +3141,7 @@ public final class Settings {
         public static final String LOCKSCREEN_NOTIFICATIONS = "lockscreen_notifications";
 
         /**
+         * Turn screen on when device is pulled out of pocket
          * @hide
          */
         public static final String LOCKSCREEN_NOTIFICATIONS_POCKET_MODE = "lockscreen_notifications_pocket_mode";
