@@ -169,10 +169,7 @@ public class PolicyHelper {
     }
 
     private static Drawable getPowerMenuSystemIcon(Context context, String clickAction) {
-        if (clickAction.equals(PolicyConstants.ACTION_ONTHEGO)) {
-            return context.getResources().getDrawable(
-                com.android.internal.R.drawable.ic_lock_onthego);
-        } else if (clickAction.equals(PolicyConstants.ACTION_POWER_OFF)) {
+        if (clickAction.equals(PolicyConstants.ACTION_POWER_OFF)) {
             return context.getResources().getDrawable(
                 com.android.internal.R.drawable.ic_lock_power_off);
         } else if (clickAction.equals(PolicyConstants.ACTION_REBOOT)) {

@@ -74,7 +74,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import com.android.internal.util.nameless.NamelessActions;
 import com.android.internal.util.slim.ButtonConfig;
 import com.android.internal.util.slim.ImageHelper;
 import com.android.internal.util.slim.PolicyConstants;
@@ -269,26 +268,8 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         }
 
         for (final ButtonConfig config : powerMenuConfig) {
-            // On The Go
-            if (config.getClickAction().equals(PolicyConstants.ACTION_ONTHEGO)) {
-                mItems.add(
-                    new SinglePressAction(PolicyHelper.getPowerMenuIconImage(mContext,
-                            config.getClickAction(), config.getIcon(), true),
-                            config.getClickActionDescription()) {
-                        public void onPress() {
-                            NamelessActions.processAction(mContext,
-                                    NamelessActions.ACTION_ONTHEGO_TOGGLE);
-                        }
-
-                        public boolean showDuringKeyguard() {
-                            return true;
-                        }
-                        public boolean showBeforeProvisioning() {
-                            return true;
-                        }
-                    });
             // power off
-            } else if (config.getClickAction().equals(PolicyConstants.ACTION_POWER_OFF)) {
+            if (config.getClickAction().equals(PolicyConstants.ACTION_POWER_OFF)) {
                 mItems.add(
                     new SinglePressAction(PolicyHelper.getPowerMenuIconImage(mContext,
                             config.getClickAction(), config.getIcon(), true),

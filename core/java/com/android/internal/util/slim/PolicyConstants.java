@@ -20,7 +20,6 @@ public class PolicyConstants {
 
     public static final String ACTION_POWER_OFF  = "**poweroff**";
     public static final String ACTION_REBOOT     = "**reboot**";
-    public static final String ACTION_ONTHEGO    = "**on_the_go**";
     public static final String ACTION_SCREENRECORD = "**screenrecord**";
     public static final String ACTION_SCREENSHOT = "**screenshot**";
     public static final String ACTION_AIRPLANE   = "**airplane**";
