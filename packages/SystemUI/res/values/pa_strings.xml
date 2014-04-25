@@ -35,4 +35,9 @@
 
     <!-- Title shown when app provides no interface -->
     <string name="status_bar_floating_no_interface">App provides no interface</string>
+
+    <!-- Switch apps -->
+    <string name="enable_switch_apps_title">Switch apps</string>
+    <string name="enable_switch_apps_message">Quickly launch prior app when long pressing recents?</string>
+    <string name="recents_switch">@string/enable_switch_apps_title</string>
 </resources>

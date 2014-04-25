@@ -2572,6 +2572,14 @@ public final class Settings {
         public static final String DIALPAD_STATE = "dialpad_state";
 
         /**
+         * Recents longpress switchs apps.
+         * 0 = off
+         * 1 = on
+         * @hide
+         */
+        public static final String RECENTS_SWITCH = "recents_switch";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
@@ -2649,6 +2657,7 @@ public final class Settings {
          * @hide
          */
         public static final String[] SETTINGS_TO_RESET = {
+            RECENTS_SWITCH
         };
 
         // Settings moved to Settings.Secure
