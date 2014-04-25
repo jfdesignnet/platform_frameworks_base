@@ -37,4 +37,7 @@
 
     <!-- Screenrecorder -->
     <java-symbol type="bool" name="config_enableScreenrecordChord" />
+
+    <!-- Keyguard wallpaper functionality -->
+    <java-symbol type="anim" name="lock_screen_wallpaper_exit_noop" />
 </resources>
