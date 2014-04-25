@@ -79,4 +79,8 @@
 
   <!-- Developer settings - Kill app back press -->
   <java-symbol type="string" name="app_killed_message" />
+
+  <!-- Keyguard wallpaper functionality -->
+  <java-symbol type="anim" name="lock_screen_wallpaper_exit_noop" />
+
 </resources>
