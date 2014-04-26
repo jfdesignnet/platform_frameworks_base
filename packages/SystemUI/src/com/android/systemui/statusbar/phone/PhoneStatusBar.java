@@ -2838,6 +2838,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
     private void recreateStatusBar() {
         mRecreating = true;
         mStatusBarContainer.removeAllViews();
+        removeAllViews(mStatusBarWindow);
 
         // extract icons from the soon-to-be recreated viewgroup.
         int nIcons = mStatusIcons.getChildCount();
