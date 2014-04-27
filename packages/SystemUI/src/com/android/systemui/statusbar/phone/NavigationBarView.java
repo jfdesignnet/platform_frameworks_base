@@ -114,6 +114,7 @@ public class NavigationBarView extends LinearLayout {
 
     private boolean mShowMenu;
     private boolean mIMENavigation;
+    private boolean mIMECursorDisabled;
     private int mDisabledFlags = 0;
     private int mNavigationIconHints = 0;
 
@@ -249,6 +250,10 @@ public class NavigationBarView extends LinearLayout {
         mBarTransitions = new NavigationBarTransitions(this);
         mButtonsConfig = ActionHelper.getNavBarConfig(mContext);
         mButtonIdList = new ArrayList<Integer>();
+
+        mIMECursorDisabled = Settings.System.getIntForUser(mContext.getContentResolver(),
+                Settings.System.VOLUME_KEY_CURSOR_CONTROL, 0,
+                UserHandle.USER_CURRENT) > 0;
 
         mDoubleTapGesture = new GestureDetector(mContext,
                 new GestureDetector.SimpleOnGestureListener() {
@@ -807,7 +812,8 @@ public class NavigationBarView extends LinearLayout {
     }
 
     private void handleIMENavigation(boolean show, boolean force) {
-        if (!force && mIMENavigation == show) {
+        if (!force && mIMENavigation == show
+                || mIMECursorDisabled) {
             return;
         }
         View leftIMENavigationKeyView = getLeftIMENavigationButton();
@@ -857,6 +863,10 @@ public class NavigationBarView extends LinearLayout {
 
     public boolean isVertical() {
         return mVertical;
+    }
+
+    public void setNavigationBarDisableIMECursor(boolean disabled) {
+        mIMECursorDisabled = disabled;
     }
 
     public void reorient() {
