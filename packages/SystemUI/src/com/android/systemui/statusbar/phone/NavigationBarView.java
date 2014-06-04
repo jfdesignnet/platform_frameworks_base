@@ -91,7 +91,8 @@ public class NavigationBarView extends LinearLayout implements NavigationCallbac
     int mNavigationIconHints = 0;
 
     private Drawable mBackIcon, mBackLandIcon, mBackAltIcon, mBackAltLandIcon,
-            mRecentIcon, mRecentLandIcon, mRecentAltIcon, mRecentAltLandIcon;
+            mRecentIcon, mRecentLandIcon, mRecentAltIcon, mRecentAltLandIcon,
+            mHomeIcon, mHomeLandIcon;
 
     private DelegateViewHelper mDelegateHelper;
     private DeadZone mDeadZone;
@@ -315,6 +316,8 @@ public class NavigationBarView extends LinearLayout implements NavigationCallbac
         mRecentLandIcon = res.getDrawable(R.drawable.ic_sysbar_recent_land);
         mRecentAltIcon = res.getDrawable(R.drawable.ic_sysbar_recent_clear);
         mRecentAltLandIcon = res.getDrawable(R.drawable.ic_sysbar_recent_clear_land);
+        mHomeIcon = res.getDrawable(R.drawable.ic_sysbar_home);
+        mHomeLandIcon = res.getDrawable(R.drawable.ic_sysbar_home_land);
     }
 
     public void updateResources(Resources res) {
@@ -384,10 +387,12 @@ public class NavigationBarView extends LinearLayout implements NavigationCallbac
 
     public void setNavigationIconHints(int hints) {
         setNavigationIconHints(NavigationCallback.NAVBAR_BACK_HINT, hints, false);
+        setNavigationIconHints(NavigationCallback.NAVBAR_HOME_HINT, hints, false);
     }
 
     public void setNavigationIconHints(int hints, boolean force) {
         setNavigationIconHints(NavigationCallback.NAVBAR_BACK_HINT, hints, force);
+        setNavigationIconHints(NavigationCallback.NAVBAR_HOME_HINT, hints, force);
     }
 
     public void setNavigationIconHints(int button, int hints, boolean force) {
@@ -421,6 +426,8 @@ public class NavigationBarView extends LinearLayout implements NavigationCallbac
                 (0 != (hints & StatusBarManager.NAVIGATION_HINT_RECENT_ALT))
                     ? (mVertical ? mRecentAltLandIcon : mRecentAltIcon)
                     : (mVertical ? mRecentLandIcon : mRecentIcon));
+        } else if (button == NavigationCallback.NAVBAR_HOME_HINT) {
+            ((ImageView)getHomeButton()).setImageDrawable(mVertical ? mHomeLandIcon : mHomeIcon);
         }
     }
 
