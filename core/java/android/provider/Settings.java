@@ -3215,12 +3215,6 @@ public final class Settings {
         public static final String DOUBLE_TAP_SLEEP_GESTURE = "double_tap_sleep_gesture";
 
         /**
-         * Alternative recent apps integration using OmniSwitch
-         * @hide
-         */
-        public static final String RECENTS_USE_OMNISWITCH = "recents_use_omniswitch";
-
-        /**
          * Allows to show the background activity back the lockscreen
          * @hide
          */
