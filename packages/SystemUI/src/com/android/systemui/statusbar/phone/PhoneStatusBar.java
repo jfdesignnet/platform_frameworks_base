@@ -2297,10 +2297,12 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
                             | StatusBarManager.DISABLE_NOTIFICATION_TICKER))) {
                 boolean blacklisted = false;
                 // don't pass notifications that run in Hover to Ticker
-                try {
-                    blacklisted = getNotificationManager().isPackageAllowedForHover(n.getPackageName());
-                } catch (android.os.RemoteException ex) {
-                    // System is dead
+                if (mHoverState == HOVER_ENABLED) {
+                    try {
+                        blacklisted = getNotificationManager().isPackageAllowedForHover(n.getPackageName());
+                    } catch (android.os.RemoteException ex) {
+                        // System is dead
+                    }
                 }
                 if (!blacklisted) mTicker.addEntry(n);
             }
