@@ -82,12 +82,6 @@ public class QuickSettingsTile implements OnClickListener {
     protected final GestureDetector mGestureDetector;
     protected final View.OnTouchListener mGestureListener;
 
-    // Flip
-    protected final static int FLIP_RIGHT = 0;
-    protected final static int FLIP_LEFT = 1;
-    protected final static int FLIP_UP = 2;
-    protected final static int FLIP_DOWN = 3;
-
     public QuickSettingsTile(Context context, QuickSettingsController qsc) {
         this(context, qsc, R.layout.quick_settings_tile_basic);
     }
@@ -196,28 +190,17 @@ public class QuickSettingsTile implements OnClickListener {
                 Settings.System.QUICK_SETTINGS_TILES_FLIP, 1) == 1);
     }
 
-    public void flipTile(int delay, int flipId) {
+    public void flipTile(int delay) {
+        flipTile(delay, mFlipRight);
+    }
+
+    public void flipTile(int delay, boolean flipRight) {
         if (!isFlipTilesEnabled()) {
             return;
         }
-        int animId;
-        switch (flipId) {
-            default:
-            case FLIP_RIGHT:
-                animId = R.anim.flip_right;
-                break;
-            case FLIP_LEFT:
-                animId = R.anim.flip_left;
-                break;
-            case FLIP_UP:
-                animId = R.anim.flip_up;
-                break;
-            case FLIP_DOWN:
-                animId = R.anim.flip_down;
-                break;
-        }
         final AnimatorSet anim = (AnimatorSet) AnimatorInflater.loadAnimator(
-                mContext, animId);
+                mContext,
+                (flipRight ? R.anim.flip_right : R.anim.flip_left));
         anim.setTarget(mTile);
         anim.setDuration(200);
         anim.addListener(new AnimatorListener() {
@@ -286,15 +269,15 @@ public class QuickSettingsTile implements OnClickListener {
         }
 
         vibrateTile(30);
-        flipTile(0, FLIP_DOWN);
+        flipTile(0);
     }
 
     public void onFlingRight() {
-        flipTile(0, FLIP_RIGHT);
+        flipTile(0, true);
     }
 
     public void onFlingLeft() {
-        flipTile(0, FLIP_LEFT);
+        flipTile(0, false);
     }
 
     private class QuickTileGestureDetector extends GestureDetector.SimpleOnGestureListener {
