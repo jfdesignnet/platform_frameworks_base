@@ -18,50 +18,38 @@
 
 package com.android.systemui.quicksettings;
 
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.view.LayoutInflater;
-import android.content.Intent;
 import android.view.View;
+import android.view.View.OnLongClickListener;
 
 import com.android.systemui.R;
+import com.android.systemui.statusbar.phone.QuickSettingsContainerView;
 import com.android.systemui.statusbar.phone.QuickSettingsController;
 
-public class PreferencesTile extends QuickSettingsTile {
-
-    private Context mContext;
+public class PreferencesTile extends QuickSettingsTile{
 
     public PreferencesTile(Context context, QuickSettingsController qsc) {
         super(context, qsc);
 
-        mContext = context;
         mOnClick = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 startSettingsActivity(android.provider.Settings.ACTION_SETTINGS);
             }
         };
-    }
 
-    @Override
-    public void onFlingRight() {
-        super.onFlingRight();
-        Intent intent = new Intent();
-                intent.setComponent(new ComponentName(
-                        "org.androidx.settings",
-                        "org.androidx.settings.SettingsActivity"));
+        mOnLongClick = new OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                Intent intent = new Intent(Intent.ACTION_MAIN);
+                intent.setClassName("org.androidx.settings",
+                    "org.androidx.settings.SettingsActivity");
                 startSettingsActivity(intent);
-    }
-
-    @Override
-    public void onFlingLeft() {
-        super.onFlingLeft();
-        Intent intent = new Intent();
-                intent.setComponent(new ComponentName(
-                        "org.androidx.settings",
-                        "org.androidx.settings.SettingsActivity$QSSettingsActivity"));
-                startSettingsActivity(intent);
+                return true;
+            }
+        };
     }
 
     @Override
