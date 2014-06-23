@@ -426,12 +426,12 @@ final class Settings {
                         + "; replacing with new");
                 p = null;
             } else {
-                if ((pkgFlags&ApplicationInfo.FLAG_SYSTEM) != 0) {
-                    // If what we are scanning is a system package, then
-                    // make it so, regardless of whether it was previously
-                    // installed only in the data partition.
-                    p.pkgFlags |= ApplicationInfo.FLAG_SYSTEM;
-                }
+                // If what we are scanning is a system (and possibly privileged) package,
+                // then make it so, regardless of whether it was previously installed only
+                // in the data partition.
+                final int sysPrivFlags = pkgFlags
+                        & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_PRIVILEGED);
+                p.pkgFlags |= sysPrivFlags;
             }
         }
         if (p == null) {
@@ -1959,10 +1959,14 @@ final class Settings {
         }
 
         boolean doNonData = true;
+        boolean hasSchemes = false;
 
         for (int ischeme=0; ischeme<tmpPa.countDataSchemes(); ischeme++) {
             boolean doScheme = true;
             String scheme = tmpPa.getDataScheme(ischeme);
+            if (scheme != null && !scheme.isEmpty()) {
+                hasSchemes = true;
+            }
             for (int issp=0; issp<tmpPa.countDataSchemeSpecificParts(); issp++) {
                 Uri.Builder builder = new Uri.Builder();
                 builder.scheme(scheme);
@@ -2016,11 +2020,25 @@ final class Settings {
         }
 
         for (int idata=0; idata<tmpPa.countDataTypes(); idata++) {
-            Intent finalIntent = new Intent(intent);
             String mimeType = tmpPa.getDataType(idata);
-            finalIntent.setType(mimeType);
-            applyDefaultPreferredActivityLPw(service, finalIntent, flags, cn,
-                    null, null, null, null, mimeType, userId);
+            if (hasSchemes) {
+                Uri.Builder builder = new Uri.Builder();
+                for (int ischeme=0; ischeme<tmpPa.countDataSchemes(); ischeme++) {
+                    String scheme = tmpPa.getDataScheme(ischeme);
+                    if (scheme != null && !scheme.isEmpty()) {
+                        Intent finalIntent = new Intent(intent);
+                        builder.scheme(scheme);
+                        finalIntent.setDataAndType(builder.build(), mimeType);
+                        applyDefaultPreferredActivityLPw(service, finalIntent, flags, cn,
+                                scheme, null, null, null, mimeType, userId);
+                    }
+                }
+            } else {
+                Intent finalIntent = new Intent(intent);
+                finalIntent.setType(mimeType);
+                applyDefaultPreferredActivityLPw(service, finalIntent, flags, cn,
+                        null, null, null, null, mimeType, userId);
+            }
             doNonData = false;
         }
 
@@ -2070,8 +2088,10 @@ final class Settings {
                 if (intent.getAction() != null) {
                     filter.addAction(intent.getAction());
                 }
-                for (String cat : intent.getCategories()) {
-                    filter.addCategory(cat);
+                if (intent.getCategories() != null) {
+                    for (String cat : intent.getCategories()) {
+                        filter.addCategory(cat);
+                    }
                 }
                 if ((flags&PackageManager.MATCH_DEFAULT_ONLY) != 0) {
                     filter.addCategory(Intent.CATEGORY_DEFAULT);
@@ -2087,6 +2107,13 @@ final class Settings {
                 }
                 if (path != null) {
                     filter.addDataPath(path);
+                }
+                if (intent.getType() != null) {
+                    try {
+                        filter.addDataType(intent.getType());
+                    } catch (IntentFilter.MalformedMimeTypeException ex) {
+                        Slog.w(TAG, "Malformed mimetype " + intent.getType() + " for " + cn);
+                    }
                 }
                 PreferredActivity pa = new PreferredActivity(filter, match, set, cn, true);
                 editPreferredActivitiesLPw(userId).addFilter(pa);
@@ -2210,7 +2237,11 @@ final class Settings {
 
         int pkgFlags = 0;
         pkgFlags |= ApplicationInfo.FLAG_SYSTEM;
-        PackageSetting ps = new PackageSetting(name, realName, new File(codePathStr),
+        final File codePathFile = new File(codePathStr);
+        if (PackageManagerService.locationIsPrivileged(codePathFile)) {
+            pkgFlags |= ApplicationInfo.FLAG_PRIVILEGED;
+        }
+        PackageSetting ps = new PackageSetting(name, realName, codePathFile,
                 new File(resourcePathStr), nativeLibraryPathStr, versionCode, pkgFlags);
         String timeStampStr = parser.getAttributeValue(null, "ft");
         if (timeStampStr != null) {
@@ -2266,6 +2297,7 @@ final class Settings {
                 XmlUtils.skipCurrentTag(parser);
             }
         }
+
         mDisabledSysPackages.put(name, ps);
     }
 
@@ -2859,8 +2891,44 @@ final class Settings {
         ApplicationInfo.FLAG_CANT_SAVE_STATE, "CANT_SAVE_STATE",
     };
 
-    void dumpPackageLPr(PrintWriter pw, String prefix, PackageSetting ps, SimpleDateFormat sdf,
-            Date date, List<UserInfo> users) {
+    void dumpPackageLPr(PrintWriter pw, String prefix, String checkinTag, PackageSetting ps,
+            SimpleDateFormat sdf, Date date, List<UserInfo> users) {
+        if (checkinTag != null) {
+            pw.print(checkinTag);
+            pw.print(",");
+            pw.print(ps.realName != null ? ps.realName : ps.name);
+            pw.print(",");
+            pw.print(ps.appId);
+            pw.print(",");
+            pw.print(ps.versionCode);
+            pw.print(",");
+            pw.print(ps.firstInstallTime);
+            pw.print(",");
+            pw.print(ps.lastUpdateTime);
+            pw.print(",");
+            pw.print(ps.installerPackageName != null ? ps.installerPackageName : "?");
+            pw.println();
+            for (UserInfo user : users) {
+                pw.print(checkinTag);
+                pw.print("-");
+                pw.print("usr");
+                pw.print(",");
+                pw.print(user.id);
+                pw.print(",");
+                pw.print(ps.getInstalled(user.id) ? "I" : "i");
+                pw.print(ps.getBlocked(user.id) ? "B" : "b");
+                pw.print(ps.getStopped(user.id) ? "S" : "s");
+                pw.print(ps.getNotLaunched(user.id) ? "l" : "L");
+                pw.print(",");
+                pw.print(ps.getEnabled(user.id));
+                String lastDisabledAppCaller = ps.getLastDisabledAppCaller(user.id);
+                pw.print(",");
+                pw.print(lastDisabledAppCaller != null ? lastDisabledAppCaller : "?");
+                pw.println();
+            }
+            return;
+        }
+
         pw.print(prefix); pw.print("Package [");
             pw.print(ps.realName != null ? ps.realName : ps.name);
             pw.print("] (");
@@ -3022,7 +3090,7 @@ final class Settings {
         }
     }
 
-    void dumpPackagesLPr(PrintWriter pw, String packageName, DumpState dumpState) {
+    void dumpPackagesLPr(PrintWriter pw, String packageName, DumpState dumpState, boolean checkin) {
         final SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         final Date date = new Date();
         boolean printedSomething = false;
@@ -3033,35 +3101,39 @@ final class Settings {
                 continue;
             }
 
-            if (packageName != null) {
+            if (!checkin && packageName != null) {
                 dumpState.setSharedUser(ps.sharedUser);
             }
 
-            if (!printedSomething) {
+            if (!checkin && !printedSomething) {
                 if (dumpState.onTitlePrinted())
                     pw.println();
                 pw.println("Packages:");
                 printedSomething = true;
             }
-            dumpPackageLPr(pw, "  ", ps, sdf, date, users);
+            dumpPackageLPr(pw, "  ", checkin ? "pkg" : null, ps, sdf, date, users);
         }
 
         printedSomething = false;
-        if (mRenamedPackages.size() > 0) {
+        if (!checkin && mRenamedPackages.size() > 0) {
             for (final Map.Entry<String, String> e : mRenamedPackages.entrySet()) {
                 if (packageName != null && !packageName.equals(e.getKey())
                         && !packageName.equals(e.getValue())) {
                     continue;
                 }
-                if (!printedSomething) {
-                    if (dumpState.onTitlePrinted())
-                        pw.println();
-                    pw.println("Renamed packages:");
-                    printedSomething = true;
+                if (!checkin) {
+                    if (!printedSomething) {
+                        if (dumpState.onTitlePrinted())
+                            pw.println();
+                        pw.println("Renamed packages:");
+                        printedSomething = true;
+                    }
+                    pw.print("  ");
+                } else {
+                    pw.print("ren,");
                 }
-                pw.print("  ");
                 pw.print(e.getKey());
-                pw.print(" -> ");
+                pw.print(checkin ? " -> " : ",");
                 pw.println(e.getValue());
             }
         }
@@ -3073,13 +3145,13 @@ final class Settings {
                         && !packageName.equals(ps.name)) {
                     continue;
                 }
-                if (!printedSomething) {
+                if (!checkin && !printedSomething) {
                     if (dumpState.onTitlePrinted())
                         pw.println();
                     pw.println("Hidden system packages:");
                     printedSomething = true;
                 }
-                dumpPackageLPr(pw, "  ", ps, sdf, date, users);
+                dumpPackageLPr(pw, "  ", checkin ? "dis" : null, ps, sdf, date, users);
             }
         }
     }

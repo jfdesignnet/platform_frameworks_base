@@ -49,6 +49,8 @@ import android.database.ContentObserver;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
 import android.net.Uri;
+import android.net.http.CertificateChainValidator;
+import android.net.http.SslError;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -81,10 +83,12 @@ import com.android.internal.util.XmlUtils;
 
 import org.xmlpull.v1.XmlPullParserException;
 
+import java.io.ByteArrayInputStream;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
@@ -116,6 +120,8 @@ public class AudioService extends IAudioService.Stub {
     protected static final boolean DEBUG_RC = false;
     /** Debug volumes */
     protected static final boolean DEBUG_VOL = false;
+    /** Debug cert verification */
+    private static final boolean DEBUG_CERTS = false;
 
     /** How long to delay before persisting a change in volume/ringer mode. */
     private static final int PERSIST_DELAY = 500;
@@ -1019,7 +1025,7 @@ public class AudioService extends IAudioService.Stub {
                 (flags & AudioManager.FLAG_BLUETOOTH_ABS_VOLUME) == 0) {
                 synchronized (mA2dpAvrcpLock) {
                     if (mA2dp != null && mAvrcpAbsVolSupported) {
-                        mA2dp.setAvrcpAbsoluteVolume(index);
+                        mA2dp.setAvrcpAbsoluteVolume(index / 10);
                     }
                 }
             }
@@ -2913,12 +2919,10 @@ public class AudioService extends IAudioService.Stub {
             int index;
             if (isMuted()) {
                 index = 0;
-            } else if (mStreamVolumeAlias[mStreamType] == AudioSystem.STREAM_MUSIC &&
-                       (device & AudioSystem.DEVICE_OUT_ALL_A2DP) != 0 &&
+            } else if ((device & AudioSystem.DEVICE_OUT_ALL_A2DP) != 0 &&
                        mAvrcpAbsVolSupported) {
                 index = (mIndexMax + 5)/10;
-            }
-            else {
+            } else {
                 index = (getIndex(device) + 5)/10;
             }
             AudioSystem.setStreamVolumeIndex(mStreamType, index, device);
@@ -2943,6 +2947,9 @@ public class AudioService extends IAudioService.Stub {
                 if (device != AudioSystem.DEVICE_OUT_DEFAULT) {
                     if (isMuted()) {
                         index = 0;
+                    } else if ((device & AudioSystem.DEVICE_OUT_ALL_A2DP) != 0 &&
+                            mAvrcpAbsVolSupported) {
+                        index = (mIndexMax + 5)/10;
                     } else {
                         index = ((Integer)entry.getValue() + 5)/10;
                     }
@@ -3215,7 +3222,14 @@ public class AudioService extends IAudioService.Stub {
             for (int streamType = numStreamTypes - 1; streamType >= 0; streamType--) {
                 if (streamType != streamState.mStreamType &&
                         mStreamVolumeAlias[streamType] == streamState.mStreamType) {
-                    mStreamStates[streamType].applyDeviceVolume(getDeviceForStream(streamType));
+                    // Make sure volume is also maxed out on A2DP device for aliased stream
+                    // that may have a different device selected
+                    int streamDevice = getDeviceForStream(streamType);
+                    if ((device != streamDevice) && mAvrcpAbsVolSupported &&
+                            ((device & AudioSystem.DEVICE_OUT_ALL_A2DP) != 0)) {
+                        mStreamStates[streamType].applyDeviceVolume(device);
+                    }
+                    mStreamStates[streamType].applyDeviceVolume(streamDevice);
                 }
             }
 
@@ -3843,9 +3857,12 @@ public class AudioService extends IAudioService.Stub {
         // address is not used for now, but may be used when multiple a2dp devices are supported
         synchronized (mA2dpAvrcpLock) {
             mAvrcpAbsVolSupported = support;
-            VolumeStreamState streamState = mStreamStates[AudioSystem.STREAM_MUSIC];
             sendMsg(mAudioHandler, MSG_SET_DEVICE_VOLUME, SENDMSG_QUEUE,
-                    AudioSystem.DEVICE_OUT_BLUETOOTH_A2DP, 0, streamState, 0);
+                    AudioSystem.DEVICE_OUT_BLUETOOTH_A2DP, 0,
+                    mStreamStates[AudioSystem.STREAM_MUSIC], 0);
+            sendMsg(mAudioHandler, MSG_SET_DEVICE_VOLUME, SENDMSG_QUEUE,
+                    AudioSystem.DEVICE_OUT_BLUETOOTH_A2DP, 0,
+                    mStreamStates[AudioSystem.STREAM_RING], 0);
         }
     }
 
@@ -4568,6 +4585,43 @@ public class AudioService extends IAudioService.Stub {
                 mPendingVolumeCommand = null;
             }
         }
+    }
+
+    public int verifyX509CertChain(int numcerts, byte [] chain, String domain, String authType) {
+
+        if (DEBUG_CERTS) {
+            Log.v(TAG, "java side verify for "
+                    + numcerts + " certificates (" + chain.length + " bytes"
+                            + ")for "+ domain + "/" + authType);
+        }
+
+        byte[][] certChain = new byte[numcerts][];
+
+        ByteBuffer buf = ByteBuffer.wrap(chain);
+        for (int i = 0; i < numcerts; i++) {
+            int certlen = buf.getInt();
+            if (DEBUG_CERTS) {
+                Log.i(TAG, "cert " + i +": " + certlen);
+            }
+            certChain[i] = new byte[certlen];
+            buf.get(certChain[i]);
+        }
+
+        try {
+            SslError err = CertificateChainValidator.verifyServerCertificates(certChain,
+                    domain, authType);
+            if (DEBUG_CERTS) {
+                Log.i(TAG, "verified: " + err);
+            }
+            if (err == null) {
+                return -1;
+            } else {
+                return err.getPrimaryError();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "failed to verify chain: " + e);
+        }
+        return SslError.SSL_INVALID;
     }
 
 

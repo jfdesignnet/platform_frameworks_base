@@ -20,6 +20,7 @@
 
 #include "TextLayoutCache.h"
 #include "TextLayout.h"
+#include "SkGlyphCache.h"
 #include "SkTypeface_android.h"
 #include "HarfBuzzNGFaceSkia.h"
 #include <unicode/unistr.h>
@@ -721,7 +722,8 @@ void TextLayoutShaper::computeRunValues(const SkPaint* paint, const UChar* conte
         
         hb_buffer_set_direction(mBuffer, isRTL ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
         hb_buffer_set_script(mBuffer, run.script);
-        // Should set language here (for bug 7004056)
+        SkString langString = paint->getPaintOptionsAndroid().getLanguage().getTag();
+        hb_buffer_set_language(mBuffer, hb_language_from_string(langString.c_str(), -1));
         hb_buffer_add_utf16(mBuffer, contextChars, contextCount, start + run.pos, run.length);
 
         // Initialize Harfbuzz Shaper and get the base glyph count for offsetting the glyphIDs
@@ -756,8 +758,8 @@ void TextLayoutShaper::computeRunValues(const SkPaint* paint, const UChar* conte
             outPos->add(ypos);
             totalAdvance += xAdvance;
 
-            // TODO: consider using glyph cache
-            const SkGlyph& metrics = mShapingPaint.getGlyphMetrics(glyphId, NULL);
+            SkAutoGlyphCache autoCache(mShapingPaint, NULL, NULL);
+            const SkGlyph& metrics = autoCache.getCache()->getGlyphIDMetrics(glyphId);
             outBounds->join(xpos + metrics.fLeft, ypos + metrics.fTop,
                     xpos + metrics.fLeft + metrics.fWidth, ypos + metrics.fTop + metrics.fHeight);
 

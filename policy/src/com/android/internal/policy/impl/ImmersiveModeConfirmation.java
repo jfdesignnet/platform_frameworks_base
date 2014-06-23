@@ -178,6 +178,7 @@ public class ImmersiveModeConfirmation {
                         | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
                 ,
                 PixelFormat.TRANSLUCENT);
+        lp.privateFlags |= WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
         lp.setTitle("ImmersiveModeConfirmation");
         lp.windowAnimations = com.android.internal.R.style.Animation_RecentApplications;
         lp.gravity = Gravity.FILL;
@@ -201,13 +202,20 @@ public class ImmersiveModeConfirmation {
         private ValueAnimator mColorAnim;
         private ViewGroup mClingLayout;
 
+        private Runnable mUpdateLayoutRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mClingLayout != null && mClingLayout.getParent() != null) {
+                    mClingLayout.setLayoutParams(getBubbleLayoutParams());
+                }
+            }
+        };
+
         private BroadcastReceiver mReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (intent.getAction().equals(Intent.ACTION_CONFIGURATION_CHANGED)) {
-                    if (mClingLayout != null && mClingLayout.getParent() != null) {
-                        mClingLayout.setLayoutParams(getBubbleLayoutParams());
-                    }
+                    post(mUpdateLayoutRunnable);
                 }
             }
         };

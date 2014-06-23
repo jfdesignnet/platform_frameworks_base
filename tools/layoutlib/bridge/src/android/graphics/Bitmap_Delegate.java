@@ -308,8 +308,16 @@ public final class Bitmap_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nativeRecycle(int nativeBitmap) {
+    /*package*/ static boolean nativeRecycle(int nativeBitmap) {
         sManager.removeJavaReferenceFor(nativeBitmap);
+        return true;
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nativeReconfigure(int nativeBitmap, int width, int height,
+            int config, int allocSize) {
+        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
+                "Bitmap.reconfigure() is not supported", null /*data*/);
     }
 
     @LayoutlibDelegate
@@ -338,28 +346,6 @@ public final class Bitmap_Delegate {
         } finally {
             g.dispose();
         }
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static int nativeWidth(int nativeBitmap) {
-        // get the delegate from the native int.
-        Bitmap_Delegate delegate = sManager.getDelegate(nativeBitmap);
-        if (delegate == null) {
-            return 0;
-        }
-
-        return delegate.mImage.getWidth();
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static int nativeHeight(int nativeBitmap) {
-        // get the delegate from the native int.
-        Bitmap_Delegate delegate = sManager.getDelegate(nativeBitmap);
-        if (delegate == null) {
-            return 0;
-        }
-
-        return delegate.mImage.getHeight();
     }
 
     @LayoutlibDelegate
@@ -407,19 +393,21 @@ public final class Bitmap_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nativeGetPixel(int nativeBitmap, int x, int y) {
+    /*package*/ static int nativeGetPixel(int nativeBitmap, int x, int y,
+            boolean isPremultiplied) {
         // get the delegate from the native int.
         Bitmap_Delegate delegate = sManager.getDelegate(nativeBitmap);
         if (delegate == null) {
             return 0;
         }
 
+        // TODO: Support isPremultiplied.
         return delegate.mImage.getRGB(x, y);
     }
 
     @LayoutlibDelegate
     /*package*/ static void nativeGetPixels(int nativeBitmap, int[] pixels, int offset,
-            int stride, int x, int y, int width, int height) {
+            int stride, int x, int y, int width, int height, boolean isPremultiplied) {
         Bitmap_Delegate delegate = sManager.getDelegate(nativeBitmap);
         if (delegate == null) {
             return;
@@ -430,7 +418,8 @@ public final class Bitmap_Delegate {
 
 
     @LayoutlibDelegate
-    /*package*/ static void nativeSetPixel(int nativeBitmap, int x, int y, int color) {
+    /*package*/ static void nativeSetPixel(int nativeBitmap, int x, int y, int color,
+            boolean isPremultiplied) {
         Bitmap_Delegate delegate = sManager.getDelegate(nativeBitmap);
         if (delegate == null) {
             return;
@@ -441,7 +430,7 @@ public final class Bitmap_Delegate {
 
     @LayoutlibDelegate
     /*package*/ static void nativeSetPixels(int nativeBitmap, int[] colors, int offset,
-            int stride, int x, int y, int width, int height) {
+            int stride, int x, int y, int width, int height, boolean isPremultiplied) {
         Bitmap_Delegate delegate = sManager.getDelegate(nativeBitmap);
         if (delegate == null) {
             return;

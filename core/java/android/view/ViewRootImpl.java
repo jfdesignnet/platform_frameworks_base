@@ -77,8 +77,10 @@ import com.android.internal.policy.PolicyManager;
 import com.android.internal.view.BaseSurfaceHolder;
 import com.android.internal.view.RootViewSurfaceTaker;
 
+import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -230,8 +232,6 @@ public final class ViewRootImpl implements ViewParent,
     InputStage mFirstInputStage;
     InputStage mFirstPostImeInputStage;
 
-    boolean mFlipControllerFallbackKeys;
-
     boolean mWindowAttributesChanged = false;
     int mWindowAttributesChangesFlag = 0;
 
@@ -368,8 +368,6 @@ public final class ViewRootImpl implements ViewParent,
         mNoncompatDensity = context.getResources().getDisplayMetrics().noncompatDensityDpi;
         mFallbackEventHandler = PolicyManager.makeNewFallbackEventHandler(context);
         mChoreographer = Choreographer.getInstance();
-        mFlipControllerFallbackKeys =
-            context.getResources().getBoolean(R.bool.flip_controller_fallback_keys);
 
         PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         mAttachInfo.mScreenOn = powerManager.isScreenOn();
@@ -2910,11 +2908,8 @@ public final class ViewRootImpl implements ViewParent,
                 mView.dispatchConfigurationChanged(config);
             }
         }
-
-        mFlipControllerFallbackKeys =
-            mContext.getResources().getBoolean(R.bool.flip_controller_fallback_keys);
     }
-
+    
     /**
      * Return true if child is an ancestor of parent, (or equal to the parent).
      */
@@ -3391,16 +3386,7 @@ public final class ViewRootImpl implements ViewParent,
         public final void deliver(QueuedInputEvent q) {
             if ((q.mFlags & QueuedInputEvent.FLAG_FINISHED) != 0) {
                 forward(q);
-            } else if (mView == null || !mAdded) {
-                Slog.w(TAG, "Dropping event due to root view being removed: " + q.mEvent);
-                finish(q, false);
-            } else if (!mAttachInfo.mHasWindowFocus &&
-                  !q.mEvent.isFromSource(InputDevice.SOURCE_CLASS_POINTER) &&
-                  !isTerminalInputEvent(q.mEvent)) {
-                // If this is a focused event and the window doesn't currently have input focus,
-                // then drop this event.  This could be an event that came back from the previous
-                // stage but the window has lost focus in the meantime.
-                Slog.w(TAG, "Dropping event due to no window focus: " + q.mEvent);
+            } else if (shouldDropInputEvent(q)) {
                 finish(q, false);
             } else {
                 apply(q, onProcess(q));
@@ -3456,6 +3442,28 @@ public final class ViewRootImpl implements ViewParent,
                 mNext.deliver(q);
             } else {
                 finishInputEvent(q);
+            }
+        }
+
+        protected boolean shouldDropInputEvent(QueuedInputEvent q) {
+            if (mView == null || !mAdded) {
+                Slog.w(TAG, "Dropping event due to root view being removed: " + q.mEvent);
+                return true;
+            } else if (!mAttachInfo.mHasWindowFocus &&
+                  !q.mEvent.isFromSource(InputDevice.SOURCE_CLASS_POINTER) &&
+                  !isTerminalInputEvent(q.mEvent)) {
+                // If this is a focused event and the window doesn't currently have input focus,
+                // then drop this event.  This could be an event that came back from the previous
+                // stage but the window has lost focus in the meantime.
+                Slog.w(TAG, "Dropping event due to no window focus: " + q.mEvent);
+                return true;
+            }
+            return false;
+        }
+
+        void dump(String prefix, PrintWriter writer) {
+            if (mNext != null) {
+                mNext.dump(prefix, writer);
             }
         }
     }
@@ -3594,6 +3602,16 @@ public final class ViewRootImpl implements ViewParent,
 
             mQueueLength -= 1;
             Trace.traceCounter(Trace.TRACE_TAG_INPUT, mTraceCounter, mQueueLength);
+        }
+
+        @Override
+        void dump(String prefix, PrintWriter writer) {
+            writer.print(prefix);
+            writer.print(getClass().getName());
+            writer.print(": mQueueLength=");
+            writer.println(mQueueLength);
+
+            super.dump(prefix, writer);
         }
     }
 
@@ -3828,6 +3846,10 @@ public final class ViewRootImpl implements ViewParent,
                 return FINISH_HANDLED;
             }
 
+            if (shouldDropInputEvent(q)) {
+                return FINISH_NOT_HANDLED;
+            }
+
             // If the Control modifier is held, try to interpret the key as a shortcut.
             if (event.getAction() == KeyEvent.ACTION_DOWN
                     && event.isCtrlPressed()
@@ -3836,11 +3858,17 @@ public final class ViewRootImpl implements ViewParent,
                 if (mView.dispatchKeyShortcutEvent(event)) {
                     return FINISH_HANDLED;
                 }
+                if (shouldDropInputEvent(q)) {
+                    return FINISH_NOT_HANDLED;
+                }
             }
 
             // Apply the fallback event policy.
             if (mFallbackEventHandler.dispatchKeyEvent(event)) {
                 return FINISH_HANDLED;
+            }
+            if (shouldDropInputEvent(q)) {
+                return FINISH_NOT_HANDLED;
             }
 
             // Handle automatic focus changes.
@@ -3950,7 +3978,6 @@ public final class ViewRootImpl implements ViewParent,
         private final SyntheticJoystickHandler mJoystick = new SyntheticJoystickHandler();
         private final SyntheticTouchNavigationHandler mTouchNavigation =
                 new SyntheticTouchNavigationHandler();
-        private final SyntheticKeyHandler mKeys = new SyntheticKeyHandler();
 
         public SyntheticInputStage() {
             super(null);
@@ -3973,12 +4000,7 @@ public final class ViewRootImpl implements ViewParent,
                     mTouchNavigation.process(event);
                     return FINISH_HANDLED;
                 }
-            } else if (q.mEvent instanceof KeyEvent) {
-                if (mKeys.process((KeyEvent) q.mEvent)) {
-                    return FINISH_HANDLED;
-                }
             }
-
             return FORWARD;
         }
 
@@ -4808,63 +4830,6 @@ public final class ViewRootImpl implements ViewParent,
         };
     }
 
-    final class SyntheticKeyHandler {
-
-        public boolean process(KeyEvent event) {
-            // In some locales (like Japan) controllers use B for confirm and A for back, rather
-            // than vice versa, so we need to special case this here since the input system itself
-            // is not locale-aware.
-            int keyCode;
-            switch(event.getKeyCode()) {
-                case KeyEvent.KEYCODE_BUTTON_A:
-                case KeyEvent.KEYCODE_BUTTON_C:
-                case KeyEvent.KEYCODE_BUTTON_X:
-                case KeyEvent.KEYCODE_BUTTON_Z:
-                    keyCode = mFlipControllerFallbackKeys ?
-                        KeyEvent.KEYCODE_BACK : KeyEvent.KEYCODE_DPAD_CENTER;
-                    break;
-                case KeyEvent.KEYCODE_BUTTON_B:
-                case KeyEvent.KEYCODE_BUTTON_Y:
-                    keyCode = mFlipControllerFallbackKeys ?
-                        KeyEvent.KEYCODE_DPAD_CENTER : KeyEvent.KEYCODE_BACK;
-                    break;
-                case KeyEvent.KEYCODE_BUTTON_THUMBL:
-                case KeyEvent.KEYCODE_BUTTON_THUMBR:
-                case KeyEvent.KEYCODE_BUTTON_START:
-                case KeyEvent.KEYCODE_BUTTON_1:
-                case KeyEvent.KEYCODE_BUTTON_2:
-                case KeyEvent.KEYCODE_BUTTON_3:
-                case KeyEvent.KEYCODE_BUTTON_4:
-                case KeyEvent.KEYCODE_BUTTON_5:
-                case KeyEvent.KEYCODE_BUTTON_6:
-                case KeyEvent.KEYCODE_BUTTON_7:
-                case KeyEvent.KEYCODE_BUTTON_8:
-                case KeyEvent.KEYCODE_BUTTON_9:
-                case KeyEvent.KEYCODE_BUTTON_10:
-                case KeyEvent.KEYCODE_BUTTON_11:
-                case KeyEvent.KEYCODE_BUTTON_12:
-                case KeyEvent.KEYCODE_BUTTON_13:
-                case KeyEvent.KEYCODE_BUTTON_14:
-                case KeyEvent.KEYCODE_BUTTON_15:
-                case KeyEvent.KEYCODE_BUTTON_16:
-                    keyCode = KeyEvent.KEYCODE_DPAD_CENTER;
-                    break;
-                case KeyEvent.KEYCODE_BUTTON_SELECT:
-                case KeyEvent.KEYCODE_BUTTON_MODE:
-                    keyCode = KeyEvent.KEYCODE_MENU;
-                default:
-                    return false;
-            }
-
-            enqueueInputEvent(new KeyEvent(event.getDownTime(), event.getEventTime(),
-                        event.getAction(), keyCode, event.getRepeatCount(), event.getMetaState(),
-                        event.getDeviceId(), event.getScanCode(),
-                        event.getFlags() | KeyEvent.FLAG_FALLBACK, event.getSource()));
-            return true;
-        }
-
-    }
-
     /**
      * Returns true if the key is used for keyboard navigation.
      * @param keyEvent The key event.
@@ -5199,6 +5164,53 @@ public final class ViewRootImpl implements ViewParent,
 
     public void debug() {
         mView.debug();
+    }
+
+    public void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+        String innerPrefix = prefix + "  ";
+        writer.print(prefix); writer.println("ViewRoot:");
+        writer.print(innerPrefix); writer.print("mAdded="); writer.print(mAdded);
+                writer.print(" mRemoved="); writer.println(mRemoved);
+        writer.print(innerPrefix); writer.print("mConsumeBatchedInputScheduled=");
+                writer.println(mConsumeBatchedInputScheduled);
+        writer.print(innerPrefix); writer.print("mPendingInputEventCount=");
+                writer.println(mPendingInputEventCount);
+        writer.print(innerPrefix); writer.print("mProcessInputEventsScheduled=");
+                writer.println(mProcessInputEventsScheduled);
+        writer.print(innerPrefix); writer.print("mTraversalScheduled=");
+                writer.print(mTraversalScheduled);
+        if (mTraversalScheduled) {
+            writer.print(" (barrier="); writer.print(mTraversalBarrier); writer.println(")");
+        } else {
+            writer.println();
+        }
+        mFirstInputStage.dump(innerPrefix, writer);
+
+        mChoreographer.dump(prefix, writer);
+
+        writer.print(prefix); writer.println("View Hierarchy:");
+        dumpViewHierarchy(innerPrefix, writer, mView);
+    }
+
+    private void dumpViewHierarchy(String prefix, PrintWriter writer, View view) {
+        writer.print(prefix);
+        if (view == null) {
+            writer.println("null");
+            return;
+        }
+        writer.println(view.toString());
+        if (!(view instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup grp = (ViewGroup)view;
+        final int N = grp.getChildCount();
+        if (N <= 0) {
+            return;
+        }
+        prefix = prefix + "  ";
+        for (int i=0; i<N; i++) {
+            dumpViewHierarchy(prefix, writer, grp.getChildAt(i));
+        }
     }
 
     public void dumpGfxInfo(int[] info) {
@@ -5570,7 +5582,13 @@ public final class ViewRootImpl implements ViewParent,
         if (mConsumeBatchedInputScheduled) {
             mConsumeBatchedInputScheduled = false;
             if (mInputEventReceiver != null) {
-                mInputEventReceiver.consumeBatchedInputEvents(frameTimeNanos);
+                if (mInputEventReceiver.consumeBatchedInputEvents(frameTimeNanos)) {
+                    // If we consumed a batch here, we want to go ahead and schedule the
+                    // consumption of batched input events on the next frame. Otherwise, we would
+                    // wait until we have more input events pending and might get starved by other
+                    // things occurring in the process.
+                    scheduleConsumeBatchedInput();
+                }
             }
             doProcessInputEvents();
         }

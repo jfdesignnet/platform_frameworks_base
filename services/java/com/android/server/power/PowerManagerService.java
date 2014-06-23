@@ -747,6 +747,21 @@ public final class PowerManagerService extends IPowerManager.Stub
     }
 
     @Override // Binder call
+    public void updateWakeLockUids(IBinder lock, int[] uids) {
+        WorkSource ws = null;
+
+        if (uids != null) {
+            ws = new WorkSource();
+            // XXX should WorkSource have a way to set uids as an int[] instead of adding them
+            // one at a time?
+            for (int i = 0; i < uids.length; i++) {
+                ws.add(uids[i]);
+            }
+        }
+        updateWakeLockWorkSource(lock, ws);
+    }
+
+    @Override // Binder call
     public void updateWakeLockWorkSource(IBinder lock, WorkSource ws) {
         if (lock == null) {
             throw new IllegalArgumentException("lock must not be null");
@@ -1119,6 +1134,9 @@ public final class PowerManagerService extends IPowerManager.Stub
     private void updatePowerStateLocked() {
         if (!mSystemReady || mDirty == 0) {
             return;
+        }
+        if (!Thread.holdsLock(mLock)) {
+            Slog.wtf(TAG, "Power manager lock was not held when calling updatePowerStateLocked");
         }
 
         // Phase 0: Basic state updates.

@@ -153,8 +153,12 @@ public class BitmapFactory {
          *
          * <p>This does not affect bitmaps without an alpha channel.</p>
          *
+         * <p>Setting this flag to false while setting {@link #inScaled} to true
+         * may result in incorrect colors.</p>
+         *
          * @see Bitmap#hasAlpha()
          * @see Bitmap#isPremultiplied()
+         * @see #inScaled
          */
         public boolean inPremultiplied;
 
@@ -249,6 +253,9 @@ public class BitmapFactory {
          * <p>This flag is turned on by default and should be turned off if you need
          * a non-scaled version of the bitmap.  Nine-patch bitmaps ignore this
          * flag and are always scaled.
+         *
+         * <p>If {@link #inPremultiplied} is set to false, and the image has alpha,
+         * setting this flag to true may result in incorrect colors.
          */
         public boolean inScaled;
 
@@ -259,14 +266,26 @@ public class BitmapFactory {
          * (e.g. the bitmap is drawn, getPixels() is called), they will be
          * automatically re-decoded.
          *
-         * For the re-decode to happen, the bitmap must have access to the
+         * <p>For the re-decode to happen, the bitmap must have access to the
          * encoded data, either by sharing a reference to the input
          * or by making a copy of it. This distinction is controlled by
          * inInputShareable. If this is true, then the bitmap may keep a shallow
          * reference to the input. If this is false, then the bitmap will
          * explicitly make a copy of the input data, and keep that. Even if
          * sharing is allowed, the implementation may still decide to make a
-         * deep copy of the input data.
+         * deep copy of the input data.</p>
+         *
+         * <p>While inPurgeable can help avoid big Dalvik heap allocations (from
+         * API level 11 onward), it sacrifices performance predictability since any
+         * image that the view system tries to draw may incur a decode delay which
+         * can lead to dropped frames. Therefore, most apps should avoid using
+         * inPurgeable to allow for a fast and fluid UI. To minimize Dalvik heap
+         * allocations use the {@link #inBitmap} flag instead.</p>
+         *
+         * <p class="note"><strong>Note:</strong> This flag is ignored when used
+         * with {@link #decodeResource(Resources, int,
+         * android.graphics.BitmapFactory.Options)} or {@link #decodeFile(String,
+         * android.graphics.BitmapFactory.Options)}.</p>
          */
         public boolean inPurgeable;
 

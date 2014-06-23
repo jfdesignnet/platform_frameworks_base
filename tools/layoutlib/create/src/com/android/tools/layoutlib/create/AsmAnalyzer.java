@@ -29,11 +29,13 @@ import org.objectweb.asm.signature.SignatureReader;
 import org.objectweb.asm.signature.SignatureVisitor;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -57,6 +59,11 @@ public class AsmAnalyzer {
     private final String[] mDeriveFrom;
     /** Glob patterns of classes to keep, e.g. "com.foo.*" */
     private final String[] mIncludeGlobs;
+    /** The set of classes to exclude.*/
+    private final Set<String> mExcludedClasses;
+    /** Glob patterns of files to keep as is. */
+    private final String[] mIncludeFileGlobs;
+    /** Copy these files into the output as is. */
 
     /**
      * Creates a new analyzer.
@@ -67,14 +74,19 @@ public class AsmAnalyzer {
      * @param deriveFrom Keep all classes that derive from these one (these included).
      * @param includeGlobs Glob patterns of classes to keep, e.g. "com.foo.*"
      *        ("*" does not matches dots whilst "**" does, "." and "$" are interpreted as-is)
+     * @param includeFileGlobs Glob patterns of files which are kept as is. This is only for files
+     *        not ending in .class.
      */
     public AsmAnalyzer(Log log, List<String> osJarPath, AsmGenerator gen,
-            String[] deriveFrom, String[] includeGlobs) {
+            String[] deriveFrom, String[] includeGlobs, Set<String> excludeClasses,
+            String[] includeFileGlobs) {
         mLog = log;
         mGen = gen;
         mOsSourceJar = osJarPath != null ? osJarPath : new ArrayList<String>();
         mDeriveFrom = deriveFrom != null ? deriveFrom : new String[0];
         mIncludeGlobs = includeGlobs != null ? includeGlobs : new String[0];
+        mExcludedClasses = excludeClasses;
+        mIncludeFileGlobs = includeFileGlobs != null ? includeFileGlobs : new String[0];
     }
 
     /**
@@ -83,9 +95,10 @@ public class AsmAnalyzer {
      */
     public void analyze() throws IOException, LogAbortException {
 
-        AsmAnalyzer visitor = this;
+        TreeMap<String, ClassReader> zipClasses = new TreeMap<String, ClassReader>();
+        Map<String, InputStream> filesFound = new TreeMap<String, InputStream>();
 
-        Map<String, ClassReader> zipClasses = parseZip(mOsSourceJar);
+        parseZip(mOsSourceJar, zipClasses, filesFound);
         mLog.info("Found %d classes in input JAR%s.", zipClasses.size(),
                 mOsSourceJar.size() > 1 ? "s" : "");
 
@@ -95,15 +108,29 @@ public class AsmAnalyzer {
         if (mGen != null) {
             mGen.setKeep(found);
             mGen.setDeps(deps);
+            mGen.setCopyFiles(filesFound);
         }
     }
 
     /**
-     * Parses a JAR file and returns a list of all classes founds using a map
-     * class name => ASM ClassReader. Class names are in the form "android.view.View".
+     * Parses a JAR file and adds all the classes found to <code>classes</code>
+     * and all other files to <code>filesFound</code>.
+     *
+     * @param classes The map of class name => ASM ClassReader. Class names are
+     *                in the form "android.view.View".
+     * @param fileFound The map of file name => InputStream. The file name is
+     *                  in the form "android/data/dataFile".
      */
-    Map<String,ClassReader> parseZip(List<String> jarPathList) throws IOException {
-        TreeMap<String, ClassReader> classes = new TreeMap<String, ClassReader>();
+    void parseZip(List<String> jarPathList, Map<String, ClassReader> classes,
+            Map<String, InputStream> filesFound) throws IOException {
+        if (classes == null || filesFound == null) {
+            return;
+        }
+
+        Pattern[] includeFilePatterns = new Pattern[mIncludeFileGlobs.length];
+        for (int i = 0; i < mIncludeFileGlobs.length; ++i) {
+            includeFilePatterns[i] = getPatternFromGlob(mIncludeFileGlobs[i]);
+        }
 
         for (String jarPath : jarPathList) {
             ZipFile zip = new ZipFile(jarPath);
@@ -115,11 +142,17 @@ public class AsmAnalyzer {
                     ClassReader cr = new ClassReader(zip.getInputStream(entry));
                     String className = classReaderToClassName(cr);
                     classes.put(className, cr);
+                } else {
+                    for (int i = 0; i < includeFilePatterns.length; ++i) {
+                        if (includeFilePatterns[i].matcher(entry.getName()).matches()) {
+                            filesFound.put(entry.getName(), zip.getInputStream(entry));
+                            break;
+                        }
+                    }
                 }
             }
         }
 
-        return classes;
     }
 
     /**
@@ -201,7 +234,19 @@ public class AsmAnalyzer {
      */
     void findGlobs(String globPattern, Map<String, ClassReader> zipClasses,
             Map<String, ClassReader> inOutFound) throws LogAbortException {
-        // transforms the glob pattern in a regexp:
+
+        Pattern regexp = getPatternFromGlob(globPattern);
+
+        for (Entry<String, ClassReader> entry : zipClasses.entrySet()) {
+            String class_name = entry.getKey();
+            if (regexp.matcher(class_name).matches()) {
+                findClass(class_name, zipClasses, inOutFound);
+            }
+        }
+    }
+
+    Pattern getPatternFromGlob(String globPattern) {
+     // transforms the glob pattern in a regexp:
         // - escape "." with "\."
         // - replace "*" by "[^.]*"
         // - escape "$" with "\$"
@@ -215,14 +260,7 @@ public class AsmAnalyzer {
         globPattern = globPattern.replaceAll("@", ".*");
         globPattern += "$";
 
-        Pattern regexp = Pattern.compile(globPattern);
-
-        for (Entry<String, ClassReader> entry : zipClasses.entrySet()) {
-            String class_name = entry.getKey();
-            if (regexp.matcher(class_name).matches()) {
-                findClass(class_name, zipClasses, inOutFound);
-            }
-        }
+        return Pattern.compile(globPattern);
     }
 
     /**
@@ -232,7 +270,7 @@ public class AsmAnalyzer {
      */
     void findClassesDerivingFrom(String super_name, Map<String, ClassReader> zipClasses,
             Map<String, ClassReader> inOutFound) throws LogAbortException {
-        ClassReader super_clazz = findClass(super_name, zipClasses, inOutFound);
+        findClass(super_name, zipClasses, inOutFound);
 
         for (Entry<String, ClassReader> entry : zipClasses.entrySet()) {
             String className = entry.getKey();
@@ -363,11 +401,12 @@ public class AsmAnalyzer {
 
             className = internalToBinaryClassName(className);
 
-            // exclude classes that have already been found
+            // exclude classes that have already been found or are marked to be excluded
             if (mInKeep.containsKey(className) ||
                     mOutKeep.containsKey(className) ||
                     mInDeps.containsKey(className) ||
-                    mOutDeps.containsKey(className)) {
+                    mOutDeps.containsKey(className) ||
+                    mExcludedClasses.contains(getBaseName(className))) {
                 return;
             }
 
@@ -451,6 +490,13 @@ public class AsmAnalyzer {
             }
         }
 
+        private String getBaseName(String className) {
+            int pos = className.indexOf('$');
+            if (pos > 0) {
+                return className.substring(0, pos);
+            }
+            return className;
+        }
 
         // ---------------------------------------------------
         // --- ClassVisitor, FieldVisitor
@@ -682,7 +728,7 @@ public class AsmAnalyzer {
             }
 
             @Override
-            public void visitTableSwitchInsn(int min, int max, Label dflt, Label[] labels) {
+            public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
                 // pass -- table switch instruction
 
             }

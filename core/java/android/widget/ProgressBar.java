@@ -308,6 +308,11 @@ public class ProgressBar extends View {
         mMirrorForRtl = a.getBoolean(R.styleable.ProgressBar_mirrorForRtl, mMirrorForRtl);
 
         a.recycle();
+
+        // If not explicitly specified this view is important for accessibility.
+        if (getImportantForAccessibility() == View.IMPORTANT_FOR_ACCESSIBILITY_AUTO) {
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        }
     }
 
     /**
@@ -959,9 +964,11 @@ public class ProgressBar extends View {
         if (!mInDrawing) {
             if (verifyDrawable(dr)) {
                 final Rect dirty = dr.getBounds();
+                final int scrollX = mScrollX + mPaddingLeft;
+                final int scrollY = mScrollY + mPaddingTop;
 
-                invalidate(dirty.left + mScrollX, dirty.top + mScrollY,
-                        dirty.right + mScrollX, dirty.bottom + mScrollY);
+                invalidate(dirty.left + scrollX, dirty.top + scrollY,
+                        dirty.right + scrollX, dirty.bottom + scrollY);
             } else {
                 super.invalidateDrawable(dr);
             }

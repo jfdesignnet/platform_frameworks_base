@@ -17,9 +17,12 @@
 package com.android.internal.telephony;
 
 import android.os.Bundle;
-import java.util.List;
-import android.telephony.NeighboringCellInfo;
 import android.telephony.CellInfo;
+import android.telephony.NeighboringCellInfo;
+
+import com.android.internal.telephony.ITelephonyListener;
+
+import java.util.List;
 
 /**
  * Interface used to interact with the phone.  Mostly this is used by the
@@ -153,6 +156,26 @@ interface ITelephony {
      * @return whether the operation was a success.
      */
     boolean supplyPuk(String puk, String pin);
+
+    /**
+     * Supply a pin to unlock the SIM.  Blocks until a result is determined.
+     * Returns a specific success/error code.
+     * @param pin The pin to check.
+     * @return retValue[0] = Phone.PIN_RESULT_SUCCESS on success. Otherwise error code
+     *         retValue[1] = number of attempts remaining if known otherwise -1
+     */
+    int[] supplyPinReportResult(String pin);
+
+    /**
+     * Supply puk to unlock the SIM and set SIM pin to new pin.
+     * Blocks until a result is determined.
+     * Returns a specific success/error code
+     * @param puk The puk to check
+     *        pin The pin to check.
+     * @return retValue[0] = Phone.PIN_RESULT_SUCCESS on success. Otherwise error code
+     *         retValue[1] = number of attempts remaining if known otherwise -1
+     */
+    int[] supplyPukReportResult(String puk, String pin);
 
     /**
      * Handles PIN MMI commands (PIN/PIN2/PUK/PUK2), which are initiated
@@ -304,5 +327,48 @@ interface ITelephony {
      * Sets minimum time in milli-seconds between onCellInfoChanged
      */
     void setCellInfoListRate(int rateInMillis);
+
+    /**
+     * Put a call on hold.
+     */
+     void toggleHold();
+
+     /**
+      * Merge foreground and background calls.
+      */
+     void merge();
+
+     /**
+      * Swap foreground and background calls.
+      */
+     void swap();
+
+     /**
+      * Mute the phone.
+      */
+     void mute(boolean mute);
+
+    /**
+     * Start playing DTMF tone for the specified digit.
+     *
+     * @param digit the digit that corresponds with the desired tone.
+     * @param timedShortcode whether the specified digit should be played as a timed short code.
+     */
+     void playDtmfTone(char digit, boolean timedShortCode);
+
+     /**
+      * Stop playing DTMF tones.
+      */
+     void stopDtmfTone();
+
+     /**
+       * Register a callback.
+       */
+      void addListener(ITelephonyListener listener);
+
+      /**
+       * Unregister a callback.
+       */
+      void removeListener(ITelephonyListener listener);
 }
 

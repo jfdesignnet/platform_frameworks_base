@@ -192,10 +192,16 @@ public class ZygoteInit {
     static void closeServerSocket() {
         try {
             if (sServerSocket != null) {
+                FileDescriptor fd = sServerSocket.getFileDescriptor();
                 sServerSocket.close();
+                if (fd != null) {
+                    Libcore.os.close(fd);
+                }
             }
         } catch (IOException ex) {
             Log.e(TAG, "Zygote:  error closing sockets", ex);
+        } catch (libcore.io.ErrnoException ex) {
+            Log.e(TAG, "Zygote:  error closing descriptor", ex);
         }
 
         sServerSocket = null;
@@ -301,6 +307,8 @@ public class ZygoteInit {
                         count++;
                     } catch (ClassNotFoundException e) {
                         Log.w(TAG, "Class not found for preloading: " + line);
+                    } catch (UnsatisfiedLinkError e) {
+                        Log.w(TAG, "Problem preloading " + line + ": " + e);
                     } catch (Throwable t) {
                         Log.e(TAG, "Error preloading " + line + ".", t);
                         if (t instanceof Error) {

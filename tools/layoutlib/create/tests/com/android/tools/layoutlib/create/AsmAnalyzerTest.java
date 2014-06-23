@@ -29,9 +29,12 @@ import org.junit.Test;
 import org.objectweb.asm.ClassReader;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -51,8 +54,12 @@ public class AsmAnalyzerTest {
         mOsJarPath = new ArrayList<String>();
         mOsJarPath.add(url.getFile());
 
-        mAa = new AsmAnalyzer(mLog, mOsJarPath, null /* gen */,
-                null /* deriveFrom */, null /* includeGlobs */ );
+        Set<String> excludeClasses = new HashSet<String>(1);
+        excludeClasses.add("java.lang.JavaClass");
+
+        String[] includeFiles = new String[]{"mock_android/data/data*"};
+        mAa = new AsmAnalyzer(mLog, mOsJarPath, null /* gen */, null /* deriveFrom */,
+                null /* includeGlobs */, excludeClasses, includeFiles);
     }
 
     @After
@@ -61,9 +68,14 @@ public class AsmAnalyzerTest {
 
     @Test
     public void testParseZip() throws IOException {
-        Map<String, ClassReader> map = mAa.parseZip(mOsJarPath);
+
+        Map<String, ClassReader> map = new TreeMap<String, ClassReader>();
+        Map<String, InputStream> filesFound = new TreeMap<String, InputStream>();
+
+        mAa.parseZip(mOsJarPath, map, filesFound);
 
         assertArrayEquals(new String[] {
+                "java.lang.JavaClass",
                 "mock_android.dummy.InnerTest",
                 "mock_android.dummy.InnerTest$DerivingClass",
                 "mock_android.dummy.InnerTest$MyGenerics1",
@@ -81,11 +93,17 @@ public class AsmAnalyzerTest {
                 "mock_android.widget.TableLayout$LayoutParams"
             },
             map.keySet().toArray());
+        assertArrayEquals(new String[] {"mock_android/data/dataFile"},
+            filesFound.keySet().toArray());
     }
 
     @Test
     public void testFindClass() throws IOException, LogAbortException {
-        Map<String, ClassReader> zipClasses = mAa.parseZip(mOsJarPath);
+
+        Map<String, ClassReader> zipClasses = new TreeMap<String, ClassReader>();
+        Map<String, InputStream> filesFound = new TreeMap<String, InputStream>();
+
+        mAa.parseZip(mOsJarPath, zipClasses, filesFound);
         TreeMap<String, ClassReader> found = new TreeMap<String, ClassReader>();
 
         ClassReader cr = mAa.findClass("mock_android.view.ViewGroup$LayoutParams",
@@ -100,7 +118,11 @@ public class AsmAnalyzerTest {
 
     @Test
     public void testFindGlobs() throws IOException, LogAbortException {
-        Map<String, ClassReader> zipClasses = mAa.parseZip(mOsJarPath);
+
+        Map<String, ClassReader> zipClasses = new TreeMap<String, ClassReader>();
+        Map<String, InputStream> filesFound = new TreeMap<String, InputStream>();
+
+        mAa.parseZip(mOsJarPath, zipClasses, filesFound);
         TreeMap<String, ClassReader> found = new TreeMap<String, ClassReader>();
 
         // this matches classes, a package match returns nothing
@@ -159,7 +181,11 @@ public class AsmAnalyzerTest {
 
     @Test
     public void testFindClassesDerivingFrom() throws LogAbortException, IOException {
-        Map<String, ClassReader> zipClasses = mAa.parseZip(mOsJarPath);
+
+        Map<String, ClassReader> zipClasses = new TreeMap<String, ClassReader>();
+        Map<String, InputStream> filesFound = new TreeMap<String, InputStream>();
+
+        mAa.parseZip(mOsJarPath, zipClasses, filesFound);
         TreeMap<String, ClassReader> found = new TreeMap<String, ClassReader>();
 
         mAa.findClassesDerivingFrom("mock_android.view.View", zipClasses, found);
@@ -181,7 +207,11 @@ public class AsmAnalyzerTest {
 
     @Test
     public void testDependencyVisitor() throws IOException, LogAbortException {
-        Map<String, ClassReader> zipClasses = mAa.parseZip(mOsJarPath);
+
+        Map<String, ClassReader> zipClasses = new TreeMap<String, ClassReader>();
+        Map<String, InputStream> filesFound = new TreeMap<String, InputStream>();
+
+        mAa.parseZip(mOsJarPath, zipClasses, filesFound);
         TreeMap<String, ClassReader> keep = new TreeMap<String, ClassReader>();
         TreeMap<String, ClassReader> new_keep = new TreeMap<String, ClassReader>();
         TreeMap<String, ClassReader> in_deps = new TreeMap<String, ClassReader>();
@@ -221,7 +251,11 @@ public class AsmAnalyzerTest {
         for (ClassReader cr2 : in_deps.values()) {
             cr2.accept(visitor, 0 /* flags */);
         }
+        keep.putAll(new_keep);
 
         assertArrayEquals(new String[] { }, out_deps.keySet().toArray());
+        assertArrayEquals(new String[] {
+                "mock_android.widget.TableLayout",
+        }, keep.keySet().toArray());
     }
 }

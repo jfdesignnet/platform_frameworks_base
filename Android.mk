@@ -165,6 +165,7 @@ LOCAL_SRC_FILES += \
 	core/java/android/print/ILayoutResultCallback.aidl \
 	core/java/android/print/IPrinterDiscoveryObserver.aidl \
 	core/java/android/print/IPrintDocumentAdapter.aidl \
+	core/java/android/print/IPrintDocumentAdapterObserver.aidl \
 	core/java/android/print/IPrintJobStateChangeListener.aidl \
 	core/java/android/print/IPrintManager.aidl \
 	core/java/android/print/IPrintSpooler.aidl \
@@ -250,17 +251,22 @@ LOCAL_SRC_FILES += \
 	media/java/android/media/IAudioService.aidl \
 	media/java/android/media/IAudioFocusDispatcher.aidl \
 	media/java/android/media/IAudioRoutesObserver.aidl \
+	media/java/android/media/IMediaRouterClient.aidl \
+	media/java/android/media/IMediaRouterService.aidl \
 	media/java/android/media/IMediaScannerListener.aidl \
 	media/java/android/media/IMediaScannerService.aidl \
 	media/java/android/media/IRemoteControlClient.aidl \
 	media/java/android/media/IRemoteControlDisplay.aidl \
+	media/java/android/media/IRemoteDisplayCallback.aidl \
+	media/java/android/media/IRemoteDisplayProvider.aidl \
 	media/java/android/media/IRemoteVolumeObserver.aidl \
 	media/java/android/media/IRingtonePlayer.aidl \
 	telephony/java/com/android/internal/telephony/IPhoneStateListener.aidl \
 	telephony/java/com/android/internal/telephony/IPhoneSubInfo.aidl \
 	telephony/java/com/android/internal/telephony/ITelephony.aidl \
-	telephony/java/com/android/internal/telephony/ISms.aidl \
+	telephony/java/com/android/internal/telephony/ITelephonyListener.aidl \
 	telephony/java/com/android/internal/telephony/ITelephonyRegistry.aidl \
+	telephony/java/com/android/internal/telephony/ISms.aidl \
 	telephony/java/com/android/internal/telephony/IWapPushManager.aidl \
 	wifi/java/android/net/wifi/IWifiManager.aidl \
 	wifi/java/android/net/wifi/p2p/IWifiP2pManager.aidl \
@@ -537,31 +543,89 @@ framework_docs_LOCAL_ADDITIONAL_JAVA_DIR:= \
 framework_docs_LOCAL_ADDITIONAL_DEPENDENCIES := \
     frameworks/base/docs/knowntags.txt
 
-sample_dir := development/samples
+sample_dir := development/samples/browseable
 new_sample_dir := developers/samples/android
 
 # Whitelist of valid groups, used for default TOC grouping. Each sample must
 # belong to one (and only one) group. Assign samples to groups by setting
 # a sample.group var to one of these groups in the sample's _index.jd.
-sample_groups := -samplegroup Input \
-                 -samplegroup Sensors \
-                 -samplegroup Connectivity
+sample_groups := -samplegroup Background \
+                 -samplegroup Connectivity \
+                 -samplegroup Content \
+                 -samplegroup Input \
+                 -samplegroup Media \
+                 -samplegroup Security \
+                 -samplegroup Testing \
+                 -samplegroup UI \
+                 -samplegroup Views
 
 # the list here should match the list of samples included in the sdk samples package
 # (see development/build/sdk.atree)
 # remove htmlified samples for now -- samples are still available through the SDK
 web_docs_sample_code_flags := \
 		-hdf android.hasSamples 1 \
-		-samplecode $(new_sample_dir)/input/gestures/BasicGestureDetect/BasicGestureDetect \
- 		            samples/BasicGestureDetect/ "Basic Gestures" \
-		-samplecode $(sample_dir)/AccelerometerPlay \
- 		            samples/AccelerometerPlay "Accelerometer Play" \
-		-samplecode $(sample_dir)/ActionBarCompat \
- 		            samples/ActionBarCompat "Action Bar Compatibility" \
- 		-samplecode $(sample_dir)/BluetoothHDP \
- 		            samples/BluetoothHDP "Bluetooth HDP Demo" \
- 		-samplecode $(sample_dir)/BluetoothLeGatt \
- 		            samples/BluetoothLeGatt "Bluetooth HDP Demo"
+		-samplecode $(sample_dir)/BasicAccessibility \
+ 		            samples/BasicAccessibility "" \
+		-samplecode $(sample_dir)/HorizontalPaging \
+ 		            samples/HorizontalPaging "" \
+		-samplecode $(sample_dir)/ShareActionProvider \
+ 		            samples/ShareActionProvider "" \
+		-samplecode $(sample_dir)/Styled \
+ 		            samples/Styled "" \
+		-samplecode $(sample_dir)/BasicAndroidKeyStore \
+ 		            samples/BasicAndroidKeyStore "" \
+		-samplecode $(sample_dir)/Basic \
+ 		            samples/Basic "" \
+		-samplecode $(sample_dir)/ImmersiveMode \
+ 		            samples/ImmersiveMode "" \
+		-samplecode $(sample_dir)/repeatingAlarm \
+ 		            samples/repeatingAlarm "" \
+		-samplecode $(sample_dir)/TextLinkify \
+ 		            samples/TextLinkify "" \
+		-samplecode $(sample_dir)/BasicMediaRouter \
+ 		            samples/BasicMediaRouter "" \
+		-samplecode $(sample_dir)/BasicMultitouch \
+ 		            samples/BasicMultitouch "" \
+		-samplecode $(sample_dir)/TextSwitcher \
+ 		            samples/TextSwitcher "" \
+		-samplecode $(sample_dir)/ActivityInstrumentation \
+ 		            samples/ActivityInstrumentation "" \
+		-samplecode $(sample_dir)/BorderlessButtons \
+ 		            samples/BorderlessButtons "" \
+		-samplecode $(sample_dir)/BasicNotifications \
+ 		            samples/BasicNotifications "" \
+		-samplecode $(sample_dir)/AdvancedImmersiveMode \
+ 		            samples/AdvancedImmersiveMode "" \
+		-samplecode $(sample_dir)/BluetoothLeGatt \
+ 		            samples/BluetoothLeGatt "" \
+		-samplecode $(sample_dir)/NetworkConnect \
+ 		            samples/NetworkConnect "" \
+		-samplecode $(sample_dir)/BasicNetworking \
+ 		            samples/BasicNetworking "" \
+		-samplecode $(sample_dir)/BasicMediaDecoder \
+ 		            samples/BasicMediaDecoder "" \
+		-samplecode $(sample_dir)/BasicImmersiveMode \
+ 		            samples/BasicImmersiveMode "" \
+		-samplecode $(sample_dir)/CustomChoiceList \
+ 		            samples/CustomChoiceList "" \
+		-samplecode $(sample_dir)/BasicContactables \
+ 		            samples/BasicContactables "" \
+		-samplecode $(sample_dir)/BasicGestureDetect \
+ 		            samples/BasicGestureDetect "" \
+		-samplecode $(sample_dir)/DoneBar \
+ 		            samples/DoneBar "" \
+		-samplecode $(sample_dir)/ListPopupMenu \
+ 		            samples/ListPopupMenu "" \
+		-samplecode $(sample_dir)/AppRestrictions \
+ 		            samples/AppRestrictions "" \
+		-samplecode $(sample_dir)/CustomNotifications \
+ 		            samples/CustomNotifications "" \
+		-samplecode $(sample_dir)/BasicSyncAdapter \
+ 		            samples/BasicSyncAdapter "" \
+		-samplecode $(sample_dir)/StorageClient \
+ 		            samples/StorageClient "" 
+#		-samplecode $(sample_dir)/StorageProvider \
+# 		            samples/StorageProvider "" 
 #       -samplecode $(sample_dir)/AndroidBeamDemo \
 # 		            samples/AndroidBeamDemo "Android Beam Demo" \
 # 		-samplecode $(sample_dir)/ApiDemos \
@@ -692,6 +756,32 @@ $(full_target): $(framework_built) $(gen)
 $(INTERNAL_PLATFORM_API_FILE): $(full_target)
 $(call dist-for-goals,sdk,$(INTERNAL_PLATFORM_API_FILE))
 
+# ====  the private api stubs ===================================
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES:=$(framework_docs_LOCAL_API_CHECK_SRC_FILES)
+LOCAL_INTERMEDIATE_SOURCES:=$(framework_docs_LOCAL_INTERMEDIATE_SOURCES)
+LOCAL_JAVA_LIBRARIES:=$(framework_docs_LOCAL_API_CHECK_JAVA_LIBRARIES)
+LOCAL_MODULE_CLASS:=$(framework_docs_LOCAL_MODULE_CLASS)
+LOCAL_DROIDDOC_SOURCE_PATH:=$(framework_docs_LOCAL_DROIDDOC_SOURCE_PATH)
+LOCAL_DROIDDOC_HTML_DIR:=$(framework_docs_LOCAL_DROIDDOC_HTML_DIR)
+LOCAL_ADDITIONAL_JAVA_DIR:=$(framework_docs_LOCAL_API_CHECK_ADDITIONAL_JAVA_DIR)
+LOCAL_ADDITIONAL_DEPENDENCIES:=$(framework_docs_LOCAL_ADDITIONAL_DEPENDENCIES)
+
+LOCAL_MODULE := private-api-stubs
+
+LOCAL_DROIDDOC_OPTIONS:=\
+		$(framework_docs_LOCAL_DROIDDOC_OPTIONS) \
+		-stubs $(TARGET_OUT_COMMON_INTERMEDIATES)/JAVA_LIBRARIES/android_private_stubs_current_intermediates/src \
+        -showAnnotation android.annotation.PrivateApi \
+		-nodocs
+
+LOCAL_DROIDDOC_CUSTOM_TEMPLATE_DIR:=build/tools/droiddoc/templates-sdk
+
+LOCAL_UNINSTALLABLE_MODULE := true
+
+include $(BUILD_DROIDDOC)
+
 # ====  check javadoc comments but don't generate docs ========
 include $(CLEAR_VARS)
 
@@ -780,9 +870,9 @@ LOCAL_MODULE := online-sdk
 LOCAL_DROIDDOC_OPTIONS:= \
 		$(framework_docs_LOCAL_DROIDDOC_OPTIONS) \
 		-toroot / \
-		-hdf android.whichdoc online
-#		$(sample_groups) \
-#		$(web_docs_sample_code_flags)
+		-hdf android.whichdoc online \
+		$(sample_groups) \
+		$(web_docs_sample_code_flags)
 
 LOCAL_DROIDDOC_CUSTOM_TEMPLATE_DIR:=build/tools/droiddoc/templates-sdk
 
