@@ -22,6 +22,8 @@
     <string name="setting_confirmation_ask_me_later">Ask later</string>
     <string name="setting_confirmation_yes">Yes</string>
     <string name="setting_confirmation_no">No</string>
+    <!-- Long-press back kill application -->
+    <string name="app_killed_message">Application killed</string>
 
     <!-- Reboot -->
     <string name="global_action_reboot">Reboot</string>
@@ -33,4 +35,9 @@
     <string name="hide_lock_to_app_dialog">Always start</string>
     <string name="silent_mode_priority">Priority</string>
     <string name="silent_mode_none">None</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_accessTorchService">access torch service</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_accessTorchService">Allows an app to access the torch service. Should never be needed for normal apps.</string>
 </resources>
