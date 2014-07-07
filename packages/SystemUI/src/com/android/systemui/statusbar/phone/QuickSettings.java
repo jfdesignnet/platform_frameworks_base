@@ -336,8 +336,13 @@ class QuickSettings {
                 UserState us = (UserState) state;
                 ImageView iv = (ImageView) view.findViewById(R.id.user_imageview);
                 TextView tv = (TextView) view.findViewById(R.id.user_textview);
-                tv.setText(state.label);
-                iv.setImageDrawable(us.avatar);
+                if (tv != null) {
+                    tv.setText(state.label);
+                }
+
+                if (iv != null) {
+                    iv.setImageDrawable(us.avatar);
+                }
                 view.setContentDescription(mContext.getString(
                         R.string.accessibility_quick_settings_user, state.label));
             }
