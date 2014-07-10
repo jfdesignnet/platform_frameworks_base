@@ -27,6 +27,7 @@ import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.app.IActivityManager;
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -104,6 +105,7 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
     private static final String GLOBAL_ACTION_KEY_SETTINGS = "settings";
     private static final String GLOBAL_ACTION_KEY_LOCKDOWN = "lockdown";
     private static final String GLOBAL_ACTION_KEY_REBOOT = "reboot";
+    private static final String GLOBAL_ACTION_KEY_SOFT_REBOOT = "soft_reboot";
     private static final String GLOBAL_ACTION_KEY_REBOOT_RECOVERY = "reboot_recovery";
     private static final String GLOBAL_ACTION_KEY_REBOOT_BOOTLOADER = "reboot_bootloader";
 
@@ -334,6 +336,8 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
             } else if (GLOBAL_ACTION_KEY_REBOOT.equals(actionKey)) {
                 // always enable the simple reboot
                 mItems.add(new RebootAction());
+            } else if (advancedRebootEnabled(mContext) && GLOBAL_ACTION_KEY_SOFT_REBOOT.equals(actionKey)) {
+                mItems.add(new RebootSoftAction());
             } else if (advancedRebootEnabled(mContext) && GLOBAL_ACTION_KEY_REBOOT_RECOVERY.equals(actionKey)) {
                 mItems.add(new RebootRecoveryAction());
             } else if (advancedRebootEnabled(mContext) && GLOBAL_ACTION_KEY_REBOOT_BOOTLOADER.equals(actionKey)) {
@@ -454,6 +458,38 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                 mHandler.sendEmptyMessage(MESSAGE_DISMISS);
                 mWindowManagerFuncs.reboot(null, false);
             }
+        }
+    }
+
+    private final class RebootSoftAction extends SinglePressAction {
+        private RebootSoftAction() {
+            super(com.android.internal.R.drawable.ic_lock_power_reboot,
+                    R.string.global_action_soft_reboot);
+        }
+
+        @Override
+        public boolean showDuringKeyguard() {
+            return true;
+        }
+
+        @Override
+        public boolean showDuringRestrictedKeyguard() {
+            return false;
+        }
+
+        @Override
+        public boolean showBeforeProvisioning() {
+            return true;
+        }
+
+        @Override
+        public boolean showForCurrentUser() {
+            return UserHandle.getCallingUserId() == UserHandle.USER_OWNER;
+        }
+
+        @Override
+        public void onPress() {
+            doSoftReboot();
         }
     }
 
@@ -741,6 +777,18 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                     }
                 }
             }
+        }
+    }
+
+    private static void doSoftReboot() {
+        try {
+            final IActivityManager am =
+                  ActivityManagerNative.asInterface(ServiceManager.checkService("activity"));
+            if (am != null) {
+                am.restart();
+            }
+        } catch (RemoteException e) {
+            Log.e(TAG, "failure trying to perform soft reboot", e);
         }
     }
 
@@ -1388,7 +1436,12 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                     com.android.internal.R.array.config_rebootActionsList);
         for (int i = 0; i < rebootMenuActions.length; i++) {
             String actionKey = rebootMenuActions[i];
-            if (advancedRebootEnabled(mContext) && GLOBAL_ACTION_KEY_REBOOT_RECOVERY.equals(actionKey)) {
+            if (advancedRebootEnabled(mContext) && GLOBAL_ACTION_KEY_SOFT_REBOOT.equals(actionKey)) {
+                RebootSoftAction a = new RebootSoftAction();
+                if (isActionVisible(a)) {
+                    items.add(a);
+                }
+            } else if (advancedRebootEnabled(mContext) && GLOBAL_ACTION_KEY_REBOOT_RECOVERY.equals(actionKey)) {
                 RebootRecoveryAction a = new RebootRecoveryAction();
                 if (isActionVisible(a)) {
                     items.add(a);
