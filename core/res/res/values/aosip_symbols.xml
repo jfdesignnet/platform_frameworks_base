@@ -30,6 +30,7 @@
   <java-symbol name="global_action_reboot" type="string" />
   <java-symbol name="global_action_reboot_sub" type="string" />
   <java-symbol name="global_action_reboot_more" type="string" />
+  <java-symbol name="global_action_soft_reboot" type="string" />
   <java-symbol name="ic_lock_power_rebootrecovery" type="drawable" />
   <java-symbol name="global_action_reboot_recovery" type="string" />
   <java-symbol name="ic_lock_power_rebootbootloader" type="drawable" />
