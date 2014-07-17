@@ -94,7 +94,7 @@ class QuickSettings {
     private Context mContext;
     private PanelBar mBar;
     private QuickSettingsModel mModel;
-    private QuickSettingsContainerView mContainerView;
+    private ViewGroup mContainerView;
 
     private DevicePolicyManager mDevicePolicyManager;
     private PhoneStatusBar mStatusBarService;
@@ -942,9 +942,7 @@ class QuickSettings {
         for (QuickSettingsTileView v : mDynamicSpannedTiles) {
             v.setColumnSpan(span);
         }
-        mContainerView.updateResources();
-        mContainerView.removeAllViews();
-        setupQuickSettings();
+        ((QuickSettingsContainerView)mContainerView).updateResources();
         mContainerView.requestLayout();
     }
 
