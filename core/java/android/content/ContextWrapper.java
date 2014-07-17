@@ -545,12 +545,6 @@ public class ContextWrapper extends Context {
         return mBase.checkPermission(permission, pid, uid);
     }
 
-    /** @hide */
-    @Override
-    public boolean isHeadsUpEnabled() {
-        return mBase.isHeadsUpEnabled();
-    }
-
     @Override
     public int checkCallingPermission(String permission) {
         return mBase.checkCallingPermission(permission);

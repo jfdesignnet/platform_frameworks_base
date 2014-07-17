@@ -269,19 +269,6 @@ public class SwipeHelper implements Gefingerpoken {
      * @param velocity The desired pixels/second speed at which the view should move
      */
     public void dismissChild(final View view, float velocity) {
-        // Reminder: direction is set to default false here due that
-        // we do not need it for normal notifications (no heads up) and recents
-        // screen.
-        // See NotificationRowLayout.java:255 and RecentsHorizontalScrollView.java:198
-        dismissChild(view, velocity, false);
-    }
-
-    /**
-     * @param view The view to be dismissed
-     * @param velocity The desired pixels/second speed at which the view should move
-     * @param direction - if true it is either direction to the right or down.
-     */
-    public void dismissChild(final View view, float velocity, final boolean direction) {
         final View animView = mCallback.getChildContentView(view);
         final boolean canAnimViewBeDismissed = mCallback.canChildBeDismissed(view);
         float newPos;
@@ -309,7 +296,7 @@ public class SwipeHelper implements Gefingerpoken {
         anim.setDuration(duration);
         anim.addListener(new AnimatorListenerAdapter() {
             public void onAnimationEnd(Animator animation) {
-                mCallback.onChildDismissed(view, direction);
+                mCallback.onChildDismissed(view);
                 animView.setLayerType(View.LAYER_TYPE_NONE, null);
             }
         });
@@ -396,8 +383,7 @@ public class SwipeHelper implements Gefingerpoken {
 
                     if (dismissChild) {
                         // flingadingy
-                        dismissChild(mCurrView, childSwipedFastEnough ? velocity : 0f,
-                                getPos(ev) > mInitialTouchPos);
+                        dismissChild(mCurrView, childSwipedFastEnough ? velocity : 0f);
                     } else {
                         // snappity
                         mCallback.onDragCancelled(mCurrView);
@@ -418,7 +404,7 @@ public class SwipeHelper implements Gefingerpoken {
 
         void onBeginDrag(View v);
 
-        void onChildDismissed(View v, boolean direction);
+        void onChildDismissed(View v);
 
         void onDragCancelled(View v);
     }

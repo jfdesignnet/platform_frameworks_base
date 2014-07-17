@@ -166,7 +166,7 @@ public class NotificationRowLayout
         }
     }
 
-    public void onChildDismissed(View v, boolean direction) {
+    public void onChildDismissed(View v) {
         if (DEBUG) Log.v(TAG, "onChildDismissed: " + v + " mRemoveViews=" + mRemoveViews);
         final View veto = v.findViewById(R.id.veto);
         if (veto != null && veto.getVisibility() != View.GONE && mRemoveViews) {
