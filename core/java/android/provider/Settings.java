@@ -2560,7 +2560,6 @@ public final class Settings {
         public static final String POWER_MENU_SILENT_ENABLED = "power_menu_silent_enabled";
 
         /**
-
          * Setting to show the battery percentage text
          * @hide
          */
@@ -2572,6 +2571,14 @@ public final class Settings {
          * @hide
          */
         public static final String QS_QUICK_PULLDOWN = "qs_quick_pulldown";
+
+        /**
+         * Either if notification peek is enabled of disabled
+         * 0 = disabled (default)
+         * 1 = enabled
+         * @hide
+         */
+        public static final String PEEK_STATE = "peek_state";
 
         /**
          * Settings to backup. This is here so that it's in the same place as the settings
