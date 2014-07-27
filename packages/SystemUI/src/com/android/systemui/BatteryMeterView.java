@@ -16,6 +16,8 @@
 
 package com.android.systemui;
 
+import android.app.Activity;
+import android.app.ActivityManager;
 import android.database.ContentObserver;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -261,8 +263,9 @@ public class BatteryMeterView extends View implements DemoMode {
     }
 
     public void updateSettings(){
-        int batteryStyle = Settings.System.getInt(getContext().getContentResolver(),
-                                Settings.System.STATUS_BAR_BATTERY_STYLE, 0);
+        int batteryStyle = Settings.System.getIntForUser(getContext().getContentResolver(),
+                                Settings.System.STATUS_BAR_BATTERY_STYLE, 0,
+                                ActivityManager.getCurrentUser());
 
         mShowPercent = batteryStyle == 1;
         boolean show = (batteryStyle == 0 || mShowPercent);

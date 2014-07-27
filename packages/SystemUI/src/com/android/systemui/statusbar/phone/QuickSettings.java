@@ -17,6 +17,7 @@
 package com.android.systemui.statusbar.phone;
 
 import android.animation.ValueAnimator;
+import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -115,6 +116,8 @@ class QuickSettings {
     private BatteryCircleMeterView mCircleBattery;
     private int mBatteryStyle;
 
+    private int mCurrentUserId = 0;
+
     // The set of QuickSettingsTiles that have dynamic spans (and need to be updated on
     // configuration change)
     private final ArrayList<QuickSettingsTileView> mDynamicSpannedTiles =
@@ -146,6 +149,8 @@ class QuickSettings {
         profileFilter.addAction(Intent.ACTION_USER_INFO_CHANGED);
         mContext.registerReceiverAsUser(mProfileReceiver, UserHandle.ALL, profileFilter,
                 null, null);
+
+        mCurrentUserId = ActivityManager.getCurrentUser();
     }
 
     void setBar(PanelBar bar) {
@@ -327,8 +332,8 @@ class QuickSettings {
         if (mBattery == null || mModel == null) {
             return;
         }
-        mBatteryStyle = Settings.System.getInt(mContext.getContentResolver(),
-                                Settings.System.STATUS_BAR_BATTERY_STYLE, 0);
+        mBatteryStyle = Settings.System.getIntForUser(mContext.getContentResolver(),
+                Settings.System.STATUS_BAR_BATTERY_STYLE, 0, UserHandle.USER_CURRENT);
         mCircleBattery.updateSettings();
         mBattery.updateSettings();
         mModel.refreshBatteryTile();

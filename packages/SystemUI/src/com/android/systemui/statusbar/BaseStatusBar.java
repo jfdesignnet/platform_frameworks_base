@@ -414,8 +414,8 @@ public abstract class BaseStatusBar extends SystemUI implements
     }
 
     protected void updateHoverState() {
-        mHoverState = Settings.System.getInt(mContext.getContentResolver(),
-                Settings.System.HOVER_STATE, HOVER_DISABLED);
+        mHoverState = Settings.System.getIntForUser(mContext.getContentResolver(),
+                Settings.System.HOVER_STATE, HOVER_DISABLED, UserHandle.USER_CURRENT);
 
         mHoverButton.setImageResource(mHoverState != HOVER_DISABLED
                 ? R.drawable.ic_notify_hover_pressed
@@ -693,8 +693,8 @@ public abstract class BaseStatusBar extends SystemUI implements
     protected int mSwitchLastAppHoldoff = 200;
     private Runnable mSwitchLastApp = new Runnable() {
         public void run() {
-            int selection = Settings.System.getInt(mContext.getContentResolver(),
-                    Settings.System.RECENTS_SWITCH, 0);
+            int selection = Settings.System.getIntForUser(mContext.getContentResolver(),
+                    Settings.System.RECENTS_SWITCH, 0, UserHandle.USER_CURRENT);
             if (selection == 0 || selection == 3) {
                 selectSwitchApps();
             } else {
