@@ -642,18 +642,18 @@ public class Hover {
 
     // notifications processing
     public void setNotification(Entry entry, boolean update) {
-        // first, check if current notification's package is blacklisted
-        //boolean allowed = true; // default on
-        //try {
-            //final String packageName = entry.notification.getPackageName();
-            //allowed = mStatusBar.getNotificationManager().isPackageAllowedForHover(packageName);
-        //} catch (android.os.RemoteException ex) {
+         first, check if current notification's package is blacklisted
+        boolean allowed = true; // default on
+        try {
+            final String packageName = entry.notification.getPackageName();
+            allowed = mStatusBar.getNotificationManager().isPackageAllowedForHover(packageName);
+        } catch (android.os.RemoteException ex) {
             // System is dead
-        //}
-        //if (!allowed) {
-            //addStatusBarNotification(entry.notification);
-            //return;
-        //}
+        }
+        if (!allowed) {
+            addStatusBarNotification(entry.notification);
+            return;
+        }
 
         // second, if we've just expanded statusbar or turned screen off return
         if (!isScreenOn() | isStatusBarExpanded() | isKeyguardSecureShowing()) {

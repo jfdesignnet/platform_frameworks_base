@@ -2295,7 +2295,14 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
         if (n.getNotification().tickerText != null && mStatusBarContainer.getWindowToken() != null) {
             if (0 == (mDisabled & (StatusBarManager.DISABLE_NOTIFICATION_ICONS
                             | StatusBarManager.DISABLE_NOTIFICATION_TICKER))) {
-                mTicker.addEntry(n);
+                boolean blacklisted = false;
+                // don't pass notifications that run in Hover to Ticker
+                try {
+                    blacklisted = getNotificationManager().isPackageAllowedForHover(n.getPackageName());
+                } catch (android.os.RemoteException ex) {
+                    // System is dead
+                }
+                if (!blacklisted) mTicker.addEntry(n);
             }
         }
     }

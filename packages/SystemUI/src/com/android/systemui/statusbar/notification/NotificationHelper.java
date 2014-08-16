@@ -214,6 +214,7 @@ public class NotificationHelper {
                     entry.notification.getPackageName(), entry.notification.getTag(),
                     entry.notification.getId());
             boolean makeFloating = floating
+                    && !isNotificationBlacklisted(entry.notification.getPackageName())
                     // if the notification is from the foreground app, don't open in floating mode
                     && !entry.notification.getPackageName().equals(getForegroundPackageName());
 
@@ -323,6 +324,15 @@ public class NotificationHelper {
             return content.getPackageName() + DELIMITER + content.getId() + DELIMITER + tag;
         }
         return null;
+    }
+
+    public boolean isNotificationBlacklisted(String packageName) {
+        String[] blackList = mContext.getResources()
+                .getStringArray(R.array.hover_blacklisted_packages);
+        for(String s : blackList) {
+            if (s.equals(packageName)) return true;
+        }
+        return false;
     }
 
     /**
