@@ -69,9 +69,9 @@ import com.android.internal.statusbar.StatusBarIcon;
 import com.android.internal.statusbar.StatusBarIconList;
 import com.android.internal.widget.SizeAdaptiveLayout;
 import com.android.systemui.R;
+import com.android.systemui.RecentsComponent;
 import com.android.systemui.SearchPanelView;
 import com.android.systemui.SystemUI;
-import com.android.systemui.slimrecent.RecentController;
 import com.android.systemui.statusbar.notification.Hover;
 import com.android.systemui.statusbar.notification.HoverCling;
 import com.android.systemui.statusbar.notification.NotificationHelper;
@@ -172,7 +172,7 @@ public abstract class BaseStatusBar extends SystemUI implements
 
     private boolean mDeviceProvisioned = false;
 
-    private RecentController mRecents;
+    private RecentsComponent mRecents;
 
     public IStatusBarService getStatusBarService() {
         return mBarService;
@@ -273,7 +273,7 @@ public abstract class BaseStatusBar extends SystemUI implements
         mBarService = IStatusBarService.Stub.asInterface(
                 ServiceManager.getService(Context.STATUS_BAR_SERVICE));
 
-        mRecents = new RecentController(mContext, mLayoutDirection);
+        mRecents = getComponent(RecentsComponent.class);
 
         mLocale = mContext.getResources().getConfiguration().locale;
         mLayoutDirection = TextUtils.getLayoutDirectionFromLocale(mLocale);
@@ -645,12 +645,6 @@ public abstract class BaseStatusBar extends SystemUI implements
     protected void closeRecents() {
         if (mRecents != null) {
             mRecents.closeRecents();
-        }
-    }
-
-    protected void rebuildRecentsScreen() {
-        if (mRecents != null) {
-            mRecents.rebuildRecentsScreen();
         }
     }
 
