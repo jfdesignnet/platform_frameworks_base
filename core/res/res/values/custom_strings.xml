@@ -46,4 +46,7 @@
 
     <!-- label for item that reboots the phone in phone options dialog -->
     <string name="global_action_reboot">Reboot</string>
+
+    <!-- Gesture panel -->
+    <string name="gesture_actions">Gesture panel</string>
 </resources>
