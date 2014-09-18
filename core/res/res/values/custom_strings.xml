@@ -75,4 +75,8 @@
     <string name="permdesc_recordScreen">Allows the app to
         record the users screen.</string>
 
+    <!-- Theme installation error notification -->
+    <string name="theme_install_error_title">Failed to install theme</string>
+    <string name="theme_install_error_message">%s failed to install</string>
+
 </resources> 
