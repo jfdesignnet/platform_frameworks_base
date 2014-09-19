@@ -20,7 +20,7 @@
         android:layout_height="match_parent"
         android:layout_gravity="top"
         android:orientation="vertical">
-     <com.android.systemui.BatteryPercentMeterView
+    <com.android.systemui.BatteryPercentMeterView
             android:id="@+id/percent_battery"
             android:layout_marginTop="@dimen/qs_tile_margin_above_icon"
             android:layout_marginBottom="@dimen/qs_tile_margin_below_icon"
