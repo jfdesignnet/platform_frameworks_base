@@ -207,8 +207,8 @@ public class BatteryMeterView extends View implements DemoMode {
         mBatteryPaint.setStyle(Paint.Style.FILL_AND_STROKE);
 
         mTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mTextPaint.setColor(0xFF000000);
-        Typeface font = Typeface.create("sans-serif-condensed", Typeface.BOLD);
+        mTextPaint.setColor(0xFFFFFFFF);
+        Typeface font = Typeface.create("sans-serif", Typeface.BOLD);
         mTextPaint.setTypeface(font);
         mTextPaint.setTextAlign(Paint.Align.CENTER);
 
@@ -365,10 +365,7 @@ public class BatteryMeterView extends View implements DemoMode {
                     (SINGLE_DIGIT_PERCENT ? 0.75f
                             : (tracker.level == 100 ? 0.38f : 0.5f)));
             mTextHeight = -mTextPaint.getFontMetrics().ascent;
-            if (tracker.level <= 50) {
-                mTextPaint.setColor(0xFFFFFFFF);
-                mTextPaint.setShadowLayer(0.7f,1,1, Color.BLACK);
-            }
+            mTextPaint.setShadowLayer(0.7f,1,1, Color.BLACK);
 
             final String str = String.valueOf(SINGLE_DIGIT_PERCENT ? (level/10) : level);
             final float x = mWidth * 0.5f;

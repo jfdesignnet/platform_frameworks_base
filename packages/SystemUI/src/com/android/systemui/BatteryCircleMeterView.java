@@ -279,11 +279,11 @@ public class BatteryCircleMeterView extends ImageView {
         Resources res = getResources();
         ContentResolver resolver = mContext.getContentResolver();
 
-        int circleColor = res.getColor(com.android.systemui.R.color.batterycirclemeter_frame_color);
-        int chargeColor = res.getColor(com.android.systemui.R.color.batterymeter_charge_color);
-        mCircleTextColor = circleColor;
-        mCircleTextChargingColor = chargeColor;
-        mCircleColor = circleColor;
+        int defaultColor = res.getColor(com.android.systemui.R.color.batterymeter_charge_color);
+
+        mCircleTextColor = defaultColor;
+        mCircleTextChargingColor = defaultColor;
+        mCircleColor = defaultColor;
 
         updateUser(ActivityManager.getCurrentUser());
         /*
@@ -383,7 +383,7 @@ public class BatteryCircleMeterView extends ImageView {
 
         mPaintFont.setTextSize(mCircleSize / 2f);
 
-        float strokeWidth = mCircleSize / 7.5f;
+        float strokeWidth = mCircleSize / 7f;
         mPaintRed.setStrokeWidth(strokeWidth);
         mPaintSystem.setStrokeWidth(strokeWidth);
         mPaintGray.setStrokeWidth(strokeWidth / 3.5f);
@@ -426,6 +426,7 @@ public class BatteryCircleMeterView extends ImageView {
         if (measure == null) {
             return;
         }
+        final int x = measure.getWidth() / 2;
 
         mCircleSize = measure.getHeight();
     }
