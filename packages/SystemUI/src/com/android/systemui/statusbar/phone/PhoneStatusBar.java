@@ -74,6 +74,7 @@ import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
 import android.view.ViewPropertyAnimator;
 import android.view.ViewStub;
+import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.Animation;
@@ -2643,6 +2644,10 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
         copyNotifications(notifications, mNotificationData);
         mNotificationData.clear();
 
+        // Halts the old ticker. A new ticker is created in makeStatusBarView() so
+        // this MUST happen before makeStatusBarView();
+        mTicker.halt();
+
         makeStatusBarView();
         repositionNavigationBar();
         if (mNavigationBarView != null) {
@@ -2668,7 +2673,19 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode {
 
         updateExpandedViewPos(EXPANDED_LEAVE_ALONE);
         checkBarModes();
-        mRecreating = false;
+
+        // Stop the command queue until the new status bar container settles and has a layout pass
+        mCommandQueue.pause();
+        mStatusBarContainer.requestLayout();
+        mStatusBarContainer.getViewTreeObserver().addOnGlobalLayoutListener(
+                new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                mStatusBarContainer.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                mCommandQueue.resume();
+                mRecreating = false;
+            }
+        });
     }
 
     private void removeAllViews(ViewGroup parent) {
