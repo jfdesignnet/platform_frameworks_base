@@ -54,8 +54,8 @@ window.onhashchange = function () {
 <!-- BEGIN ANDROID 4.4 -->
 <div id="44-android-44" class="version-section">
 
-  <div style="padding:0px 0px 0px 60px;margin-top:-3px;float:right;">
-    <img src="{@docRoot}images/kk-android-44.png" alt="Android 4.4 on phone and tablet" width="380"> 
+  <div style="padding:0px 0px 0px 60px;margin-top:-20px;float:right;">
+    <img src="{@docRoot}images/kk-devices.png" alt="Android 4.4 on phone and tablet" width="380">
   </div>
 
   <div class="landing-docs" style="float:right;clear:both;margin:22px 0 2em 3em;">
@@ -143,7 +143,8 @@ window.onhashchange = function () {
   lets you tune your app's behavior to match the device's memory configuration.
   You can modify or disable large-memory features as needed, depending on the
   use-cases you want to support on entry-level devices. Learn more about
-  optimizing your apps for low-memory devices <a href="">here</a>.
+  optimizing your apps for low-memory devices <a
+  href="{@docRoot}training/articles/memory.html">here</a>.
 </p>
 
 <p>
@@ -612,18 +613,20 @@ window.onhashchange = function () {
   Now it's easy to create high-quality video of your app, directly from your
   Android device. <span style="white-space:nowrap;">Android 4.4</span> adds
   support for screen recording and provides a <strong>screen recording
-  utility</strong> that lets you capture video as you use the device and store
-  it as an MP4 file. It's a great new way to create walkthroughs and tutorials
-  for your app, testing materials, marketing videos, and much more.
+  utility</strong> that lets you start and stop recording on a device that's
+  connected to your Android SDK environment over USB. It's a great new way to
+  create walkthroughs and tutorials for your app, testing materials, marketing
+  videos, and more.
 </p>
 
 <p>
-  You can record at any device-supported resolution and bitrate you want, and
-  the output retains the aspect ratio of the display. By default, the utility
-  selects a resolution equal or close to the device's display resolution in the
-  current orientation. When you are done recording, you can share the video
-  directly from your device or pull the MP4 file to your host computer for
-  post-production.
+  With the screen recording utility, you can capture video of your device screen
+  contents and store the video as an MP4 file on the device. You can record at any
+  device-supported resolution and bitrate you want, and the output retains the
+  aspect ratio of the display. By default, the utility selects a resolution
+  equal or close to the device's display resolution in the current orientation.
+  When you are done recording, you can share the video directly from your
+  device or pull the MP4 file to your host computer for post-production.
 </p>
 
 <p>
@@ -827,9 +830,7 @@ window.onhashchange = function () {
 
 <p>
   <span style="white-space:nowrap;">Android 4.4</span> upgrades its
-  SurfaceFlinger from OpenGL ES 1.0 to OpenGL ES 2.0. This boosts performance
-  by using multi-texturing, and it improves color calibration and supports more
-  advanced special effects.
+  SurfaceFlinger from OpenGL ES 1.0 to OpenGL ES 2.0.
 </p>
 
 <h4 id="44-composer">New Hardware Composer support for virtual displays</h4>
@@ -991,7 +992,7 @@ window.onhashchange = function () {
   <img src="{@docRoot}images/kk-pseudolocale-rtl.png" alt="" width="260" style=
   "margin-bottom:0;">
   <p class="img-caption" style="padding-top:1.5em;line-height:1.25em;">
-    Pseudo-locales make it easier to test your app's localization.
+    The <strong>Force RTL layout</strong> option makes it easier to test your app's localization.
   </p>
 </div>
 
@@ -1002,18 +1003,19 @@ window.onhashchange = function () {
   files by using a new attribute.
 </p>
 
-<h4 id="44-pseudolocale-rtl">RTL pseudo-locale</h4>
+<h4 id="44-pseudolocale-rtl">Force RTL Layout</h4>
 
 <p>
-  To make it easier to test and debug your layouts, Android includes an RTL
-  pseudo-locale as a new developer option.
+  To make it easier to test and debug layout mirroring issues without switching
+  to an RTL language, Android includes a new developer option to force RTL layout
+  direction in all apps.
 </p>
 
 <p>
-  The RTL pseudo-locale switches the device to RTL layout for all locales and
+  The Force RTL layout option switches the device to RTL layout for all locales and
   displays text in your current language. This can help you find layout issues
   across your app, without having to display the app in an RTL language. You
-  can access the RTL pseudo-localed as in <strong>Settings &gt; Developer
+  can access the option in <strong>Settings &gt; Developer
   options &gt; Force RTL layout direction</strong>.
 </p>
 
