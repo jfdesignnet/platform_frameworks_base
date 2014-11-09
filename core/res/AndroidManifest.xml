@@ -2560,7 +2560,7 @@
     <permission android:name="android.permission.WRITE_THEMES"
         android:label="@string/permlab_writeThemes"
         android:description="@string/permdesc_writeThemesDesc"
-        android:protectionLevel="signature" />
+        android:protectionLevel="system|signature" />
 
     <!-- Allows an application to record the screen.
          @hide This is not a third-party API (intended for system apps). -->
