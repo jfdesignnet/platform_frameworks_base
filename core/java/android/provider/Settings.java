@@ -2822,6 +2822,12 @@ public final class Settings {
         public static final String VOLUME_LINK_NOTIFICATION = "volume_link_notification";
 
         /**
+         * Status bar battery %
+         * @hide
+         */
+        public static final String STATUS_BAR_SHOW_BATTERY_PERCENT = "status_bar_show_battery_percent";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
@@ -2887,7 +2893,18 @@ public final class Settings {
             VIBRATE_WHEN_RINGING,
             RINGTONE,
             LOCK_TO_APP_ENABLED,
+<<<<<<< HEAD
             NOTIFICATION_SOUND
+=======
+            NOTIFICATION_SOUND,
+            SYSTEM_PROFILES_ENABLED,
+            PHONE_BLACKLIST_ENABLED,
+            PHONE_BLACKLIST_NOTIFY_ENABLED,
+            PHONE_BLACKLIST_PRIVATE_NUMBER_MODE,
+            PHONE_BLACKLIST_UNKNOWN_NUMBER_MODE,
+            PHONE_BLACKLIST_REGEX_ENABLED,
+            STATUS_BAR_SHOW_BATTERY_PERCENT,
+>>>>>>> 91e6614... Fix battery % always showing at < 100%
         };
 
         /**
@@ -5032,6 +5049,7 @@ public final class Settings {
          */
         public static final String SLEEP_TIMEOUT = "sleep_timeout";
 
+<<<<<<< HEAD
         /**
          * Whether to include options in power menu for rebooting into recovery or bootloader
          * @hide
@@ -5040,6 +5058,9 @@ public final class Settings {
 
         /**
          * Whether developer settings dare enabled.
+=======
+        /** Protected Components
+>>>>>>> 91e6614... Fix battery % always showing at < 100%
          * @hide
          */
         public static final String DEVELOPER_OPTIONS_ENABLED = "developer_options_enabled";
