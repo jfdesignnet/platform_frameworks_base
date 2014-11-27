@@ -2829,6 +2829,16 @@ public final class Settings {
         /**
          * Boolean value whether to link ringtone and notification volume
          *
+         * Status bar battery %
+         * 0: Hide the battery percentage
+         * 1: Display the battery percentage inside the icon
+         * 2: Display the battery percentage next to the icon
+         * @hide
+         */
+        public static final String STATUS_BAR_SHOW_BATTERY_PERCENT = "status_bar_show_battery_percent";
+
+        /**
+         * Whether to enable voice wakeup.  The value is boolean (1 or 0).
          * @hide
          */
         public static final String VOLUME_LINK_NOTIFICATION = "volume_link_notification";
