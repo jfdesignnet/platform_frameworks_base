@@ -2811,6 +2811,12 @@ public final class Settings {
         public static final String KEY_APP_SWITCH_ACTION = "key_app_switch_action";
 
         /**
+         * Show search bar in recents
+         * @hide
+         */
+        public static final String RECENTS_SHOW_SEARCH_BAR = "recents_show_search_bar";
+
+        /**
          * Action to perform when the app switch key is long-pressed. (Default is 0)
          * (See KEY_HOME_LONG_PRESS_ACTION for valid values)
          * @hide
