@@ -39,6 +39,7 @@ import android.widget.TextView;
 import com.android.systemui.R;
 import com.android.systemui.DemoMode;
 import com.android.systemui.R;
+import com.android.systemui.statusbar.phone.PhoneStatusBar;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -80,10 +81,12 @@ public class Clock extends TextView implements DemoMode {
     protected int mClockDateStyle = CLOCK_DATE_STYLE_UPPERCASE;
     protected int mClockStyle = STYLE_CLOCK_RIGHT;
     protected boolean mShowClock;
+    private int mClockAndDateWidth;
 
     private int mAmPmStyle;
 
     private SettingsObserver mSettingsObserver;
+    private PhoneStatusBar mStatusBar;
 
     protected class SettingsObserver extends ContentObserver {
         SettingsObserver(Handler handler) {
@@ -194,8 +197,9 @@ public class Clock extends TextView implements DemoMode {
                 final Locale newLocale = getResources().getConfiguration().locale;
                 if (! newLocale.equals(mLocale)) {
                     mLocale = newLocale;
-                    mClockFormatString = ""; // force refresh
                 }
+                updateSettings();
+                return;
             }
             updateClock();
         }
@@ -323,14 +327,12 @@ public class Clock extends TextView implements DemoMode {
                 Settings.System.STATUS_BAR_CLOCK, 1,
                 UserHandle.USER_CURRENT) == 1;
 
+        boolean is24hour = DateFormat.is24HourFormat(mContext);
         int amPmStyle = Settings.System.getIntForUser(resolver,
                 Settings.System.STATUSBAR_CLOCK_AM_PM_STYLE, AM_PM_STYLE_GONE,
                 UserHandle.USER_CURRENT);
-
-        if (mAmPmStyle != amPmStyle) {
-            mAmPmStyle = amPmStyle;
-            mClockFormatString = "";
-        }
+        mAmPmStyle = is24hour ? AM_PM_STYLE_GONE : amPmStyle;
+        mClockFormatString = "";
 
         mClockStyle = Settings.System.getIntForUser(resolver,
                 Settings.System.STATUSBAR_CLOCK_STYLE, STYLE_CLOCK_RIGHT,
@@ -347,13 +349,18 @@ public class Clock extends TextView implements DemoMode {
             updateClock();
         }
 
+        if (mStatusBar != null) {
+            mStatusBar.setClockAndDateStatus(mClockAndDateWidth, mClockStyle, mShowClock);
+        }
+
     }
 
     protected void updateClockVisibility() {
-        if (mClockStyle == STYLE_CLOCK_RIGHT && mShowClock)
+        if (mClockStyle == STYLE_CLOCK_RIGHT && mShowClock) {
             setVisibility(View.VISIBLE);
-        else
+        } else {
             setVisibility(View.GONE);
+        }
     }
 
     private boolean mDemoMode;
@@ -379,5 +386,19 @@ public class Clock extends TextView implements DemoMode {
             setText(getSmallTime());
         }
     }
+
+    public void setPhoneStatusBar(PhoneStatusBar statusBar) {
+        mStatusBar = statusBar;
+    }
+
+    @Override
+    protected void onSizeChanged(int xNew, int yNew, int xOld, int yOld){
+        super.onSizeChanged(xNew, yNew, xOld, yOld);
+        mClockAndDateWidth = xNew;
+        if (mStatusBar != null) {
+            mStatusBar.setClockAndDateStatus(mClockAndDateWidth, mClockStyle, mShowClock);
+        }
+    }
+
 }
 
