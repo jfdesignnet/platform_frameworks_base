@@ -118,7 +118,7 @@ public class NavigationBarView extends LinearLayout {
     private int mDisabledFlags = 0;
     private int mNavigationIconHints = 0;
 
-    private BackButtonDrawable mBackIcon, mBackLandIcon, mBackAltIcon;
+    private Drawable mBackIcon, mBackLandIcon, mBackAltIcon, mBackAltLandIcon;
     private Drawable mRecentIcon;
     private Drawable mRecentLandIcon;
 
@@ -510,7 +510,7 @@ public class NavigationBarView extends LinearLayout {
         }
 
         if (clickAction.startsWith("**")) {
-            v.setScaleType(KeyButtonView.ScaleType.CENTER);
+            v.setScaleType(KeyButtonView.ScaleType.CENTER_INSIDE);
         }
 
         boolean colorize = true;
@@ -550,7 +550,7 @@ public class NavigationBarView extends LinearLayout {
         KeyButtonView v = new KeyButtonView(mContext, null);
         int width = mContext.getResources().getDimensionPixelSize(R.dimen.navigation_extra_key_width);
         v.setLayoutParams(getLayoutParams(landscape, width));
-        v.setScaleType(KeyButtonView.ScaleType.CENTER);
+        v.setScaleType(KeyButtonView.ScaleType.CENTER_INSIDE);
         if (keyId == KEY_MENU_LEFT || keyId == KEY_MENU_RIGHT) {
             v.setClickAction(ActionConstants.ACTION_MENU);
             v.setLongpressAction(ActionConstants.ACTION_NULL);
@@ -637,7 +637,7 @@ public class NavigationBarView extends LinearLayout {
         addMe.setLayoutParams(v.getLayoutParams());
         addMe.setImageResource(empty ? R.drawable.ic_sysbar_lights_out_dot_large
                 : R.drawable.ic_sysbar_lights_out_dot_small);
-        addMe.setScaleType(ImageView.ScaleType.CENTER);
+        addMe.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         addMe.setVisibility(empty ? View.INVISIBLE : View.VISIBLE);
 
         if (landscape) {
@@ -672,6 +672,7 @@ public class NavigationBarView extends LinearLayout {
         }
 
         mNavigationIconHints = hints;
+
         ((ImageView)getBackButton()).setImageDrawable(backAlt
                 ? (mVertical ? mBackAltLandIcon : mBackAltIcon)
                 : (mVertical ? mBackLandIcon : mBackIcon));

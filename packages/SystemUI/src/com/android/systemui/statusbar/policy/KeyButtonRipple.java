@@ -73,6 +73,10 @@ public class KeyButtonRipple extends Drawable {
         mTargetView = targetView;
     }
 
+    public void setColor(int color) {
+        mRippleColor = color;
+    }
+
     private Paint getRipplePaint() {
         if (mRipplePaint == null) {
             mRipplePaint = new Paint();
@@ -365,4 +369,5 @@ public class KeyButtonRipple extends Drawable {
         }
     }
 }
+
 
