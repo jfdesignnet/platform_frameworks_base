@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and 
  * limitations under the License.
  */
- 
+
 package com.android.internal.statusbar;
 
 import com.android.internal.statusbar.StatusBarIcon;
@@ -43,5 +43,7 @@ oneway interface IStatusBar
     void preloadRecentApps();
     void cancelPreloadRecentApps();
     void showScreenPinningRequest();
+    void hideHeadsUpCandidate(String packageName);
+    void scheduleHeadsUpClose();
 }
 
