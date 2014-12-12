@@ -110,4 +110,6 @@
     <!-- Heads up snooze toast -->
     <string name="heads_up_snooze_message">Heads up is snoozed for <xliff:g id="number">%d</xliff:g> minute in dismissed package.</string>
 
+    <!-- Weather string format in expanded statusbar header -->
+    <string name="status_bar_expanded_header_weather_format"><xliff:g id="temp">%1$s</xliff:g> - <xliff:g id="condition">%2$s</xliff:g></string>
 </resources>
