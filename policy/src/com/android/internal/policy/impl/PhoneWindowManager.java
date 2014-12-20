@@ -559,6 +559,35 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     PowerManager.WakeLock mPowerKeyWakeLock;
     boolean mHavePendingMediaKeyRepeatWithWakeLock;
 
+    // Intent action receiver
+    private IntentActionReceiver mIntentActionReceiver;
+
+    private final class IntentActionReceiver extends BroadcastReceiver {
+        private boolean mIsRegistered = false;
+
+        public IntentActionReceiver(Context context) {
+        }
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+            if (action.equals(Intent.ACTION_SCREENSHOT)) {
+                mHandler.removeCallbacks(mScreenshotRunnable);
+                mHandler.post(mScreenshotRunnable);
+            }
+        }
+
+        protected void register() {
+            if (!mIsRegistered) {
+                mIsRegistered = true;
+
+                IntentFilter filter = new IntentFilter();
+                filter.addAction(Intent.ACTION_SCREENSHOT);
+                mContext.registerReceiver(mIntentActionReceiver, filter);
+            }
+        }
+    }
+
     private int mCurrentUserId;
 
     // Maps global key codes to the components that will handle them.
@@ -1263,6 +1292,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 com.android.internal.R.integer.config_triplePressOnPowerBehavior);
 
         readConfigurationDependentBehaviors();
+
+        // register for intent actions
+        mIntentActionReceiver = new IntentActionReceiver(context);
+        mIntentActionReceiver.register();
 
         mAccessibilityManager = (AccessibilityManager) context.getSystemService(
                 Context.ACCESSIBILITY_SERVICE);
