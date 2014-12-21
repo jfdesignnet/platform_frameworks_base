@@ -245,7 +245,7 @@ public class NavigationBarView extends LinearLayout {
         mMenuButtonWidth = res.getDimensionPixelSize(R.dimen.navigation_menu_key_width);
         mLayoutChangerWidth = res.getDimensionPixelSize(R.dimen.navigation_layout_changer_width);
 
-        mLegacyMenu = Settings.System.getInt(cr, Settings.System.NAVIGATION_BAR_SIDEKEYS, 1) == 1;
+        mLegacyMenu = Settings.System.getInt(cr, Settings.System.NAVIGATION_BAR_SIDEKEYS, 0) == 1;
         mImeLayout = Settings.System.getInt(cr, Settings.System.NAVIGATION_BAR_ARROWS, 0) == 1;
         mButtonLayouts = Settings.System.getInt(cr, Settings.System.NAVIGATION_BAR_ALTERNATE_LAYOUTS, 1);
         for(int i=0;i<mButtonLayouts;i++)
@@ -635,7 +635,7 @@ public class NavigationBarView extends LinearLayout {
                                             Settings.System.SOFTKEY_LONG_PRESS_CONFIGURATION, LONGPRESS_TIMEOUT);
                     } else {
                         mImeLayout = Settings.System.getInt(r, Settings.System.NAVIGATION_BAR_ARROWS, 0) == 1;
-                        mLegacyMenu = Settings.System.getInt(r, Settings.System.NAVIGATION_BAR_SIDEKEYS, 1) == 1;
+                        mLegacyMenu = Settings.System.getInt(r, Settings.System.NAVIGATION_BAR_SIDEKEYS, 0) == 1;
                         mButtonLayouts = Settings.System.getInt(r, Settings.System.NAVIGATION_BAR_ALTERNATE_LAYOUTS, 1);
 
                         for(int i=0;i<mButtonLayouts;i++)
