@@ -28,6 +28,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.CheckedTextView;
 import android.widget.ListView;
+
 import com.android.systemui.R;
 import com.android.systemui.qs.QSDetailItemsList;
 import com.android.systemui.qs.QSTile;
@@ -94,6 +95,11 @@ public class LocationTile extends QSTile<QSTile.BooleanState> {
         showDetail(true);
         mEnable.setAllowAnimation(true);
         mDisable.setAllowAnimation(true);
+    }
+
+    @Override
+    protected void handleLongClick() {
+        mHost.startSettingsActivity(LOCATION_SETTINGS_INTENT);
     }
 
     @Override
