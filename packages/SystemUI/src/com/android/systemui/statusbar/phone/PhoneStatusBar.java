@@ -616,6 +616,9 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
 
         addNavigationBar();
 
+        SettingsObserver observer = new SettingsObserver(mHandler);
+        observer.observe();
+
         // Lastly, call to the icon policy to install/update all the icons.
         mIconPolicy = new PhoneStatusBarPolicy(mContext, mCastController);
         mSettingsObserver.onChange(false); // set up
