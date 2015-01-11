@@ -2909,6 +2909,12 @@ public final class Settings {
          */
         public static final String KEY_APP_SWITCH_ACTION = "key_app_switch_action";
 
+        /** Whether to show the brightness slider in quick settings panel.
+         *
+         * @hide
+         */
+        public static final String QS_SHOW_BRIGHTNESS_SLIDER = "qs_show_brightness_slider";
+
         /**
          * Show search bar in recents
          * @hide
