@@ -31,6 +31,7 @@ import android.net.Uri;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.AttributeSet;
+import android.view.Gravity;
 import android.view.ViewAnimationUtils;
 import android.view.LayoutInflater;
 import android.view.View;
