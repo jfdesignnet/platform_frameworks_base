@@ -20,4 +20,11 @@
     <!-- Screenshot delete -->
     <string name="screenshot_delete_action">Delete</string>
     <string name="screenshot_delete_confirmation">Screenshot deleted.</string>
+
+    <!-- Recents pannel -->
+    <string name="clear_recents">Close all recent</string>
+
+    <!-- Lockscreen Shortcuts -->
+    <string name="left_shortcut_hint">Swipe right for %1$s</string>
+    <string name="right_shortcut_hint">Swipe left for %1$s</string>
 </resources>
