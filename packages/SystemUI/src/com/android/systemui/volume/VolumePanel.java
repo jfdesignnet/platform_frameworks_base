@@ -680,7 +680,23 @@ public class VolumePanel extends Handler implements DemoMode {
             sc.expandPanel.setOnClickListener(new OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    expandVolumePanel();
+                    Runnable r = new Runnable() {
+                    public void run() {
+                        mView.setY(-mView.getHeight());
+                        mView.animate().y(0).setDuration(ANIMATION_DURATION)
+                            .withStartAction(new Runnable() {
+                                public void run() {
+                                    expandVolumePanel();
+                                    resetTimeout();
+                                }
+                            });
+                        }
+                    };
+                    if (mView.getHeight() == 0) {
+                        new Handler().post(r);
+                    } else {
+                        r.run();
+                    }
                 }
             });
             sc.seekbarView.setMax(getStreamMaxVolume(streamType));
@@ -777,7 +793,6 @@ public class VolumePanel extends Handler implements DemoMode {
 
     private void expandVolumePanel() {
         showVolumePanel();
-        setZenPanelVisible(true);
         mStreamControls.get(mActiveStreamType).expandPanel.setVisibility(View.GONE);
     }
 
@@ -939,7 +954,6 @@ public class VolumePanel extends Handler implements DemoMode {
     private void updateTimeoutDelay() {
         mTimeoutDelay = mDemoIcon != 0 ? TIMEOUT_DELAY_EXPANDED
                 : sSafetyWarning != null ? TIMEOUT_DELAY_SAFETY_WARNING
-                : mActiveStreamType == AudioManager.STREAM_MUSIC ? TIMEOUT_DELAY
                 : mZenPanelExpanded ? TIMEOUT_DELAY_EXPANDED
                 : isZenPanelVisible() ? TIMEOUT_DELAY_COLLAPSED
                 : TIMEOUT_DELAY;
@@ -980,7 +994,9 @@ public class VolumePanel extends Handler implements DemoMode {
     }
 
     private void updateZenPanelVisible() {
-        setZenPanelVisible(mZenModeAvailable && isNotificationOrRing(mActiveStreamType));
+        if (mZenModeAvailable) {
+            setZenPanelVisible(true);
+        }
     }
 
     public void postVolumeChanged(int streamType, int flags) {
@@ -1230,11 +1246,6 @@ public class VolumePanel extends Handler implements DemoMode {
             final boolean muted = isMuted(streamType);
             updateSliderEnabled(sc, muted, (flags & AudioManager.FLAG_FIXED_VOLUME) != 0);
             if (isNotificationOrRing(streamType)) {
-                // check for expanded panel
-                if (mExtendedPanelExpanded) {
-                    sc.seekbarView.setAlpha(0); sc.seekbarView.animate().alpha(1);
-                    mZenPanel.setAlpha(0); mZenPanel.animate().alpha(1);
-                }
                 updateSliderIcon(sc, muted);
             }
         }
