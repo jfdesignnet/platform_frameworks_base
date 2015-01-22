@@ -1816,12 +1816,6 @@ public final class Settings {
          */
         public static final int ADVANCED_SETTINGS_DEFAULT = 0;
 
-         /**
-         * @hide
-         */
-        public static final String QS_LOCATION_ADVANCED = "qs_location_advanced";
-
-
         /**
          * @deprecated Use {@link android.provider.Settings.Global#AIRPLANE_MODE_ON} instead
          */
@@ -5311,6 +5305,12 @@ public final class Settings {
          * @hide
          */
         public static final String DEVELOPER_OPTIONS_ENABLED = "developer_options_enabled";
+
+         /**
+         * Whether detail view for the location tile is enabled
+         * @hide
+         */
+        public static final String QS_LOCATION_ADVANCED = "qs_location_advanced";
 
         /**
          * This are the settings to be backed up.
