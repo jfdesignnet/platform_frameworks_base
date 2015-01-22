@@ -22,6 +22,7 @@ import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.net.ConnectivityManager;
+import android.nfc.NfcAdapter;
 import android.text.TextUtils;
 
 import java.util.Iterator;
@@ -67,6 +68,9 @@ public class QSUtils {
                     case QSConstants.TILE_BLUETOOTH:
                         removeTile = !deviceSupportsBluetooth();
                         break;
+                    case QSConstants.TILE_NFC:
+                        removeTile = !deviceSupportsNfc(context);
+                        break;
                 }
                 if (removeTile) {
                     iterator.remove();
@@ -86,6 +90,10 @@ public class QSUtils {
 
     public static boolean deviceSupportsBluetooth() {
         return BluetoothAdapter.getDefaultAdapter() != null;
+    }
+
+    public static boolean deviceSupportsNfc(Context context) {
+        return NfcAdapter.getDefaultAdapter(context) != null;
     }
 
     public static boolean deviceSupportsFlashLight(Context context) {
