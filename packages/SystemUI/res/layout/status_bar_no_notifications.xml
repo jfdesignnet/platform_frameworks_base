@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:visibility="gone"
         >
-  <!-- exposed text for theming -->
+    <!-- exposed text for theming -->
     <TextView
             android:id="@+id/no_notifications"
             android:layout_width="match_parent"

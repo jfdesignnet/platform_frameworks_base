@@ -21,7 +21,7 @@
     android:layout_height="@dimen/speed_bump_height"
     android:visibility="gone"
     >
-  <!-- exposed speedbump line for theming -->
+    <!-- exposed speedbump line for theming -->
     <com.android.systemui.statusbar.AlphaOptimizedView
         android:id="@+id/speedbump_line"
         android:layout_width="match_parent"
