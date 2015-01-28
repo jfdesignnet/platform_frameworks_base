@@ -22,9 +22,9 @@ package android.hardware;
  */
 oneway interface ITorchCallback {
      /**
-      * Called when the flashlight turns off unexpectedly.
+      * Called when the flashlight state changes
       */
-     void onTorchOff();
+     void onTorchStateChanged(boolean on);
 
      /**
       * Called when there is an error that turns the flashlight off.
@@ -37,3 +37,4 @@ oneway interface ITorchCallback {
       */
      void onTorchAvailabilityChanged(boolean available);
  }
+
