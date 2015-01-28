@@ -48,4 +48,8 @@
     <color name="sidebar_item_text_color">#ffffffff</color>
     <!-- app sidebar item text shadow color -->
     <color name="sidebar_item_text_shadow_color">#ff000000</color>
+
+    <color name="navring_check_tint">@android:color/white</color>
+    <color name="navring_edit_fill">#FF558B2F</color>
+    <color name="navring_edit_tint">#FF689F38</color>
 </resources> 
