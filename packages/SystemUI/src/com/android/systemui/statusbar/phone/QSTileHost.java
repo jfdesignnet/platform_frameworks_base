@@ -43,6 +43,7 @@ import com.android.systemui.qs.tiles.IntentTile;
 import com.android.systemui.qs.tiles.LocationTile;
 import com.android.systemui.qs.tiles.RotationLockTile;
 import com.android.systemui.qs.tiles.ScreenshotTile;
+import com.android.systemui.qs.tiles.UsbTetherTile;
 import com.android.systemui.qs.tiles.WifiTile;
 import com.android.systemui.settings.CurrentUserTracker;
 import com.android.systemui.statusbar.policy.BluetoothController;
@@ -275,6 +276,8 @@ public class QSTileHost implements QSTile.Host {
                 return new HotspotTile(this);
             case QSConstants.TILE_SCREENSHOT:
                 return new ScreenshotTile(this);
+            case QSConstants.TILE_USB_TETHER:
+                return new UsbTetherTile(this);
             default:
                 throw new IllegalArgumentException("Bad tile spec: " + tileSpec);
         }
