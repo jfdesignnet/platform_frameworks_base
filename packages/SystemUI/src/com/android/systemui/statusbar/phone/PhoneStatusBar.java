@@ -460,10 +460,10 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.STATUS_BAR_CLOCK), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.STATUS_BAR_GREETING), false, this);
+                    Settings.System.STATUS_BAR_GREETING),false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.STATUS_BAR_ILLUSION_LOGO), false, this,
-                    UserHandle.USER_ALL);
+                    Settings.System.STATUS_BAR_ILLUSION_LOGO),
+                    false, this, UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.APP_SIDEBAR_POSITION),
                     false, this, UserHandle.USER_ALL);
@@ -472,9 +472,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                     false, this, UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.NAVIGATION_BAR_BUTTON_TINT_MODE),
-                    false, this, UserHandle.USER_ALL);
-            resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.NAVIGATION_BAR_GLOW_TINT),
                     false, this, UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.NAVIGATION_BAR_CONFIG),
@@ -489,8 +486,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                     Settings.System.MENU_VISIBILITY),
                     false, this, UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.VOLUME_KEY_CURSOR_CONTROL), false, this,
-                    UserHandle.USER_ALL);
+                    Settings.System.VOLUME_KEY_CURSOR_CONTROL),
+                    false, this, UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.HEADS_UP_NOTIFCATION_DECAY),
                     false, this, UserHandle.USER_ALL);
@@ -498,7 +495,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                     Settings.System.HEADS_UP_SNOOZE_TIME),
                     false, this, UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.ENABLE_TASK_MANAGER), false, this, UserHandle.USER_ALL);
+                    Settings.System.ENABLE_TASK_MANAGER),
+                    false, this, UserHandle.USER_ALL);
             update();
         }
 
@@ -537,8 +535,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                     Settings.System.NAVIGATION_BAR_BUTTON_TINT_MODE))
                 || uri.equals(Settings.System.getUriFor(
                     Settings.System.NAVIGATION_BAR_CONFIG))
-                || uri.equals(Settings.System.getUriFor(
-                    Settings.System.NAVIGATION_BAR_GLOW_TINT))
                 || uri.equals(Settings.System.getUriFor(
                     Settings.System.MENU_LOCATION))
                 || uri.equals(Settings.System.getUriFor(

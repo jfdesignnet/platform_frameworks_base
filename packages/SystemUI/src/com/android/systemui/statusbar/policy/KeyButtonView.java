@@ -21,8 +21,10 @@ import android.animation.ObjectAnimator;
 import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.app.IActivityManager;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.database.ContentObserver;
 import android.graphics.Canvas;
 import android.graphics.PorterDuff.Mode;
 import android.graphics.RectF;
@@ -30,6 +32,7 @@ import android.graphics.drawable.Drawable;
 import android.hardware.input.InputManager;
 import android.media.AudioManager;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -77,8 +80,9 @@ public class KeyButtonView extends ImageView {
     boolean mIsLongpressed = false;
     private AudioManager mAudioManager;
     private Animator mAnimateToQuiescent = new ObjectAnimator();
-    private KeyButtonRipple mRipple;
     private LongClickCallback mCallback;
+
+    private boolean mShouldTintIcons = true;
 
     private PowerManager mPm;
 
@@ -129,8 +133,10 @@ public class KeyButtonView extends ImageView {
         setClickable(true);
         mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        setBackground(mRipple = new KeyButtonRipple(context, this));
+        setBackground(new KeyButtonRipple(context, this));
         mPm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        SettingsObserver settingsObserver = new SettingsObserver(new Handler());
+        settingsObserver.observe();
     }
 
     @Override
@@ -205,10 +211,6 @@ public class KeyButtonView extends ImageView {
         return ObjectAnimator.ofFloat(this, "drawingAlpha", mQuiescentAlpha);
     }
 
-    public void setRippleColor(int color) {
-        mRipple.setColor(color);
-    }
-
     public float getQuiescentAlpha() {
         return mQuiescentAlpha;
     }
@@ -252,9 +254,6 @@ public class KeyButtonView extends ImageView {
                 break;
             case MotionEvent.ACTION_CANCEL:
                 setPressed(false);
-                // hack to fix ripple getting stuck. exitHardware() starts an animation,
-                // but sometimes does not finish it.
-                mRipple.exitSoftware();
                 if (mCode != 0) {
                     sendEvent(KeyEvent.ACTION_UP, KeyEvent.FLAG_CANCELED);
                 }
@@ -344,8 +343,39 @@ public class KeyButtonView extends ImageView {
     public interface LongClickCallback {
         public boolean onLongClick(View v);
     }
+
+    public void setTint(boolean tint) {
+        setColorFilter(null);
+        if (tint) {
+            int color = Settings.System.getInt(mContext.getContentResolver(),
+                    Settings.System.NAVIGATION_BAR_TINT, -1);
+            if (color != -1) {
+                setColorFilter(color);
+            }
+        }
+        mShouldTintIcons = tint;
+    }
+
+    class SettingsObserver extends ContentObserver {
+        SettingsObserver(Handler handler) {
+            super(handler);
+        }
+
+        void observe() {
+            ContentResolver resolver = mContext.getContentResolver();
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.NAVIGATION_BAR_TINT), false, this);
+            updateSettings();
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            updateSettings();
+        }
+    }
+
+    protected void updateSettings() {
+        setTint(mShouldTintIcons);
+        invalidate();
+    }
 }
-
-
-
-
