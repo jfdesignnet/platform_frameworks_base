@@ -18,4 +18,9 @@
     <dimen name="folder_width">290dp</dimen>
     <dimen name="folder_height">480dp</dimen>
     <dimen name="setup_sidebar_width">90dp</dimen>
+
+    <!-- Themes: radius of the corners of the notification dropshadow
+         See also: notification_material_rounded_rect_radius
+    -->
+    <dimen name="notification_material_shadow_rounded_rect_radius">0dp</dimen>
 </resources>
