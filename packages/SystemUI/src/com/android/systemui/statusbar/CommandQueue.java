@@ -62,6 +62,8 @@ public class CommandQueue extends IStatusBar.Stub {
     private static final int MSG_TOGGLE_KILL_APP            = 20 << MSG_SHIFT;
     private static final int MSG_TOGGLE_SCREENSHOT          = 21 << MSG_SHIFT;
 
+    private static final int MSG_HIDE_HEADS_UP              = 22 << MSG_SHIFT;
+
     public static final int FLAG_EXCLUDE_NONE = 0;
     public static final int FLAG_EXCLUDE_SEARCH_PANEL = 1 << 0;
     public static final int FLAG_EXCLUDE_RECENTS_PANEL = 1 << 1;
@@ -104,6 +106,7 @@ public class CommandQueue extends IStatusBar.Stub {
         public void notificationLightOff();
         public void notificationLightPulse(int argb, int onMillis, int offMillis);
         public void showScreenPinningRequest();
+        public void scheduleHeadsUpClose();
         public void toggleLastApp();
         public void toggleKillApp();
         public void toggleScreenshot();
@@ -283,6 +286,13 @@ public class CommandQueue extends IStatusBar.Stub {
         mPaused = false;
     }
 
+    public void scheduleHeadsUpClose() {
+        synchronized (mList) {
+            mHandler.removeMessages(MSG_HIDE_HEADS_UP);
+            mHandler.sendEmptyMessage(MSG_HIDE_HEADS_UP);
+        }
+    }
+
     private final class H extends Handler {
         public void handleMessage(Message msg) {
             if (mPaused) {
@@ -368,6 +378,9 @@ public class CommandQueue extends IStatusBar.Stub {
                     break;
                 case MSG_SHOW_SCREEN_PIN_REQUEST:
                     mCallbacks.showScreenPinningRequest();
+                    break;
+                case MSG_HIDE_HEADS_UP:
+                    mCallbacks.scheduleHeadsUpClose();
                     break;
                 case MSG_TOGGLE_LAST_APP:
                     mCallbacks.toggleLastApp();
