@@ -31,6 +31,7 @@
     <!-- Tiles -->
     <string name="quick_settings_nfc">NFC</string>
     <string name="quick_settings_nfc_off">NFC off</string>
+    <string name="quick_settings_brightness">Brightness</string>
 
         <!-- QS location sensors -->
     <!-- Content description of the location tile in quick settings when on, battery saving mode (not shown on the screen). [CHAR LIMIT=NONE] -->
