@@ -20,4 +20,11 @@
     <!-- The text for the button in the notification window-shade that clears
          all of the currently visible notifications. [CHAR LIMIT=10]-->
     <string name="clear_recents">Close all recent</string>
+
+    <!-- Quick settings -->
+    <string name="quick_settings_expanded_desktop">Expanded</string>
+    <string name="quick_settings_expanded_desktop_off">Normal</string>
+    <string name="quick_settings_screen_off">Screen off</string>
+    <string name="quick_settings_screenshot">Screenshot</string>
+    <string name="quick_settings_screenrecord">Screen record</string>
 </resources>

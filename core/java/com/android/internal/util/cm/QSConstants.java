@@ -31,6 +31,10 @@ public class QSConstants {
     public static final String TILE_LOCATION = "location";
     public static final String TILE_CAST = "cast";
     public static final String TILE_HOTSPOT = "hotspot";
+    public static final String TILE_SCREEN_OFF = "screen_off";
+    public static final String TILE_EXPANDED_DESKTOP = "expanded_desktop";
+    public static final String TILE_SCREENSHOT = "screenshot";
+    public static final String TILE_SCREENRECORD = "screenrecord";
 
     // Order matters
     protected static final ArrayList<String> TILES_DEFAULT = new ArrayList<String>();
@@ -52,5 +56,9 @@ public class QSConstants {
         TILES_AVAILABLE.addAll(TILES_DEFAULT);
         TILES_AVAILABLE.add(TILE_INVERSION);
         TILES_AVAILABLE.add(TILE_HOTSPOT);
+        TILES_AVAILABLE.add(TILE_SCREEN_OFF);
+        TILES_AVAILABLE.add(TILE_EXPANDED_DESKTOP);
+        TILES_AVAILABLE.add(TILE_SCREENSHOT);
+        TILES_AVAILABLE.add(TILE_SCREENRECORD);
     }
 }
