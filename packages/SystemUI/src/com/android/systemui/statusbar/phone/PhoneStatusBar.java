@@ -304,6 +304,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     // settings
     View mFlipSettingsView;
     private QSPanel mQSPanel;
+    boolean mSearchPanelAllowed = true;
 
     // top bar
     StatusBarHeaderView mHeader;
@@ -364,6 +365,30 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         : null;
 
     private int mNavigationIconHints = 0;
+
+    class SettingsObserver extends ContentObserver {
+        SettingsObserver(Handler handler) {
+            super(handler);
+        }
+
+        void observe() {
+            ContentResolver resolver = mContext.getContentResolver();
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.ENABLE_NAVIGATION_RING), false, this);
+            update();
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            update();
+        }
+
+        public void update() {
+            ContentResolver resolver = mContext.getContentResolver();
+            mSearchPanelAllowed = Settings.System.getIntForUser(
+                    resolver, Settings.System.ENABLE_NAVIGATION_RING, 1, UserHandle.USER_CURRENT) == 1;
+        }
+    }
 
     // ensure quick settings is disabled until the current user makes it through the setup wizard
     private boolean mUserSetup = false;
@@ -588,6 +613,9 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         // in session state
 
         addNavigationBar();
+
+        SettingsObserver observer = new SettingsObserver(mHandler);
+        observer.observe();
 
         // Lastly, call to the icon policy to install/update all the icons.
         mIconPolicy = new PhoneStatusBarPolicy(mContext, mCastController);
@@ -3401,6 +3429,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
 
     @Override
     protected boolean shouldDisableNavbarGestures() {
+        if (!mSearchPanelAllowed) return true;
         return !isDeviceProvisioned()
                 || mExpandedVisible
                 || (mDisabled & StatusBarManager.DISABLE_SEARCH) != 0;
