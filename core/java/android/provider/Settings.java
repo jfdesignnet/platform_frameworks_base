@@ -3037,7 +3037,13 @@ public final class Settings {
          */
         public static final String RECENTS_CLEAR_ALL_LOCATION = "recents_clear_all_location";
 
-         /**
+        /**
+         * Statusbar crDroid logo
+         * @hide
+         */
+        public static final String STATUS_BAR_ILLUSION_LOGO = "status_bar_illusion_logo";
+
+        /**
          * Whether to dismiss all recents tasks
          * @hide
          */

@@ -16,7 +16,6 @@
 
 package com.android.systemui.statusbar.phone;
 
-
 import static android.app.StatusBarManager.NAVIGATION_HINT_BACK_ALT;
 import static android.app.StatusBarManager.NAVIGATION_HINT_IME_SHOWN;
 import static android.app.StatusBarManager.WINDOW_STATE_HIDDEN;
@@ -357,6 +356,10 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     private boolean mShowCarrierInPanel = false;
     private boolean mShowLabel;
 
+    // illusion logo
+    private boolean mIllusionLogo;
+    private ImageView illusionLogo;
+
     // position
     int[] mPositionTmp = new int[2];
     boolean mExpandedVisible;
@@ -432,6 +435,9 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                     Settings.System.STATUS_BAR_CLOCK), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.STATUS_BAR_GREETING), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.STATUS_BAR_ILLUSION_LOGO), false, this,
+                    UserHandle.USER_ALL);
             update();
         }
 
@@ -449,6 +455,10 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             mAutomaticBrightness = mode != Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL;
             mBrightnessControl = Settings.System.getInt(
                     resolver, Settings.System.STATUS_BAR_BRIGHTNESS_CONTROL, 0) == 1;
+
+            mIllusionLogo = Settings.System.getIntForUser(resolver,
+                    Settings.System.STATUS_BAR_ILLUSION_LOGO, 0, mCurrentUserId) == 1;
+            showIllusionLogo(mIllusionLogo);
 
             mGreeting = Settings.System.getStringForUser(resolver,
 					Settings.System.STATUS_BAR_GREETING,
@@ -3456,6 +3466,15 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         }
     };
 
+    public void showIllusionLogo(boolean show) {
+        if (mStatusBarView == null) return;
+        ContentResolver resolver = mContext.getContentResolver();
+        illusionLogo = (ImageView) mStatusBarView.findViewById(R.id.illusion_logo);
+        if (illusionLogo != null) {
+            illusionLogo.setVisibility(show ? (mIllusionLogo ? View.VISIBLE : View.GONE) : View.GONE);
+        }
+    }
+
     private void resetUserExpandedStates() {
         ArrayList<Entry> activeNotifications = mNotificationData.getActiveNotifications();
         final int notificationCount = activeNotifications.size();
@@ -3543,6 +3562,14 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
      * meantime, just update the things that we know change.
      */
     void updateResources() {
+        final Context context = mContext;
+        final Resources res = context.getResources();
+        ContentResolver resolver = mContext.getContentResolver();
+
+            // detect illusion logo state when theme change.
+            mIllusionLogo = Settings.System.getInt(
+                resolver, Settings.System.STATUS_BAR_ILLUSION_LOGO, 0) == 1;
+            showIllusionLogo(mIllusionLogo);
         // Update the quick setting tiles
         if (mQSPanel != null) {
             mQSPanel.updateResources();
