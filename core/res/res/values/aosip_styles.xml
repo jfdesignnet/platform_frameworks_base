@@ -1,4 +1,9 @@
 <resources>
     <style name="Widget.GifView" parent="@android:style/Widget">
     </style>
+
+    <style name="GlobalActionsAnimation">
+        <item name="windowEnterAnimation">@anim/slide_in_up</item>
+        <item name="windowExitAnimation">@anim/slide_out_down</item>
+    </style>
 </resources>
