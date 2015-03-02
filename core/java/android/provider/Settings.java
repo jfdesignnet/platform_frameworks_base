@@ -2997,6 +2997,12 @@ public final class Settings {
          */
         public static final String TTY_MODE = "tty_mode";
 
+        /**
+         * Force expanded notifications on all apps that support it.
+         * @hide
+         */
+        public static final String FORCE_EXPANDED_NOTIFICATIONS = "force_expanded_notifications";
+
         /** @hide */
         public static final Validator TTY_MODE_VALIDATOR = new InclusiveIntegerRangeValidator(0, 3);
 
