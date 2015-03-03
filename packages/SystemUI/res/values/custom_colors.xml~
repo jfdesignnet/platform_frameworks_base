@@ -21,6 +21,7 @@
     <color name="fab_color">#ff009688</color>
     <color name="floating_action_button_icon_color">#ffffff</color>
 
+<<<<<<< HEAD
     <!-- Exposed resources for theming -->
     <color name="qs_user_detail_name_text">@color/exposed_qs_user_detail_name</color>
     <color name="headsup_scrim_start">@color/exposed_headsup_scrim_start</color>
@@ -60,4 +61,7 @@
     <color name="notification_icon_color">#FFFFFFFF</color>
     <!-- Navigation button ripple color -->
     <color name="navbutton_ripple_color">#FFFFFFFF</color>
+    <color name="qs_background_drawable_color">#ff263238</color>
+=======
+>>>>>>> fd5a759... FW_Base - QSColors: Use stock color address
 </resources>
