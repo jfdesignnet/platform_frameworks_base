@@ -855,6 +855,9 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             }
         });
         mNetworkController = new NetworkControllerImpl(mContext);
+        if (mNetworkController == null) {
+            mNetworkController = new NetworkControllerImpl(mContext);
+        }
         mHotspotController = new HotspotControllerImpl(mContext);
         mBluetoothController = new BluetoothControllerImpl(mContext, mHandlerThread.getLooper());
         mSecurityController = new SecurityControllerImpl(mContext);
@@ -3379,11 +3382,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     private void recreateStatusBar() {
         mRecreating = true;
 
-        if (mMSimNetworkController != null) {
-            mMSimNetworkController.clearSubsLabelView();
-            mContext.unregisterReceiver(mMSimNetworkController);
-        } else if (mNetworkController != null) {
-            mContext.unregisterReceiver(mNetworkController);
+        if (mNetworkController != null) {
+            mNetworkController.removeAllSignalClusters();
         }
 
         removeHeadsUpView();
