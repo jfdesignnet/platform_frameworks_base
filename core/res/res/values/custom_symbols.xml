@@ -16,18 +16,19 @@
 */
 -->
 <resources>
-  <!-- Config Power Menu -->
-  <java-symbol type="drawable" name="ic_lock_reboot" />
-  <java-symbol type="string" name="global_action_reboot" />
-  <java-symbol type="string" name="global_actions" />
-  <java-symbol type="array" name="shutdown_reboot_actions" />
-  <java-symbol type="array" name="shutdown_reboot_options" />
-  <java-symbol type="string" name="reboot_progress" />
-  <java-symbol type="string" name="reboot_system" />
+    <!-- Config Power Menu -->
+    <java-symbol type="drawable" name="ic_lock_reboot" />
+    <java-symbol type="string" name="global_action_reboot" />
+    <java-symbol type="string" name="global_actions" />
+    <java-symbol type="array" name="shutdown_reboot_actions" />
+    <java-symbol type="array" name="shutdown_reboot_options" />
+    <java-symbol type="string" name="reboot_progress" />
+    <java-symbol type="string" name="reboot_system" />
 
-  <!-- Screenrecorder -->
-  <java-symbol type="bool" name="config_enableScreenrecordChord" />
+    <!-- Screenrecorder -->
+    <java-symbol type="bool" name="config_enableScreenrecordChord" />
 
-  <!-- Package Manager -->
-  <java-symbol type="array" name="config_disabledComponents" />
+    <!-- Package Manager -->
+    <java-symbol type="array" name="config_disabledComponents" />
+    <java-symbol type="array" name="config_forceEnabledComponents" />
 </resources>
