@@ -450,6 +450,7 @@ public class PackageManagerService extends IPackageManager.Stub {
 
     // Example: com.angrybirds -> (com.theme1 -> theme1pkg, com.theme2 -> theme2pkg)
     //          com.facebook   -> (com.theme1 -> theme1pkg)
+    // Tracks available target package names -> overlay package paths.
     final ArrayMap<String, ArrayMap<String, PackageParser.Package>> mOverlays =
         new ArrayMap<String, ArrayMap<String, PackageParser.Package>>();
 
@@ -560,7 +561,7 @@ public class PackageManagerService extends IPackageManager.Stub {
     final ResolveInfo mPreLaunchCheckResolveInfo = new ResolveInfo();
     ComponentName mCustomPreLaunchComponentName;
     private Set<String> mPreLaunchCheckPackages =
-            Collections.synchronizedSet(new HashSet<String>());
+            Collections.synchronizedSet(new ArraySet<String>());
 
     boolean mPreLaunchCheckPackagesReplaced = false;
 
@@ -2767,7 +2768,7 @@ public class PackageManagerService extends IPackageManager.Stub {
 
     private boolean isAllowedSignature(PackageParser.Package pkg, String permissionName) {
         for (Signature pkgSig : pkg.mSignatures) {
-            HashSet<String> perms = mSignatureAllowances.get(pkgSig);
+            ArraySet<String> perms = mSignatureAllowances.get(pkgSig);
             if (perms != null && perms.contains(permissionName)) {
                 return true;
             }
@@ -2949,7 +2950,7 @@ public class PackageManagerService extends IPackageManager.Stub {
             return PackageManager.SIGNATURE_NO_MATCH;
         }
 
-        // Since both signature sets are of size 1, we can compare without HashSets.
+        // Since both signature sets are of size 1, we can compare without ArraySets.
         if (s1.length == 1) {
             return s1[0].equals(s2[0]) ?
                     PackageManager.SIGNATURE_MATCH :
