@@ -18,7 +18,6 @@ package com.android.systemui.recents.views;
 
 import android.app.ActivityOptions;
 import android.app.TaskStackBuilder;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -33,6 +32,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
+
 import com.android.systemui.recents.Constants;
 import com.android.systemui.recents.RecentsConfiguration;
 import com.android.systemui.recents.misc.SystemServicesProxy;
@@ -70,6 +70,7 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
     RecentsViewCallbacks mCb;
     View mClearRecents;
     View mFloatingButton;
+    boolean mAlreadyLaunchingTask;
 
     public RecentsView(Context context) {
         super(context);
@@ -240,10 +241,6 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         // We have to increment/decrement the post animation trigger in case there are no children
         // to ensure that it runs
         ctx.postAnimationTrigger.increment();
-
-        // Hide clear recents button before return to home
-        startHideClearRecentsButtonAnimation();
-
         int childCount = getChildCount();
         for (int i = 0; i < childCount; i++) {
             View child = getChildAt(i);
@@ -256,25 +253,6 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
 
         // Notify of the exit animation
         mCb.onExitToHomeAnimationTriggered();
-    }
-
-    public void startHideClearRecentsButtonAnimation() {
-        if (mClearRecents != null) {
-            mClearRecents.animate()
-                .alpha(0f)
-                .setStartDelay(0)
-                .setUpdateListener(null)
-                .setInterpolator(mConfig.fastOutSlowInInterpolator)
-                .setDuration(mConfig.taskViewRemoveAnimDuration)
-                .withEndAction(new Runnable() {
-                    @Override
-                    public void run() {
-                        mClearRecents.setVisibility(View.GONE);
-                        mClearRecents.setAlpha(1f);
-                    }
-                })
-                .start();
-        }
     }
 
     /** Adds the search bar */
@@ -316,8 +294,8 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         int height = MeasureSpec.getSize(heightMeasureSpec);
 
         // Get the search bar bounds and measure the search bar layout
-        Rect searchBarSpaceBounds = new Rect();
         if (mSearchBar != null) {
+            Rect searchBarSpaceBounds = new Rect();
             mConfig.getSearchBarBounds(width, height, mConfig.systemInsets.top, searchBarSpaceBounds);
             mSearchBar.measure(
                     MeasureSpec.makeMeasureSpec(searchBarSpaceBounds.width(), MeasureSpec.EXACTLY),
@@ -331,41 +309,13 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         mConfig.getTaskStackBounds(width, height, mConfig.systemInsets.top,
                 mConfig.systemInsets.right, taskStackBounds);
 
-        // Measure each TaskStackView with the full width and height of the window since the 
-        // transition view is a child of that stack view
-        int childCount = getChildCount();
-        int taskViewWidth = 0;
-        for (int i = 0; i < childCount; i++) {
-            View child = getChildAt(i);
-            if (child != mSearchBar && child.getVisibility() != GONE) {
-                TaskStackView tsv = (TaskStackView) child;
-                // Set the insets to be the top/left inset + search bounds
-                tsv.setStackInsetRect(taskStackBounds);
-                tsv.measure(widthMeasureSpec, heightMeasureSpec);
-
-                // Retrieve the max width of the task views
-                int taskViewChildCount = tsv.getChildCount();
-                for (int j = 0; j < taskViewChildCount; j++) {
-                    View taskViewChild = tsv.getChildAt(j);
-                    taskViewWidth = Math.max(taskViewChild.getMeasuredWidth(), taskViewWidth);
-                }
-
-            }
-        }
-
         if (mFloatingButton != null && showClearAllRecents) {
             int clearRecentsLocation = Settings.System.getInt(mContext.getContentResolver(),
                     Settings.System.RECENTS_CLEAR_ALL_LOCATION, Constants.DebugFlags.App.RECENTS_CLEAR_ALL_BOTTOM_RIGHT);
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams)
                     mFloatingButton.getLayoutParams();
             params.topMargin = taskStackBounds.top;
-            if (mSearchBar != null && (searchBarSpaceBounds.width() > taskViewWidth)) {
-                // Adjust to the search bar
-                params.rightMargin = width - searchBarSpaceBounds.right;
-            } else {
-                // Adjust to task views
-                params.rightMargin = (width / 2) - (taskViewWidth / 2);
-            }
+
             switch (clearRecentsLocation) {
                 case Constants.DebugFlags.App.RECENTS_CLEAR_ALL_TOP_LEFT:
                     params.gravity = Gravity.TOP | Gravity.LEFT;
@@ -386,13 +336,31 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
             mFloatingButton.setVisibility(View.GONE);
         }
 
+        // Measure each TaskStackView with the full width and height of the window since the 
+        // transition view is a child of that stack view
+        int childCount = getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            View child = getChildAt(i);
+            if (child != mSearchBar && child.getVisibility() != GONE) {
+                TaskStackView tsv = (TaskStackView) child;
+                // Set the insets to be the top/left inset + search bounds
+                tsv.setStackInsetRect(taskStackBounds);
+                tsv.measure(widthMeasureSpec, heightMeasureSpec);
+            }
+        }
+
         setMeasuredDimension(width, height);
     }
 
     public void noUserInteraction() {
-        if (mClearRecents != null) {
-            mClearRecents.setVisibility(View.VISIBLE);
+        if (mFloatingButton != null) {
+            mFloatingButton.setVisibility(View.VISIBLE);
         }
+    }
+
+    private boolean dismissAll() {
+        return Settings.System.getInt(mContext.getContentResolver(),
+            Settings.System.RECENTS_CLEAR_ALL_DISMISS_ALL, 1) == 1;
     }
 
     @Override
@@ -401,13 +369,29 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         mFloatingButton = ((View)getParent()).findViewById(R.id.floating_action_button);
         mClearRecents = ((View)getParent()).findViewById(R.id.clear_recents);
         mClearRecents.setOnClickListener(new View.OnClickListener() {
+
             public void onClick(View v) {
-                if (mClearRecents.getAlpha() != 1f) {
+                if (mFloatingButton.getAlpha() != 1f) {
                     return;
                 }
 
-                // Hide clear recents button before dismiss all tasks
-                startHideClearRecentsButtonAnimation();
+                if (dismissAll()) {
+                    // Hide clear recents before dismiss all tasks
+                    mFloatingButton.animate()
+                        .alpha(0f)
+                        .setStartDelay(0)
+                        .setUpdateListener(null)
+                        .setInterpolator(mConfig.fastOutSlowInInterpolator)
+                        .setDuration(mConfig.taskViewRemoveAnimDuration)
+                        .withEndAction(new Runnable() {
+                            @Override
+                            public void run() {
+                                mFloatingButton.setVisibility(View.GONE);
+                                mFloatingButton.setAlpha(1f);
+                            }
+                        })
+                        .start();
+                }
 
                 dismissAllTasksAnimated();
             }
