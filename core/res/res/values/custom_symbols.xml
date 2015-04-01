@@ -54,4 +54,7 @@
   <!-- Enable power button on secured lockscreen -->
   <java-symbol type="bool" name="config_powerButtonLockscreenEnabled" />
 
+  <!-- Automatic brightness enhancements -->
+  <java-symbol type="integer" name="config_autoBrightnessBrighteningLightFastDebounce"/>
+
 </resources> 
