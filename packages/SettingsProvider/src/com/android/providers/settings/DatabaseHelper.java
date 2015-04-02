@@ -30,6 +30,7 @@ import android.content.res.ThemeConfig;
 import android.content.res.XmlResourceParser;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.database.sqlite.SQLiteStatement;
 import android.media.AudioManager;
@@ -2548,31 +2549,8 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
             loadIntegerSetting(stmt, Settings.Secure.SLEEP_TIMEOUT,
                     R.integer.def_sleep_timeout);
-<<<<<<< HEAD
-=======
-
-            if (!TextUtils.isEmpty(mContext.getResources().getString(R.string.def_input_method))) {
-                loadStringSetting(stmt, Settings.Secure.DEFAULT_INPUT_METHOD,
-                        R.string.def_input_method);
-            }
-
-            if (!TextUtils.isEmpty(mContext.getResources().getString(
-                    R.string.def_enable_input_methods))) {
-                loadStringSetting(stmt, Settings.Secure.ENABLED_INPUT_METHODS,
-                        R.string.def_enable_input_methods);
-            }
-
-            // for accessibility enabled
-            loadStringSetting(stmt, Settings.Secure.ACCESSIBILITY_ENABLED,
-                    R.integer.def_enable_accessiblity);
-            loadStringSetting(stmt, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-                    R.string.def_enable_accessiblity_services);
-
-            loadBooleanSetting(stmt, Settings.Secure.STATS_COLLECTION,
-                    R.bool.def_cm_stats_collection);
 
             loadDefaultThemeSettings(stmt);
->>>>>>> c18b93c... Themes: Allow setting a default theme
         } finally {
             if (stmt != null) stmt.close();
         }
