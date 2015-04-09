@@ -109,8 +109,7 @@ public class Clock implements DemoMode {
             filter.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
             filter.addAction(Intent.ACTION_USER_SWITCHED);
 
-            mContext().registerReceiverAsUser(mIntentReceiver, UserHandle.ALL, filter,
-                    null, new Handler());
+            mContext.registerReceiver(mIntentReceiver, filter, null, new Handler());
         }
 
         // NOTE: It's safe to do these after registering the receiver since the receiver always runs

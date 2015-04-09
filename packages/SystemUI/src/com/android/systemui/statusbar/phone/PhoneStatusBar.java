@@ -447,7 +447,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             mClockLocation = Settings.System.getInt(
                     resolver, Settings.System.STATUS_BAR_CLOCK, Clock.STYLE_CLOCK_RIGHT);
             updateClockView();
-            }
         }
     }
 
@@ -844,7 +843,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         if (mClockController == null) mClockController = new Clock(mContext, mClockView);
         updateClockView();
 
-        mStackScroller = (NotificationStackScrollLayout) mStatusBarWindowContent.findViewById(
+        mStackScroller = (NotificationStackScrollLayout) mStatusBarWindow.findViewById(
                 R.id.notification_stack_scroller);
         mStackScroller.setLongPressListener(getNotificationLongClicker());
         mStackScroller.setPhoneStatusBar(this);
