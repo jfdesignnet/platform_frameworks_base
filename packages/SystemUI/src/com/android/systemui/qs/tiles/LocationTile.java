@@ -25,6 +25,11 @@ import com.android.systemui.statusbar.policy.LocationController.LocationSettings
 /** Quick settings tile: Location **/
 public class LocationTile extends QSTile<QSTile.BooleanState> {
 
+    private final AnimationIcon mEnable =
+            new AnimationIcon(R.drawable.ic_signal_location_enable_animation);
+    private final AnimationIcon mDisable =
+            new AnimationIcon(R.drawable.ic_signal_location_disable_animation);
+
     private final LocationController mController;
     private final KeyguardMonitor mKeyguard;
     private final Callback mCallback = new Callback();
@@ -54,31 +59,39 @@ public class LocationTile extends QSTile<QSTile.BooleanState> {
     @Override
     protected void handleClick() {
         final boolean wasEnabled = (Boolean) mState.value;
-        final boolean changed = mController.setLocationEnabled(!wasEnabled);
-        if (!wasEnabled && changed) {
-            // If we've successfully switched from location off to on, close the
-            // notifications tray to show the network location provider consent dialog.
-            mHost.collapsePanels();
-        }
+        mController.setLocationEnabled(!wasEnabled);
+        mEnable.setAllowAnimation(true);
+        mDisable.setAllowAnimation(true);
     }
 
     @Override
     protected void handleUpdateState(BooleanState state, Object arg) {
         final boolean locationEnabled =  mController.isLocationEnabled();
-        state.visible = !(mKeyguard.isSecure() && mKeyguard.isShowing());
+
+        // Work around for bug 15916487: don't show location tile on top of lock screen. After the
+        // bug is fixed, this should be reverted to only hiding it on secure lock screens:
+        // state.visible = !(mKeyguard.isSecure() && mKeyguard.isShowing());
+        state.visible = !mKeyguard.isShowing();
         state.value = locationEnabled;
         if (locationEnabled) {
-            state.iconId = R.drawable.ic_qs_location_on;
+            state.icon = mEnable;
             state.label = mContext.getString(R.string.quick_settings_location_label);
             state.contentDescription = mContext.getString(
-                    R.string.accessibility_quick_settings_location,
-                    mContext.getString(R.string.accessibility_desc_on));
+                    R.string.accessibility_quick_settings_location_on);
         } else {
-            state.iconId = R.drawable.ic_qs_location_off;
+            state.icon = mDisable;
             state.label = mContext.getString(R.string.quick_settings_location_label);
             state.contentDescription = mContext.getString(
-                    R.string.accessibility_quick_settings_location,
-                    mContext.getString(R.string.accessibility_desc_off));
+                    R.string.accessibility_quick_settings_location_off);
+        }
+    }
+
+    @Override
+    protected String composeChangeAnnouncement() {
+        if (mState.value) {
+            return mContext.getString(R.string.accessibility_quick_settings_location_changed_on);
+        } else {
+            return mContext.getString(R.string.accessibility_quick_settings_location_changed_off);
         }
     }
 

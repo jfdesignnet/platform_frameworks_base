@@ -17,7 +17,6 @@
 package com.android.systemui.volume;
 
 import android.content.Context;
-import android.graphics.Typeface;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -30,8 +29,7 @@ import com.android.systemui.R;
 import java.util.Objects;
 
 public class SegmentedButtons extends LinearLayout {
-    private static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
-    private static final Typeface BOLD = Typeface.create("sans-serif", Typeface.BOLD);
+    private static final int LABEL_RES_KEY = R.id.label;
 
     private final Context mContext;
     private final LayoutInflater mInflater;
@@ -62,14 +60,17 @@ public class SegmentedButtons extends LinearLayout {
             final Object tag = c.getTag();
             final boolean selected = Objects.equals(mSelectedValue, tag);
             c.setSelected(selected);
-            c.setTypeface(selected ? BOLD : MEDIUM);
+            c.getCompoundDrawables()[1].setTint(mContext.getResources().getColor(selected
+                    ? R.color.segmented_button_selected : R.color.segmented_button_unselected));
         }
         fireOnSelected();
     }
 
-    public void addButton(int labelResId, Object value) {
+    public void addButton(int labelResId, int iconResId, Object value) {
         final Button b = (Button) mInflater.inflate(R.layout.segmented_button, this, false);
+        b.setTag(LABEL_RES_KEY, labelResId);
         b.setText(labelResId);
+        b.setCompoundDrawablesWithIntrinsicBounds(0, iconResId, 0, 0);
         final LayoutParams lp = (LayoutParams) b.getLayoutParams();
         if (getChildCount() == 0) {
             lp.leftMargin = lp.rightMargin = 0; // first button has no margin
@@ -78,11 +79,31 @@ public class SegmentedButtons extends LinearLayout {
         addView(b);
         b.setTag(value);
         b.setOnClickListener(mClick);
+        Interaction.register(b, new Interaction.Callback() {
+            @Override
+            public void onInteraction() {
+                fireInteraction();
+            }
+        });
+    }
+
+    public void updateLocale() {
+        for (int i = 0; i < getChildCount(); i++) {
+            final Button b = (Button) getChildAt(i);
+            final int labelResId = (Integer) b.getTag(LABEL_RES_KEY);
+            b.setText(labelResId);
+        }
     }
 
     private void fireOnSelected() {
         if (mCallback != null) {
             mCallback.onSelected(mSelectedValue);
+        }
+    }
+
+    private void fireInteraction() {
+        if (mCallback != null) {
+            mCallback.onInteraction();
         }
     }
 
@@ -93,7 +114,7 @@ public class SegmentedButtons extends LinearLayout {
         }
     };
 
-    public interface Callback {
+    public interface Callback extends Interaction.Callback {
         void onSelected(Object value);
     }
 }

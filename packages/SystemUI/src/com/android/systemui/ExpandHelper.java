@@ -351,6 +351,9 @@ public class ExpandHelper implements Gefingerpoken {
                 mVelocityTracker.addMovement(event);
                 break;
             case MotionEvent.ACTION_MOVE:
+                if (mVelocityTracker == null) {
+                    mVelocityTracker = VelocityTracker.obtain();
+                }
                 mVelocityTracker.addMovement(event);
                 break;
             default:
@@ -359,8 +362,8 @@ public class ExpandHelper implements Gefingerpoken {
     }
 
     private void maybeRecycleVelocityTracker(MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_CANCEL
-                || event.getActionMasked() == MotionEvent.ACTION_UP) {
+        if (mVelocityTracker != null && (event.getActionMasked() == MotionEvent.ACTION_CANCEL
+                || event.getActionMasked() == MotionEvent.ACTION_UP)) {
             mVelocityTracker.recycle();
             mVelocityTracker = null;
         }

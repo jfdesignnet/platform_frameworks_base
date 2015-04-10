@@ -18,37 +18,17 @@
 -->
 
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-          android:layout_width="wrap_content"
-          android:layout_height="match_parent"
-          android:orientation="vertical"
-          android:focusable="true" >
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
     <include
-            layout="@layout/time_header_label"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/timepicker_header_height"
-            android:layout_gravity="center" />
+        layout="@layout/time_header_label"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/timepicker_header_height"
+        android:layout_gravity="center" />
     <android.widget.RadialTimePickerView
-            android:id="@+id/radial_picker"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/timepicker_radial_picker_dimen"
-            android:layout_gravity="center"
-            android:focusable="true"
-            android:focusableInTouchMode="true" />
-    <LinearLayout
-            android:id="@+id/layout_buttons"
-            style="?android:attr/buttonBarStyle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:divider="?android:attr/dividerHorizontal"
-            android:showDividers="beginning">
-        <Button
-                android:id="@+id/done_button"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:minHeight="48dp"
-                android:text="@string/done_label"
-                android:textSize="@dimen/timepicker_done_label_size"
-                style="?android:attr/buttonBarButtonStyle" />
-    </LinearLayout>
+        android:id="@+id/radial_picker"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/timepicker_radial_picker_dimen"
+        android:layout_gravity="center" />
 </LinearLayout>

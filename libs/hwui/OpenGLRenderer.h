@@ -94,6 +94,11 @@ enum ClipSideFlags {
     kClipSide_ConservativeFull = 0x1F
 };
 
+enum VertexBufferDisplayFlags {
+    kVertexBuffer_Offset = 0x1,
+    kVertexBuffer_ShadowInterp = 0x2,
+};
+
 /**
  * Defines additional transformation that should be applied by the model view matrix, beyond that of
  * the currentTransform()
@@ -131,20 +136,12 @@ public:
     virtual status_t prepareDirty(float left, float top, float right, float bottom, bool opaque);
     virtual void finish();
 
-    void setCountOverdrawEnabled(bool enabled) {
-        mCountOverdraw = enabled;
-    }
-
-    float getOverdraw() {
-        return mCountOverdraw ? mOverdraw : 0.0f;
-    }
-
     virtual status_t callDrawGLFunction(Functor* functor, Rect& dirty);
 
     void pushLayerUpdate(Layer* layer);
     void cancelLayerUpdate(Layer* layer);
-    void clearLayerUpdates();
     void flushLayerUpdates();
+    void markLayersAsBuildLayers();
 
     virtual int saveLayer(float left, float top, float right, float bottom,
             const SkPaint* paint, int flags) {
@@ -161,17 +158,13 @@ public:
 
     virtual status_t drawRenderNode(RenderNode* displayList, Rect& dirty, int32_t replayFlags = 1);
     virtual status_t drawLayer(Layer* layer, float x, float y);
-    virtual status_t drawBitmap(const SkBitmap* bitmap, float left, float top,
-            const SkPaint* paint);
+    virtual status_t drawBitmap(const SkBitmap* bitmap, const SkPaint* paint);
     status_t drawBitmaps(const SkBitmap* bitmap, AssetAtlas::Entry* entry, int bitmapCount,
             TextureVertex* vertices, bool pureTranslate, const Rect& bounds, const SkPaint* paint);
-    virtual status_t drawBitmap(const SkBitmap* bitmap, const SkMatrix& matrix,
-            const SkPaint* paint);
     virtual status_t drawBitmap(const SkBitmap* bitmap, float srcLeft, float srcTop,
             float srcRight, float srcBottom, float dstLeft, float dstTop,
             float dstRight, float dstBottom, const SkPaint* paint);
-    virtual status_t drawBitmapData(const SkBitmap* bitmap, float left, float top,
-            const SkPaint* paint);
+    virtual status_t drawBitmapData(const SkBitmap* bitmap, const SkPaint* paint);
     virtual status_t drawBitmapMesh(const SkBitmap* bitmap, int meshWidth, int meshHeight,
             const float* vertices, const int* colors, const SkPaint* paint);
     status_t drawPatches(const SkBitmap* bitmap, AssetAtlas::Entry* entry,
@@ -254,6 +247,11 @@ public:
      * Inserts a named event marker in the stream of GL commands.
      */
     void eventMark(const char* name) const;
+
+    /**
+     * Inserts a formatted event marker in the stream of GL commands.
+     */
+    void eventMarkDEBUG(const char *fmt, ...) const;
 
     /**
      * Inserts a named group marker in the stream of GL commands. This marker
@@ -339,8 +337,16 @@ public:
     }
 #endif
 
-    const Vector3& getLightCenter() const { return mLightCenter; }
+    const Vector3& getLightCenter() const { return currentSnapshot()->getRelativeLightCenter(); }
     float getLightRadius() const { return mLightRadius; }
+    uint8_t getAmbientShadowAlpha() const { return mAmbientShadowAlpha; }
+    uint8_t getSpotShadowAlpha() const { return mSpotShadowAlpha; }
+
+    SkPath* allocPathForFrame() {
+        SkPath* path = new SkPath();
+        mTempPaths.push_back(path);
+        return path;
+    }
 
 protected:
     /**
@@ -655,17 +661,17 @@ private:
      *
      * @param vertexBuffer The VertexBuffer to be drawn
      * @param paint The paint to render with
-     * @param useOffset Offset the vertexBuffer (used in drawing non-AA lines)
+     * @param flags flags with which to draw
      */
     status_t drawVertexBuffer(float translateX, float translateY, const VertexBuffer& vertexBuffer,
-            const SkPaint* paint, bool useOffset = false);
+            const SkPaint* paint, int flags = 0);
 
     /**
      * Convenience for translating method
      */
     status_t drawVertexBuffer(const VertexBuffer& vertexBuffer,
-            const SkPaint* paint, bool useOffset = false) {
-        return drawVertexBuffer(0.0f, 0.0f, vertexBuffer, paint, useOffset);
+            const SkPaint* paint, int flags = 0) {
+        return drawVertexBuffer(0.0f, 0.0f, vertexBuffer, paint, flags);
     }
 
     /**
@@ -841,7 +847,7 @@ private:
     void setupDrawWithTextureAndColor(bool isAlpha8 = false);
     void setupDrawWithExternalTexture();
     void setupDrawNoTexture();
-    void setupDrawAA();
+    void setupDrawVertexAlpha(bool useShadowAlphaInterp);
     void setupDrawColor(int color, int alpha);
     void setupDrawColor(float r, float g, float b, float a);
     void setupDrawAlpha8Color(int color, int alpha);
@@ -981,7 +987,7 @@ private:
     // List of rectangles to clear after saveLayer() is invoked
     Vector<Rect*> mLayers;
     // List of layers to update at the beginning of a frame
-    Vector<Layer*> mLayerUpdates;
+    Vector< sp<Layer> > mLayerUpdates;
 
     // The following fields are used to setup drawing
     // Used to describe the shaders to generate
@@ -1004,11 +1010,7 @@ private:
 
     // No-ops start/endTiling when set
     bool mSuppressTiling;
-
-    // If true, this renderer will setup drawing to emulate
-    // an increment stencil buffer in the color buffer
-    bool mCountOverdraw;
-    float mOverdraw;
+    bool mFirstFrameAfterResize;
 
     bool mSkipOutlineClip;
 
@@ -1017,6 +1019,9 @@ private:
     float mLightRadius;
     uint8_t mAmbientShadowAlpha;
     uint8_t mSpotShadowAlpha;
+
+    // Paths kept alive for the duration of the frame
+    std::vector<SkPath*> mTempPaths;
 
     friend class Layer;
     friend class TextSetupFunctor;

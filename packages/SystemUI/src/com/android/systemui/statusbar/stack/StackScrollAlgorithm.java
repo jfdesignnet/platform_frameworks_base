@@ -17,6 +17,7 @@
 package com.android.systemui.statusbar.stack;
 
 import android.content.Context;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -39,8 +40,6 @@ public class StackScrollAlgorithm {
     private static final int MAX_ITEMS_IN_BOTTOM_STACK = 3;
     private static final int MAX_ITEMS_IN_TOP_STACK = 3;
 
-    /** When a child is activated, the other cards' alpha fade to this value. */
-    private static final float ACTIVATED_INVERSE_ALPHA = 0.9f;
     public static final float DIMMED_SCALE = 0.95f;
 
     private int mPaddingBetweenElements;
@@ -71,6 +70,9 @@ public class StackScrollAlgorithm {
     private int mBottomStackSlowDownLength;
     private int mTopStackSlowDownLength;
     private int mCollapseSecondCardPadding;
+    private boolean mIsSmallScreen;
+    private int mMaxNotificationHeight;
+    private boolean mScaleDimmed;
 
     public StackScrollAlgorithm(Context context) {
         initConstants(context);
@@ -78,7 +80,7 @@ public class StackScrollAlgorithm {
     }
 
     private void updatePadding(boolean dimmed) {
-        mPaddingBetweenElements = dimmed
+        mPaddingBetweenElements = dimmed && mScaleDimmed
                 ? mPaddingBetweenElementsDimmed
                 : mPaddingBetweenElementsNormal;
         mTopStackTotalSize = mTopStackSlowDownLength + mPaddingBetweenElements
@@ -106,6 +108,8 @@ public class StackScrollAlgorithm {
                 .getDimensionPixelSize(R.dimen.notification_padding);
         mCollapsedSize = context.getResources()
                 .getDimensionPixelSize(R.dimen.notification_min_height);
+        mMaxNotificationHeight = context.getResources()
+                .getDimensionPixelSize(R.dimen.notification_max_height);
         mTopStackPeekSize = context.getResources()
                 .getDimensionPixelSize(R.dimen.top_stack_peek_amount);
         mBottomStackPeekSize = context.getResources()
@@ -121,8 +125,13 @@ public class StackScrollAlgorithm {
                 R.dimen.notification_material_rounded_rect_radius);
         mCollapseSecondCardPadding = context.getResources().getDimensionPixelSize(
                 R.dimen.notification_collapse_second_card_padding);
+        mScaleDimmed = context.getResources().getDisplayMetrics().densityDpi
+                >= DisplayMetrics.DENSITY_XXHIGH;
     }
 
+    public boolean shouldScaleDimmed() {
+        return mScaleDimmed;
+    }
 
     public void getStackScrollState(AmbientState ambientState, StackScrollState resultState) {
         // The state of the local variables are saved in an algorithmState to easily subdivide it
@@ -159,9 +168,8 @@ public class StackScrollAlgorithm {
         updateZValuesForState(resultState, algorithmState);
 
         handleDraggedViews(ambientState, resultState, algorithmState);
-        updateDimmedActivated(ambientState, resultState, algorithmState);
+        updateDimmedActivatedHideSensitive(ambientState, resultState, algorithmState);
         updateClipping(resultState, algorithmState);
-        updateScrimAmount(resultState, algorithmState, ambientState.getScrimAmount());
         updateSpeedBumpState(resultState, algorithmState, ambientState.getSpeedBumpIndex());
     }
 
@@ -175,16 +183,6 @@ public class StackScrollAlgorithm {
             // The speed bump can also be gone, so equality needs to be taken when comparing
             // indices.
             childViewState.belowSpeedBump = speedBumpIndex != -1 && i >= speedBumpIndex;
-        }
-    }
-
-    private void updateScrimAmount(StackScrollState resultState,
-            StackScrollAlgorithmState algorithmState, float scrimAmount) {
-        int childCount = algorithmState.visibleChildren.size();
-        for (int i = 0; i < childCount; i++) {
-            View child = algorithmState.visibleChildren.get(i);
-            StackScrollState.ViewState childViewState = resultState.getViewStateForView(child);
-            childViewState.scrimAmount = scrimAmount;
         }
     }
 
@@ -202,15 +200,25 @@ public class StackScrollAlgorithm {
             // apply clipping and shadow
             float newNotificationEnd = newYTranslation + newHeight;
 
-            // In the unlocked shade we have to clip a little bit higher because of the rounded
-            // corners of the notifications.
-            float clippingCorrection = state.dimmed ? 0 : mRoundedRectCornerRadius * state.scale;
+            float clipHeight;
+            if (previousNotificationIsSwiped) {
+                // When the previous notification is swiped, we don't clip the content to the
+                // bottom of it.
+                clipHeight = newHeight;
+            } else {
+                clipHeight = newNotificationEnd - previousNotificationEnd;
+                clipHeight = Math.max(0.0f, clipHeight);
+                if (clipHeight != 0.0f) {
 
-            // When the previous notification is swiped, we don't clip the content to the
-            // bottom of it.
-            float clipHeight = previousNotificationIsSwiped
-                    ? newHeight
-                    : newNotificationEnd - (previousNotificationEnd - clippingCorrection);
+                    // In the unlocked shade we have to clip a little bit higher because of the rounded
+                    // corners of the notifications, but only if we are not fully overlapped by
+                    // the top card.
+                    float clippingCorrection = state.dimmed
+                            ? 0
+                            : mRoundedRectCornerRadius * state.scale;
+                    clipHeight += clippingCorrection;
+                }
+            }
 
             updateChildClippingAndBackground(state, newHeight, clipHeight,
                     newHeight - (previousNotificationStart - newYTranslation));
@@ -251,12 +259,13 @@ public class StackScrollAlgorithm {
     }
 
     /**
-     * Updates the dimmed and activated states of the children.
+     * Updates the dimmed, activated and hiding sensitive states of the children.
      */
-    private void updateDimmedActivated(AmbientState ambientState, StackScrollState resultState,
-            StackScrollAlgorithmState algorithmState) {
+    private void updateDimmedActivatedHideSensitive(AmbientState ambientState,
+            StackScrollState resultState, StackScrollAlgorithmState algorithmState) {
         boolean dimmed = ambientState.isDimmed();
         boolean dark = ambientState.isDark();
+        boolean hideSensitive = ambientState.isHideSensitive();
         View activatedChild = ambientState.getActivatedChild();
         int childCount = algorithmState.visibleChildren.size();
         for (int i = 0; i < childCount; i++) {
@@ -264,16 +273,13 @@ public class StackScrollAlgorithm {
             StackScrollState.ViewState childViewState = resultState.getViewStateForView(child);
             childViewState.dimmed = dimmed;
             childViewState.dark = dark;
+            childViewState.hideSensitive = hideSensitive;
             boolean isActivatedChild = activatedChild == child;
-            childViewState.scale = !dimmed || isActivatedChild
+            childViewState.scale = !mScaleDimmed || !dimmed || isActivatedChild
                     ? 1.0f
                     : DIMMED_SCALE;
-            if (dimmed && activatedChild != null) {
-                if (!isActivatedChild) {
-                    childViewState.alpha *= ACTIVATED_INVERSE_ALPHA;
-                } else {
-                    childViewState.zTranslation += 2.0f * mZDistanceBetweenElements;
-                }
+            if (dimmed && isActivatedChild) {
+                childViewState.zTranslation += 2.0f * mZDistanceBetweenElements;
             }
         }
     }
@@ -375,14 +381,20 @@ public class StackScrollAlgorithm {
                 // We are in the top Stack
                 updateStateForTopStackChild(algorithmState,
                         numberOfElementsCompletelyIn, i, childHeight, childViewState, scrollOffset);
-                clampYTranslation(childViewState, childHeight);
+                clampPositionToTopStackEnd(childViewState, childHeight);
+
                 // check if we are overlapping with the bottom stack
                 if (childViewState.yTranslation + childHeight + mPaddingBetweenElements
-                        >= bottomStackStart && !mIsExpansionChanging && i != 0) {
-                    // TODO: handle overlapping sizes with end stack better
-                    // we just collapse this element
-                    childViewState.height = mCollapsedSize;
+                        >= bottomStackStart && !mIsExpansionChanging && i != 0 && mIsSmallScreen) {
+                    // we just collapse this element slightly
+                    int newSize = (int) Math.max(bottomStackStart - mPaddingBetweenElements -
+                            childViewState.yTranslation, mCollapsedSize);
+                    childViewState.height = newSize;
+                    updateStateForChildTransitioningInBottom(algorithmState, bottomStackStart,
+                            bottomPeekStart, childViewState.yTranslation, childViewState,
+                            childHeight);
                 }
+                clampPositionToBottomStackStart(childViewState, childViewState.height);
             } else if (nextYPosition >= bottomStackStart) {
                 // Case 2:
                 // We are in the bottom stack.
@@ -487,11 +499,17 @@ public class StackScrollAlgorithm {
         // the offset starting at the transitionPosition of the bottom stack
         float offset = mBottomStackIndentationFunctor.getValue(algorithmState.partialInBottom);
         algorithmState.itemsInBottomStack += algorithmState.partialInBottom;
-        childViewState.yTranslation = transitioningPositionStart + offset - childHeight
+        int newHeight = childHeight;
+        if (childHeight > mCollapsedSize && mIsSmallScreen) {
+            newHeight = (int) Math.max(Math.min(transitioningPositionStart + offset -
+                    mPaddingBetweenElements - currentYPosition, childHeight), mCollapsedSize);
+            childViewState.height = newHeight;
+        }
+        childViewState.yTranslation = transitioningPositionStart + offset - newHeight
                 - mPaddingBetweenElements;
-        
+
         // We want at least to be at the end of the top stack when collapsing
-        clampPositionToTopStackEnd(childViewState, childHeight);
+        clampPositionToTopStackEnd(childViewState, newHeight);
         childViewState.location = StackScrollState.ViewState.LOCATION_MAIN_AREA;
     }
 
@@ -661,7 +679,11 @@ public class StackScrollAlgorithm {
             StackScrollState.ViewState childViewState = resultState.getViewStateForView(child);
             if (i < algorithmState.itemsInTopStack) {
                 float stackIndex = algorithmState.itemsInTopStack - i;
-                stackIndex = Math.min(stackIndex, MAX_ITEMS_IN_TOP_STACK + 2);
+
+                // Ensure that the topmost item is a little bit higher than the rest when fully
+                // scrolled, to avoid drawing errors when swiping it out
+                float max = MAX_ITEMS_IN_TOP_STACK + (i == 0 ? 2.5f : 2);
+                stackIndex = Math.min(stackIndex, max);
                 if (i == 0 && algorithmState.itemsInTopStack < 2.0f) {
 
                     // We only have the top item and an additional item in the top stack,
@@ -703,6 +725,20 @@ public class StackScrollAlgorithm {
         mInnerHeight = mLayoutHeight - mTopPadding;
     }
 
+
+    /**
+     * Update whether the device is very small, i.e. Notifications can be in both the top and the
+     * bottom stack at the same time
+     *
+     * @param panelHeight The normal height of the panel when it's open
+     */
+    public void updateIsSmallScreen(int panelHeight) {
+        mIsSmallScreen = panelHeight <
+                mCollapsedSize  /* top stack */
+                + mBottomStackSlowDownLength + mBottomStackPeekSize /* bottom stack */
+                + mMaxNotificationHeight; /* max notification height */
+    }
+
     public void onExpansionStarted(StackScrollState currentState) {
         mIsExpansionChanging = true;
         mExpandedOnStart = mIsExpanded;
@@ -716,42 +752,46 @@ public class StackScrollAlgorithm {
             if (mExpandedOnStart) {
 
                 // We are collapsing the shade, so the first child can get as most as high as the
-                // current height.
-                mFirstChildMaxHeight = mFirstChildWhileExpanding.getActualHeight();
+                // current height or the end value of the animation.
+                mFirstChildMaxHeight = StackStateAnimator.getFinalActualHeight(
+                        mFirstChildWhileExpanding);
             } else {
-
-                // We are expanding the shade, expand it to its full height.
-                if (!isMaxSizeInitialized(mFirstChildWhileExpanding)) {
-
-                    // This child was not layouted yet, wait for a layout pass
-                    mFirstChildWhileExpanding
-                            .addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-                                @Override
-                                public void onLayoutChange(View v, int left, int top, int right,
-                                        int bottom, int oldLeft, int oldTop, int oldRight,
-                                        int oldBottom) {
-                                    if (mFirstChildWhileExpanding != null) {
-                                        mFirstChildMaxHeight = getMaxAllowedChildHeight(
-                                                mFirstChildWhileExpanding);
-                                    } else {
-                                        mFirstChildMaxHeight = 0;
-                                    }
-                                    v.removeOnLayoutChangeListener(this);
-                                }
-                            });
-                } else {
-                    mFirstChildMaxHeight = getMaxAllowedChildHeight(mFirstChildWhileExpanding);
-                }
+                updateFirstChildMaxSizeToMaxHeight();
             }
         } else {
             mFirstChildMaxHeight = 0;
         }
     }
 
+    private void updateFirstChildMaxSizeToMaxHeight() {
+        // We are expanding the shade, expand it to its full height.
+        if (!isMaxSizeInitialized(mFirstChildWhileExpanding)) {
+
+            // This child was not layouted yet, wait for a layout pass
+            mFirstChildWhileExpanding
+                    .addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                        @Override
+                        public void onLayoutChange(View v, int left, int top, int right,
+                                int bottom, int oldLeft, int oldTop, int oldRight,
+                                int oldBottom) {
+                            if (mFirstChildWhileExpanding != null) {
+                                mFirstChildMaxHeight = getMaxAllowedChildHeight(
+                                        mFirstChildWhileExpanding);
+                            } else {
+                                mFirstChildMaxHeight = 0;
+                            }
+                            v.removeOnLayoutChangeListener(this);
+                        }
+                    });
+        } else {
+            mFirstChildMaxHeight = getMaxAllowedChildHeight(mFirstChildWhileExpanding);
+        }
+    }
+
     private boolean isMaxSizeInitialized(ExpandableView child) {
         if (child instanceof ExpandableNotificationRow) {
             ExpandableNotificationRow row = (ExpandableNotificationRow) child;
-            return row.isShowingLayoutLayouted();
+            return row.isMaxExpandHeightInitialized();
         }
         return child == null || child.getWidth() != 0;
     }
@@ -776,14 +816,25 @@ public class StackScrollAlgorithm {
         this.mIsExpanded = isExpanded;
     }
 
-    public void notifyChildrenChanged(ViewGroup hostView) {
+    public void notifyChildrenChanged(final ViewGroup hostView) {
         if (mIsExpansionChanging) {
-            updateFirstChildHeightWhileExpanding(hostView);
+            hostView.post(new Runnable() {
+                @Override
+                public void run() {
+                    updateFirstChildHeightWhileExpanding(hostView);
+                }
+            });
         }
     }
 
     public void setDimmed(boolean dimmed) {
         updatePadding(dimmed);
+    }
+
+    public void onReset(ExpandableView view) {
+        if (view.equals(mFirstChildWhileExpanding)) {
+            updateFirstChildMaxSizeToMaxHeight();
+        }
     }
 
     class StackScrollAlgorithmState {

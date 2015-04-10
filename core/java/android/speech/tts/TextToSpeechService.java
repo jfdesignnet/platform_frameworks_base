@@ -84,14 +84,14 @@ import java.util.Set;
  * the following methods:
  * <ul>
  * <li>{@link #onGetVoices()}</li>
- * <li>{@link #isValidVoiceName(String)}</li>
+ * <li>{@link #onIsValidVoiceName(String)}</li>
  * <li>{@link #onLoadVoice(String)}</li>
  * <li>{@link #onGetDefaultVoiceNameFor(String, String, String)}</li>
  * </ul>
  * The first three methods are siblings of the {@link #onGetLanguage},
  * {@link #onIsLanguageAvailable} and {@link #onLoadLanguage} methods. The last one,
  * {@link #onGetDefaultVoiceNameFor(String, String, String)} is a link between locale and voice
- * based methods. Since API level 20 {@link TextToSpeech#setLanguage} is implemented by
+ * based methods. Since API level 21 {@link TextToSpeech#setLanguage} is implemented by
  * calling {@link TextToSpeech#setVoice} with the voice returned by
  * {@link #onGetDefaultVoiceNameFor(String, String, String)}.
  *
@@ -278,7 +278,7 @@ public abstract class TextToSpeechService extends Service {
      *
      * @return A list of voices supported.
      */
-    protected List<Voice> onGetVoices() {
+    public List<Voice> onGetVoices() {
         // Enumerate all locales and check if they are available
         ArrayList<Voice> voices = new ArrayList<Voice>();
         for (Locale locale : Locale.getAvailableLocales()) {
@@ -317,7 +317,7 @@ public abstract class TextToSpeechService extends Service {
 
      * @return A name of the default voice for a given locale.
      */
-    protected String onGetDefaultVoiceNameFor(String lang, String country, String variant) {
+    public String onGetDefaultVoiceNameFor(String lang, String country, String variant) {
         int localeStatus = onIsLanguageAvailable(lang, country, variant);
         Locale iso3Locale = null;
         switch (localeStatus) {
@@ -335,7 +335,7 @@ public abstract class TextToSpeechService extends Service {
         }
         Locale properLocale = TtsEngines.normalizeTTSLocale(iso3Locale);
         String voiceName = properLocale.toLanguageTag();
-        if (isValidVoiceName(voiceName) == TextToSpeech.SUCCESS) {
+        if (onIsValidVoiceName(voiceName) == TextToSpeech.SUCCESS) {
             return voiceName;
         } else {
             return null;
@@ -357,7 +357,7 @@ public abstract class TextToSpeechService extends Service {
      * @param voiceName Name of the voice.
      * @return {@link TextToSpeech#ERROR} or {@link TextToSpeech#SUCCESS}.
      */
-    protected int onLoadVoice(String voiceName) {
+    public int onLoadVoice(String voiceName) {
         Locale locale = Locale.forLanguageTag(voiceName);
         if (locale == null) {
             return TextToSpeech.ERROR;
@@ -388,7 +388,7 @@ public abstract class TextToSpeechService extends Service {
      * @param voiceName Name of the voice.
      * @return {@link TextToSpeech#ERROR} or {@link TextToSpeech#SUCCESS}.
      */
-    protected int isValidVoiceName(String voiceName) {
+    public int onIsValidVoiceName(String voiceName) {
         Locale locale = Locale.forLanguageTag(voiceName);
         if (locale == null) {
             return TextToSpeech.ERROR;
@@ -1275,7 +1275,7 @@ public abstract class TextToSpeechService extends Service {
             if (!checkNonNull(voiceName)) {
                 return TextToSpeech.ERROR;
             }
-            int retVal = isValidVoiceName(voiceName);
+            int retVal = onIsValidVoiceName(voiceName);
 
             if (retVal == TextToSpeech.SUCCESS) {
                 SpeechItem item = new LoadVoiceItem(caller, Binder.getCallingUid(),

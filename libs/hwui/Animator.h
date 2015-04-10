@@ -28,6 +28,8 @@
 namespace android {
 namespace uirenderer {
 
+class AnimationContext;
+class BaseRenderNodeAnimator;
 class RenderNode;
 class RenderProperties;
 
@@ -50,19 +52,27 @@ public:
     ANDROID_API void setListener(AnimationListener* listener) {
         mListener = listener;
     }
+    AnimationListener* listener() { return mListener.get(); }
+    ANDROID_API void setAllowRunningAsync(bool mayRunAsync) {
+        mMayRunAsync = mayRunAsync;
+    }
+    bool mayRunAsync() { return mMayRunAsync; }
     ANDROID_API void start() { mStagingPlayState = RUNNING; onStagingPlayStateChanged(); }
     ANDROID_API void end() { mStagingPlayState = FINISHED; onStagingPlayStateChanged(); }
 
     void attach(RenderNode* target);
     virtual void onAttached() {}
     void detach() { mTarget = 0; }
-    void pushStaging(TreeInfo& info);
-    bool animate(TreeInfo& info);
+    void pushStaging(AnimationContext& context);
+    bool animate(AnimationContext& context);
 
+    bool isRunning() { return mPlayState == RUNNING; }
     bool isFinished() { return mPlayState == FINISHED; }
     float finalValue() { return mFinalValue; }
 
-    ANDROID_API virtual uint32_t dirtyMask() { return 0; }
+    ANDROID_API virtual uint32_t dirtyMask() = 0;
+
+    void forceEndNow(AnimationContext& context);
 
 protected:
     BaseRenderNodeAnimator(float finalValue);
@@ -72,7 +82,7 @@ protected:
     virtual void setValue(RenderNode* target, float value) = 0;
     RenderNode* target() { return mTarget; }
 
-    void callOnFinishedListener(TreeInfo& info);
+    void callOnFinishedListener(AnimationContext& context);
 
     virtual void onStagingPlayStateChanged() {}
 
@@ -95,12 +105,13 @@ protected:
     nsecs_t mStartTime;
     nsecs_t mDuration;
     nsecs_t mStartDelay;
+    bool mMayRunAsync;
 
     sp<AnimationListener> mListener;
 
 private:
     inline void checkMutable();
-    virtual void transitionToRunning(TreeInfo& info);
+    virtual void transitionToRunning(AnimationContext& context);
     void doSetStartValue(float value);
 };
 
@@ -145,6 +156,9 @@ class CanvasPropertyPrimitiveAnimator : public BaseRenderNodeAnimator {
 public:
     ANDROID_API CanvasPropertyPrimitiveAnimator(CanvasPropertyPrimitive* property,
             float finalValue);
+
+    ANDROID_API virtual uint32_t dirtyMask();
+
 protected:
     virtual float getValue(RenderNode* target) const;
     virtual void setValue(RenderNode* target, float value);
@@ -161,6 +175,9 @@ public:
 
     ANDROID_API CanvasPropertyPaintAnimator(CanvasPropertyPaint* property,
             PaintField field, float finalValue);
+
+    ANDROID_API virtual uint32_t dirtyMask();
+
 protected:
     virtual float getValue(RenderNode* target) const;
     virtual void setValue(RenderNode* target, float value);
@@ -171,15 +188,17 @@ private:
 
 class RevealAnimator : public BaseRenderNodeAnimator {
 public:
-    ANDROID_API RevealAnimator(int centerX, int centerY, bool inverseClip,
+    ANDROID_API RevealAnimator(int centerX, int centerY,
             float startValue, float finalValue);
+
+    ANDROID_API virtual uint32_t dirtyMask();
+
 protected:
     virtual float getValue(RenderNode* target) const;
     virtual void setValue(RenderNode* target, float value);
 
 private:
     int mCenterX, mCenterY;
-    bool mInverseClip;
 };
 
 } /* namespace uirenderer */

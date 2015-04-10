@@ -84,6 +84,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 <html>
 <head>
 
@@ -99,7 +111,7 @@
 href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Roboto:light,regular,medium,thin,italic,mediumitalic,bold"
   title="roboto">
-<link href="/assets/css/default.css?v=2" rel="stylesheet" type="text/css">
+<link href="/assets/css/default.css?v=4" rel="stylesheet" type="text/css">
 
 
 
@@ -111,7 +123,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   var metaTags = [];
   var devsite = false;
 </script>
-<script src="/assets/js/docs.js?v=2" type="text/javascript"></script>
+<script src="/assets/js/docs.js?v=3" type="text/javascript"></script>
+
+
 
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
@@ -128,16 +142,66 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 </head>
 
 <body class="gc-documentation google
-  develop" itemscope itemtype="http://schema.org/Article">
+  develop reference" itemscope itemtype="http://schema.org/Article">
   <div id="doc-api-level" class="" style="display:none"></div>
   <a name="top"></a>
 
 
 <a name="top"></a>
 
+<!-- dialog to prompt lang pref change when loaded from hardcoded URL 
+<div id="langMessage" style="display:none">
+  <div>
+    <div class="lang en">
+      <p>You requested a page in English, would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang es">
+      <p>You requested a page in Spanish (Español), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ja">
+      <p>You requested a page in Japanese (日本語), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ko">
+      <p>You requested a page in Korean (한국어), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ru">
+      <p>You requested a page in Russian (Русский), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-cn">
+      <p>You requested a page in Simplified Chinese (简体中文), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-tw">
+      <p>You requested a page in Traditional Chinese (繁體中文), would you like to proceed with this language setting?</p>
+    </div>
+    <a href="#" class="button yes" onclick="return false;">
+      <span class="lang en">Yes</span>
+      <span class="lang es">Sí</span>
+      <span class="lang ja">Yes</span>
+      <span class="lang ko">Yes</span>
+      <span class="lang ru">Yes</span>
+      <span class="lang zh-cn">是的</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+    <a href="#" class="button" onclick="$('#langMessage').hide();return false;">
+      <span class="lang en">No</span>
+      <span class="lang es">No</span>
+      <span class="lang ja">No</span>
+      <span class="lang ko">No</span>
+      <span class="lang ru">No</span>
+      <span class="lang zh-cn">没有</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+  </div>
+</div> -->
+
+
   <!-- Header -->
   <div id="header-wrapper">
     <div id="header">
+
+    
+
+
       <div class="wrap" id="header-wrap">
         <div class="col-3 logo">
           <a href="/index.html">
@@ -179,8 +243,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         </ul>
 
 
-
-
+        
+        
 <div class="menu-container">
   <div class="moremenu">
     <div id="more-btn"></div>
@@ -211,8 +275,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 <option value="ja">日本語</option>
                 <option value="ko">한국어</option>
                 <option value="ru">Русский</option>
-                <option value="zh-cn">中文 (中国)</option>
-                <option value="zh-tw">中文 (台灣)</option>
+                <option value="zh-cn">中文（简体)</option>
+                <option value="zh-tw">中文（繁體)</option>
             </select>
           </div>
         <script type="text/javascript">
@@ -335,10 +399,10 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 </li>
                 <li><a href="/google/index.html">Google Services</a>
                 </li>
-
+                
                   <li><a href="/samples/index.html">Samples</a>
                   </li>
-
+                
               </ul>
             </li>
             <li class="distribute last">
@@ -360,7 +424,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   
     <!-- Secondary x-nav -->
     <div id="nav-x">
-        <div class="wrap">
+        <div class="wrap" style="position:relative;z-index:1">
+
+        
+        
+        
+
             <ul class="nav-x col-9 develop" style="width:100%">
                 <li class="training"><a href="/training/index.html"
                   zh-tw-lang="訓練課程"
@@ -420,7 +489,7 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <a class="logo" href="#top"></a>
       <a class="top" href="#top"></a>
       <ul class="breadcrumb">
-
+        
         <li class="current">R.drawable</li>
       </ul>
     </div>
@@ -498,11 +567,11 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
     </div>
     <ul>
       <li><a href="/google/play-services/setup.html">
-          <span class="en">Setup</span></a>
+          <span class="en">Setting Up Google Play Services</span></a>
       </li>
       <li class="nav-section">
         <div class="nav-section-header"><a href="/google/auth/api-client.html">
-          <span class="en">Accessing Google Play Services APIs</span></a>
+          <span class="en">Accessing Google APIs</span></a>
         </div>
         <ul>
           <li>
@@ -563,9 +632,6 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/billing/billing_admin.html">
               <span class="en">Administering In-app Billing</span></a>
       </li>
-      <li><a href="/google/play/billing/gp-purchase-status-api.html">
-              <span class="en">Purchase Status API</span></a>
-      </li>
       <li><a href="/google/play/billing/versions.html">
               <span class="en">Version Notes</span></a>
       </li>
@@ -617,6 +683,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   </li>
 
   <li class="nav-section">
+  <div class="nav-section-header empty"><a href="/google/gcs/index.html">
+        <span class="en">Google Cloud Save</span></a>
+      </div>
+  </li>
+
+  <li class="nav-section">
     <div class="nav-section-header"><a href="/google/play/dist.html">
       <span class="en">Google Play Distribution</span></a>
     </div>
@@ -624,7 +696,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/filters.html">
           <span class="en">Filters on Google Play</span></a>
       </li>
-
+      <li><a href="/google/play/billing/gp-purchase-status-api.html">
+              <span class="en">Google Play Developer API</span></a>
+      </li>
       <li><a href="/google/play/publishing/multiple-apks.html">
           <span class="en">Multiple APK Support</span></a>
       </li>
@@ -770,6 +844,9 @@ Summary:
   
 
 
+    
+
+
 </div><!-- end header -->
 
 <div id="naMessage"></div>
@@ -857,8 +934,45 @@ Summary:
           static
           
           int</nobr></td>
+          <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_full_open_on_phone">common_full_open_on_phone</a></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
+      </tr>
+      
+    
+      <tr class=" api apilevel-" >
+          <td class="jd-typecol"><nobr>
+          public
+          static
+          
+          int</nobr></td>
+          <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_ic_googleplayservices">common_ic_googleplayservices</a></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
+      </tr>
+      
+    
+      <tr class="alt-color api apilevel-" >
+          <td class="jd-typecol"><nobr>
+          public
+          static
+          
+          int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_dark">common_signin_btn_icon_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -869,7 +983,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_disabled_dark">common_signin_btn_icon_disabled_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -880,7 +999,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_disabled_focus_dark">common_signin_btn_icon_disabled_focus_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -891,7 +1015,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_disabled_focus_light">common_signin_btn_icon_disabled_focus_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -902,7 +1031,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_disabled_light">common_signin_btn_icon_disabled_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -913,7 +1047,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_focus_dark">common_signin_btn_icon_focus_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -924,7 +1063,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_focus_light">common_signin_btn_icon_focus_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -935,7 +1079,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_light">common_signin_btn_icon_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -946,7 +1095,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_normal_dark">common_signin_btn_icon_normal_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -957,7 +1111,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_normal_light">common_signin_btn_icon_normal_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -968,7 +1127,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_pressed_dark">common_signin_btn_icon_pressed_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -979,7 +1143,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_icon_pressed_light">common_signin_btn_icon_pressed_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -990,7 +1159,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_dark">common_signin_btn_text_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1001,7 +1175,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_disabled_dark">common_signin_btn_text_disabled_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1012,7 +1191,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_disabled_focus_dark">common_signin_btn_text_disabled_focus_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1023,7 +1207,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_disabled_focus_light">common_signin_btn_text_disabled_focus_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1034,7 +1223,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_disabled_light">common_signin_btn_text_disabled_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1045,7 +1239,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_focus_dark">common_signin_btn_text_focus_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1056,7 +1255,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_focus_light">common_signin_btn_text_focus_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1067,7 +1271,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_light">common_signin_btn_text_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1078,7 +1287,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_normal_dark">common_signin_btn_text_normal_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1089,7 +1303,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_normal_light">common_signin_btn_text_normal_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1100,7 +1319,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_pressed_dark">common_signin_btn_text_pressed_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1111,7 +1335,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#common_signin_btn_text_pressed_light">common_signin_btn_text_pressed_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1122,7 +1351,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#ic_plusone_medium_off_client">ic_plusone_medium_off_client</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1133,7 +1367,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#ic_plusone_small_off_client">ic_plusone_small_off_client</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1144,7 +1383,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#ic_plusone_standard_off_client">ic_plusone_standard_off_client</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1155,7 +1399,12 @@ Summary:
           
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#ic_plusone_tall_off_client">ic_plusone_tall_off_client</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
       
     
@@ -1163,24 +1412,34 @@ Summary:
           <td class="jd-typecol"><nobr>
           public
           static
-
+          
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#powered_by_google_dark">powered_by_google_dark</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
-
-
+      
+    
       <tr class=" api apilevel-" >
           <td class="jd-typecol"><nobr>
           public
           static
-
+          
           int</nobr></td>
           <td class="jd-linkcol"><a href="/reference/com/google/android/gms/R.drawable.html#powered_by_google_light">powered_by_google_light</a></td>
-          <td class="jd-descrcol" width="100%"></td>
+          <td class="jd-descrcol" width="100%">
+            
+            
+    
+
+          </td>
       </tr>
-
-
+      
+    
 
 </table>
 
@@ -1463,6 +1722,68 @@ From class
 
 
 
+<A NAME="common_full_open_on_phone"></A>
+
+<div class="jd-details api apilevel-"> 
+    <h4 class="jd-details-title">
+      <span class="normal">
+        public 
+        static 
+         
+        int
+      </span>
+        common_full_open_on_phone
+    </h4>
+      <div class="api-level">
+        
+        
+  
+
+      </div>
+    <div class="jd-details-descr">
+      
+    
+
+      
+  <div class="jd-tagdata jd-tagdescr"><p></p></div>
+
+    
+    </div>
+</div>
+
+
+
+<A NAME="common_ic_googleplayservices"></A>
+
+<div class="jd-details api apilevel-"> 
+    <h4 class="jd-details-title">
+      <span class="normal">
+        public 
+        static 
+         
+        int
+      </span>
+        common_ic_googleplayservices
+    </h4>
+      <div class="api-level">
+        
+        
+  
+
+      </div>
+    <div class="jd-details-descr">
+      
+    
+
+      
+  <div class="jd-tagdata jd-tagdescr"><p></p></div>
+
+    
+    </div>
+</div>
+
+
+
 <A NAME="common_signin_btn_icon_dark"></A>
 
 <div class="jd-details api apilevel-"> 
@@ -1482,6 +1803,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1511,6 +1835,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1538,6 +1865,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1567,6 +1897,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1594,6 +1927,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1623,6 +1959,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1650,6 +1989,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1679,6 +2021,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1706,6 +2051,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1735,6 +2083,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1762,6 +2113,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1791,6 +2145,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1818,6 +2175,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1847,6 +2207,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1874,6 +2237,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1903,6 +2269,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1930,6 +2299,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -1959,6 +2331,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -1986,6 +2361,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -2015,6 +2393,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -2042,6 +2423,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -2071,6 +2455,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -2098,6 +2485,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -2127,6 +2517,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -2154,6 +2547,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -2183,6 +2579,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -2210,6 +2609,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
@@ -2239,6 +2641,9 @@ From class
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
     
@@ -2249,27 +2654,30 @@ From class
 
 <A NAME="powered_by_google_dark"></A>
 
-<div class="jd-details api apilevel-">
+<div class="jd-details api apilevel-"> 
     <h4 class="jd-details-title">
       <span class="normal">
-        public
-        static
-
+        public 
+        static 
+         
         int
       </span>
         powered_by_google_dark
     </h4>
       <div class="api-level">
-
-
-
+        
+        
+  
 
       </div>
     <div class="jd-details-descr">
+      
+    
 
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
-
+    
     </div>
 </div>
 
@@ -2277,27 +2685,30 @@ From class
 
 <A NAME="powered_by_google_light"></A>
 
-<div class="jd-details api apilevel-">
+<div class="jd-details api apilevel-"> 
     <h4 class="jd-details-title">
       <span class="normal">
-        public
-        static
-
+        public 
+        static 
+         
         int
       </span>
         powered_by_google_light
     </h4>
       <div class="api-level">
-
-
-
+        
+        
+  
 
       </div>
     <div class="jd-details-descr">
+      
+    
 
+      
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 
-
+    
     </div>
 </div>
 
@@ -2334,6 +2745,9 @@ From class
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p></p></div>
 

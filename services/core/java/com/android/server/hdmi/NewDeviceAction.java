@@ -15,9 +15,10 @@
  */
 package com.android.server.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.util.Slog;
 
+import com.android.server.hdmi.HdmiCecLocalDevice.ActiveSource;
 import java.io.UnsupportedEncodingException;
 
 /**
@@ -27,12 +28,12 @@ import java.io.UnsupportedEncodingException;
  * connected HDMI-CEC device broadcasts to announce its advent. Additional commands are issued in
  * this action to gather more information on the device such as OSD name and device vendor ID.
  *
- * <p>The result is made in the form of {@link HdmiCecDeviceInfo} object, and passed to service
+ * <p>The result is made in the form of {@link HdmiDeviceInfo} object, and passed to service
  * for the management through its life cycle.
  *
  * <p>Package-private, accessed by {@link HdmiControlService} only.
  */
-final class NewDeviceAction extends FeatureAction {
+final class NewDeviceAction extends HdmiCecFeatureAction {
 
     private static final String TAG = "NewDeviceAction";
 
@@ -46,9 +47,11 @@ final class NewDeviceAction extends FeatureAction {
 
     private final int mDeviceLogicalAddress;
     private final int mDevicePhysicalAddress;
+    private final int mDeviceType;
 
     private int mVendorId;
     private String mDisplayName;
+    private int mTimeoutRetry;
 
     /**
      * Constructor.
@@ -56,26 +59,35 @@ final class NewDeviceAction extends FeatureAction {
      * @param source {@link HdmiCecLocalDevice} instance
      * @param deviceLogicalAddress logical address of the device in interest
      * @param devicePhysicalAddress physical address of the device in interest
+     * @param deviceType type of the device
      */
     NewDeviceAction(HdmiCecLocalDevice source, int deviceLogicalAddress,
-            int devicePhysicalAddress) {
+            int devicePhysicalAddress, int deviceType) {
         super(source);
         mDeviceLogicalAddress = deviceLogicalAddress;
         mDevicePhysicalAddress = devicePhysicalAddress;
+        mDeviceType = deviceType;
         mVendorId = Constants.UNKNOWN_VENDOR_ID;
     }
 
     @Override
     public boolean start() {
+        requestOsdName(true);
+        return true;
+    }
+
+    private void requestOsdName(boolean firstTry) {
+        if (firstTry) {
+            mTimeoutRetry = 0;
+        }
         mState = STATE_WAITING_FOR_SET_OSD_NAME;
         if (mayProcessCommandIfCached(mDeviceLogicalAddress, Constants.MESSAGE_SET_OSD_NAME)) {
-            return true;
+            return;
         }
 
         sendCommand(HdmiCecMessageBuilder.buildGiveOsdNameCommand(getSourceAddress(),
                 mDeviceLogicalAddress));
         addTimer(mState, HdmiConfig.TIMEOUT_MS);
-        return true;
     }
 
     @Override
@@ -99,12 +111,12 @@ final class NewDeviceAction extends FeatureAction {
                 } catch (UnsupportedEncodingException e) {
                     Slog.e(TAG, "Failed to get OSD name: " + e.getMessage());
                 }
-                requestVendorId();
+                requestVendorId(true);
                 return true;
             } else if (opcode == Constants.MESSAGE_FEATURE_ABORT) {
-                int requestOpcode = params[1] & 0xFF;
-                if (requestOpcode == Constants.MESSAGE_SET_OSD_NAME) {
-                    requestVendorId();
+                int requestOpcode = params[0] & 0xFF;
+                if (requestOpcode == Constants.MESSAGE_GIVE_OSD_NAME) {
+                    requestVendorId(true);
                     return true;
                 }
             }
@@ -115,8 +127,8 @@ final class NewDeviceAction extends FeatureAction {
                 finish();
                 return true;
             } else if (opcode == Constants.MESSAGE_FEATURE_ABORT) {
-                int requestOpcode = params[1] & 0xFF;
-                if (requestOpcode == Constants.MESSAGE_DEVICE_VENDOR_ID) {
+                int requestOpcode = params[0] & 0xFF;
+                if (requestOpcode == Constants.MESSAGE_GIVE_DEVICE_VENDOR_ID) {
                     addDeviceInfo();
                     finish();
                     return true;
@@ -134,7 +146,10 @@ final class NewDeviceAction extends FeatureAction {
         return false;
     }
 
-    private void requestVendorId() {
+    private void requestVendorId(boolean firstTry) {
+        if (firstTry) {
+            mTimeoutRetry = 0;
+        }
         // At first, transit to waiting status for <Device Vendor Id>.
         mState = STATE_WAITING_FOR_DEVICE_VENDOR_ID;
         // If the message is already in cache, process it.
@@ -148,31 +163,28 @@ final class NewDeviceAction extends FeatureAction {
     }
 
     private void addDeviceInfo() {
+        // The device should be in the device list with default information.
+        if (!tv().isInDeviceList(mDeviceLogicalAddress, mDevicePhysicalAddress)) {
+            Slog.w(TAG, String.format("Device not found (%02x, %04x)",
+                    mDeviceLogicalAddress, mDevicePhysicalAddress));
+            return;
+        }
         if (mDisplayName == null) {
             mDisplayName = HdmiUtils.getDefaultDeviceName(mDeviceLogicalAddress);
         }
-        tv().addCecDevice(new HdmiCecDeviceInfo(
+        HdmiDeviceInfo deviceInfo = new HdmiDeviceInfo(
                 mDeviceLogicalAddress, mDevicePhysicalAddress,
                 tv().getPortId(mDevicePhysicalAddress),
-                HdmiUtils.getTypeFromAddress(mDeviceLogicalAddress),
-                mVendorId, mDisplayName));
+                mDeviceType, mVendorId, mDisplayName);
+        tv().addCecDevice(deviceInfo);
+
+        // Consume CEC messages we already got for this newly found device.
+        tv().processDelayedMessages(mDeviceLogicalAddress);
 
         if (HdmiUtils.getTypeFromAddress(mDeviceLogicalAddress)
-                == HdmiCecDeviceInfo.DEVICE_AUDIO_SYSTEM) {
-            if (tv().getSystemAudioModeSetting()) {
-                addAndStartAction(new SystemAudioAutoInitiationAction(localDevice(),
-                        mDeviceLogicalAddress));
-            }
-
-            if (shouldTryArcInitiation()) {
-                addAndStartAction(new RequestArcInitiationAction(localDevice(),
-                        mDeviceLogicalAddress));
-            }
+                == HdmiDeviceInfo.DEVICE_AUDIO_SYSTEM) {
+            tv().onNewAvrAdded(deviceInfo);
         }
-    }
-
-    private boolean shouldTryArcInitiation() {
-        return tv().isConnectedToArcPort(mDevicePhysicalAddress) && tv().isArcFeatureEnabled();
     }
 
     @Override
@@ -181,16 +193,25 @@ final class NewDeviceAction extends FeatureAction {
             return;
         }
         if (state == STATE_WAITING_FOR_SET_OSD_NAME) {
+            if (++mTimeoutRetry < HdmiConfig.TIMEOUT_RETRY) {
+                requestOsdName(false);
+                return;
+            }
             // Osd name request timed out. Try vendor id
-            requestVendorId();
+            requestVendorId(true);
         } else if (state == STATE_WAITING_FOR_DEVICE_VENDOR_ID) {
+            if (++mTimeoutRetry < HdmiConfig.TIMEOUT_RETRY) {
+                requestVendorId(false);
+                return;
+            }
             // vendor id timed out. Go ahead creating the device info what we've got so far.
             addDeviceInfo();
             finish();
         }
     }
 
-    boolean isActionOf(int address, int path) {
-        return (mDeviceLogicalAddress == address) && (mDevicePhysicalAddress == path);
+    boolean isActionOf(ActiveSource activeSource) {
+        return (mDeviceLogicalAddress == activeSource.logicalAddress)
+                && (mDevicePhysicalAddress == activeSource.physicalAddress);
     }
 }

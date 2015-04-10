@@ -191,6 +191,16 @@ public class RecentsHorizontalScrollView extends HorizontalScrollView
         return true;
     }
 
+    @Override
+    public boolean isAntiFalsingNeeded() {
+        return false;
+    }
+
+    @Override
+    public float getFalsingThresholdFactor() {
+        return 1.0f;
+    }
+
     public void dismissChild(View v) {
         mSwipeHelper.dismissChild(v, 0);
     }

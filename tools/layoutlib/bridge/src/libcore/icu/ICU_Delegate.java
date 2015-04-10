@@ -177,12 +177,6 @@ public class ICU_Delegate {
         return Locale.getISOCountries();
     }
 
-
-    @LayoutlibDelegate
-    /*package*/ static String localeForLanguageTag(String languageTag, boolean strict) {
-        return "";
-    }
-
     @LayoutlibDelegate
     /*package*/ static boolean initLocaleDataNative(String locale, LocaleData result) {
 
@@ -229,7 +223,7 @@ public class ICU_Delegate {
         result.decimalSeparator = '.';
         result.groupingSeparator = ',';
         result.patternSeparator = ' ';
-        result.percent = '%';
+        result.percent = "%";
         result.perMill = '\u2030';
         result.monetarySeparator = ' ';
         result.minusSign = "-";

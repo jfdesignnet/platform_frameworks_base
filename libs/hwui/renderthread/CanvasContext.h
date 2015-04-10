@@ -17,6 +17,8 @@
 #ifndef CANVASCONTEXT_H_
 #define CANVASCONTEXT_H_
 
+#include <set>
+
 #include <cutils/compiler.h>
 #include <EGL/egl.h>
 #include <SkBitmap.h>
@@ -25,6 +27,7 @@
 
 #include "../DamageAccumulator.h"
 #include "../DrawProfiler.h"
+#include "../IContextFactory.h"
 #include "../RenderNode.h"
 #include "RenderTask.h"
 #include "RenderThread.h"
@@ -34,25 +37,39 @@
 namespace android {
 namespace uirenderer {
 
+class AnimationContext;
 class DeferredLayerUpdater;
 class OpenGLRenderer;
 class Rect;
 class Layer;
+class RenderState;
 
 namespace renderthread {
 
 class EglManager;
 
+enum SwapBehavior {
+    kSwap_default,
+    kSwap_discardBuffer,
+};
+
 // This per-renderer class manages the bridge between the global EGL context
 // and the render surface.
+// TODO: Rename to Renderer or some other per-window, top-level manager
 class CanvasContext : public IFrameCallback {
 public:
-    CanvasContext(RenderThread& thread, bool translucent, RenderNode* rootRenderNode);
+    CanvasContext(RenderThread& thread, bool translucent, RenderNode* rootRenderNode,
+            IContextFactory* contextFactory);
     virtual ~CanvasContext();
+
+    // Won't take effect until next EGLSurface creation
+    void setSwapBehavior(SwapBehavior swapBehavior);
 
     bool initialize(ANativeWindow* window);
     void updateSurface(ANativeWindow* window);
-    void pauseSurface(ANativeWindow* window);
+    bool pauseSurface(ANativeWindow* window);
+    bool hasSurface() { return mNativeWindow.get(); }
+
     void setup(int width, int height, const Vector3& lightCenter, float lightRadius,
             uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha);
     void setOpaque(bool opaque);
@@ -60,12 +77,14 @@ public:
     void processLayerUpdate(DeferredLayerUpdater* layerUpdater);
     void prepareTree(TreeInfo& info);
     void draw();
-    void destroyCanvasAndSurface();
+    void destroy();
 
     // IFrameCallback, Chroreographer-driven frame callback entry point
     virtual void doFrame();
 
+    void buildLayer(RenderNode* node);
     bool copyLayerInto(DeferredLayerUpdater* layer, SkBitmap* bitmap);
+    void markLayerInUse(RenderNode* node);
 
     void destroyHardwareResources();
     static void trimMemory(RenderThread& thread, int level);
@@ -74,7 +93,6 @@ public:
 
     void runWithGlContext(RenderTask* task);
 
-    Layer* createRenderLayer(int width, int height);
     Layer* createTextureLayer();
 
     ANDROID_API static void setTextureAtlas(RenderThread& thread,
@@ -87,6 +105,9 @@ public:
 
 private:
     friend class RegisterFrameCallbackTask;
+    // TODO: Replace with something better for layer & other GL object
+    // lifecycle tracking
+    friend class android::uirenderer::RenderState;
 
     void setSurface(ANativeWindow* window);
     void swapBuffers();
@@ -94,20 +115,26 @@ private:
 
     void requireGlContext();
 
+    void freePrefetechedLayers();
+
     RenderThread& mRenderThread;
     EglManager& mEglManager;
     sp<ANativeWindow> mNativeWindow;
     EGLSurface mEglSurface;
-    bool mDirtyRegionsEnabled;
+    bool mBufferPreserved;
+    SwapBehavior mSwapBehavior;
 
     bool mOpaque;
     OpenGLRenderer* mCanvas;
     bool mHaveNewSurface;
     DamageAccumulator mDamageAccumulator;
+    AnimationContext* mAnimationContext;
 
     const sp<RenderNode> mRootRenderNode;
 
     DrawProfiler mProfiler;
+
+    std::set<RenderNode*> mPrefetechedLayers;
 };
 
 } /* namespace renderthread */

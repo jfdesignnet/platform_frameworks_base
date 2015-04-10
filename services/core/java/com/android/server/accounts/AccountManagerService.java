@@ -77,7 +77,6 @@ import com.android.internal.R;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.FgThread;
-
 import com.google.android.collect.Lists;
 import com.google.android.collect.Sets;
 
@@ -265,7 +264,11 @@ public class AccountManagerService
         mContext.registerReceiver(new BroadcastReceiver() {
             @Override
             public void onReceive(Context context1, Intent intent) {
-                purgeOldGrantsAll();
+                // Don't delete accounts when updating a authenticator's
+                // package.
+                if (!intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
+                    purgeOldGrantsAll();
+                }
             }
         }, intentFilter);
 
@@ -387,7 +390,7 @@ public class AccountManagerService
             boolean accountDeleted = false;
             Cursor cursor = db.query(TABLE_ACCOUNTS,
                     new String[]{ACCOUNTS_ID, ACCOUNTS_TYPE, ACCOUNTS_NAME},
-                    null, null, null, null, null);
+                    null, null, null, null, ACCOUNTS_ID);
             try {
                 accounts.accountCache.clear();
                 final HashMap<String, ArrayList<String>> accountNamesByType =
@@ -483,7 +486,7 @@ public class AccountManagerService
         for (Account sa : sharedAccounts) {
             if (ArrayUtils.contains(accounts, sa)) continue;
             // Account doesn't exist. Copy it now.
-            copyAccountToUser(sa, UserHandle.USER_OWNER, userId);
+            copyAccountToUser(null /*no response*/, sa, UserHandle.USER_OWNER, userId);
         }
     }
 
@@ -669,16 +672,31 @@ public class AccountManagerService
         }
     }
 
-    private boolean copyAccountToUser(final Account account, int userFrom, int userTo) {
+    @Override
+    public void copyAccountToUser(final IAccountManagerResponse response, final Account account,
+            int userFrom, int userTo) {
+        enforceCrossUserPermission(UserHandle.USER_ALL, "Calling copyAccountToUser requires "
+                    + android.Manifest.permission.INTERACT_ACROSS_USERS_FULL);
         final UserAccounts fromAccounts = getUserAccounts(userFrom);
         final UserAccounts toAccounts = getUserAccounts(userTo);
         if (fromAccounts == null || toAccounts == null) {
-            return false;
+            if (response != null) {
+                Bundle result = new Bundle();
+                result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, false);
+                try {
+                    response.onResult(result);
+                } catch (RemoteException e) {
+                    Slog.w(TAG, "Failed to report error back to the client." + e);
+                }
+            }
+            return;
         }
 
+        Slog.d(TAG, "Copying account " + account.name
+                + " from user " + userFrom + " to user " + userTo);
         long identityToken = clearCallingIdentity();
         try {
-            new Session(fromAccounts, null, account.type, false,
+            new Session(fromAccounts, response, account.type, false,
                     false /* stripAuthTokenFromResult */) {
                 @Override
                 protected String toDebugString(long now) {
@@ -693,12 +711,10 @@ public class AccountManagerService
 
                 @Override
                 public void onResult(Bundle result) {
-                    if (result != null) {
-                        if (result.getBoolean(AccountManager.KEY_BOOLEAN_RESULT, false)) {
-                            // Create a Session for the target user and pass in the bundle
-                            completeCloningAccount(result, account, toAccounts);
-                        }
-                        return;
+                    if (result != null
+                            && result.getBoolean(AccountManager.KEY_BOOLEAN_RESULT, false)) {
+                        // Create a Session for the target user and pass in the bundle
+                        completeCloningAccount(response, result, account, toAccounts);
                     } else {
                         super.onResult(result);
                     }
@@ -707,14 +723,13 @@ public class AccountManagerService
         } finally {
             restoreCallingIdentity(identityToken);
         }
-        return true;
     }
 
-    void completeCloningAccount(final Bundle result, final Account account,
-            final UserAccounts targetUser) {
+    private void completeCloningAccount(IAccountManagerResponse response,
+            final Bundle accountCredentials, final Account account, final UserAccounts targetUser) {
         long id = clearCallingIdentity();
         try {
-            new Session(targetUser, null, account.type, false,
+            new Session(targetUser, response, account.type, false,
                     false /* stripAuthTokenFromResult */) {
                 @Override
                 protected String toDebugString(long now) {
@@ -727,10 +742,10 @@ public class AccountManagerService
                     // Confirm that the owner's account still exists before this step.
                     UserAccounts owner = getUserAccounts(UserHandle.USER_OWNER);
                     synchronized (owner.cacheLock) {
-                        Account[] ownerAccounts = getAccounts(UserHandle.USER_OWNER);
-                        for (Account acc : ownerAccounts) {
+                        for (Account acc : getAccounts(UserHandle.USER_OWNER)) {
                             if (acc.equals(account)) {
-                                mAuthenticator.addAccountFromCredentials(this, account, result);
+                                mAuthenticator.addAccountFromCredentials(
+                                        this, account, accountCredentials);
                                 break;
                             }
                         }
@@ -739,17 +754,10 @@ public class AccountManagerService
 
                 @Override
                 public void onResult(Bundle result) {
-                    if (result != null) {
-                        if (result.getBoolean(AccountManager.KEY_BOOLEAN_RESULT, false)) {
-                            // TODO: Anything?
-                        } else {
-                            // TODO: Show error notification
-                            // TODO: Should we remove the shadow account to avoid retries?
-                        }
-                        return;
-                    } else {
-                        super.onResult(result);
-                    }
+                    // TODO: Anything to do if if succedded?
+                    // TODO: If it failed: Show error notification? Should we remove the shadow
+                    // account to avoid retries?
+                    super.onResult(result);
                 }
 
                 @Override
@@ -1039,7 +1047,8 @@ public class AccountManagerService
     }
 
     @Override
-    public void removeAccount(IAccountManagerResponse response, Account account) {
+    public void removeAccount(IAccountManagerResponse response, Account account,
+            boolean expectActivityLaunch) {
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
             Log.v(TAG, "removeAccount: " + account
                     + ", response " + response
@@ -1084,7 +1093,7 @@ public class AccountManagerService
         }
 
         try {
-            new RemoveAccountSession(accounts, response, account).bind();
+            new RemoveAccountSession(accounts, response, account, expectActivityLaunch).bind();
         } finally {
             restoreCallingIdentity(identityToken);
         }
@@ -1092,7 +1101,7 @@ public class AccountManagerService
 
     @Override
     public void removeAccountAsUser(IAccountManagerResponse response, Account account,
-            int userId) {
+            boolean expectActivityLaunch, int userId) {
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
             Log.v(TAG, "removeAccount: " + account
                     + ", response " + response
@@ -1141,7 +1150,30 @@ public class AccountManagerService
         }
 
         try {
-            new RemoveAccountSession(accounts, response, account).bind();
+            new RemoveAccountSession(accounts, response, account, expectActivityLaunch).bind();
+        } finally {
+            restoreCallingIdentity(identityToken);
+        }
+    }
+
+    @Override
+    public boolean removeAccountExplicitly(Account account) {
+        if (Log.isLoggable(TAG, Log.VERBOSE)) {
+            Log.v(TAG, "removeAccountExplicitly: " + account
+                    + ", caller's uid " + Binder.getCallingUid()
+                    + ", pid " + Binder.getCallingPid());
+        }
+        if (account == null) throw new IllegalArgumentException("account is null");
+        checkAuthenticateAccountsPermission(account);
+
+        UserAccounts accounts = getUserAccountsForCaller();
+        int userId = Binder.getCallingUserHandle().getIdentifier();
+        if (!canUserModifyAccounts(userId) || !canUserModifyAccountsForType(userId, account.type)) {
+            return false;
+        }
+        long identityToken = clearCallingIdentity();
+        try {
+            return removeAccountInternal(accounts, account);
         } finally {
             restoreCallingIdentity(identityToken);
         }
@@ -1150,8 +1182,8 @@ public class AccountManagerService
     private class RemoveAccountSession extends Session {
         final Account mAccount;
         public RemoveAccountSession(UserAccounts accounts, IAccountManagerResponse response,
-                Account account) {
-            super(accounts, response, account.type, false /* expectActivityLaunch */,
+                Account account, boolean expectActivityLaunch) {
+            super(accounts, response, account.type, expectActivityLaunch,
                     true /* stripAuthTokenFromResult */);
             mAccount = account;
         }
@@ -1199,10 +1231,12 @@ public class AccountManagerService
         removeAccountInternal(getUserAccountsForCaller(), account);
     }
 
-    private void removeAccountInternal(UserAccounts accounts, Account account) {
+    private boolean removeAccountInternal(UserAccounts accounts, Account account) {
+        int deleted;
         synchronized (accounts.cacheLock) {
             final SQLiteDatabase db = accounts.openHelper.getWritableDatabase();
-            db.delete(TABLE_ACCOUNTS, ACCOUNTS_NAME + "=? AND " + ACCOUNTS_TYPE+ "=?",
+            deleted = db.delete(TABLE_ACCOUNTS, ACCOUNTS_NAME + "=? AND " + ACCOUNTS_TYPE
+                    + "=?",
                     new String[]{account.name, account.type});
             removeAccountFromCacheLocked(accounts, account);
             sendAccountsChangedBroadcast(accounts.userId);
@@ -1222,6 +1256,7 @@ public class AccountManagerService
                 Binder.restoreCallingIdentity(id);
             }
         }
+        return (deleted > 0);
     }
 
     @Override
@@ -1700,7 +1735,10 @@ public class AccountManagerService
             subtitle = titleAndSubtitle.substring(index + 1);
         }
         UserHandle user = new UserHandle(userId);
-        n.setLatestEventInfo(mContext, title, subtitle,
+        Context contextForUser = getContextForUser(user);
+        n.color = contextForUser.getResources().getColor(
+                com.android.internal.R.color.system_notification_accent_color);
+        n.setLatestEventInfo(contextForUser, title, subtitle,
                 PendingIntent.getActivityAsUser(mContext, 0, intent,
                         PendingIntent.FLAG_CANCEL_CURRENT, null, user));
         installNotification(getCredentialPermissionNotificationId(
@@ -1780,7 +1818,7 @@ public class AccountManagerService
                         "User is not allowed to add an account!");
             } catch (RemoteException re) {
             }
-            showCantAddAccount(AccountManager.ERROR_CODE_USER_RESTRICTED);
+            showCantAddAccount(AccountManager.ERROR_CODE_USER_RESTRICTED, userId);
             return;
         }
         if (!canUserModifyAccountsForType(userId, accountType)) {
@@ -1789,7 +1827,8 @@ public class AccountManagerService
                         "User cannot modify accounts of this type (policy).");
             } catch (RemoteException re) {
             }
-            showCantAddAccount(AccountManager.ERROR_CODE_MANAGEMENT_DISABLED_FOR_ACCOUNT_TYPE);
+            showCantAddAccount(AccountManager.ERROR_CODE_MANAGEMENT_DISABLED_FOR_ACCOUNT_TYPE,
+                    userId);
             return;
         }
 
@@ -1854,7 +1893,7 @@ public class AccountManagerService
                         "User is not allowed to add an account!");
             } catch (RemoteException re) {
             }
-            showCantAddAccount(AccountManager.ERROR_CODE_USER_RESTRICTED);
+            showCantAddAccount(AccountManager.ERROR_CODE_USER_RESTRICTED, userId);
             return;
         }
         if (!canUserModifyAccountsForType(userId, accountType)) {
@@ -1863,7 +1902,8 @@ public class AccountManagerService
                         "User cannot modify accounts of this type (policy).");
             } catch (RemoteException re) {
             }
-            showCantAddAccount(AccountManager.ERROR_CODE_MANAGEMENT_DISABLED_FOR_ACCOUNT_TYPE);
+            showCantAddAccount(AccountManager.ERROR_CODE_MANAGEMENT_DISABLED_FOR_ACCOUNT_TYPE,
+                    userId);
             return;
         }
 
@@ -1899,13 +1939,13 @@ public class AccountManagerService
         }
     }
 
-    private void showCantAddAccount(int errorCode) {
+    private void showCantAddAccount(int errorCode, int userId) {
         Intent cantAddAccount = new Intent(mContext, CantAddAccountActivity.class);
         cantAddAccount.putExtra(CantAddAccountActivity.EXTRA_ERROR_CODE, errorCode);
         cantAddAccount.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         long identityToken = clearCallingIdentity();
         try {
-            mContext.startActivity(cantAddAccount);
+            mContext.startActivityAsUser(cantAddAccount, new UserHandle(userId));
         } finally {
             restoreCallingIdentity(identityToken);
         }
@@ -2705,7 +2745,7 @@ public class AccountManagerService
                     break;
 
                 case MESSAGE_COPY_SHARED_ACCOUNT:
-                    copyAccountToUser((Account) msg.obj, msg.arg1, msg.arg2);
+                    copyAccountToUser(/*no response*/ null, (Account) msg.obj, msg.arg1, msg.arg2);
                     break;
 
                 default:
@@ -2966,9 +3006,12 @@ public class AccountManagerService
                 Notification n = new Notification(android.R.drawable.stat_sys_warning, null,
                         0 /* when */);
                 UserHandle user = new UserHandle(userId);
+                Context contextForUser = getContextForUser(user);
                 final String notificationTitleFormat =
-                        mContext.getText(R.string.notification_title).toString();
-                n.setLatestEventInfo(mContext,
+                        contextForUser.getText(R.string.notification_title).toString();
+                n.color = contextForUser.getResources().getColor(
+                        com.android.internal.R.color.system_notification_accent_color);
+                n.setLatestEventInfo(contextForUser,
                         String.format(notificationTitleFormat, account.name),
                         message, PendingIntent.getActivityAsUser(
                         mContext, 0, intent, PendingIntent.FLAG_CANCEL_CURRENT,
@@ -3144,6 +3187,9 @@ public class AccountManagerService
         DevicePolicyManager dpm = (DevicePolicyManager) mContext
                 .getSystemService(Context.DEVICE_POLICY_SERVICE);
         String[] typesArray = dpm.getAccountTypesWithManagementDisabledAsUser(userId);
+        if (typesArray == null) {
+            return true;
+        }
         for (String forbiddenType : typesArray) {
             if (forbiddenType.equals(accountType)) {
                 return false;
@@ -3470,5 +3516,14 @@ public class AccountManagerService
             cursor.close();
         }
         return authTokensForAccount;
+    }
+
+    private Context getContextForUser(UserHandle user) {
+        try {
+            return mContext.createPackageContextAsUser(mContext.getPackageName(), 0, user);
+        } catch (NameNotFoundException e) {
+            // Default to mContext, not finding the package system is running as is unlikely.
+            return mContext;
+        }
     }
 }

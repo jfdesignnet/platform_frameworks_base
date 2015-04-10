@@ -18,18 +18,28 @@ package com.android.server.notification;
 
 import android.app.Notification;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.UserHandle;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.Contacts;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.ArrayMap;
+import android.util.Log;
 import android.util.LruCache;
 import android.util.Slog;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
+import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This {@link NotificationSignalExtractor} attempts to validate
@@ -38,9 +48,10 @@ import java.util.LinkedList;
  * {@hide}
  */
 public class ValidateNotificationPeople implements NotificationSignalExtractor {
-    private static final String TAG = "ValidateNotificationPeople";
+    // Using a shorter log tag since setprop has a limit of 32chars on variable name.
+    private static final String TAG = "ValidateNoPeople";
     private static final boolean INFO = true;
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
     private static final boolean ENABLE_PEOPLE_VALIDATOR = true;
     private static final String SETTING_ENABLE_PEOPLE_VALIDATOR =
@@ -65,14 +76,140 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
     static final float STARRED_CONTACT = 1f;
 
     protected boolean mEnabled;
-    private Context mContext;
+    private Context mBaseContext;
 
     // maps raw person handle to resolved person object
     private LruCache<String, LookupResult> mPeopleCache;
+    private Map<Integer, Context> mUserToContextMap;
+    private Handler mHandler;
+    private ContentObserver mObserver;
+    private int mEvictionCount;
 
-    private RankingReconsideration validatePeople(final NotificationRecord record) {
+    public void initialize(Context context) {
+        if (DEBUG) Slog.d(TAG, "Initializing  " + getClass().getSimpleName() + ".");
+        mUserToContextMap = new ArrayMap<>();
+        mBaseContext = context;
+        mPeopleCache = new LruCache<String, LookupResult>(PEOPLE_CACHE_SIZE);
+        mEnabled = ENABLE_PEOPLE_VALIDATOR && 1 == Settings.Global.getInt(
+                mBaseContext.getContentResolver(), SETTING_ENABLE_PEOPLE_VALIDATOR, 1);
+        if (mEnabled) {
+            mHandler = new Handler();
+            mObserver = new ContentObserver(mHandler) {
+                @Override
+                public void onChange(boolean selfChange, Uri uri, int userId) {
+                    super.onChange(selfChange, uri, userId);
+                    if (DEBUG || mEvictionCount % 100 == 0) {
+                        if (INFO) Slog.i(TAG, "mEvictionCount: " + mEvictionCount);
+                    }
+                    mPeopleCache.evictAll();
+                    mEvictionCount++;
+                }
+            };
+            mBaseContext.getContentResolver().registerContentObserver(Contacts.CONTENT_URI, true,
+                    mObserver, UserHandle.USER_ALL);
+        }
+    }
+
+    public RankingReconsideration process(NotificationRecord record) {
+        if (!mEnabled) {
+            if (INFO) Slog.i(TAG, "disabled");
+            return null;
+        }
+        if (record == null || record.getNotification() == null) {
+            if (INFO) Slog.i(TAG, "skipping empty notification");
+            return null;
+        }
+        if (record.getUserId() == UserHandle.USER_ALL) {
+            if (INFO) Slog.i(TAG, "skipping global notification");
+            return null;
+        }
+        Context context = getContextAsUser(record.getUser());
+        if (context == null) {
+            if (INFO) Slog.i(TAG, "skipping notification that lacks a context");
+            return null;
+        }
+        return validatePeople(context, record);
+    }
+
+    @Override
+    public void setConfig(RankingConfig config) {
+        // ignore: config has no relevant information yet.
+    }
+
+    /**
+     * @param extras extras of the notification with EXTRA_PEOPLE populated
+     * @param timeoutMs timeout in milliseconds to wait for contacts response
+     * @param timeoutAffinity affinity to return when the timeout specified via
+     *                        <code>timeoutMs</code> is hit
+     */
+    public float getContactAffinity(UserHandle userHandle, Bundle extras, int timeoutMs,
+            float timeoutAffinity) {
+        if (DEBUG) Slog.d(TAG, "checking affinity for " + userHandle);
+        if (extras == null) return NONE;
+        final String key = Long.toString(System.nanoTime());
+        final float[] affinityOut = new float[1];
+        Context context = getContextAsUser(userHandle);
+        if (context == null) {
+            return NONE;
+        }
+        final PeopleRankingReconsideration prr = validatePeople(context, key, extras, affinityOut);
+        float affinity = affinityOut[0];
+
+        if (prr != null) {
+            // Perform the heavy work on a background thread so we can abort when we hit the
+            // timeout.
+            final Semaphore s = new Semaphore(0);
+            AsyncTask.THREAD_POOL_EXECUTOR.execute(new Runnable() {
+                @Override
+                public void run() {
+                    prr.work();
+                    s.release();
+                }
+            });
+
+            try {
+                if (!s.tryAcquire(timeoutMs, TimeUnit.MILLISECONDS)) {
+                    Slog.w(TAG, "Timeout while waiting for affinity: " + key + ". "
+                            + "Returning timeoutAffinity=" + timeoutAffinity);
+                    return timeoutAffinity;
+                }
+            } catch (InterruptedException e) {
+                Slog.w(TAG, "InterruptedException while waiting for affinity: " + key + ". "
+                        + "Returning affinity=" + affinity, e);
+                return affinity;
+            }
+
+            affinity = Math.max(prr.getContactAffinity(), affinity);
+        }
+        return affinity;
+    }
+
+    private Context getContextAsUser(UserHandle userHandle) {
+        Context context = mUserToContextMap.get(userHandle.getIdentifier());
+        if (context == null) {
+            try {
+                context = mBaseContext.createPackageContextAsUser("android", 0, userHandle);
+                mUserToContextMap.put(userHandle.getIdentifier(), context);
+            } catch (PackageManager.NameNotFoundException e) {
+                Log.e(TAG, "failed to create package context for lookups", e);
+            }
+        }
+        return context;
+    }
+
+    private RankingReconsideration validatePeople(Context context,
+            final NotificationRecord record) {
+        final String key = record.getKey();
+        final Bundle extras = record.getNotification().extras;
+        final float[] affinityOut = new float[1];
+        final RankingReconsideration rr = validatePeople(context, key, extras, affinityOut);
+        record.setContactAffinity(affinityOut[0]);
+        return rr;
+    }
+
+    private PeopleRankingReconsideration validatePeople(Context context, String key, Bundle extras,
+            float[] affinityOut) {
         float affinity = NONE;
-        Bundle extras = record.getNotification().extras;
         if (extras == null) {
             return null;
         }
@@ -82,18 +219,19 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
             return null;
         }
 
-        if (INFO) Slog.i(TAG, "Validating: " + record.sbn.getKey());
+        if (INFO) Slog.i(TAG, "Validating: " + key);
         final LinkedList<String> pendingLookups = new LinkedList<String>();
         for (int personIdx = 0; personIdx < people.length && personIdx < MAX_PEOPLE; personIdx++) {
             final String handle = people[personIdx];
             if (TextUtils.isEmpty(handle)) continue;
 
             synchronized (mPeopleCache) {
-                LookupResult lookupResult = mPeopleCache.get(handle);
+                final String cacheKey = getCacheKey(context.getUserId(), handle);
+                LookupResult lookupResult = mPeopleCache.get(cacheKey);
                 if (lookupResult == null || lookupResult.isExpired()) {
                     pendingLookups.add(handle);
                 } else {
-                    if (DEBUG) Slog.d(TAG, "using cached lookupResult: " + lookupResult.mId);
+                    if (DEBUG) Slog.d(TAG, "using cached lookupResult");
                 }
                 if (lookupResult != null) {
                     affinity = Math.max(affinity, lookupResult.getAffinity());
@@ -102,51 +240,19 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
         }
 
         // record the best available data, so far:
-        record.setContactAffinity(affinity);
+        affinityOut[0] = affinity;
 
         if (pendingLookups.isEmpty()) {
             if (INFO) Slog.i(TAG, "final affinity: " + affinity);
             return null;
         }
 
-        if (DEBUG) Slog.d(TAG, "Pending: future work scheduled for: " + record.sbn.getKey());
-        return new RankingReconsideration(record.getKey()) {
-            float mContactAffinity = NONE;
-            @Override
-            public void work() {
-                if (INFO) Slog.i(TAG, "Executing: validation for: " + record.getKey());
-                for (final String handle: pendingLookups) {
-                    LookupResult lookupResult = null;
-                    final Uri uri = Uri.parse(handle);
-                    if ("tel".equals(uri.getScheme())) {
-                        if (DEBUG) Slog.d(TAG, "checking telephone URI: " + handle);
-                        lookupResult = resolvePhoneContact(uri.getSchemeSpecificPart());
-                    } else if ("mailto".equals(uri.getScheme())) {
-                        if (DEBUG) Slog.d(TAG, "checking mailto URI: " + handle);
-                        lookupResult = resolveEmailContact(uri.getSchemeSpecificPart());
-                    } else if (handle.startsWith(Contacts.CONTENT_LOOKUP_URI.toString())) {
-                        if (DEBUG) Slog.d(TAG, "checking lookup URI: " + handle);
-                        lookupResult = searchContacts(uri);
-                    } else {
-                        lookupResult = new LookupResult();  // invalid person for the cache
-                        Slog.w(TAG, "unsupported URI " + handle);
-                    }
-                    if (lookupResult != null) {
-                        synchronized (mPeopleCache) {
-                            mPeopleCache.put(handle, lookupResult);
-                        }
-                        mContactAffinity = Math.max(mContactAffinity, lookupResult.getAffinity());
-                    }
-                }
-            }
+        if (DEBUG) Slog.d(TAG, "Pending: future work scheduled for: " + key);
+        return new PeopleRankingReconsideration(context, key, pendingLookups);
+    }
 
-            @Override
-            public void applyChangesLocked(NotificationRecord operand) {
-                float affinityBound = operand.getContactAffinity();
-                operand.setContactAffinity(Math.max(mContactAffinity, affinityBound));
-                if (INFO) Slog.i(TAG, "final affinity: " + operand.getContactAffinity());
-            }
-        };
+    private String getCacheKey(int userId, String handle) {
+        return Integer.toString(userId) + ":" + handle;
     }
 
     // VisibleForTesting
@@ -212,29 +318,32 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
         return null;
     }
 
-    private LookupResult resolvePhoneContact(final String number) {
+    private LookupResult resolvePhoneContact(Context context, final String number) {
         Uri phoneUri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
                 Uri.encode(number));
-        return searchContacts(phoneUri);
+        return searchContacts(context, phoneUri);
     }
 
-    private LookupResult resolveEmailContact(final String email) {
+    private LookupResult resolveEmailContact(Context context, final String email) {
         Uri numberUri = Uri.withAppendedPath(
                 ContactsContract.CommonDataKinds.Email.CONTENT_LOOKUP_URI,
                 Uri.encode(email));
-        return searchContacts(numberUri);
+        return searchContacts(context, numberUri);
     }
 
-    private LookupResult searchContacts(Uri lookupUri) {
+    private LookupResult searchContacts(Context context, Uri lookupUri) {
         LookupResult lookupResult = new LookupResult();
         Cursor c = null;
         try {
-            c = mContext.getContentResolver().query(lookupUri, LOOKUP_PROJECTION, null, null, null);
-            if (c != null && c.getCount() > 0) {
-                c.moveToFirst();
-                lookupResult.readContact(c);
+            c = context.getContentResolver().query(lookupUri, LOOKUP_PROJECTION, null, null, null);
+            if (c == null) {
+                Slog.w(TAG, "Null cursor from contacts query.");
+                return lookupResult;
             }
-        } catch(Throwable t) {
+            while (c.moveToNext()) {
+                lookupResult.mergeContact(c);
+            }
+        } catch (Throwable t) {
             Slog.w(TAG, "Problem getting content resolver or performing contacts query.", t);
         } finally {
             if (c != null) {
@@ -244,88 +353,114 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
         return lookupResult;
     }
 
-    public void initialize(Context context) {
-        if (DEBUG) Slog.d(TAG, "Initializing  " + getClass().getSimpleName() + ".");
-        mContext = context;
-        mPeopleCache = new LruCache<String, LookupResult>(PEOPLE_CACHE_SIZE);
-        mEnabled = ENABLE_PEOPLE_VALIDATOR && 1 == Settings.Global.getInt(
-                mContext.getContentResolver(), SETTING_ENABLE_PEOPLE_VALIDATOR, 1);
-    }
-
-    public RankingReconsideration process(NotificationRecord record) {
-        if (!mEnabled) {
-            if (INFO) Slog.i(TAG, "disabled");
-            return null;
-        }
-        if (record == null || record.getNotification() == null) {
-            if (INFO) Slog.i(TAG, "skipping empty notification");
-            return null;
-        }
-        return validatePeople(record);
-    }
-
-    @Override
-    public void setConfig(RankingConfig config) {
-        // ignore: config has no relevant information yet.
-    }
-
     private static class LookupResult {
         private static final long CONTACT_REFRESH_MILLIS = 60 * 60 * 1000;  // 1hr
-        public static final int INVALID_ID = -1;
 
         private final long mExpireMillis;
-        private int mId;
-        private boolean mStarred;
+        private float mAffinity = NONE;
 
         public LookupResult() {
-            mId = INVALID_ID;
-            mStarred = false;
             mExpireMillis = System.currentTimeMillis() + CONTACT_REFRESH_MILLIS;
         }
 
-        public void readContact(Cursor cursor) {
+        public void mergeContact(Cursor cursor) {
+            mAffinity = Math.max(mAffinity, VALID_CONTACT);
+
+            // Contact ID
+            int id;
             final int idIdx = cursor.getColumnIndex(Contacts._ID);
             if (idIdx >= 0) {
-                mId = cursor.getInt(idIdx);
-                if (DEBUG) Slog.d(TAG, "contact _ID is: " + mId);
+                id = cursor.getInt(idIdx);
+                if (DEBUG) Slog.d(TAG, "contact _ID is: " + id);
             } else {
-                if (DEBUG) Slog.d(TAG, "invalid cursor: no _ID");
+                id = -1;
+                Slog.i(TAG, "invalid cursor: no _ID");
             }
+
+            // Starred
             final int starIdx = cursor.getColumnIndex(Contacts.STARRED);
             if (starIdx >= 0) {
-                mStarred = cursor.getInt(starIdx) != 0;
-                if (DEBUG) Slog.d(TAG, "contact STARRED is: " + mStarred);
+                boolean isStarred = cursor.getInt(starIdx) != 0;
+                if (isStarred) {
+                    mAffinity = Math.max(mAffinity, STARRED_CONTACT);
+                }
+                if (DEBUG) Slog.d(TAG, "contact STARRED is: " + isStarred);
             } else {
                 if (DEBUG) Slog.d(TAG, "invalid cursor: no STARRED");
             }
         }
 
-        public boolean isExpired() {
+        private boolean isExpired() {
             return mExpireMillis < System.currentTimeMillis();
         }
 
-        public boolean isInvalid() {
-            return mId == INVALID_ID || isExpired();
+        private boolean isInvalid() {
+            return mAffinity == NONE || isExpired();
         }
 
         public float getAffinity() {
             if (isInvalid()) {
                 return NONE;
-            } else if (mStarred) {
-                return STARRED_CONTACT;
-            } else {
-                return VALID_CONTACT;
+            }
+            return mAffinity;
+        }
+    }
+
+    private class PeopleRankingReconsideration extends RankingReconsideration {
+        private final LinkedList<String> mPendingLookups;
+        private final Context mContext;
+
+        private float mContactAffinity = NONE;
+
+        private PeopleRankingReconsideration(Context context, String key, LinkedList<String> pendingLookups) {
+            super(key);
+            mContext = context;
+            mPendingLookups = pendingLookups;
+        }
+
+        @Override
+        public void work() {
+            if (INFO) Slog.i(TAG, "Executing: validation for: " + mKey);
+            long timeStartMs = System.currentTimeMillis();
+            for (final String handle: mPendingLookups) {
+                LookupResult lookupResult = null;
+                final Uri uri = Uri.parse(handle);
+                if ("tel".equals(uri.getScheme())) {
+                    if (DEBUG) Slog.d(TAG, "checking telephone URI: " + handle);
+                    lookupResult = resolvePhoneContact(mContext, uri.getSchemeSpecificPart());
+                } else if ("mailto".equals(uri.getScheme())) {
+                    if (DEBUG) Slog.d(TAG, "checking mailto URI: " + handle);
+                    lookupResult = resolveEmailContact(mContext, uri.getSchemeSpecificPart());
+                } else if (handle.startsWith(Contacts.CONTENT_LOOKUP_URI.toString())) {
+                    if (DEBUG) Slog.d(TAG, "checking lookup URI: " + handle);
+                    lookupResult = searchContacts(mContext, uri);
+                } else {
+                    lookupResult = new LookupResult();  // invalid person for the cache
+                    Slog.w(TAG, "unsupported URI " + handle);
+                }
+                if (lookupResult != null) {
+                    synchronized (mPeopleCache) {
+                        final String cacheKey = getCacheKey(mContext.getUserId(), handle);
+                        mPeopleCache.put(cacheKey, lookupResult);
+                    }
+                    mContactAffinity = Math.max(mContactAffinity, lookupResult.getAffinity());
+                }
+            }
+            if (DEBUG) {
+                Slog.d(TAG, "Validation finished in " + (System.currentTimeMillis() - timeStartMs) +
+                        "ms");
             }
         }
 
-        public LookupResult setStarred(boolean starred) {
-            mStarred = starred;
-            return this;
+        @Override
+        public void applyChangesLocked(NotificationRecord operand) {
+            float affinityBound = operand.getContactAffinity();
+            operand.setContactAffinity(Math.max(mContactAffinity, affinityBound));
+            if (INFO) Slog.i(TAG, "final affinity: " + operand.getContactAffinity());
         }
 
-        public LookupResult setId(int id) {
-            mId = id;
-            return this;
+        public float getContactAffinity() {
+            return mContactAffinity;
         }
     }
 }

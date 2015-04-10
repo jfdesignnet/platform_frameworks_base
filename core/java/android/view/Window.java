@@ -18,13 +18,14 @@ package android.view;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
 import android.media.session.MediaController;
-import android.media.session.MediaSession;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -101,20 +102,31 @@ public abstract class Window {
      */
     public static final int FEATURE_SWIPE_TO_DISMISS = 11;
     /**
-     * Flag for requesting that window content changes should be represented
-     * with scenes and transitions.
+     * Flag for requesting that window content changes should be animated using a
+     * TransitionManager.
      *
-     * TODO Add docs
+     * <p>The TransitionManager is set using
+     * {@link #setTransitionManager(android.transition.TransitionManager)}. If none is set,
+     * a default TransitionManager will be used.</p>
      *
      * @see #setContentView
      */
     public static final int FEATURE_CONTENT_TRANSITIONS = 12;
 
     /**
+     * Enables Activities to run Activity Transitions either through sending or receiving
+     * ActivityOptions bundle created with
+     * {@link android.app.ActivityOptions#makeSceneTransitionAnimation(android.app.Activity,
+     * android.util.Pair[])} or {@link android.app.ActivityOptions#makeSceneTransitionAnimation(
+     * android.app.Activity, View, String)}.
+     */
+    public static final int FEATURE_ACTIVITY_TRANSITIONS = 13;
+
+    /**
      * Max value used as a feature ID
      * @hide
      */
-    public static final int FEATURE_MAX = FEATURE_CONTENT_TRANSITIONS;
+    public static final int FEATURE_MAX = FEATURE_ACTIVITY_TRANSITIONS;
 
     /** Flag for setting the progress bar's visibility to VISIBLE */
     public static final int PROGRESS_VISIBILITY_ON = -1;
@@ -146,7 +158,11 @@ public abstract class Window {
     public static final String NAVIGATION_BAR_BACKGROUND_TRANSITION_NAME =
             "android:navigation:background";
 
-    /** The default features enabled */
+    /**
+     * The default features enabled.
+     * @deprecated use {@link #getDefaultFeatures(android.content.Context)} instead.
+     */
+    @Deprecated
     @SuppressWarnings({"PointlessBitwiseExpression"})
     protected static final int DEFAULT_FEATURES = (1 << FEATURE_OPTIONS_PANEL) |
             (1 << FEATURE_CONTEXT_MENU);
@@ -175,8 +191,8 @@ public abstract class Window {
     private boolean mSetCloseOnTouchOutside = false;
     private int mForcedWindowFlags = 0;
 
-    private int mFeatures = DEFAULT_FEATURES;
-    private int mLocalFeatures = DEFAULT_FEATURES;
+    private int mFeatures;
+    private int mLocalFeatures;
 
     private boolean mHaveWindowFormat = false;
     private boolean mHaveDimAmount = false;
@@ -354,7 +370,7 @@ public abstract class Window {
         /**
          * This hook is called whenever the window focus changes.  See
          * {@link View#onWindowFocusChanged(boolean)
-         * View.onWindowFocusChanged(boolean)} for more information.
+         * View.onWindowFocusChangedNotLocked(boolean)} for more information.
          *
          * @param hasFocus Whether the window now has focus.
          */
@@ -434,6 +450,7 @@ public abstract class Window {
 
     public Window(Context context) {
         mContext = context;
+        mFeatures = mLocalFeatures = getDefaultFeatures(context);
     }
 
     /**
@@ -792,9 +809,6 @@ public abstract class Window {
     public void setFlags(int flags, int mask) {
         final WindowManager.LayoutParams attrs = getAttributes();
         attrs.flags = (attrs.flags&~mask) | (flags&mask);
-        if ((mask&WindowManager.LayoutParams.FLAG_NEEDS_MENU_KEY) != 0) {
-            attrs.privateFlags |= WindowManager.LayoutParams.PRIVATE_FLAG_SET_NEEDS_MENU_KEY;
-        }
         mForcedWindowFlags |= mask;
         dispatchWindowAttributesChanged(attrs);
     }
@@ -802,6 +816,15 @@ public abstract class Window {
     private void setPrivateFlags(int flags, int mask) {
         final WindowManager.LayoutParams attrs = getAttributes();
         attrs.privateFlags = (attrs.privateFlags & ~mask) | (flags & mask);
+        dispatchWindowAttributesChanged(attrs);
+    }
+
+    /**
+     * {@hide}
+     */
+    protected void setNeedsMenuKey(int value) {
+        final WindowManager.LayoutParams attrs = getAttributes();
+        attrs.needsMenuKey = value;
         dispatchWindowAttributesChanged(attrs);
     }
 
@@ -881,6 +904,14 @@ public abstract class Window {
             mCloseOnTouchOutside = close;
             mSetCloseOnTouchOutside = true;
         }
+    }
+
+    /** @hide */
+    @SystemApi
+    public void setDisableWallpaperTouchEvents(boolean disable) {
+        setPrivateFlags(disable
+                ? WindowManager.LayoutParams.PRIVATE_FLAG_DISABLE_WALLPAPER_TOUCH_EVENTS : 0,
+                WindowManager.LayoutParams.PRIVATE_FLAG_DISABLE_WALLPAPER_TOUCH_EVENTS);
     }
 
     /** @hide */
@@ -990,10 +1021,16 @@ public abstract class Window {
      * <p>Note that calling this function "locks in" various characteristics
      * of the window that can not, from this point forward, be changed: the
      * features that have been requested with {@link #requestFeature(int)},
-     * and certain window flags as described in {@link #setFlags(int, int)}.
+     * and certain window flags as described in {@link #setFlags(int, int)}.</p>
+     *
+     * <p>If {@link #FEATURE_CONTENT_TRANSITIONS} is set, the window's
+     * TransitionManager will be used to animate content from the current
+     * content View to view.</p>
      *
      * @param view The desired content to display.
      * @param params Layout parameters for the view.
+     * @see #getTransitionManager()
+     * @see #setTransitionManager(android.transition.TransitionManager)
      */
     public abstract void setContentView(View view, ViewGroup.LayoutParams params);
 
@@ -1060,17 +1097,40 @@ public abstract class Window {
     public abstract void onConfigurationChanged(Configuration newConfig);
 
     /**
+     * Sets the window elevation.
+     * <p>
+     * Changes to this property take effect immediately and will cause the
+     * window surface to be recreated. This is an expensive operation and as a
+     * result, this property should not be animated.
+     *
+     * @param elevation The window elevation.
+     * @see View#setElevation(float)
+     * @see android.R.styleable#Window_windowElevation
+     */
+    public void setElevation(float elevation) {}
+
+    /**
+     * Sets whether window content should be clipped to the outline of the
+     * window background.
+     *
+     * @param clipToOutline Whether window content should be clipped to the
+     *                      outline of the window background.
+     * @see View#setClipToOutline(boolean)
+     * @see android.R.styleable#Window_windowClipToOutline
+     */
+    public void setClipToOutline(boolean clipToOutline) {}
+
+    /**
      * Change the background of this window to a Drawable resource. Setting the
      * background to null will make the window be opaque. To make the window
      * transparent, you can use an empty drawable (for instance a ColorDrawable
      * with the color 0 or the system drawable android:drawable/empty.)
      *
-     * @param resid The resource identifier of a drawable resource which will be
-     *              installed as the new background.
+     * @param resId The resource identifier of a drawable resource which will
+     *              be installed as the new background.
      */
-    public void setBackgroundDrawableResource(int resid)
-    {
-        setBackgroundDrawable(mContext.getDrawable(resid));
+    public void setBackgroundDrawableResource(int resId) {
+        setBackgroundDrawable(mContext.getDrawable(resId));
     }
 
     /**
@@ -1116,31 +1176,31 @@ public abstract class Window {
      * Set an explicit Drawable value for feature of this window. You must
      * have called requestFeature(featureId) before calling this function.
      *
-     * @param featureId The desired drawable feature to change.
-     * Features are constants defined by Window.
+     * @param featureId The desired drawable feature to change. Features are
+     *                  constants defined by Window.
      * @param drawable A Drawable object to display.
      */
     public abstract void setFeatureDrawable(int featureId, Drawable drawable);
 
     /**
-     * Set a custom alpha value for the given drawale feature, controlling how
+     * Set a custom alpha value for the given drawable feature, controlling how
      * much the background is visible through it.
      *
-     * @param featureId The desired drawable feature to change.
-     * Features are constants defined by Window.
+     * @param featureId The desired drawable feature to change. Features are
+     *                  constants defined by Window.
      * @param alpha The alpha amount, 0 is completely transparent and 255 is
      *              completely opaque.
      */
     public abstract void setFeatureDrawableAlpha(int featureId, int alpha);
 
     /**
-     * Set the integer value for a feature.  The range of the value depends on
-     * the feature being set.  For FEATURE_PROGRESSS, it should go from 0 to
-     * 10000. At 10000 the progress is complete and the indicator hidden.
+     * Set the integer value for a feature. The range of the value depends on
+     * the feature being set. For {@link #FEATURE_PROGRESS}, it should go from
+     * 0 to 10000. At 10000 the progress is complete and the indicator hidden.
      *
-     * @param featureId The desired feature to change.
-     * Features are constants defined by Window.
-     * @param value The value for the feature.  The interpretation of this
+     * @param featureId The desired feature to change. Features are constants
+     *                  defined by Window.
+     * @param value The value for the feature. The interpretation of this
      *              value is feature-specific.
      */
     public abstract void setFeatureInt(int featureId, int value);
@@ -1237,6 +1297,25 @@ public abstract class Window {
     }
 
     /**
+     * Return the feature bits set by default on a window.
+     * @param context The context used to access resources
+     */
+    public static int getDefaultFeatures(Context context) {
+        int features = 0;
+
+        final Resources res = context.getResources();
+        if (res.getBoolean(com.android.internal.R.bool.config_defaultWindowFeatureOptionsPanel)) {
+            features |= 1 << FEATURE_OPTIONS_PANEL;
+        }
+
+        if (res.getBoolean(com.android.internal.R.bool.config_defaultWindowFeatureContextMenu)) {
+            features |= 1 << FEATURE_CONTEXT_MENU;
+        }
+
+        return features;
+    }
+
+    /**
      * Query for the availability of a certain feature.
      *
      * @param feature The feature ID to check
@@ -1304,12 +1383,22 @@ public abstract class Window {
     public abstract int getVolumeControlStream();
 
     /**
+     * Sets a {@link MediaController} to send media keys and volume changes to.
+     * If set, this should be preferred for all media keys and volume requests
+     * sent to this window.
+     *
+     * @param controller The controller for the session which should receive
+     *            media keys and volume changes.
      * @see android.app.Activity#setMediaController(android.media.session.MediaController)
      */
     public void setMediaController(MediaController controller) {
     }
 
     /**
+     * Gets the {@link MediaController} that was previously set.
+     *
+     * @return The controller which should receive events.
+     * @see #setMediaController(android.media.session.MediaController)
      * @see android.app.Activity#getMediaController()
      */
     public MediaController getMediaController() {
@@ -1386,6 +1475,7 @@ public abstract class Window {
      * {@link #setContentView}) if {@link #FEATURE_CONTENT_TRANSITIONS} has been granted.</p>
      *
      * @return This window's content TransitionManager or null if none is set.
+     * @attr ref android.R.styleable#Window_windowContentTransitionManager
      */
     public TransitionManager getTransitionManager() {
         return null;
@@ -1396,6 +1486,7 @@ public abstract class Window {
      * Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
      *
      * @param tm The TransitionManager to use for scene changes.
+     * @attr ref android.R.styleable#Window_windowContentTransitionManager
      */
     public void setTransitionManager(TransitionManager tm) {
         throw new UnsupportedOperationException();
@@ -1420,9 +1511,28 @@ public abstract class Window {
      * {@link android.transition.Visibility} as entering is governed by changing visibility from
      * {@link View#INVISIBLE} to {@link View#VISIBLE}. If <code>transition</code> is null,
      * entering Views will remain unaffected.
+     *
      * @param transition The Transition to use to move Views into the initial Scene.
+     * @attr ref android.R.styleable#Window_windowEnterTransition
      */
     public void setEnterTransition(Transition transition) {}
+
+    /**
+     * Sets the Transition that will be used to move Views out of the scene when the Window is
+     * preparing to close, for example after a call to
+     * {@link android.app.Activity#finishAfterTransition()}. The exiting
+     * Views will be those that are regular Views or ViewGroups that have
+     * {@link ViewGroup#isTransitionGroup} return true. Typical Transitions will extend
+     * {@link android.transition.Visibility} as entering is governed by changing visibility from
+     * {@link View#VISIBLE} to {@link View#INVISIBLE}. If <code>transition</code> is null,
+     * entering Views will remain unaffected. If nothing is set, the default will be to
+     * use the same value as set in {@link #setEnterTransition(android.transition.Transition)}.
+     *
+     * @param transition The Transition to use to move Views out of the Scene when the Window
+     *                   is preparing to close.
+     * @attr ref android.R.styleable#Window_windowReturnTransition
+     */
+    public void setReturnTransition(Transition transition) {}
 
     /**
      * Sets the Transition that will be used to move Views out of the scene when starting a
@@ -1430,11 +1540,29 @@ public abstract class Window {
      * have {@link ViewGroup#isTransitionGroup} return true. Typical Transitions will extend
      * {@link android.transition.Visibility} as exiting is governed by changing visibility
      * from {@link View#VISIBLE} to {@link View#INVISIBLE}. If transition is null, the views will
-     * remain unaffected. Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
+     * remain unaffected. Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
      * @param transition The Transition to use to move Views out of the scene when calling a
      *                   new Activity.
+     * @attr ref android.R.styleable#Window_windowExitTransition
      */
     public void setExitTransition(Transition transition) {}
+
+    /**
+     * Sets the Transition that will be used to move Views in to the scene when returning from
+     * a previously-started Activity. The entering Views will be those that are regular Views
+     * or ViewGroups that have {@link ViewGroup#isTransitionGroup} return true. Typical Transitions
+     * will extend {@link android.transition.Visibility} as exiting is governed by changing
+     * visibility from {@link View#VISIBLE} to {@link View#INVISIBLE}. If transition is null,
+     * the views will remain unaffected. If nothing is set, the default will be to use the same
+     * transition as {@link #setExitTransition(android.transition.Transition)}.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
+     * @param transition The Transition to use to move Views into the scene when reentering from a
+     *                   previously-started Activity.
+     * @attr ref android.R.styleable#Window_windowReenterTransition
+     */
+    public void setReenterTransition(Transition transition) {}
 
     /**
      * Returns the transition used to move Views into the initial scene. The entering
@@ -1442,11 +1570,27 @@ public abstract class Window {
      * {@link ViewGroup#isTransitionGroup} return true. Typical Transitions will extend
      * {@link android.transition.Visibility} as entering is governed by changing visibility from
      * {@link View#INVISIBLE} to {@link View#VISIBLE}. If <code>transition</code> is null,
-     * entering Views will remain unaffected.  Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
+     * entering Views will remain unaffected.  Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
      *
      * @return the Transition to use to move Views into the initial Scene.
+     * @attr ref android.R.styleable#Window_windowEnterTransition
      */
     public Transition getEnterTransition() { return null; }
+
+    /**
+     * Returns he Transition that will be used to move Views out of the scene when the Window is
+     * preparing to close, for example after a call to
+     * {@link android.app.Activity#finishAfterTransition()}. The exiting
+     * Views will be those that are regular Views or ViewGroups that have
+     * {@link ViewGroup#isTransitionGroup} return true. Typical Transitions will extend
+     * {@link android.transition.Visibility} as entering is governed by changing visibility from
+     * {@link View#VISIBLE} to {@link View#INVISIBLE}.
+     *
+     * @return The Transition to use to move Views out of the Scene when the Window
+     *         is preparing to close.
+     * @attr ref android.R.styleable#Window_windowReturnTransition
+     */
+    public Transition getReturnTransition() { return null; }
 
     /**
      * Returns the Transition that will be used to move Views out of the scene when starting a
@@ -1454,50 +1598,121 @@ public abstract class Window {
      * have {@link ViewGroup#isTransitionGroup} return true. Typical Transitions will extend
      * {@link android.transition.Visibility} as exiting is governed by changing visibility
      * from {@link View#VISIBLE} to {@link View#INVISIBLE}. If transition is null, the views will
-     * remain unaffected. Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
+     * remain unaffected. Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
      * @return the Transition to use to move Views out of the scene when calling a
      * new Activity.
+     * @attr ref android.R.styleable#Window_windowExitTransition
      */
     public Transition getExitTransition() { return null; }
+
+    /**
+     * Returns the Transition that will be used to move Views in to the scene when returning from
+     * a previously-started Activity. The entering Views will be those that are regular Views
+     * or ViewGroups that have {@link ViewGroup#isTransitionGroup} return true. Typical Transitions
+     * will extend {@link android.transition.Visibility} as exiting is governed by changing
+     * visibility from {@link View#VISIBLE} to {@link View#INVISIBLE}.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
+     * @return The Transition to use to move Views into the scene when reentering from a
+     *         previously-started Activity.
+     * @attr ref android.R.styleable#Window_windowReenterTransition
+     */
+    public Transition getReenterTransition() { return null; }
 
     /**
      * Sets the Transition that will be used for shared elements transferred into the content
      * Scene. Typical Transitions will affect size and location, such as
      * {@link android.transition.ChangeBounds}. A null
      * value will cause transferred shared elements to blink to the final position.
-     * Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
      * @param transition The Transition to use for shared elements transferred into the content
      *                   Scene.
+     * @attr ref android.R.styleable#Window_windowSharedElementEnterTransition
      */
     public void setSharedElementEnterTransition(Transition transition) {}
 
     /**
+     * Sets the Transition that will be used for shared elements transferred back to a
+     * calling Activity. Typical Transitions will affect size and location, such as
+     * {@link android.transition.ChangeBounds}. A null
+     * value will cause transferred shared elements to blink to the final position.
+     * If no value is set, the default will be to use the same value as
+     * {@link #setSharedElementEnterTransition(android.transition.Transition)}.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
+     * @param transition The Transition to use for shared elements transferred out of the content
+     *                   Scene.
+     * @attr ref android.R.styleable#Window_windowSharedElementReturnTransition
+     */
+    public void setSharedElementReturnTransition(Transition transition) {}
+
+    /**
      * Returns the Transition that will be used for shared elements transferred into the content
-     * Scene. Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
+     * Scene. Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
      * @return Transition to use for sharend elements transferred into the content Scene.
+     * @attr ref android.R.styleable#Window_windowSharedElementEnterTransition
      */
     public Transition getSharedElementEnterTransition() { return null; }
+
+    /**
+     * Returns the Transition that will be used for shared elements transferred back to a
+     * calling Activity. Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
+     * @return Transition to use for sharend elements transferred into the content Scene.
+     * @attr ref android.R.styleable#Window_windowSharedElementReturnTransition
+     */
+    public Transition getSharedElementReturnTransition() { return null; }
 
     /**
      * Sets the Transition that will be used for shared elements after starting a new Activity
      * before the shared elements are transferred to the called Activity. If the shared elements
      * must animate during the exit transition, this Transition should be used. Upon completion,
      * the shared elements may be transferred to the started Activity.
-     * Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
      * @param transition The Transition to use for shared elements in the launching Window
      *                   prior to transferring to the launched Activity's Window.
+     * @attr ref android.R.styleable#Window_windowSharedElementExitTransition
      */
     public void setSharedElementExitTransition(Transition transition) {}
 
     /**
+     * Sets the Transition that will be used for shared elements reentering from a started
+     * Activity after it has returned the shared element to it start location. If no value
+     * is set, this will default to
+     * {@link #setSharedElementExitTransition(android.transition.Transition)}.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
+     * @param transition The Transition to use for shared elements in the launching Window
+     *                   after the shared element has returned to the Window.
+     * @attr ref android.R.styleable#Window_windowSharedElementReenterTransition
+     */
+    public void setSharedElementReenterTransition(Transition transition) {}
+
+    /**
      * Returns the Transition to use for shared elements in the launching Window prior
      * to transferring to the launched Activity's Window.
-     * Requires {@link #FEATURE_CONTENT_TRANSITIONS}.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
      *
      * @return the Transition to use for shared elements in the launching Window prior
      * to transferring to the launched Activity's Window.
+     * @attr ref android.R.styleable#Window_windowSharedElementExitTransition
      */
     public Transition getSharedElementExitTransition() { return null; }
+
+    /**
+     * Returns the Transition that will be used for shared elements reentering from a started
+     * Activity after it has returned the shared element to it start location.
+     * Requires {@link #FEATURE_ACTIVITY_TRANSITIONS}.
+     *
+     * @return the Transition that will be used for shared elements reentering from a started
+     * Activity after it has returned the shared element to it start location.
+     * @attr ref android.R.styleable#Window_windowSharedElementReenterTransition
+     */
+    public Transition getSharedElementReenterTransition() { return null; }
 
     /**
      * Controls how the transition set in
@@ -1505,8 +1720,10 @@ public abstract class Window {
      * transition of the calling Activity. When true, the transition will start as soon as possible.
      * When false, the transition will wait until the remote exiting transition completes before
      * starting.
+     *
      * @param allow true to start the enter transition when possible or false to
      *              wait until the exiting transition completes.
+     * @attr ref android.R.styleable#Window_windowAllowEnterTransitionOverlap
      */
     public void setAllowEnterTransitionOverlap(boolean allow) {}
 
@@ -1516,8 +1733,10 @@ public abstract class Window {
      * transition of the calling Activity. When true, the transition will start as soon as possible.
      * When false, the transition will wait until the remote exiting transition completes before
      * starting.
+     *
      * @return true when the enter transition should start as soon as possible or false to
      * when it should wait until the exiting transition completes.
+     * @attr ref android.R.styleable#Window_windowAllowEnterTransitionOverlap
      */
     public boolean getAllowEnterTransitionOverlap() { return true; }
 
@@ -1527,10 +1746,20 @@ public abstract class Window {
      * transition of the called Activity when reentering after if finishes. When true,
      * the transition will start as soon as possible. When false, the transition will wait
      * until the called Activity's exiting transition completes before starting.
+     *
      * @param allow true to start the transition when possible or false to wait until the
      *              called Activity's exiting transition completes.
+     * @attr ref android.R.styleable#Window_windowAllowReturnTransitionOverlap
      */
-    public void setAllowExitTransitionOverlap(boolean allow) {}
+    public void setAllowReturnTransitionOverlap(boolean allow) {}
+
+    /**
+     * TODO: remove this.
+     * @hide
+     */
+    public void setAllowExitTransitionOverlap(boolean allow) {
+        setAllowReturnTransitionOverlap(allow);
+    }
 
     /**
      * Returns how the transition set in
@@ -1538,19 +1767,29 @@ public abstract class Window {
      * transition of the called Activity when reentering after if finishes. When true,
      * the transition will start as soon as possible. When false, the transition will wait
      * until the called Activity's exiting transition completes before starting.
+     *
      * @return true when the transition should start when possible or false when it should wait
      * until the called Activity's exiting transition completes.
+     * @attr ref android.R.styleable#Window_windowAllowReturnTransitionOverlap
      */
-    public boolean getAllowExitTransitionOverlap() { return true; }
+    public boolean getAllowReturnTransitionOverlap() { return true; }
+
+    /**
+     * TODO: remove this.
+     * @hide
+     */
+    public boolean getAllowExitTransitionOverlap() { return getAllowReturnTransitionOverlap(); }
 
     /**
      * Returns the duration, in milliseconds, of the window background fade
      * when transitioning into or away from an Activity when called with an Activity Transition.
      * <p>When executing the enter transition, the background starts transparent
-     * and fades in. This requires {@link #FEATURE_CONTENT_TRANSITIONS}. The default is
+     * and fades in. This requires {@link #FEATURE_ACTIVITY_TRANSITIONS}. The default is
      * 300 milliseconds.</p>
+     *
      * @return The duration of the window background fade to opaque during enter transition.
      * @see #getEnterTransition()
+     * @attr ref android.R.styleable#Window_windowTransitionBackgroundFadeDuration
      */
     public long getTransitionBackgroundFadeDuration() { return 0; }
 
@@ -1558,13 +1797,38 @@ public abstract class Window {
      * Sets the duration, in milliseconds, of the window background fade
      * when transitioning into or away from an Activity when called with an Activity Transition.
      * <p>When executing the enter transition, the background starts transparent
-     * and fades in. This requires {@link #FEATURE_CONTENT_TRANSITIONS}. The default is
+     * and fades in. This requires {@link #FEATURE_ACTIVITY_TRANSITIONS}. The default is
      * 300 milliseconds.</p>
+     *
      * @param fadeDurationMillis The duration of the window background fade to or from opaque
      *                           during enter transition.
      * @see #setEnterTransition(android.transition.Transition)
+     * @attr ref android.R.styleable#Window_windowTransitionBackgroundFadeDuration
      */
     public void setTransitionBackgroundFadeDuration(long fadeDurationMillis) { }
+
+    /**
+     * Returns <code>true</code> when shared elements should use an Overlay during
+     * shared element transitions or <code>false</code> when they should animate as
+     * part of the normal View hierarchy. The default value is true.
+     *
+     * @return <code>true</code> when shared elements should use an Overlay during
+     * shared element transitions or <code>false</code> when they should animate as
+     * part of the normal View hierarchy.
+     * @attr ref android.R.styleable#Window_windowSharedElementsUseOverlay
+     */
+    public boolean getSharedElementsUseOverlay() { return true; }
+
+    /**
+     * Sets whether or not shared elements should use an Overlay during shared element transitions.
+     * The default value is true.
+     *
+     * @param sharedElementsUseOverlay <code>true</code> indicates that shared elements should
+     *                                 be transitioned with an Overlay or <code>false</code>
+     *                                 to transition within the normal View hierarchy.
+     * @attr ref android.R.styleable#Window_windowSharedElementsUseOverlay
+     */
+    public void setSharedElementsUseOverlay(boolean sharedElementsUseOverlay) { }
 
     /**
      * @return the color of the status bar.

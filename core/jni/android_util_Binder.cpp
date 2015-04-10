@@ -179,7 +179,10 @@ static void report_exception(JNIEnv* env, jthrowable excep, const char* msg)
     env->ExceptionClear();
 
     jstring tagstr = env->NewStringUTF(LOG_TAG);
-    jstring msgstr = env->NewStringUTF(msg);
+    jstring msgstr = NULL;
+    if (tagstr != NULL) {
+        msgstr = env->NewStringUTF(msg);
+    }
 
     if ((tagstr == NULL) || (msgstr == NULL)) {
         env->ExceptionClear();      /* assume exception (OOM?) was thrown */
@@ -261,8 +264,7 @@ protected:
         ALOGV("onTransact() on %p calling object %p in env %p vm %p\n", this, mObject, env, mVM);
 
         IPCThreadState* thread_state = IPCThreadState::self();
-        const int strict_policy_before = thread_state->getStrictModePolicy();
-        thread_state->setLastTransactionBinderFlags(flags);
+        const int32_t strict_policy_before = thread_state->getStrictModePolicy();
 
         //printf("Transact from %p to Java code sending: ", this);
         //data.print();
@@ -281,15 +283,11 @@ protected:
             env->DeleteLocalRef(excep);
         }
 
-        // Restore the Java binder thread's state if it changed while
-        // processing a call (as it would if the Parcel's header had a
-        // new policy mask and Parcel.enforceInterface() changed
-        // it...)
-        const int strict_policy_after = thread_state->getStrictModePolicy();
-        if (strict_policy_after != strict_policy_before) {
-            // Our thread-local...
-            thread_state->setStrictModePolicy(strict_policy_before);
-            // And the Java-level thread-local...
+        // Check if the strict mode state changed while processing the
+        // call.  The Binder state will be restored by the underlying
+        // Binder system in IPCThreadState, however we need to take care
+        // of the parallel Java state as well.
+        if (thread_state->getStrictModePolicy() != strict_policy_before) {
             set_dalvik_blockguard_policy(env, strict_policy_before);
         }
 
@@ -1236,7 +1234,7 @@ static const JNINativeMethod gBinderProxyMethods[] = {
     {"pingBinder",          "()Z", (void*)android_os_BinderProxy_pingBinder},
     {"isBinderAlive",       "()Z", (void*)android_os_BinderProxy_isBinderAlive},
     {"getInterfaceDescriptor", "()Ljava/lang/String;", (void*)android_os_BinderProxy_getInterfaceDescriptor},
-    {"transact",            "(ILandroid/os/Parcel;Landroid/os/Parcel;I)Z", (void*)android_os_BinderProxy_transact},
+    {"transactNative",      "(ILandroid/os/Parcel;Landroid/os/Parcel;I)Z", (void*)android_os_BinderProxy_transact},
     {"linkToDeath",         "(Landroid/os/IBinder$DeathRecipient;I)V", (void*)android_os_BinderProxy_linkToDeath},
     {"unlinkToDeath",       "(Landroid/os/IBinder$DeathRecipient;I)Z", (void*)android_os_BinderProxy_unlinkToDeath},
     {"destroy",             "()V", (void*)android_os_BinderProxy_destroy},

@@ -16,10 +16,11 @@
 
 package com.android.server.hdmi;
 
+import static android.hardware.hdmi.HdmiControlManager.TIMER_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION;
+import static android.hardware.hdmi.HdmiControlManager.TIMER_RECORDING_RESULT_EXTRA_FAIL_TO_RECORD_SELECTED_SOURCE;
 import static android.hardware.hdmi.HdmiControlManager.TIMER_RECORDING_TYPE_ANALOGUE;
 import static android.hardware.hdmi.HdmiControlManager.TIMER_RECORDING_TYPE_DIGITAL;
 import static android.hardware.hdmi.HdmiControlManager.TIMER_RECORDING_TYPE_EXTERNAL;
-import static android.hardware.hdmi.HdmiControlManager.TIME_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION;
 
 import android.util.Slog;
 
@@ -30,7 +31,7 @@ import java.util.Arrays;
 /**
  * Feature action that performs timer recording.
  */
-public class TimerRecordingAction extends FeatureAction {
+public class TimerRecordingAction extends HdmiCecFeatureAction {
     private static final String TAG = "TimerRecordingAction";
 
     // Timer out for waiting <Timer Status> 120s.
@@ -73,8 +74,8 @@ public class TimerRecordingAction extends FeatureAction {
                         mRecorderAddress, mRecordSource);
                 break;
             default:
-                tv().announceTimerRecordingResult(
-                        TIME_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION);
+                tv().announceTimerRecordingResult(mRecorderAddress,
+                        TIMER_RECORDING_RESULT_EXTRA_FAIL_TO_RECORD_SELECTED_SOURCE);
                 finish();
                 return;
         }
@@ -82,22 +83,21 @@ public class TimerRecordingAction extends FeatureAction {
             @Override
             public void onSendCompleted(int error) {
                 if (error != Constants.SEND_RESULT_SUCCESS) {
-                    mState = STATE_WAITING_FOR_TIMER_STATUS;
-                    addTimer(mState, TIMER_STATUS_TIMEOUT_MS);
+                    tv().announceTimerRecordingResult(mRecorderAddress,
+                            TIMER_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION);
                     finish();
                     return;
                 }
+                mState = STATE_WAITING_FOR_TIMER_STATUS;
+                addTimer(mState, TIMER_STATUS_TIMEOUT_MS);
             }
         });
     }
 
     @Override
     boolean processCommand(HdmiCecMessage cmd) {
-        if (mState != STATE_WAITING_FOR_TIMER_STATUS) {
-            return false;
-        }
-
-        if (cmd.getSource() != mRecorderAddress) {
+        if (mState != STATE_WAITING_FOR_TIMER_STATUS
+                || cmd.getSource() != mRecorderAddress) {
             return false;
         }
 
@@ -114,7 +114,7 @@ public class TimerRecordingAction extends FeatureAction {
         byte[] timerStatusData = cmd.getParams();
         // [Timer Status Data] should be one or three bytes.
         if (timerStatusData.length == 1 || timerStatusData.length == 3) {
-            tv().announceTimerRecordingResult(bytesToInt(timerStatusData));
+            tv().announceTimerRecordingResult(mRecorderAddress, bytesToInt(timerStatusData));
             Slog.i(TAG, "Received [Timer Status Data]:" + Arrays.toString(timerStatusData));
         } else {
             Slog.w(TAG, "Invalid [Timer Status Data]:" + Arrays.toString(timerStatusData));
@@ -127,7 +127,7 @@ public class TimerRecordingAction extends FeatureAction {
 
     private boolean handleFeatureAbort(HdmiCecMessage cmd) {
         byte[] params = cmd.getParams();
-        int messageType = params[0];
+        int messageType = params[0] & 0xFF;
         switch (messageType) {
             case Constants.MESSAGE_SET_DIGITAL_TIMER: // fall through
             case Constants.MESSAGE_SET_ANALOG_TIMER: // fall through
@@ -136,9 +136,10 @@ public class TimerRecordingAction extends FeatureAction {
             default:
                 return false;
         }
-        int reason = params[1];
+        int reason = params[1] & 0xFF;
         Slog.i(TAG, "[Feature Abort] for " + messageType + " reason:" + reason);
-        tv().announceTimerRecordingResult(TIME_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION);
+        tv().announceTimerRecordingResult(mRecorderAddress,
+                TIMER_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION);
         finish();
         return true;
     }
@@ -163,7 +164,8 @@ public class TimerRecordingAction extends FeatureAction {
             return;
         }
 
-        tv().announceTimerRecordingResult(TIME_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION);
+        tv().announceTimerRecordingResult(mRecorderAddress,
+                TIMER_RECORDING_RESULT_EXTRA_CHECK_RECORDER_CONNECTION);
         finish();
     }
 }

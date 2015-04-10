@@ -61,6 +61,9 @@
     <!-- [CHAR_LIMIT=10] Suffix added to signify duration in minutes -->
     <string name="durationMinutes"><xliff:g id="minutes">%1$d</xliff:g> mins</string>
 
+    <!-- [CHAR_LIMIT=10] Suffix added to signify duration of one minute -->
+    <string name="durationMinute"><xliff:g id="minutes">%1$d</xliff:g> min</string>
+
     <!-- [CHAR_LIMIT=10] Suffix added to signify duration of one minute with seconds -->
     <string name="durationMinuteSeconds"><xliff:g id="minutes">%1$d</xliff:g> min
             <xliff:g id="seconds">%2$d</xliff:g> secs</string>
@@ -79,19 +82,11 @@
          for a note with no name. -->
     <string name="untitled">&lt;Untitled&gt;</string>
 
-    <!-- Used to replace a range of characters in text that is too wide
-         for the space allocated to it (three dots). -->
-    <string name="ellipsis">\u2026</string>
-
-    <!-- Used to replace a range of characters in text that is too wide
-         for the space allocated to it (two dots). -->
-    <string name="ellipsis_two_dots">\u2025</string>
-
     <!-- How to display the lack of a phone number -->
     <string name="emptyPhoneNumber">(No phone number)</string>
 
     <!-- How to display the lack of a name -->
-    <string name="unknownName">(Unknown)</string>
+    <string name="unknownName">Unknown</string>
 
     <!-- What the UI should display for "voice mail" unless overridden by the SIM-->
     <string name="defaultVoiceMailAlphaTag">Voicemail</string>
@@ -154,6 +149,10 @@
     <string name="ClipMmi">Incoming Caller ID</string>
     <!-- Displayed as the title for a success/failure report enabling/disabling caller ID. -->
     <string name="ClirMmi">Outgoing Caller ID</string>
+    <!-- Displayed as the title for a success/failure report enabling/disabling connected line ID. -->
+    <string name="ColpMmi">Connected Line ID</string>
+    <!-- Displayed as the title for a success/failure report enabling/disabling connected line ID restriction. -->
+    <string name="ColrMmi">Connected Line ID Restriction</string>
     <!-- Displayed as the title for a success/failure report enabling/disabling call forwarding. -->
     <string name="CfMmi">Call forwarding</string>
     <!-- Displayed as the title for a success/failure report enabling/disabling call waiting. -->
@@ -204,6 +203,12 @@
     <string name="RestrictedOnVoiceSms">Voice/SMS services are blocked.</string>
     <!-- Displayed to tell the user that all service is blocked by access control. -->
     <string name="RestrictedOnAll">All voice/data/SMS services are blocked.</string>
+
+    <!-- Displayed to tell the user that peer changed TTY mode -->
+    <string name="peerTtyModeFull">Peer requested TTY Mode FULL</string>
+    <string name="peerTtyModeHco">Peer requested TTY Mode HCO</string>
+    <string name="peerTtyModeVco">Peer requested TTY Mode VCO</string>
+    <string name="peerTtyModeOff">Peer requested TTY Mode OFF</string>
 
     <!-- Mappings between TS 27.007 +CFCC/+CLCK "service classes" and human-readable strings--> <skip />
     <!-- Example: Service was enabled for: Voice, Data -->
@@ -319,6 +324,8 @@
     <!-- If MMS discovers there isn't much space left on the device, it will show a toast with this message. -->
     <string name="low_memory" product="watch">Watch storage is full. Delete some files to free space.</string>
     <!-- If MMS discovers there isn't much space left on the device, it will show a toast with this message. -->
+    <string name="low_memory" product="tv">TV storage is full. Delete some files to free space.</string>
+    <!-- If MMS discovers there isn't much space left on the device, it will show a toast with this message. -->
     <string name="low_memory" product="default">Phone storage is full. Delete some files to free space.</string>
 
     <!-- SSL CA cert notification --> <skip />
@@ -326,13 +333,38 @@
          device.  Indicates to the user that SSL traffic can be intercepted.  [CHAR LIMIT=NONE] -->
     <string name="ssl_ca_cert_warning">Network may be monitored</string>
     <!-- Content text for a notification. The Title of the notification is "ssl_ca_cert_warning",
-         i.e.  "Network may be monitored". This says that an unknown party is doing the monitoring.
+         i.e. "Network may be monitored". This says that an unknown party is doing the monitoring.
          [CHAR LIMIT=100]-->
     <string name="ssl_ca_cert_noti_by_unknown">By an unknown third party</string>
     <!-- Content text for a notification. The Title of the notification is "ssl_ca_cert_warning",
-         i.e.  "Network may be monitored". This indicates who is doing the monitoring.
+        i.e. "Network may be monitored". This indicates that an unspecified administrator is doing
+        the monitoring. [CHAR LIMIT=100]-->
+    <string name="ssl_ca_cert_noti_by_administrator">By your work profile administrator</string>
+    <!-- Content text for a notification. The Title of the notification is "ssl_ca_cert_warning",
+         i.e. "Network may be monitored". This indicates who is doing the monitoring.
          [CHAR LIMIT=100]-->
     <string name="ssl_ca_cert_noti_managed">By <xliff:g id="managing_domain">%s</xliff:g></string>
+
+    <!-- Work profile deleted notification--> <skip />
+    <!-- Shows up in the notification's title when the system deletes the work profile. [CHAR LIMIT=NONE] -->
+    <string name="work_profile_deleted">Work profile deleted</string>
+    <!-- Content text for a notification. The Title of the notification is "work_profile_deleted",
+         i.e. "Work profile deleted". This says that the profile is deleted by the system as a result of
+         the current profile owner gone missing. [CHAR LIMIT=100]-->
+    <string name="work_profile_deleted_description">Work profile deleted due to missing admin app.</string>
+    <!-- Content text for an expanded notification. The Title of the notification is "work_profile_deleted",
+         i.e. "Work profile deleted". This further explains that the profile is deleted by the system
+         as a result of the current profile admin gone missing. [CHAR LIMIT=NONE]-->
+    <string name="work_profile_deleted_details">The work profile admin app is either missing or corrupted.
+         As a result, your work profile and related data have been deleted. Contact your administrator for assistance.</string>
+
+    <!-- Factory reset warning dialog strings--> <skip />
+    <!-- Shows up in the dialog's title to warn about an impeding factory reset. [CHAR LIMIT=NONE] -->
+    <string name="factory_reset_warning">Your device will be erased</string>
+    <!-- Text message in the factory reset warning dialog. This says that the the device admin app
+         is missing or corrupted. As a result the device will be erased. [CHAR LIMIT=NONE]-->
+    <string name="factory_reset_message">The admin app is missing components or corrupted, and can\'t be used.
+         Your device will now be erased. Contact your administrator for assistance.</string>
 
     <!-- Display name for any time a piece of data refers to the owner of the phone. For example, this could be used in place of the phone's phone number. -->
     <string name="me">Me</string>
@@ -340,6 +372,8 @@
     <!-- Power Dialog --> <skip />
     <!-- Title for the Phone Options dialog to lock the screen, turn off the phone etc. -->
     <string name="power_dialog" product="tablet">Tablet options</string>
+    <!-- Title for the Phone Options dialog to lock the screen, turn off the phone etc. -->
+    <string name="power_dialog" product="tv">TV options</string>
     <!-- Title for the Phone Options dialog to lock the screen, turn off the phone etc. -->
     <string name="power_dialog" product="default">Phone options</string>
     <!-- Button to turn on silent mode, within the Phone Options dialog -->
@@ -365,6 +399,9 @@
     <!-- Shutdown Confirmation Dialog.  When the user chooses to power off the phone, there will
          be a confirmation dialog.  This is the message. -->
     <string name="shutdown_confirm" product="tablet">Your tablet will shut down.</string>
+    <!-- Shutdown Confirmation Dialog.  When the user chooses to power off the TV, there will
+         be a confirmation dialog.  This is the message. -->
+    <string name="shutdown_confirm" product="tv">Your TV will shut down.</string>
     <!-- Shutdown Confirmation Dialog.  When the user chooses to power off the watch, there will
          be a confirmation dialog.  This is the message. -->
     <string name="shutdown_confirm" product="watch">Your watch will shut down.</string>
@@ -400,6 +437,8 @@
 
     <!-- Title of the Global Actions Dialog -->
     <string name="global_actions" product="tablet">Tablet options</string>
+    <!-- Title of the Global Actions Dialog -->
+    <string name="global_actions" product="tv">TV options</string>
     <!-- Title of the Global Actions Dialog -->
     <string name="global_actions" product="default">Phone options</string>
 
@@ -738,6 +777,10 @@
       messages stored on your tablet or SIM card. This allows the app to read all
       SMS messages, regardless of content or confidentiality.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_readSms" product="tv">Allows the app to read SMS
+      messages stored on your TV or SIM card. This allows the app to read all
+      SMS messages, regardless of content or confidentiality.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_readSms" product="default">Allows the app to read SMS
       messages stored on your phone or SIM card. This allows the app to read all
       SMS messages, regardless of content or confidentiality.</string>
@@ -747,6 +790,10 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_writeSms" product="tablet">Allows the app to write
       to SMS messages stored on your tablet or SIM card. Malicious apps
+      may delete your messages.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_writeSms" product="tv">Allows the app to write
+      to SMS messages stored on your TV or SIM card. Malicious apps
       may delete your messages.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_writeSms" product="default">Allows the app to write
@@ -973,10 +1020,10 @@
 
     <!-- TODO: Mark these as translatable when API is finalized. -->
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_broadcastScoreNetworks" translatable="false">send score networks broadcast</string>
+    <string name="permlab_broadcastNetworkPrivileged" translatable="false">send privileged network broadcasts</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_broadcastScoreNetworks" translatable="false">Allows the app
-        to broadcast a notification that networks need to be scored.
+    <string name="permdesc_broadcastNetworkPrivileged" translatable="false">Allows the app
+        to send privileged network broadcasts.
         Never needed for normal apps.
     </string>
 
@@ -1070,6 +1117,10 @@
         its own input events (key presses, etc.) to other apps. Malicious
         apps may use this to take over the tablet.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_injectEvents" product="tv">Allows the app to deliver
+        its own input events (key presses, etc.) to other apps. Malicious
+        apps may use this to take over the TV.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_injectEvents" product="default">Allows the app to deliver
         its own input events (key presses, etc.) to other apps. Malicious
         apps may use this to take over the phone.</string>
@@ -1156,12 +1207,6 @@
         interface of a widget service. Should never be needed for normal apps.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_bindRouteProvider">bind to a route provider service</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_bindRouteProvider">Allows the holder to bind to any registered
-        route providers. Should never be needed for normal apps.</string>
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_bindDeviceAdmin">interact with a device admin</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_bindDeviceAdmin">Allows the holder to send intents to
@@ -1172,6 +1217,12 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_bindTvInput">Allows the holder to bind to the top-level
         interface of a TV input. Should never be needed for normal apps.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_modifyParentalControls">modify parental controls</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_modifyParentalControls">Allows the holder to modify the system\'s
+        parental controls data. Should never be needed for normal apps.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_manageDeviceAdmins">add or remove a device admin</string>
@@ -1209,6 +1260,8 @@
     <string name="permlab_persistentActivity">make app always run</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_persistentActivity" product="tablet">Allows the app to make parts of itself persistent in memory.  This can limit memory available to other apps slowing down the tablet.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_persistentActivity" product="tv">Allows the app to make parts of itself persistent in memory.  This can limit memory available to other apps slowing down the TV.</string>
     <string name="permdesc_persistentActivity" product="default">Allows the app to make parts of itself persistent in memory.  This can limit memory available to other apps slowing down the phone.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
@@ -1246,6 +1299,10 @@
         by deleting files in the cache directories of other applications.  This may cause other
         applications to start up more slowly as they need to re-retrieve their data.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_clearAppCache" product="tv">Allows the app to free TV storage
+        by deleting files in the cache directories of other applications.  This may cause other
+        applications to start up more slowly as they need to re-retrieve their data.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_clearAppCache" product="default">Allows the app to free phone storage
         by deleting files in the cache directories of other applications.  This may cause other
         applications to start up more slowly as they need to re-retrieve their data.</string>
@@ -1261,6 +1318,11 @@
     <string name="permdesc_readLogs" product="tablet">Allows the app to read from the
         system\'s various log files.  This allows it to discover general
         information about what you are doing with the tablet, potentially
+        including personal or private information.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_readLogs" product="tv">Allows the app to read from the
+        system\'s various log files.  This allows it to discover general
+        information about what you are doing with the TV, potentially
         including personal or private information.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_readLogs" product="default">Allows the app to read from the
@@ -1302,6 +1364,12 @@
     <string name="permdesc_changeComponentState" product="tablet">Allows the app to change whether a
         component of another app is enabled or not. Malicious apps may use this
         to disable important tablet capabilities. Care must be used with this permission, as it is
+        possible to get app components into an unusable, inconsistent, or unstable state.
+    </string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_changeComponentState" product="tv">Allows the app to change whether a
+        component of another app is enabled or not. Malicious apps may use this
+        to disable important TV capabilities. Care must be used with this permission, as it is
         possible to get app components into an unusable, inconsistent, or unstable state.
     </string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
@@ -1352,6 +1420,11 @@
         This can make it take longer to start the tablet and allow the
         app to slow down the overall tablet by always running.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_receiveBootCompleted" product="tv">Allows the app to
+        have itself started as soon as the system has finished booting.
+        This can make it take longer to start the TV and allow the
+        app to slow down the overall tablet by always running.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_receiveBootCompleted" product="default">Allows the app to
         have itself started as soon as the system has finished booting.
         This can make it take longer to start the phone and allow the
@@ -1365,6 +1438,11 @@
     may make the tablet slow or unstable by causing it to use too much memory.
     </string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_broadcastSticky" product="tv">Allows the app to
+    send sticky broadcasts, which remain after the broadcast ends. Excessive use
+    may make the TV slow or unstable by causing it to use too much memory.
+    </string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_broadcastSticky" product="default">Allows the app to
     send sticky broadcasts, which remain after the broadcast ends. Excessive
     use may make the phone slow or unstable by causing it to use too
@@ -1375,6 +1453,13 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_readContacts" product="tablet">Allows the app to read
       data about your contacts stored on your tablet, including the frequency
+      with which you\'ve called, emailed, or communicated in other ways with
+      specific individuals. This permission allows apps to save your contact
+      data, and malicious apps may share contact data without your
+      knowledge.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_readContacts" product="tv">Allows the app to read
+      data about your contacts stored on your TV, including the frequency
       with which you\'ve called, emailed, or communicated in other ways with
       specific individuals. This permission allows apps to save your contact
       data, and malicious apps may share contact data without your
@@ -1396,6 +1481,12 @@
       with specific contacts. This permission allows apps to delete contact
       data.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_writeContacts" product="tv">Allows the app to
+      modify the data about your contacts stored on your TV, including the
+      frequency with which you\'ve called, emailed, or communicated in other ways
+      with specific contacts. This permission allows apps to delete contact
+      data.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_writeContacts" product="default">Allows the app to
     modify the data about your contacts stored on your phone, including the
     frequency with which you\'ve called, emailed, or communicated in other ways
@@ -1410,6 +1501,11 @@
      This permission allows apps to save your call log data, and malicious apps
      may share call log data without your knowledge.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_readCallLog" product="tv">Allows the app to read
+     your TV\'s call log, including data about incoming and outgoing calls.
+     This permission allows apps to save your call log data, and malicious apps
+     may share call log data without your knowledge.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_readCallLog" product="default">Allows the app to read
       your phone\'s call log, including data about incoming and outgoing calls.
       This permission allows apps to save your call log data, and malicious apps
@@ -1419,6 +1515,9 @@
     <string name="permlab_writeCallLog">write call log</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_writeCallLog" product="tablet">Allows the app to modify your tablet\'s call log, including data about incoming and outgoing calls.
+        Malicious apps may use this to erase or modify your call log.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_writeCallLog" product="tv">Allows the app to modify your TV\'s call log, including data about incoming and outgoing calls.
         Malicious apps may use this to erase or modify your call log.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_writeCallLog" product="default">Allows the app to modify your phone\'s call log, including data about incoming and outgoing calls.
@@ -1445,9 +1544,8 @@
     <string name="permlab_bodySensors">body sensors (like heart rate monitors)
     </string>
     <!-- Description of the body sensors permission, listed so the user can decide whether to allow the application to access data from body sensors. [CHAR LIMIT=NONE] -->
-    <string name="permdesc_bodySensors" product="default">Allows the app to
-      access data from sensors you use to measure what’s happening inside your
-      body, such as heart rate.</string>
+    <string name="permdesc_bodySensors" product="default">Allows the app to access data from sensors
+    that monitor your physical condition, such as your heart rate.</string>
 
     <!-- Title of the read social stream permission, listed so the user can decide whether to allow the application to read information from the user's social stream. [CHAR LIMIT=30] -->
     <string name="permlab_readSocialStream" product="default">read your social stream</string>
@@ -1469,9 +1567,13 @@
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_readCalendar">read calendar events plus confidential information</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-
     <string name="permdesc_readCalendar" product="tablet">Allows the app to read
        all calendar events stored on your tablet, including those of friends or
+       co-workers. This may allow the app to share or save your calendar data,
+       regardless of confidentiality or sensitivity.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_readCalendar" product="tv">Allows the app to read
+       all calendar events stored on your TV, including those of friends or
        co-workers. This may allow the app to share or save your calendar data,
        regardless of confidentiality or sensitivity.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
@@ -1483,17 +1585,23 @@
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_writeCalendar">add or modify calendar events and send email to guests without owners\' knowledge</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-
-<string name="permdesc_writeCalendar" product="tablet">Allows the app to
-     add, remove, change events that you can modify on your tablet, including
-     those of friends or co-workers. This may allow the app to send messages
-     that appear to come from calendar owners, or modify events without the
-     owners\' knowledge.</string>
-<string name="permdesc_writeCalendar" product="default">Allows the app to
-     add, remove, change events that you can modify on your phone, including
-     those of friends or co-workers. This may allow the app to send messages
-     that appear to come from calendar owners, or modify events without the
-     owners\' knowledge.</string>
+    <string name="permdesc_writeCalendar" product="tablet">Allows the app to
+        add, remove, change events that you can modify on your tablet, including
+        those of friends or co-workers. This may allow the app to send messages
+        that appear to come from calendar owners, or modify events without the
+        owners\' knowledge.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_writeCalendar" product="tv">Allows the app to
+        add, remove, change events that you can modify on your TV, including
+        those of friends or co-workers. This may allow the app to send messages
+        that appear to come from calendar owners, or modify events without the
+        owners\' knowledge.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_writeCalendar" product="default">Allows the app to
+        add, remove, change events that you can modify on your phone, including
+        those of friends or co-workers. This may allow the app to send messages
+        that appear to come from calendar owners, or modify events without the
+        owners\' knowledge.</string>
 
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
@@ -1567,6 +1675,11 @@
     <string name="permdesc_controlWifiDisplay">Allows the app to control low-level features of Wifi displays.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_controlVpn">control Virtual Private Networks</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_controlVpn">Allows the app to control low-level features of Virtual Private Networks.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_captureAudioOutput">capture audio output</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_captureAudioOutput">Allows the app to capture and redirect audio output.</string>
@@ -1629,10 +1742,15 @@
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_brick" product="tablet">permanently disable tablet</string>
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_brick" product="tv">permanently disable TV</string>
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_brick" product="default">permanently disable phone</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_brick" product="tablet">Allows the app to
         disable the entire tablet permanently. This is very dangerous.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_brick" product="tv">Allows the app to
+        disable the entire TV permanently. This is very dangerous.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_brick" product="default">Allows the app to
         disable the entire phone permanently. This is very dangerous.</string>
@@ -1640,9 +1758,13 @@
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_reboot" product="tablet">force tablet reboot</string>
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_reboot" product="tv">force TV reboot</string>
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_reboot" product="default">force phone reboot</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_reboot" product="tablet">Allows the app to force the tablet to reboot.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_reboot" product="tv">Allows the app to force the TV to reboot.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_reboot" product="default">Allows the app to force the phone to reboot.</string>
 
@@ -1714,6 +1836,11 @@
         various peripherals for the purpose of hardware testing.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_fm">access FM radio</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_fm">Allows the app to access FM radio to listen to programs.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_callPhone">directly call phone numbers</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_callPhone">Allows the app to call phone numbers
@@ -1732,6 +1859,8 @@
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_performCdmaProvisioning" product="tablet">directly start CDMA tablet setup</string>
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_performCdmaProvisioning" product="tv">directly start CDMA TV setup</string>
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_performCdmaProvisioning" product="default">directly start CDMA phone setup</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
@@ -1786,9 +1915,13 @@
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_wakeLock" product="tablet">prevent tablet from sleeping</string>
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_wakeLock" product="tv">prevent TV from sleeping</string>
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_wakeLock" product="default">prevent phone from sleeping</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_wakeLock" product="tablet">Allows the app to prevent the tablet from going to sleep.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_wakeLock" product="tv">Allows the app to prevent the TV from going to sleep.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_wakeLock" product="default">Allows the app to prevent the phone from going to sleep.</string>
 
@@ -1797,18 +1930,30 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_transmitIr" product="tablet">Allows the app to use the tablet\'s infrared transmitter.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_transmitIr" product="tv">Allows the app to use the TV\'s infrared transmitter.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_transmitIr" product="default">Allows the app to use the phone\'s infrared transmitter.</string>
 
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_devicePower" product="tablet">power tablet on or off</string>
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_devicePower" product="tv">power TV on or off</string>
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_devicePower" product="default">power phone on or off</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_devicePower" product="tablet">Allows the app to turn the
         tablet on or off.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_devicePower" product="tv">Allows the app to turn the
+        TV on or off.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_devicePower" product="default">Allows the app to turn the phone on or off.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_userActivity">reset display timeout</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_userActivity">Allows the app to reset the display timeout.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_factoryTest">run in factory test mode</string>
@@ -1816,6 +1961,10 @@
     <string name="permdesc_factoryTest" product="tablet">Run as a low-level manufacturer test,
         allowing complete access to the tablet hardware. Only available
         when a tablet is running in manufacturer test mode.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_factoryTest" product="tv">Run as a low-level manufacturer test,
+        allowing complete access to the TV hardware. Only available
+        when a TV is running in manufacturer test mode.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_factoryTest" product="default">Run as a low-level manufacturer test,
         allowing complete access to the phone hardware. Only available
@@ -1843,12 +1992,16 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_setTime" product="tablet">Allows the app to change the tablet\'s clock time.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_setTime" product="tv">Allows the app to change the TV\'s clock time.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_setTime" product="default">Allows the app to change the phone\'s clock time.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_setTimeZone">set time zone</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_setTimeZone" product="tablet">Allows the app to change the tablet\'s time zone.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_setTimeZone" product="tv">Allows the app to change the TV\'s time zone.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_setTimeZone" product="default">Allows the app to change the phone\'s time zone.</string>
 
@@ -1862,6 +2015,10 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_getAccounts" product="tablet">Allows the app to get
       the list of accounts known by the tablet.  This may include any accounts
+      created by applications you have installed.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_getAccounts" product="tv">Allows the app to get
+      the list of accounts known by the TV.  This may include any accounts
       created by applications you have installed.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_getAccounts" product="default">Allows the app to get
@@ -1945,6 +2102,10 @@
     <string name="permdesc_changeWifiMulticastState" product="tablet">Allows the app to receive
       packets sent to all devices on a Wi-Fi network using multicast addresses,
       not just your tablet.  It uses more power than the non-multicast mode.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_changeWifiMulticastState" product="tv">Allows the app to receive
+      packets sent to all devices on a Wi-Fi network using multicast addresses,
+      not just your TV.  It uses more power than the non-multicast mode.</string>
     <string name="permdesc_changeWifiMulticastState" product="default">Allows the app to receive
       packets sent to all devices on a Wi-Fi network using multicast addresses,
       not just your phone.  It uses more power than the non-multicast mode.</string>
@@ -1956,6 +2117,10 @@
       configure the local Bluetooth tablet, and to discover and pair with remote
       devices.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bluetoothAdmin" product="tv">Allows the app to
+      configure the local Bluetooth TV, and to discover and pair with remote
+      devices.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_bluetoothAdmin" product="default">Allows the app to configure
       the local Bluetooth phone, and to discover and pair with remote devices.</string>
 
@@ -1965,8 +2130,20 @@
     <string name="permdesc_bluetoothPriv" product="tablet">Allows the app to
       pair with remote devices without user interaction.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bluetoothPriv" product="tv">Allows the app to
+      pair with remote devices without user interaction.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_bluetoothPriv" product="default">Allows the app to
       pair with remote devices without user interaction.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_bluetoothMap">access Bluetooth MAP data</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bluetoothMap" product="tablet">Allows the app to access Bluetooth MAP data.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bluetoothMap" product="tv">Allows the app to access Bluetooth MAP data.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bluetoothMap" product="default">Allows the app to access Bluetooth MAP data.</string>
 
     <string name="permlab_accessWimaxState">connect and disconnect from WiMAX</string>
     <string name="permdesc_accessWimaxState">Allows the app to determine whether
@@ -1976,6 +2153,8 @@
     <string name="permlab_changeWimaxState">Change WiMAX state</string>
     <string name="permdesc_changeWimaxState" product="tablet">Allows the app to
       connect the tablet to and disconnect the tablet from WiMAX networks.</string>
+    <string name="permdesc_changeWimaxState" product="tv">Allows the app to
+      connect the TV to and disconnect the TV from WiMAX networks.</string>
     <string name="permdesc_changeWimaxState" product="default">Allows the app to
       connect the phone to and disconnect the phone from WiMAX networks.</string>
 
@@ -1985,6 +2164,9 @@
     <string name="permdesc_scoreNetworks" product="tablet">Allows the app to
       rank networks and influence which networks the tablet should prefer.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_scoreNetworks" product="tv">Allows the app to
+      rank networks and influence which networks the TV should prefer.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_scoreNetworks" product="default">Allows the app to
         rank networks and influence which networks the phone should prefer.</string>
 
@@ -1993,6 +2175,10 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_bluetooth" product="tablet">Allows the app to view the
       configuration of Bluetooth on the tablet, and to make and accept
+      connections with paired devices.</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bluetooth" product="tv">Allows the app to view the
+      configuration of Bluetooth on the TV, and to make and accept
       connections with paired devices.</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_bluetooth" product="default">Allows the app to view the
@@ -2090,14 +2276,39 @@
     <string name="permdesc_cache_filesystem">Allows the app to read and write the cache filesystem.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_use_sip">make/receive Internet calls</string>
+    <string name="permlab_use_sip">make/receive SIP calls</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_use_sip">Allows the app to use the SIP service to make/receive Internet calls.</string>
+    <string name="permdesc_use_sip">Allows the app to make and receive SIP calls.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_bind_call_service">interact with in-call screen</string>
+    <string name="permlab_register_sim_subscription">register new telecom SIM connections</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_bind_call_service">Allows the app to control when and how the user sees the in-call screen.</string>
+    <string name="permdesc_register_sim_subscription">Allows the app to register new telecom SIM connections.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_register_call_provider">register new telecom connections</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_register_call_provider">Allows the app to register new telecom connections.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_connection_manager">manage telecom connections</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_connection_manager">Allows the app to manage telecom connections.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_bind_incall_service">interact with in-call screen</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bind_incall_service">Allows the app to control when and how the user sees the in-call screen.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_bind_connection_service">interact with telephony services</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bind_connection_service">Allows the app to interact with telephony services to make/receive calls.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_control_incall_experience">provide an in-call user experience</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_control_incall_experience">Allows the app to provide an in-call user experience.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_readNetworkUsageHistory">read historical network usage</string>
@@ -2130,11 +2341,6 @@
     <string name="permdesc_bindConditionProviderService">Allows the holder to bind to the top-level interface of a condition provider service. Should never be needed for normal apps.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_bindMediaRouteService">bind to a media route service</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_bindMediaRouteService">Allows the holder to bind to the top-level interface of a media route service. Should never be needed for normal apps.</string>
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_bindDreamService">bind to a dream service</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_bindDreamService">Allows the holder to bind to the top-level interface of a dream service. Should never be needed for normal apps.</string>
@@ -2161,6 +2367,16 @@
     <string name="permlab_handoverStatus">Receive Android Beam transfer status</string>
     <string name="permdesc_handoverStatus">Allows this application to receive information about current Android Beam transfers</string>
 
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_removeDrmCertificates">remove DRM certificates</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_removeDrmCertificates">Allows an application to remove DRM certficates. Should never be needed for normal apps.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_bindCarrierMessagingService">bind to a carrier messaging service</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_bindCarrierMessagingService">Allows the holder to bind to the top-level interface of a carrier messaging service. Should never be needed for normal apps.</string>
+
     <!-- Policy administration -->
 
     <!-- Title of policy access to limiting the user's password choices -->
@@ -2172,6 +2388,10 @@
     <!-- Description of policy access to watch user login attempts -->
     <string name="policydesc_watchLogin" product="tablet">Monitor the number of incorrect passwords
     typed when unlocking the screen, and lock the tablet or erase all the tablet\'s
+    data if too many incorrect passwords are typed.</string>
+    <!-- Description of policy access to watch user login attempts -->
+    <string name="policydesc_watchLogin" product="TV">Monitor the number of incorrect passwords
+    typed when unlocking the screen, and lock the TV or erase all the TV\'s
     data if too many incorrect passwords are typed.</string>
     <!-- Description of policy access to watch user login attempts -->
     <string name="policydesc_watchLogin" product="default">Monitor the number of incorrect passwords
@@ -2189,6 +2409,8 @@
     <string name="policylab_wipeData">Erase all data</string>
     <!-- Description of policy access to wipe the user's data -->
     <string name="policydesc_wipeData" product="tablet">Erase the tablet\'s data without warning by performing a factory data reset.</string>
+    <!-- Description of policy access to wipe the user's data -->
+    <string name="policydesc_wipeData" product="tv">Erase the TV\'s data without warning by performing a factory data reset.</string>
     <!-- Description of policy access to wipe the user's data -->
     <string name="policydesc_wipeData" product="default">Erase the phone\'s data without warning by performing a factory data reset.</string>
     <string name="policylab_setGlobalProxy">Set the device global proxy</string>
@@ -2492,23 +2714,12 @@
     <!-- Shown when face unlock failed multiple times so we're just using the backup -->
     <string name="faceunlock_multiple_failures">Maximum Face Unlock attempts exceeded</string>
 
-    <!-- When the lock screen is showing and the phone plugged in, and the battery
-         is not fully charged, show the current charge %.  -->
-    <string name="lockscreen_plugged_in">Charging, <xliff:g id="number">%d</xliff:g><xliff:g id="percent">%%</xliff:g></string>
-    <!-- When the lock screen is showing, the phone is plugged in and the battery is fully
-         charged, say that it is charged. -->
-    <string name="lockscreen_charged">Charged</string>
-    <!-- A short representation of charging information, e.g "34%" -->
-    <string name="lockscreen_battery_short"><xliff:g id="number">%d</xliff:g><xliff:g id="percent">%%</xliff:g></string>
-
-    <!-- When the lock screen is showing and the battery is low, warn user to plug
-         in the phone soon. -->
-    <string name="lockscreen_low_battery">Connect your charger.</string>
-
     <!-- Shown in the lock screen when there is no SIM card. -->
     <string name="lockscreen_missing_sim_message_short">No SIM card</string>
     <!-- Shown in the lock screen when there is no SIM card. -->
     <string name="lockscreen_missing_sim_message" product="tablet">No SIM card in tablet.</string>
+    <!-- Shown in the lock screen when there is no SIM card. -->
+    <string name="lockscreen_missing_sim_message" product="tv">No SIM card in TV.</string>
     <!-- Shown in the lock screen when there is no SIM card. -->
     <string name="lockscreen_missing_sim_message" product="default">No SIM card in phone.</string>
     <!-- Shown in the lock screen to ask the user to insert a SIM card. -->
@@ -2522,15 +2733,19 @@
     Contact your wireless service provider for another SIM card.</string>
 
     <!-- Shown on transport control of lockscreen. Pressing button goes to previous track. -->
-    <string name="lockscreen_transport_prev_description">Previous track button</string>
+    <string name="lockscreen_transport_prev_description">Previous track</string>
     <!-- Shown on transport control of lockscreen. Pressing button goes to next track. -->
-    <string name="lockscreen_transport_next_description">Next track button</string>
+    <string name="lockscreen_transport_next_description">Next track</string>
     <!-- Shown on transport control of lockscreen. Pressing button pauses playback -->
-    <string name="lockscreen_transport_pause_description">Pause button</string>
+    <string name="lockscreen_transport_pause_description">Pause</string>
     <!-- Shown on transport control of lockscreen. Pressing button pauses playback -->
-    <string name="lockscreen_transport_play_description">Play button</string>
+    <string name="lockscreen_transport_play_description">Play</string>
     <!-- Shown on transport control of lockscreen. Pressing button pauses playback -->
-    <string name="lockscreen_transport_stop_description">Stop button</string>
+    <string name="lockscreen_transport_stop_description">Stop</string>
+    <!-- Shown on transport control screens. Pressing button rewinds playback [CHAR LIMIT=NONE]-->
+    <string name="lockscreen_transport_rew_description">Rewind</string>
+    <!-- Shown on transport control screens. Pressing button fast forwards playback [CHAR LIMIT=NONE]-->
+    <string name="lockscreen_transport_ffw_description">Fast forward</string>
 
     <!-- Shown in the lock screen when there is emergency calls only mode. -->
     <string name="emergency_calls_only" msgid="2485604591272668370">Emergency calls only</string>
@@ -2586,6 +2801,15 @@
 
     <!-- For the unlock screen, informational message shown in dialog when user is almost at the limit
          where they will be locked out and may have to enter an alternate username/password to unlock the phone -->
+    <string name="lockscreen_failed_attempts_almost_glogin" product="tv">
+        You have incorrectly drawn your unlock pattern <xliff:g id="number">%d</xliff:g> times.
+       After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
+       you will be asked to unlock your TV using your Google signin.\n\n
+       Try again in <xliff:g id="number">%d</xliff:g> seconds.
+    </string>
+
+    <!-- For the unlock screen, informational message shown in dialog when user is almost at the limit
+         where they will be locked out and may have to enter an alternate username/password to unlock the phone -->
     <string name="lockscreen_failed_attempts_almost_glogin" product="default">
         You have incorrectly drawn your unlock pattern <xliff:g id="number">%d</xliff:g> times.
        After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
@@ -2603,6 +2827,14 @@
 
     <!-- For the unlock screen, informational message shown in dialog when user is almost at the limit
          where the device will be wiped. -->
+    <string name="lockscreen_failed_attempts_almost_at_wipe" product="tv">
+       You have incorrectly attempted to unlock the TV <xliff:g id="number">%d</xliff:g> times.
+       After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
+       the TV will be reset to factory default and all user data will be lost.
+    </string>
+
+    <!-- For the unlock screen, informational message shown in dialog when user is almost at the limit
+         where the device will be wiped. -->
     <string name="lockscreen_failed_attempts_almost_at_wipe" product="default">
        You have incorrectly attempted to unlock the phone <xliff:g id="number">%d</xliff:g> times.
        After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
@@ -2614,6 +2846,13 @@
     <string name="lockscreen_failed_attempts_now_wiping" product="tablet">
        You have incorrectly attempted to unlock the tablet <xliff:g id="number">%d</xliff:g> times.
        The tablet will now be reset to factory default.
+    </string>
+
+    <!-- For the unlock screen, informational message shown in dialog when user has exceeded the
+        maximum attempts and the device will now be wiped -->
+    <string name="lockscreen_failed_attempts_now_wiping" product="tv">
+       You have incorrectly attempted to unlock the TV <xliff:g id="number">%d</xliff:g> times.
+       The TV will now be reset to factory default.
     </string>
 
     <!-- For the unlock screen, informational message shown in dialog when user has exceeded the
@@ -2971,6 +3210,13 @@
         applications with web browsing capabilities.</string>
     <!-- Description of an application permission, listed so the user can choose whether
         they want to allow the application to do this. -->
+    <string name="permdesc_writeHistoryBookmarks" product="tv">Allows the
+        app to modify the Browser\'s history or bookmarks stored on your TV.
+        This may allow the app to erase or modify Browser data.  Note: this
+        permission may note be enforced by third-party browsers or other
+        applications with web browsing capabilities.</string>
+    <!-- Description of an application permission, listed so the user can choose whether
+        they want to allow the application to do this. -->
     <string name="permdesc_writeHistoryBookmarks" product="default">Allows the
         app to modify the Browser\'s history or bookmarks stored on your phone.
         This may allow the app to erase or modify Browser data.  Note:
@@ -3083,6 +3329,8 @@
     <!-- This is the default button label in the system-wide search UI.
          It is also used by the home screen's search "widget". It should be short -->
     <string name="search_go">Search</string>
+    <!-- Default hint text for the system-wide search UI's text field. [CHAR LIMIT=30] -->
+    <string name="search_hint">Search…</string>
     <!-- SearchView accessibility description for search button [CHAR LIMIT=NONE] -->
     <string name="searchview_description_search">Search</string>
     <!-- SearchView accessibility description for search text field [CHAR LIMIT=NONE] -->
@@ -3358,6 +3606,8 @@
     <string name="low_internal_storage_view_title">Storage space running out</string>
     <!-- If the device is getting low on internal storage, a notification is shown to the user.  This is the message of that notification. -->
     <string name="low_internal_storage_view_text">Some system functions may not work</string>
+    <!-- If the device does not have storage for the main system classes, a notification is shown to the user.  This is the message of that notification. -->
+    <string name="low_internal_storage_view_text_no_boot">Not enough storage for the system. Make sure you have 250MB of free space and restart.</string>
 
     <!-- [CHAR LIMIT=NONE] Stub notification title for an app running a service that has provided
          a bad bad notification for itself. -->
@@ -3410,9 +3660,15 @@
          and a previously used application is known. -->
     <string name="whichSendApplicationNamed">Share with %1$s</string>
     <!-- Title of intent resolver dialog when selecting a HOME application to run. -->
-    <string name="whichHomeApplication">Select a home app</string>
+    <string name="whichHomeApplication">Select a Home app</string>
+    <!-- Title of intent resolver dialog when selecting a HOME application to run
+         and a previously used application is known. -->
+    <string name="whichHomeApplicationNamed">Use %1$s as Home</string>
     <!-- Option to always use the selected application resolution in the future. See the "Complete action using" dialog title-->
     <string name="alwaysUse">Use by default for this action.</string>
+    <!-- Title of the list of alternate options to complete an action shown when the
+         last used option is being displayed separately. -->
+    <string name="use_a_different_app">Use a different app</string>
     <!-- Text displayed when the user selects the check box for setting default application.  See the "Use by default for this action" check box. -->
     <string name="clearDefaultHintMsg">Clear default in System settings &gt; Apps &gt; Downloaded.</string>
     <!-- Default title for the activity chooser, when one is not given. Android allows multiple activities to perform an action.  for example, there may be many ringtone pickers installed.  A dialog is shown to the user allowing him to pick which activity should be used.  This is the title. -->
@@ -3469,6 +3725,12 @@
 
     <!-- [CHAR LIMIT=40] Title of dialog that is shown when performing a system upgrade. -->
     <string name="android_upgrading_title">Android is upgrading\u2026</string>
+
+    <!-- [CHAR LIMIT=40] Title of dialog that is shown when system is starting. -->
+    <string name="android_start_title">Android is starting\u2026</string>
+
+    <!-- [CHAR LIMIT=NONE] Message shown in upgrading dialog when doing an fstrim. -->
+    <string name="android_upgrading_fstrim">Optimizing storage.</string>
 
     <!-- [CHAR LIMIT=NONE] Message shown in upgrading dialog for each .apk that is optimized. -->
     <string name="android_upgrading_apk">Optimizing app
@@ -3593,6 +3855,7 @@
     <string name="wifi_p2p_show_pin_message">PIN: </string>
 
     <string name="wifi_p2p_frequency_conflict_message" product="tablet">The tablet will temporarily disconnect from Wi-Fi while it\'s connected to <xliff:g id="device_name">%1$s</xliff:g></string>
+    <string name="wifi_p2p_frequency_conflict_message" product="tv">The TV will temporarily disconnect from Wi-Fi while it\'s connected to <xliff:g id="device_name">%1$s</xliff:g></string>
     <string name="wifi_p2p_frequency_conflict_message" product="default">The phone will temporarily disconnect from Wi-Fi while it\'s connected to <xliff:g id="device_name">%1$s</xliff:g></string>
 
     <!-- Name of the dialog that lets the user choose an accented character to insert -->
@@ -3612,9 +3875,9 @@
     <!-- The message text for the SMS short code confirmation dialog. [CHAR LIMIT=NONE] -->
     <string name="sms_short_code_confirm_message">&lt;b><xliff:g id="app_name">%1$s</xliff:g>&lt;/b> would like to send a message to &lt;b><xliff:g id="dest_address">%2$s</xliff:g>&lt;/b>.</string>
     <!-- Message details for the SMS short code confirmation dialog (possible premium short code). [CHAR LIMIT=NONE] -->
-    <string name="sms_short_code_details">This <font fgcolor="#ffffb060">may cause charges</font> on your mobile account.</string>
+    <string name="sms_short_code_details">This <b>may cause charges</b> on your mobile account.</string>
     <!-- Message details for the SMS short code confirmation dialog (premium short code). [CHAR LIMIT=NONE] -->
-    <string name="sms_premium_short_code_details"><font fgcolor="#ffffb060">This will cause charges on your mobile account.</font></string>
+    <string name="sms_premium_short_code_details"><b>This will cause charges on your mobile account.</b></string>
     <!-- Text of the approval button for the SMS short code confirmation dialog. [CHAR LIMIT=30] -->
     <string name="sms_short_code_confirm_allow">Send</string>
     <!-- Text of the cancel button for the SMS short code confirmation dialog. [CHAR LIMIT=30] -->
@@ -3748,12 +4011,13 @@
     <!-- DO NOT TRANSLATE -->
     <string name="locale_replacement">""</string>
 
-    <!-- Title of the pop-up dialog in which the user switches input method components. -->
-    <string name="select_input_method">Choose input method</string>
-    <!-- Title of a button to open the settings for input methods [CHAR LIMIT=30] -->
-    <string name="configure_input_methods">Set up input methods</string>
-    <!-- Summary text of a toggle switch to enable/disable use of the physical keyboard in the input method selector [CHAR LIMIT=25] -->
-    <string name="use_physical_keyboard">Physical keyboard</string>
+    <!-- Title of the pop-up dialog in which the user switches keyboard, also known as input method. -->
+    <string name="select_input_method">Change keyboard</string>
+    <!-- Title of a button to open the settings to enable or disable keyboards, also known as input methods [CHAR LIMIT=30] -->
+    <string name="configure_input_methods">Choose keyboards</string>
+    <!-- Summary text of a toggle switch to enable/disable use of the IME while a physical
+         keyboard is connected[CHAR LIMIT=25] -->
+    <string name="show_ime">Show input method</string>
     <!-- Title of the physical keyboard category in the input method selector [CHAR LIMIT=10] -->
     <string name="hardware">Hardware</string>
 
@@ -3867,10 +4131,10 @@
     <!-- Description of an application permission that lets it control keyguard. -->
     <string name="permdesc_recovery">Allows an application to interact with the recovery system and system updates.</string>
 
-    <!-- Title of an application permission that lets it create media projection sessions. -->
-    <string name="permlab_createMediaProjection">Create media projection sessions</string>
-    <!-- Description of an application permission that lets it create media projection sessions. -->
-    <string name="permdesc_createMediaProjection">Allows an application to create media projection sessions. These sessions can provide applications the ability to capture display and audio contents. Should never be needed by normal apps.</string>
+    <!-- Title of an application permission that lets it manage media projection sessions. -->
+    <string name="permlab_manageMediaProjection">Manage media projection sessions</string>
+    <!-- Description of an application permission that lets it manage media projection sessions. -->
+    <string name="permdesc_manageMediaProjection">Allows an application to manage media projection sessions. These sessions can provide applications the ability to capture display and audio contents. Should never be needed by normal apps.</string>
 
     <!-- Title of an application permission that lets it read install sessions. -->
     <string name="permlab_readInstallSessions">Read install sessions</string>
@@ -3932,9 +4196,9 @@
     <string name="permission_request_notification_with_subtitle">Permission requested\nfor account <xliff:g id="account" example="foo@gmail.com">%s</xliff:g>.</string>
 
     <!-- Message to show when an intent automatically switches users into the personal profile. -->
-    <string name="forward_intent_to_owner">You\'re using this app in your personal space</string>
+    <string name="forward_intent_to_owner">You\'re using this app outside of your work profile</string>
     <!-- Message to show when an intent automatically switches users into a work profile. -->
-    <string name="forward_intent_to_work">You\'re using this app in your work space</string>
+    <string name="forward_intent_to_work">You\'re using this app in your work profile</string>
 
     <!-- Label to show for a service that is running because it is an input method. -->
     <string name="input_method_binding_label">Input method</string>
@@ -4209,15 +4473,15 @@
     <string name="data_usage_warning_body">Touch to view usage and settings.</string>
 
     <!-- Notification title when 2G-3G data usage has exceeded limit threshold, and has been disabled. [CHAR LIMIT=32] -->
-    <string name="data_usage_3g_limit_title">2G-3G data is off</string>
+    <string name="data_usage_3g_limit_title">2G-3G data limit reached</string>
     <!-- Notification title when 4G data usage has exceeded limit threshold, and has been disabled. [CHAR LIMIT=32] -->
-    <string name="data_usage_4g_limit_title">4G data is off</string>
+    <string name="data_usage_4g_limit_title">4G data limit reached</string>
     <!-- Notification title when mobile data usage has exceeded limit threshold, and has been disabled. [CHAR LIMIT=32] -->
-    <string name="data_usage_mobile_limit_title">Cellular data is off</string>
+    <string name="data_usage_mobile_limit_title">Cellular data limit reached</string>
     <!-- Notification title when Wi-Fi data usage has exceeded limit threshold, and has been disabled. [CHAR LIMIT=32] -->
-    <string name="data_usage_wifi_limit_title">Wi-Fi data is off</string>
+    <string name="data_usage_wifi_limit_title">Wi-Fi data limit reached</string>
     <!-- Notification body when data usage has exceeded limit threshold, and has been disabled. [CHAR LIMIT=32] -->
-    <string name="data_usage_limit_body">Limit reached</string>
+    <string name="data_usage_limit_body">Data paused for rest of cycle</string>
 
     <!-- Notification title when 2G-3G data usage has exceeded limit threshold. [CHAR LIMIT=32] -->
     <string name="data_usage_3g_limit_snoozed_title">2G-3G data limit exceeded</string>
@@ -4293,9 +4557,17 @@
          from the activity resolver to use just this once. [CHAR LIMIT=25] -->
     <string name="activity_resolver_use_once">Just once</string>
 
+    <!-- Text for the toast that is shown when the user clicks on a launcher that
+         doesn't support the work profile. [CHAR LIMIT=100] -->
+    <string name="activity_resolver_work_profiles_support">%1$s doesn\'t support work profile</string>
+
     <!-- Name of the default audio route for tablets when nothing
          is connected to a headphone or other wired audio output jack. [CHAR LIMIT=50] -->
     <string name="default_audio_route_name" product="tablet">Tablet</string>
+
+    <!-- Name of the default audio route for tablets when nothing
+         is connected to a headphone or other wired audio output jack. [CHAR LIMIT=50] -->
+    <string name="default_audio_route_name" product="tv">TV</string>
 
     <!-- Name of the default audio route when nothing is connected to
          a headphone or other wired audio output jack. [CHAR LIMIT=50] -->
@@ -4370,17 +4642,6 @@
 
     <!-- Title text to append when the display is secure.  [CHAR LIMIT=30] -->
     <string name="display_manager_overlay_display_secure_suffix">, secure</string>
-
-    <!-- Title of the notification to indicate the process of connecting to a wifi display.  [CHAR LIMIT=50] -->
-    <string name="wifi_display_notification_connecting_title">Casting screen</string>
-    <!-- Message of the notification to indicate the process of connecting to a wifi display.  [CHAR LIMIT=80] -->
-    <string name="wifi_display_notification_connecting_message">Connecting to <xliff:g id="name">%1$s</xliff:g></string>
-    <!-- Title of the notification to indicate an active wifi display connection.  [CHAR LIMIT=50] -->
-    <string name="wifi_display_notification_connected_title">Casting screen</string>
-    <!-- Message of the notification to indicate an active wifi display connection.  [CHAR LIMIT=80] -->
-    <string name="wifi_display_notification_connected_message">Connected to <xliff:g id="name">%1$s</xliff:g></string>
-    <!-- Label of a button to disconnect an active wifi display connection.  [CHAR LIMIT=25] -->
-    <string name="wifi_display_notification_disconnect">Disconnect</string>
 
     <!-- Keyguard strings -->
     <!-- Label shown on emergency call button in keyguard -->
@@ -4458,6 +4719,12 @@
        the tablet will be reset to factory default and all user data will be lost.
     </string>
     <!-- Message shown when user is almost at the limit of password attempts where the device will be wiped. -->
+    <string name="kg_failed_attempts_almost_at_wipe" product="tv">
+       You have incorrectly attempted to unlock the TV <xliff:g id="number">%d</xliff:g> times.
+       After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
+       the TV will be reset to factory default and all user data will be lost.
+    </string>
+    <!-- Message shown when user is almost at the limit of password attempts where the device will be wiped. -->
     <string name="kg_failed_attempts_almost_at_wipe" product="default">
        You have incorrectly attempted to unlock the phone <xliff:g id="number">%d</xliff:g> times.
        After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
@@ -4467,6 +4734,11 @@
     <string name="kg_failed_attempts_now_wiping" product="tablet">
        You have incorrectly attempted to unlock the tablet <xliff:g id="number">%d</xliff:g> times.
        The tablet will now be reset to factory default.
+    </string>
+    <!-- Message shown in dialog when user has exceeded the maximum attempts and the device will now be wiped -->
+    <string name="kg_failed_attempts_now_wiping" product="tv">
+       You have incorrectly attempted to unlock the TV <xliff:g id="number">%d</xliff:g> times.
+       The TV will now be reset to factory default.
     </string>
     <!-- Message shown in dialog when user has exceeded the maximum attempts and the device will now be wiped -->
     <string name="kg_failed_attempts_now_wiping" product="default">
@@ -4479,6 +4751,14 @@
        You have incorrectly drawn your unlock pattern <xliff:g id="number">%d</xliff:g> times.
        After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
        you will be asked to unlock your tablet using an email account.\n\n
+       Try again in <xliff:g id="number">%d</xliff:g> seconds.
+    </string>
+    <!-- Message shown in dialog when user is almost at the limit where they will be
+    locked out and may have to enter an alternate username/password to unlock the phone -->
+    <string name="kg_failed_attempts_almost_at_login" product="tv">
+       You have incorrectly drawn your unlock pattern <xliff:g id="number">%d</xliff:g> times.
+       After <xliff:g id="number">%d</xliff:g> more unsuccessful attempts,
+       you will be asked to unlock your TV using an email account.\n\n
        Try again in <xliff:g id="number">%d</xliff:g> seconds.
     </string>
     <!-- Message shown in dialog when user is almost at the limit where they will be
@@ -4509,12 +4789,14 @@
     <string name="enable_accessibility_canceled">Accessibility canceled.</string>
     <!-- Text spoken when the current user is switched if accessibility is enabled. [CHAR LIMIT=none] -->
     <string name="user_switched">Current user <xliff:g id="name" example="Bob">%1$s</xliff:g>.</string>
+    <!-- Message shown when switching to a user [CHAR LIMIT=none] -->
+    <string name="user_switching_message">Switching to <xliff:g id="name" example="Bob">%1$s</xliff:g>\u2026</string>
     <!-- Default name of the owner user [CHAR LIMIT=20] -->
     <string name="owner_name" msgid="3879126011135546571">Owner</string>
     <!-- Error message title [CHAR LIMIT=35] -->
     <string name="error_message_title">Error</string>
-    <!-- Message informing user that app is not permitted to access accounts. [CHAR LIMIT=none] -->
-    <string name="app_no_restricted_accounts">This app doesn\'t support accounts for restricted profiles</string>
+    <!-- Message informing user that the change was disallowed by an administrator. [CHAR LIMIT=none] -->
+    <string name="error_message_change_not_allowed">This change isn\'t allowed by your administrator</string>
     <!-- Message informing user that the requested activity could not be found [CHAR LIMIT=none] -->
     <string name="app_not_found">No application found to handle this action</string>
     <string name="revoke">Revoke</string>
@@ -4787,7 +5069,7 @@
     <string name="deleted_key"><xliff:g id="key" example="4">%1$s</xliff:g> deleted</string>
 
     <!--
-        Used to wrap a label for content description for a managed profile, e.g. "Work Email" instead
+        Used to wrap a label for content description for a work profile, e.g. "Work Email" instead
         of email when there are two email apps.
         [CHAR LIMIT=20]
      -->
@@ -4805,30 +5087,86 @@
     <string name="day_of_week_label_typeface">sans-serif</string>
 
     <!-- Notify use that they are in Lock-to-app -->
-    <string name="lock_to_app_toast">You are in lock-to-app mode. To exit, touch and hold the Recents button</string>
+    <string name="lock_to_app_toast">To unpin this screen, touch and hold Back and Overview at the same time.</string>
+    <!-- Notify use that they are in Lock-to-app in accessibility mode -->
+    <string name="lock_to_app_toast_accessible">To unpin this screen, touch and hold Overview.</string>
     <!-- Notify user that they are locked in lock-to-app mode -->
-    <string name="lock_to_app_toast_locked">You are in Lock-to-App mode.</string>
-    <!-- Lock-to-app dialog title. -->
-    <string name="lock_to_app_title">Use lock-to-app?</string>
-    <!-- Lock-to-app dialog description. -->
-    <string name="lock_to_app_description">Lock-to-app locks the display in a single app.\n\nTo exit, touch and hold the Recents button.</string>
-    <!-- Lock-to-app negative response. -->
-    <string name="lock_to_app_negative">NO, THANKS</string>
-    <!-- Lock-to-app positive response. -->
-    <string name="lock_to_app_positive">START</string>
+    <string name="lock_to_app_toast_locked">Screen is pinned. Unpinning isn\'t allowed by your organization.</string>
     <!-- Starting lock-to-app indication. -->
-    <string name="lock_to_app_start">Locked to app</string>
+    <string name="lock_to_app_start">Screen pinned</string>
     <!-- Exting lock-to-app indication. -->
-    <string name="lock_to_app_exit">No longer locked to app</string>
-
-    <!-- Lock-to-app checkbox for lock on exit -->
-    <string name="lock_to_app_use_screen_lock">Ask for %1$s before exiting</string>
+    <string name="lock_to_app_exit">Screen unpinned</string>
 
     <!-- Lock-to-app unlock pin string -->
-    <string name="lock_to_app_unlock_pin">PIN</string>
+    <string name="lock_to_app_unlock_pin">Ask for PIN before unpinning</string>
     <!-- Lock-to-app unlock pattern string -->
-    <string name="lock_to_app_unlock_pattern">unlock pattern</string>
+    <string name="lock_to_app_unlock_pattern">Ask for unlock pattern before unpinning</string>
     <!-- Lock-to-app unlock password string -->
-    <string name="lock_to_app_unlock_password">password</string>
+    <string name="lock_to_app_unlock_password">Ask for password before unpinning</string>
+
+    <!-- [CHAR_LIMIT=NONE] Battery saver: Feature description -->
+    <string name="battery_saver_description">To help improve battery life, battery saver reduces your device’s performance and limits vibration, location services, and most background data. Email, messaging, and other apps that rely on syncing may not update unless you open them.\n\nBattery saver turns off automatically when your device is charging.</string>
+
+    <!-- [CHAR_LIMIT=NONE] Zen mode: Condition summary for built-in downtime condition, if active -->
+    <string name="downtime_condition_summary">Until your downtime ends at <xliff:g id="formattedTime" example="10:00 PM">%1$s</xliff:g></string>
+
+    <!-- [CHAR_LIMIT=NONE] Zen mode: Condition line one for built-in downtime condition, if active -->
+    <string name="downtime_condition_line_one">Until your downtime ends</string>
+
+    <!-- Zen mode condition - summary: time duration in minutes. [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_minutes_summary">
+        <item quantity="one">For one minute (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+        <item quantity="other">For %1$d minutes (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+    </plurals>
+
+    <!-- Zen mode condition - summary: time duration in hours. [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_hours_summary">
+        <item quantity="one">For one hour (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+        <item quantity="other">For %1$d hours (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+    </plurals>
+
+    <!-- Zen mode condition - line one: time duration in minutes. [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_minutes">
+        <item quantity="one">For one minute</item>
+        <item quantity="other">For %d minutes</item>
+    </plurals>
+
+    <!-- Zen mode condition - line one: time duration in hours. [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_hours">
+        <item quantity="one">For one hour</item>
+        <item quantity="other">For %d hours</item>
+    </plurals>
+
+    <!-- Zen mode condition - line two: ending time. [CHAR LIMIT=NONE] -->
+    <string name="zen_mode_until">Until <xliff:g id="formattedTime" example="10:00 PM">%1$s</xliff:g></string>
+
+    <!-- Zen mode condition: no exit criteria. [CHAR LIMIT=NONE] -->
+    <string name="zen_mode_forever">Indefinitely</string>
+
+    <!-- Content description for the Toolbar icon used to collapse an expanded action mode. [CHAR LIMIT=NONE] -->
+    <string name="toolbar_collapse_description">Collapse</string>
+
+    <!-- Zen mode condition - summary: until next alarm. [CHAR LIMIT=NONE] -->
+    <string name="zen_mode_next_alarm_summary">Until next alarm at <xliff:g id="formattedTime" example="7:30 AM">%1$s</xliff:g></string>
+
+    <!-- Zen mode condition - line one: until next alarm. [CHAR LIMIT=NONE] -->
+    <string name="zen_mode_next_alarm_line_one">Until next alarm</string>
+
+    <!-- Indication that the current volume and other effects (vibration) are being suppressed by a third party, such as a notification listener. [CHAR LIMIT=30] -->
+    <string name="muted_by">Muted by <xliff:g id="third_party">%1$s</xliff:g></string>
+
+    <!-- Error message shown when there is a system error which can be solved by user performing factory reset. [CHAR LIMIT=NONE] -->
+    <string name="system_error_wipe_data">There\'s an internal problem with your device, and it may be unstable until you factory data reset.</string>
+    <!-- Error message shown when there is a system error which can be solved by the manufacturer. [CHAR LIMIT=NONE] -->
+    <string name="system_error_manufacturer">There\'s an internal problem with your device. Contact your manufacturer for details.</string>
+
+    <!-- Displayed when the USSD/SS request is modified by STK CC to a
+    different request. This will be displayed in a toast. -->
+    <string name="stk_cc_ussd_to_dial">USSD request is modified to DIAL request.</string>
+    <string name="stk_cc_ussd_to_ss">USSD request is modified to SS request.</string>
+    <string name="stk_cc_ussd_to_ussd">USSD request is modified to new USSD request.</string>
+    <string name="stk_cc_ss_to_dial">SS request is modified to DIAL request.</string>
+    <string name="stk_cc_ss_to_ussd">SS request is modified to USSD request.</string>
+    <string name="stk_cc_ss_to_ss">SS request is modified to new SS request.</string>
 
 </resources>

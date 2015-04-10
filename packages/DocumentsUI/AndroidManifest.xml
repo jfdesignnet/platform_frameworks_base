@@ -11,7 +11,7 @@
 
         <activity
             android:name=".DocumentsActivity"
-            android:theme="@style/Theme"
+            android:theme="@style/DocumentsTheme"
             android:icon="@drawable/ic_doc_text">
             <intent-filter>
                 <action android:name="android.intent.action.OPEN_DOCUMENT" />
@@ -41,12 +41,6 @@
                 <data android:mimeType="vnd.android.document/root" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".SettingsActivity"
-            android:label="@string/menu_settings"
-            android:theme="@android:style/Theme.DeviceDefault.Light.DialogWhenLarge"
-            android:exported="false" />
 
         <provider
             android:name=".RecentsProvider"

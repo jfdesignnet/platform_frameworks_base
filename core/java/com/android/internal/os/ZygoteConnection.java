@@ -37,6 +37,8 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import libcore.io.IoUtils;
+import android.os.SystemClock;
+import android.util.Slog;
 
 /**
  * A connection that can make spawn requests.
@@ -91,7 +93,7 @@ class ZygoteConnection {
                 new InputStreamReader(socket.getInputStream()), 256);
 
         mSocket.setSoTimeout(CONNECTION_TIMEOUT_MILLIS);
-                
+
         try {
             peer = mSocket.getPeerCredentials();
         } catch (IOException ex) {
@@ -103,11 +105,23 @@ class ZygoteConnection {
     }
 
     /**
+     * Temporary hack: check time since start time and log if over a fixed threshold.
+     *
+     */
+    private void checkTime(long startTime, String where) {
+        long now = SystemClock.elapsedRealtime();
+        if ((now-startTime) > 1000) {
+            // If we are taking more than a second, log about it.
+            Slog.w(TAG, "Slow operation: " + (now-startTime) + "ms so far, now at " + where);
+        }
+    }
+
+    /**
      * Returns the file descriptor of the associated socket.
      *
      * @return null-ok; file descriptor
      */
-    FileDescriptor getFileDesciptor() {
+    FileDescriptor getFileDescriptor() {
         return mSocket.getFileDescriptor();
     }
 
@@ -131,6 +145,8 @@ class ZygoteConnection {
         Arguments parsedArgs = null;
         FileDescriptor[] descriptors;
 
+        long startTime = SystemClock.elapsedRealtime();
+
         try {
             args = readArgumentList();
             descriptors = mSocket.getAncillaryFileDescriptors();
@@ -140,6 +156,7 @@ class ZygoteConnection {
             return true;
         }
 
+        checkTime(startTime, "zygoteConnection.runOnce: readArgumentList");
         if (args == null) {
             // EOF reached.
             closeSocket();
@@ -171,13 +188,18 @@ class ZygoteConnection {
                         ", effective=0x" + Long.toHexString(parsedArgs.effectiveCapabilities));
             }
 
+
             applyUidSecurityPolicy(parsedArgs, peer, peerSecurityContext);
             applyRlimitSecurityPolicy(parsedArgs, peer, peerSecurityContext);
             applyInvokeWithSecurityPolicy(parsedArgs, peer, peerSecurityContext);
             applyseInfoSecurityPolicy(parsedArgs, peer, peerSecurityContext);
 
+            checkTime(startTime, "zygoteConnection.runOnce: apply security policies");
+
             applyDebuggerSystemProperty(parsedArgs);
             applyInvokeWithSystemProperty(parsedArgs);
+
+            checkTime(startTime, "zygoteConnection.runOnce: apply security policies");
 
             int[][] rlimits = null;
 
@@ -220,9 +242,12 @@ class ZygoteConnection {
 
             fd = null;
 
+            checkTime(startTime, "zygoteConnection.runOnce: preForkAndSpecialize");
             pid = Zygote.forkAndSpecialize(parsedArgs.uid, parsedArgs.gid, parsedArgs.gids,
                     parsedArgs.debugFlags, rlimits, parsedArgs.mountExternal, parsedArgs.seInfo,
-                    parsedArgs.niceName, fdsToClose);
+                    parsedArgs.niceName, fdsToClose, parsedArgs.instructionSet,
+                    parsedArgs.appDataDir);
+            checkTime(startTime, "zygoteConnection.runOnce: postForkAndSpecialize");
         } catch (IOException ex) {
             logAndPrintError(newStderr, "Exception creating pipe", ex);
         } catch (ErrnoException ex) {
@@ -311,6 +336,7 @@ class ZygoteConnection {
      *      [--] &lt;args for RuntimeInit &gt;
      *   <li> If <code>--runtime-init</code> is absent:
      *      [--] &lt;classname&gt; [args...]
+     *   <li> --instruction-set=<i>instruction-set-string</i> which instruction set to use/emulate.
      * </ul>
      */
     static class Arguments {
@@ -372,6 +398,17 @@ class ZygoteConnection {
          * Whether the current arguments constitute an ABI list query.
          */
         boolean abiListQuery;
+
+        /**
+         * The instruction set to use, or null when not important.
+         */
+        String instructionSet;
+
+        /**
+         * The app data directory. May be null, e.g., for the system server. Note that this might
+         * not be reliable in the case of process-sharing apps.
+         */
+        String appDataDir;
 
         /**
          * Constructs instance and parses args
@@ -528,6 +565,10 @@ class ZygoteConnection {
                     mountExternal = Zygote.MOUNT_EXTERNAL_MULTIUSER_ALL;
                 } else if (arg.equals("--query-abi-list")) {
                     abiListQuery = true;
+                } else if (arg.startsWith("--instruction-set=")) {
+                    instructionSet = arg.substring(arg.indexOf('=') + 1);
+                } else if (arg.startsWith("--app-data-dir=")) {
+                    appDataDir = arg.substring(arg.indexOf('=') + 1);
                 } else {
                     break;
                 }
@@ -579,7 +620,7 @@ class ZygoteConnection {
         }
 
         // See bug 1092107: large argc can be used for a DOS attack
-        if (argc > MAX_ZYGOTE_ARGC) {   
+        if (argc > MAX_ZYGOTE_ARGC) {
             throw new IOException("max arg count exceeded");
         }
 
@@ -596,7 +637,7 @@ class ZygoteConnection {
     }
 
     /**
-     * Applies zygote security policy per bugs #875058 and #1082165. 
+     * Applies zygote security policy per bugs #875058 and #1082165.
      * Based on the credentials of the process issuing a zygote command:
      * <ol>
      * <li> uid 0 (root) may specify any uid, gid, and setgroups() list
@@ -627,7 +668,7 @@ class ZygoteConnection {
             /* In normal operation, SYSTEM_UID can only specify a restricted
              * set of UIDs. In factory test mode, SYSTEM_UID may specify any uid.
              */
-            uidRestricted  
+            uidRestricted
                  = !(factoryTest.equals("1") || factoryTest.equals("2"));
 
             if (uidRestricted
@@ -801,7 +842,12 @@ class ZygoteConnection {
             if (args.niceName != null) {
                 String property = "wrap." + args.niceName;
                 if (property.length() > 31) {
-                    property = property.substring(0, 31);
+                    // Avoid creating an illegal property name when truncating.
+                    if (property.charAt(30) != '.') {
+                        property = property.substring(0, 31);
+                    } else {
+                        property = property.substring(0, 30);
+                    }
                 }
                 args.invokeWith = SystemProperties.get(property);
                 if (args.invokeWith != null && args.invokeWith.length() == 0) {
@@ -863,7 +909,7 @@ class ZygoteConnection {
                         pipeFd, parsedArgs.remainingArgs);
             } else {
                 RuntimeInit.zygoteInit(parsedArgs.targetSdkVersion,
-                        parsedArgs.remainingArgs);
+                        parsedArgs.remainingArgs, null /* classLoader */);
             }
         } else {
             String className;

@@ -17,12 +17,14 @@ package com.android.server.notification;
 
 import android.app.Notification;
 import android.content.Context;
-import android.net.Uri;
 import android.os.Handler;
 import android.os.Message;
 import android.os.UserHandle;
+import android.service.notification.NotificationListenerService;
 import android.text.TextUtils;
 import android.util.ArrayMap;
+import android.util.ArraySet;
+import android.util.Log;
 import android.util.Slog;
 import android.util.SparseIntArray;
 import org.xmlpull.v1.XmlPullParser;
@@ -33,6 +35,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class RankingHelper implements RankingConfig {
@@ -48,13 +51,15 @@ public class RankingHelper implements RankingConfig {
     private static final String ATT_NAME = "name";
     private static final String ATT_UID = "uid";
     private static final String ATT_PRIORITY = "priority";
+    private static final String ATT_VISIBILITY = "visibility";
 
     private final NotificationSignalExtractor[] mSignalExtractors;
     private final NotificationComparator mPreliminaryComparator = new NotificationComparator();
-    private final NotificationComparator mFinalComparator = new GroupedNotificationComparator();
+    private final GlobalSortKeyComparator mFinalComparator = new GlobalSortKeyComparator();
 
     // Package name to uid, to priority. Would be better as Table<String, Int, Int>
     private final ArrayMap<String, SparseIntArray> mPackagePriorities;
+    private final ArrayMap<String, SparseIntArray> mPackageVisibilities;
     private final ArrayMap<String, NotificationRecord> mProxyByGroupTmp;
 
     private final Context mContext;
@@ -64,6 +69,7 @@ public class RankingHelper implements RankingConfig {
         mContext = context;
         mRankingHandler = rankingHandler;
         mPackagePriorities = new ArrayMap<String, SparseIntArray>();
+        mPackageVisibilities = new ArrayMap<String, SparseIntArray>();
 
         final int N = extractorNames.length;
         mSignalExtractors = new NotificationSignalExtractor[N];
@@ -84,6 +90,17 @@ public class RankingHelper implements RankingConfig {
             }
         }
         mProxyByGroupTmp = new ArrayMap<String, NotificationRecord>();
+    }
+
+    public <T extends NotificationSignalExtractor> T findExtractor(Class<T> extractorClass) {
+        final int N = mSignalExtractors.length;
+        for (int i = 0; i < N; i++) {
+            final NotificationSignalExtractor extractor = mSignalExtractors[i];
+            if (extractorClass.equals(extractor.getClass())) {
+                return (T) extractor;
+            }
+        }
+        return null;
     }
 
     public void extractSignals(NotificationRecord r) {
@@ -120,15 +137,27 @@ public class RankingHelper implements RankingConfig {
                 if (TAG_PACKAGE.equals(tag)) {
                     int uid = safeInt(parser, ATT_UID, UserHandle.USER_ALL);
                     int priority = safeInt(parser, ATT_PRIORITY, Notification.PRIORITY_DEFAULT);
+                    int vis = safeInt(parser, ATT_VISIBILITY,
+                            NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE);
                     String name = parser.getAttributeValue(null, ATT_NAME);
 
-                    if (!TextUtils.isEmpty(name) && priority != Notification.PRIORITY_DEFAULT) {
-                        SparseIntArray priorityByUid = mPackagePriorities.get(name);
-                        if (priorityByUid == null) {
-                            priorityByUid = new SparseIntArray();
-                            mPackagePriorities.put(name, priorityByUid);
+                    if (!TextUtils.isEmpty(name)) {
+                        if (priority != Notification.PRIORITY_DEFAULT) {
+                            SparseIntArray priorityByUid = mPackagePriorities.get(name);
+                            if (priorityByUid == null) {
+                                priorityByUid = new SparseIntArray();
+                                mPackagePriorities.put(name, priorityByUid);
+                            }
+                            priorityByUid.put(uid, priority);
                         }
-                        priorityByUid.put(uid, priority);
+                        if (vis != NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE) {
+                            SparseIntArray visibilityByUid = mPackageVisibilities.get(name);
+                            if (visibilityByUid == null) {
+                                visibilityByUid = new SparseIntArray();
+                                mPackageVisibilities.put(name, visibilityByUid);
+                            }
+                            visibilityByUid.put(uid, vis);
+                        }
                     }
                 }
             }
@@ -140,18 +169,43 @@ public class RankingHelper implements RankingConfig {
         out.startTag(null, TAG_RANKING);
         out.attribute(null, ATT_VERSION, Integer.toString(XML_VERSION));
 
-        final int N = mPackagePriorities.size();
-        for (int i = 0; i < N; i ++) {
-            String name = mPackagePriorities.keyAt(i);
-            SparseIntArray priorityByUid = mPackagePriorities.get(name);
-            final int M = priorityByUid.size();
-            for (int j = 0; j < M; j++) {
-                int uid = priorityByUid.keyAt(j);
-                int priority = priorityByUid.get(uid);
+        final Set<String> packageNames = new ArraySet<>(mPackagePriorities.size()
+                + mPackageVisibilities.size());
+        packageNames.addAll(mPackagePriorities.keySet());
+        packageNames.addAll(mPackageVisibilities.keySet());
+        final Set<Integer> packageUids = new ArraySet<>();
+        for (String packageName : packageNames) {
+            packageUids.clear();
+            SparseIntArray priorityByUid = mPackagePriorities.get(packageName);
+            SparseIntArray visibilityByUid = mPackageVisibilities.get(packageName);
+            if (priorityByUid != null) {
+                final int M = priorityByUid.size();
+                for (int j = 0; j < M; j++) {
+                    packageUids.add(priorityByUid.keyAt(j));
+                }
+            }
+            if (visibilityByUid != null) {
+                final int M = visibilityByUid.size();
+                for (int j = 0; j < M; j++) {
+                    packageUids.add(visibilityByUid.keyAt(j));
+                }
+            }
+            for (Integer uid : packageUids) {
                 out.startTag(null, TAG_PACKAGE);
-                out.attribute(null, ATT_NAME, name);
+                out.attribute(null, ATT_NAME, packageName);
+                if (priorityByUid != null) {
+                    final int priority = priorityByUid.get(uid);
+                    if (priority != Notification.PRIORITY_DEFAULT) {
+                        out.attribute(null, ATT_PRIORITY, Integer.toString(priority));
+                    }
+                }
+                if (visibilityByUid != null) {
+                    final int visibility = visibilityByUid.get(uid);
+                    if (visibility != NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE) {
+                        out.attribute(null, ATT_VISIBILITY, Integer.toString(visibility));
+                    }
+                }
                 out.attribute(null, ATT_UID, Integer.toString(uid));
-                out.attribute(null, ATT_PRIORITY, Integer.toString(priority));
                 out.endTag(null, TAG_PACKAGE);
             }
         }
@@ -168,34 +222,60 @@ public class RankingHelper implements RankingConfig {
 
     public void sort(ArrayList<NotificationRecord> notificationList) {
         final int N = notificationList.size();
-        // clear group proxies
+        // clear global sort keys
         for (int i = N - 1; i >= 0; i--) {
-            notificationList.get(i).setRankingProxy(null);
+            notificationList.get(i).setGlobalSortKey(null);
         }
 
         // rank each record individually
         Collections.sort(notificationList, mPreliminaryComparator);
 
-        // record inidivdual ranking result and nominate proxies for each group
-        for (int i = N - 1; i >= 0; i--) {
-            final NotificationRecord record = notificationList.get(i);
-            record.setAuthoritativeRank(i);
-            final String groupKey = record.getGroupKey();
-            boolean isGroupSummary = record.getNotification().getGroup() != null
-                    && (record.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) != 0;
-            if (isGroupSummary || mProxyByGroupTmp.get(groupKey) == null) {
-                mProxyByGroupTmp.put(groupKey, record);
+        synchronized (mProxyByGroupTmp) {
+            // record individual ranking result and nominate proxies for each group
+            for (int i = N - 1; i >= 0; i--) {
+                final NotificationRecord record = notificationList.get(i);
+                record.setAuthoritativeRank(i);
+                final String groupKey = record.getGroupKey();
+                boolean isGroupSummary = record.getNotification().isGroupSummary();
+                if (isGroupSummary || !mProxyByGroupTmp.containsKey(groupKey)) {
+                    mProxyByGroupTmp.put(groupKey, record);
+                }
             }
+            // assign global sort key:
+            //   is_recently_intrusive:group_rank:is_group_summary:group_sort_key:rank
+            for (int i = 0; i < N; i++) {
+                final NotificationRecord record = notificationList.get(i);
+                NotificationRecord groupProxy = mProxyByGroupTmp.get(record.getGroupKey());
+                String groupSortKey = record.getNotification().getSortKey();
+
+                // We need to make sure the developer provided group sort key (gsk) is handled
+                // correctly:
+                //   gsk="" < gsk=non-null-string < gsk=null
+                //
+                // We enforce this by using different prefixes for these three cases.
+                String groupSortKeyPortion;
+                if (groupSortKey == null) {
+                    groupSortKeyPortion = "nsk";
+                } else if (groupSortKey.equals("")) {
+                    groupSortKeyPortion = "esk";
+                } else {
+                    groupSortKeyPortion = "gsk=" + groupSortKey;
+                }
+
+                boolean isGroupSummary = record.getNotification().isGroupSummary();
+                record.setGlobalSortKey(
+                        String.format("intrsv=%c:grnk=0x%04x:gsmry=%c:%s:rnk=0x%04x",
+                        record.isRecentlyIntrusive() ? '0' : '1',
+                        groupProxy.getAuthoritativeRank(),
+                        isGroupSummary ? '0' : '1',
+                        groupSortKeyPortion,
+                        record.getAuthoritativeRank()));
+            }
+            mProxyByGroupTmp.clear();
         }
-        // assign nominated proxies to each notification
-        for (int i = 0; i < N; i++) {
-            final NotificationRecord record = notificationList.get(i);
-            record.setRankingProxy(mProxyByGroupTmp.get(record.getGroupKey()));
-        }
+
         // Do a second ranking pass, using group proxies
         Collections.sort(notificationList, mFinalComparator);
-
-        mProxyByGroupTmp.clear();
     }
 
     public int indexOf(ArrayList<NotificationRecord> notificationList, NotificationRecord target) {
@@ -237,6 +317,31 @@ public class RankingHelper implements RankingConfig {
             mPackagePriorities.put(packageName, priorityByUid);
         }
         priorityByUid.put(uid, priority);
+        updateConfig();
+    }
+
+    @Override
+    public int getPackageVisibilityOverride(String packageName, int uid) {
+        int visibility = NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE;
+        SparseIntArray visibilityByUid = mPackageVisibilities.get(packageName);
+        if (visibilityByUid != null) {
+            visibility = visibilityByUid.get(uid,
+                    NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE);
+        }
+        return visibility;
+    }
+
+    @Override
+    public void setPackageVisibilityOverride(String packageName, int uid, int visibility) {
+        if (visibility == getPackageVisibilityOverride(packageName, uid)) {
+            return;
+        }
+        SparseIntArray visibilityByUid = mPackageVisibilities.get(packageName);
+        if (visibilityByUid == null) {
+            visibilityByUid = new SparseIntArray();
+            mPackageVisibilities.put(packageName, visibilityByUid);
+        }
+        visibilityByUid.put(uid, visibility);
         updateConfig();
     }
 

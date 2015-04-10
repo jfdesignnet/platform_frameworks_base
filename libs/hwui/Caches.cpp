@@ -24,6 +24,7 @@
 #include "Properties.h"
 #include "LayerRenderer.h"
 #include "ShadowTessellator.h"
+#include "RenderState.h"
 
 namespace android {
 
@@ -49,7 +50,7 @@ namespace uirenderer {
 ///////////////////////////////////////////////////////////////////////////////
 
 Caches::Caches(): Singleton<Caches>(),
-        mExtensions(Extensions::getInstance()), mInitialized(false) {
+        mExtensions(Extensions::getInstance()), mInitialized(false), mRenderState(NULL) {
     init();
     initFont();
     initConstraints();
@@ -64,6 +65,8 @@ Caches::Caches(): Singleton<Caches>(),
 
 bool Caches::init() {
     if (mInitialized) return false;
+
+    ATRACE_NAME("Caches::init");
 
     glGenBuffers(1, &meshBuffer);
     glBindBuffer(GL_ARRAY_BUFFER, meshBuffer);
@@ -234,8 +237,6 @@ void Caches::terminate() {
     programCache.clear();
     currentProgram = NULL;
 
-    assetAtlas.terminate();
-
     patchCache.clear();
 
     clearGarbage();
@@ -264,11 +265,27 @@ void Caches::dumpMemoryUsage() {
 }
 
 void Caches::dumpMemoryUsage(String8 &log) {
+    uint32_t total = 0;
     log.appendFormat("Current memory usage / total memory usage (bytes):\n");
     log.appendFormat("  TextureCache         %8d / %8d\n",
             textureCache.getSize(), textureCache.getMaxSize());
-    log.appendFormat("  LayerCache           %8d / %8d\n",
-            layerCache.getSize(), layerCache.getMaxSize());
+    log.appendFormat("  LayerCache           %8d / %8d (numLayers = %zu)\n",
+            layerCache.getSize(), layerCache.getMaxSize(), layerCache.getCount());
+    if (mRenderState) {
+        int memused = 0;
+        for (std::set<Layer*>::iterator it = mRenderState->mActiveLayers.begin();
+                it != mRenderState->mActiveLayers.end(); it++) {
+            const Layer* layer = *it;
+            log.appendFormat("    Layer size %dx%d; isTextureLayer()=%d; texid=%u fbo=%u; refs=%d\n",
+                    layer->getWidth(), layer->getHeight(),
+                    layer->isTextureLayer(), layer->getTexture(),
+                    layer->getFbo(), layer->getStrongCount());
+            memused += layer->getWidth() * layer->getHeight() * 4;
+        }
+        log.appendFormat("  Layers total   %8d (numLayers = %zu)\n",
+                memused, mRenderState->mActiveLayers.size());
+        total += memused;
+    }
     log.appendFormat("  RenderBufferCache    %8d / %8d\n",
             renderBufferCache.getSize(), renderBufferCache.getMaxSize());
     log.appendFormat("  GradientCache        %8d / %8d\n",
@@ -293,9 +310,7 @@ void Caches::dumpMemoryUsage(String8 &log) {
     log.appendFormat("  FboCache             %8d / %8d\n",
             fboCache.getSize(), fboCache.getMaxSize());
 
-    uint32_t total = 0;
     total += textureCache.getSize();
-    total += layerCache.getSize();
     total += renderBufferCache.getSize();
     total += gradientCache.getSize();
     total += pathCache.getSize();
@@ -319,26 +334,6 @@ void Caches::clearGarbage() {
     textureCache.clearGarbage();
     pathCache.clearGarbage();
     patchCache.clearGarbage();
-
-    Vector<Layer*> layers;
-
-    { // scope for the lock
-        Mutex::Autolock _l(mGarbageLock);
-        layers = mLayerGarbage;
-        mLayerGarbage.clear();
-    }
-
-    size_t count = layers.size();
-    for (size_t i = 0; i < count; i++) {
-        Layer* layer = layers.itemAt(i);
-        delete layer;
-    }
-    layers.clear();
-}
-
-void Caches::deleteLayerDeferred(Layer* layer) {
-    Mutex::Autolock _l(mGarbageLock);
-    mLayerGarbage.push(layer);
 }
 
 void Caches::flush(FlushMode mode) {
@@ -372,6 +367,7 @@ void Caches::flush(FlushMode mode) {
     }
 
     clearGarbage();
+    glFinish();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -547,9 +543,13 @@ void Caches::bindTexture(GLuint texture) {
 }
 
 void Caches::bindTexture(GLenum target, GLuint texture) {
-    if (mBoundTextures[mTextureUnit] != texture) {
+    if (target == GL_TEXTURE_2D) {
+        bindTexture(texture);
+    } else {
+        // GLConsumer directly calls glBindTexture() with
+        // target=GL_TEXTURE_EXTERNAL_OES, don't cache this target
+        // since the cached state could be stale
         glBindTexture(target, texture);
-        mBoundTextures[mTextureUnit] = texture;
     }
 }
 
@@ -699,26 +699,17 @@ TextureVertex* Caches::getRegionMesh() {
 ///////////////////////////////////////////////////////////////////////////////
 
 void Caches::initTempProperties() {
-    propertyAmbientShadowStrength = 12;
-    propertySpotShadowStrength = 48;
-
     propertyLightDiameter = -1.0f;
     propertyLightPosY = -1.0f;
     propertyLightPosZ = -1.0f;
     propertyAmbientRatio = -1.0f;
+    propertyAmbientShadowStrength = -1;
+    propertySpotShadowStrength = -1;
 }
 
 void Caches::setTempProperty(const char* name, const char* value) {
     ALOGD("setting property %s to %s", name, value);
-    if (!strcmp(name, "ambientShadowStrength")) {
-        propertyAmbientShadowStrength = atoi(value);
-        ALOGD("ambient shadow strength = 0x%x out of 0xff", propertyAmbientShadowStrength);
-        return;
-    } else if (!strcmp(name, "spotShadowStrength")) {
-        propertySpotShadowStrength = atoi(value);
-        ALOGD("spot shadow strength = 0x%x out of 0xff", propertySpotShadowStrength);
-        return;
-    } else if (!strcmp(name, "ambientRatio")) {
+    if (!strcmp(name, "ambientRatio")) {
         propertyAmbientRatio = fmin(fmax(atof(value), 0.0), 10.0);
         ALOGD("ambientRatio = %.2f", propertyAmbientRatio);
         return;
@@ -734,9 +725,13 @@ void Caches::setTempProperty(const char* name, const char* value) {
         propertyLightPosZ = fmin(fmax(atof(value), 0.0), 3000.0);
         ALOGD("lightPos Z = %.2f", propertyLightPosZ);
         return;
-    } else if (!strcmp(name, "extraRasterBucket")) {
-        float bucket = atof(value);
-        propertyExtraRasterBuckets.push_back(bucket);
+    } else if (!strcmp(name, "ambientShadowStrength")) {
+        propertyAmbientShadowStrength = atoi(value);
+        ALOGD("ambient shadow strength = 0x%x out of 0xff", propertyAmbientShadowStrength);
+        return;
+    } else if (!strcmp(name, "spotShadowStrength")) {
+        propertySpotShadowStrength = atoi(value);
+        ALOGD("spot shadow strength = 0x%x out of 0xff", propertySpotShadowStrength);
         return;
     }
     ALOGD("    failed");

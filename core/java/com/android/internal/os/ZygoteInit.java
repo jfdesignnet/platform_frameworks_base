@@ -34,14 +34,19 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.util.EventLog;
 import android.util.Log;
+import android.util.Slog;
 import android.webkit.WebViewFactory;
 
+import dalvik.system.DexFile;
+import dalvik.system.PathClassLoader;
 import dalvik.system.VMRuntime;
 
 import libcore.io.IoUtils;
 
 import java.io.BufferedReader;
 import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -94,9 +99,9 @@ public class ZygoteInit {
     static final int GC_LOOP_COUNT = 10;
 
     /**
-     * The name of a resource file that contains classes to preload.
+     * The path of a file that contains classes to preload.
      */
-    private static final String PRELOADED_CLASSES = "preloaded-classes";
+    private static final String PRELOADED_CLASSES = "/system/etc/preloaded-classes";
 
     /** Controls whether we should preload resources during zygote init. */
     private static final boolean PRELOAD_RESOURCES = true;
@@ -251,10 +256,18 @@ public class ZygoteInit {
         preloadClasses();
         preloadResources();
         preloadOpenGL();
+        preloadSharedLibraries();
         // Ask the WebViewFactory to do any initialization that must run in the zygote process,
         // for memory sharing purposes.
         WebViewFactory.prepareWebViewInZygote();
         Log.d(TAG, "end preload");
+    }
+
+    private static void preloadSharedLibraries() {
+        Log.i(TAG, "Preloading shared libraries...");
+        System.loadLibrary("android");
+        System.loadLibrary("compiler_rt");
+        System.loadLibrary("jnigraphics");
     }
 
     private static void preloadOpenGL() {
@@ -273,90 +286,92 @@ public class ZygoteInit {
     private static void preloadClasses() {
         final VMRuntime runtime = VMRuntime.getRuntime();
 
-        InputStream is = ClassLoader.getSystemClassLoader().getResourceAsStream(
-                PRELOADED_CLASSES);
-        if (is == null) {
+        InputStream is;
+        try {
+            is = new FileInputStream(PRELOADED_CLASSES);
+        } catch (FileNotFoundException e) {
             Log.e(TAG, "Couldn't find " + PRELOADED_CLASSES + ".");
-        } else {
-            Log.i(TAG, "Preloading classes...");
-            long startTime = SystemClock.uptimeMillis();
+            return;
+        }
 
-            // Drop root perms while running static initializers.
-            setEffectiveGroup(UNPRIVILEGED_GID);
-            setEffectiveUser(UNPRIVILEGED_UID);
+        Log.i(TAG, "Preloading classes...");
+        long startTime = SystemClock.uptimeMillis();
 
-            // Alter the target heap utilization.  With explicit GCs this
-            // is not likely to have any effect.
-            float defaultUtilization = runtime.getTargetHeapUtilization();
-            runtime.setTargetHeapUtilization(0.8f);
+        // Drop root perms while running static initializers.
+        setEffectiveGroup(UNPRIVILEGED_GID);
+        setEffectiveUser(UNPRIVILEGED_UID);
 
-            // Start with a clean slate.
-            System.gc();
-            runtime.runFinalizationSync();
-            Debug.startAllocCounting();
+        // Alter the target heap utilization.  With explicit GCs this
+        // is not likely to have any effect.
+        float defaultUtilization = runtime.getTargetHeapUtilization();
+        runtime.setTargetHeapUtilization(0.8f);
 
-            try {
-                BufferedReader br
-                    = new BufferedReader(new InputStreamReader(is), 256);
+        // Start with a clean slate.
+        System.gc();
+        runtime.runFinalizationSync();
+        Debug.startAllocCounting();
 
-                int count = 0;
-                String line;
-                while ((line = br.readLine()) != null) {
-                    // Skip comments and blank lines.
-                    line = line.trim();
-                    if (line.startsWith("#") || line.equals("")) {
-                        continue;
-                    }
+        try {
+            BufferedReader br
+                = new BufferedReader(new InputStreamReader(is), 256);
 
-                    try {
-                        if (false) {
-                            Log.v(TAG, "Preloading " + line + "...");
-                        }
-                        Class.forName(line);
-                        if (Debug.getGlobalAllocSize() > PRELOAD_GC_THRESHOLD) {
-                            if (false) {
-                                Log.v(TAG,
-                                    " GC at " + Debug.getGlobalAllocSize());
-                            }
-                            System.gc();
-                            runtime.runFinalizationSync();
-                            Debug.resetGlobalAllocSize();
-                        }
-                        count++;
-                    } catch (ClassNotFoundException e) {
-                        Log.w(TAG, "Class not found for preloading: " + line);
-                    } catch (UnsatisfiedLinkError e) {
-                        Log.w(TAG, "Problem preloading " + line + ": " + e);
-                    } catch (Throwable t) {
-                        Log.e(TAG, "Error preloading " + line + ".", t);
-                        if (t instanceof Error) {
-                            throw (Error) t;
-                        }
-                        if (t instanceof RuntimeException) {
-                            throw (RuntimeException) t;
-                        }
-                        throw new RuntimeException(t);
-                    }
+            int count = 0;
+            String line;
+            while ((line = br.readLine()) != null) {
+                // Skip comments and blank lines.
+                line = line.trim();
+                if (line.startsWith("#") || line.equals("")) {
+                    continue;
                 }
 
-                Log.i(TAG, "...preloaded " + count + " classes in "
-                        + (SystemClock.uptimeMillis()-startTime) + "ms.");
-            } catch (IOException e) {
-                Log.e(TAG, "Error reading " + PRELOADED_CLASSES + ".", e);
-            } finally {
-                IoUtils.closeQuietly(is);
-                // Restore default.
-                runtime.setTargetHeapUtilization(defaultUtilization);
-
-                // Fill in dex caches with classes, fields, and methods brought in by preloading.
-                runtime.preloadDexCaches();
-
-                Debug.stopAllocCounting();
-
-                // Bring back root. We'll need it later.
-                setEffectiveUser(ROOT_UID);
-                setEffectiveGroup(ROOT_GID);
+                try {
+                    if (false) {
+                        Log.v(TAG, "Preloading " + line + "...");
+                    }
+                    Class.forName(line);
+                    if (Debug.getGlobalAllocSize() > PRELOAD_GC_THRESHOLD) {
+                        if (false) {
+                            Log.v(TAG,
+                                " GC at " + Debug.getGlobalAllocSize());
+                        }
+                        System.gc();
+                        runtime.runFinalizationSync();
+                        Debug.resetGlobalAllocSize();
+                    }
+                    count++;
+                } catch (ClassNotFoundException e) {
+                    Log.w(TAG, "Class not found for preloading: " + line);
+                } catch (UnsatisfiedLinkError e) {
+                    Log.w(TAG, "Problem preloading " + line + ": " + e);
+                } catch (Throwable t) {
+                    Log.e(TAG, "Error preloading " + line + ".", t);
+                    if (t instanceof Error) {
+                        throw (Error) t;
+                    }
+                    if (t instanceof RuntimeException) {
+                        throw (RuntimeException) t;
+                    }
+                    throw new RuntimeException(t);
+                }
             }
+
+            Log.i(TAG, "...preloaded " + count + " classes in "
+                    + (SystemClock.uptimeMillis()-startTime) + "ms.");
+        } catch (IOException e) {
+            Log.e(TAG, "Error reading " + PRELOADED_CLASSES + ".", e);
+        } finally {
+            IoUtils.closeQuietly(is);
+            // Restore default.
+            runtime.setTargetHeapUtilization(defaultUtilization);
+
+            // Fill in dex caches with classes, fields, and methods brought in by preloading.
+            runtime.preloadDexCaches();
+
+            Debug.stopAllocCounting();
+
+            // Bring back root. We'll need it later.
+            setEffectiveUser(ROOT_UID);
+            setEffectiveGroup(ROOT_GID);
         }
     }
 
@@ -447,7 +462,7 @@ public class ZygoteInit {
                 Log.v(TAG, "Preloading resource #" + Integer.toHexString(id));
             }
             if (id != 0) {
-                if (mResources.getDrawable(id) == null) {
+                if (mResources.getDrawable(id, null) == null) {
                     throw new IllegalArgumentException(
                             "Unable to find preloaded drawable resource #0x"
                             + Integer.toHexString(id)
@@ -493,18 +508,66 @@ public class ZygoteInit {
             Process.setArgV0(parsedArgs.niceName);
         }
 
+        final String systemServerClasspath = Os.getenv("SYSTEMSERVERCLASSPATH");
+        if (systemServerClasspath != null) {
+            performSystemServerDexOpt(systemServerClasspath);
+        }
+
         if (parsedArgs.invokeWith != null) {
+            String[] args = parsedArgs.remainingArgs;
+            // If we have a non-null system server class path, we'll have to duplicate the
+            // existing arguments and append the classpath to it. ART will handle the classpath
+            // correctly when we exec a new process.
+            if (systemServerClasspath != null) {
+                String[] amendedArgs = new String[args.length + 2];
+                amendedArgs[0] = "-cp";
+                amendedArgs[1] = systemServerClasspath;
+                System.arraycopy(parsedArgs.remainingArgs, 0, amendedArgs, 2, parsedArgs.remainingArgs.length);
+            }
+
             WrapperInit.execApplication(parsedArgs.invokeWith,
                     parsedArgs.niceName, parsedArgs.targetSdkVersion,
-                    null, parsedArgs.remainingArgs);
+                    null, args);
         } else {
+            ClassLoader cl = null;
+            if (systemServerClasspath != null) {
+                cl = new PathClassLoader(systemServerClasspath, ClassLoader.getSystemClassLoader());
+                Thread.currentThread().setContextClassLoader(cl);
+            }
+
             /*
              * Pass the remaining arguments to SystemServer.
              */
-            RuntimeInit.zygoteInit(parsedArgs.targetSdkVersion, parsedArgs.remainingArgs);
+            RuntimeInit.zygoteInit(parsedArgs.targetSdkVersion, parsedArgs.remainingArgs, cl);
         }
 
         /* should never reach here */
+    }
+
+    /**
+     * Performs dex-opt on the elements of {@code classPath}, if needed. We
+     * choose the instruction set of the current runtime.
+     */
+    private static void performSystemServerDexOpt(String classPath) {
+        final String[] classPathElements = classPath.split(":");
+        final InstallerConnection installer = new InstallerConnection();
+        final String instructionSet = VMRuntime.getRuntime().vmInstructionSet();
+
+        try {
+            for (String classPathElement : classPathElements) {
+                final byte dexopt = DexFile.isDexOptNeededInternal(classPathElement, "*", instructionSet,
+                        false /* defer */);
+                if (dexopt == DexFile.DEXOPT_NEEDED) {
+                    installer.dexopt(classPathElement, Process.SYSTEM_UID, false, instructionSet);
+                } else if (dexopt == DexFile.PATCHOAT_NEEDED) {
+                    installer.patchoat(classPathElement, Process.SYSTEM_UID, false, instructionSet);
+                }
+            }
+        } catch (IOException ioe) {
+            throw new RuntimeException("Error starting system_server", ioe);
+        } finally {
+            installer.disconnect();
+        }
     }
 
     /**
@@ -719,7 +782,7 @@ public class ZygoteInit {
             } else if (index == 0) {
                 ZygoteConnection newPeer = acceptCommandPeer(abiList);
                 peers.add(newPeer);
-                fds.add(newPeer.getFileDesciptor());
+                fds.add(newPeer.getFileDescriptor());
             } else {
                 boolean done;
                 done = peers.get(index).runOnce();

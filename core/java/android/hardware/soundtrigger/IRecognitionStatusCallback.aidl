@@ -16,6 +16,8 @@
 
 package android.hardware.soundtrigger;
 
+import android.hardware.soundtrigger.SoundTrigger;
+
 /**
  * @hide
  */
@@ -24,12 +26,20 @@ oneway interface IRecognitionStatusCallback {
      * Called when the keyphrase is spoken.
      *
      * @param data Optional trigger audio data, if it was requested and is available.
-     *        TODO: See if the data being passed in works well, if not use shared memory.
-     *        This *MUST* not exceed 100K.
      */
-    void onDetected(in byte[] data);
+    void onDetected(in SoundTrigger.KeyphraseRecognitionEvent recognitionEvent);
     /**
-     * Called when the detection for the associated keyphrase stops.
+     * Called when the detection fails due to an error.
+     *
+     * @param status The error code that was seen.
      */
-    void onDetectionStopped();
+    void onError(int status);
+    /**
+     * Called when the recognition is paused temporarily for some reason.
+     */
+    void onRecognitionPaused();
+    /**
+     * Called when the recognition is resumed after it was temporarily paused.
+     */
+    void onRecognitionResumed();
 }

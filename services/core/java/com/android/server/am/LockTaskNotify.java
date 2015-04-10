@@ -19,6 +19,8 @@ package com.android.server.am;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Message;
+import android.view.WindowManager;
+import android.view.accessibility.AccessibilityManager;
 import android.widget.Toast;
 
 import com.android.internal.R;
@@ -32,9 +34,13 @@ public class LockTaskNotify {
 
     private final Context mContext;
     private final H mHandler;
+    private AccessibilityManager mAccessibilityManager;
+    private Toast mLastToast;
 
     public LockTaskNotify(Context context) {
         mContext = context;
+        mAccessibilityManager = (AccessibilityManager)
+                mContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
         mHandler = new H();
     }
 
@@ -45,7 +51,13 @@ public class LockTaskNotify {
     public void handleShowToast(boolean isLocked) {
         String text = mContext.getString(isLocked
                 ? R.string.lock_to_app_toast_locked : R.string.lock_to_app_toast);
-        Toast.makeText(mContext, text, Toast.LENGTH_LONG).show();
+        if (!isLocked && mAccessibilityManager.isEnabled()) {
+            text = mContext.getString(R.string.lock_to_app_toast_accessible);
+        }
+        if (mLastToast != null) {
+            mLastToast.cancel();
+        }
+        mLastToast = makeAllUserToastAndShow(text);
     }
 
     public void show(boolean starting) {
@@ -53,7 +65,15 @@ public class LockTaskNotify {
         if (starting) {
             showString = R.string.lock_to_app_start;
         }
-        Toast.makeText(mContext, mContext.getString(showString), Toast.LENGTH_LONG).show();
+        makeAllUserToastAndShow(mContext.getString(showString));
+    }
+
+    private Toast makeAllUserToastAndShow(String text) {
+        Toast toast = Toast.makeText(mContext, text, Toast.LENGTH_LONG);
+        toast.getWindowParams().privateFlags |=
+                WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
+        toast.show();
+        return toast;
     }
 
     private final class H extends Handler {

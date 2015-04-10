@@ -133,6 +133,15 @@ enum DebugLevel {
 #define PROPERTY_DEBUG_STENCIL_CLIP "debug.hwui.show_non_rect_clip"
 
 /**
+ * Turn on to draw dirty regions every other frame.
+ *
+ * Possible values:
+ * "true", to enable dirty regions debugging
+ * "false", to disable dirty regions debugging
+ */
+#define PROPERTY_DEBUG_SHOW_DIRTY_REGIONS "debug.hwui.show_dirty_regions"
+
+/**
  * Disables draw operation deferral if set to "true", forcing draw
  * commands to be issued to OpenGL in order, and processed in sequence
  * with state-manipulation canvas commands.
@@ -227,7 +236,7 @@ enum DebugLevel {
 #define DEFAULT_PATCH_CACHE_SIZE 128 // in kB
 #define DEFAULT_GRADIENT_CACHE_SIZE 0.5f
 #define DEFAULT_DROP_SHADOW_CACHE_SIZE 2.0f
-#define DEFAULT_FBO_CACHE_SIZE 16
+#define DEFAULT_FBO_CACHE_SIZE 0
 
 #define DEFAULT_TEXTURE_CACHE_FLUSH_RATE 0.6f
 

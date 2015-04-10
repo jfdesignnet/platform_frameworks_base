@@ -78,6 +78,7 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
     @Override
     protected void handleSecondaryClick() {
         if (!mState.value) {
+            mState.value = true;
             mController.setBluetoothEnabled(true);
         }
         showDetail(true);
@@ -91,32 +92,49 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
         final boolean connecting = mController.isBluetoothConnecting();
         state.visible = supported;
         state.value = enabled;
-        final String stateContentDescription;
+        state.autoMirrorDrawable = false;
         if (enabled) {
             state.label = null;
             if (connected) {
-                state.iconId = R.drawable.ic_qs_bluetooth_connected;
-                stateContentDescription = mContext.getString(R.string.accessibility_desc_connected);
+                state.icon = ResourceIcon.get(R.drawable.ic_qs_bluetooth_connected);
+                state.contentDescription = mContext.getString(
+                        R.string.accessibility_quick_settings_bluetooth_connected);
                 state.label = mController.getLastDeviceName();
             } else if (connecting) {
-                state.iconId = R.drawable.ic_qs_bluetooth_connecting;
-                stateContentDescription =
-                        mContext.getString(R.string.accessibility_desc_connecting);
+                state.icon = ResourceIcon.get(R.drawable.ic_qs_bluetooth_connecting);
+                state.contentDescription = mContext.getString(
+                        R.string.accessibility_quick_settings_bluetooth_connecting);
                 state.label = mContext.getString(R.string.quick_settings_bluetooth_label);
             } else {
-                state.iconId = R.drawable.ic_qs_bluetooth_on;
-                stateContentDescription = mContext.getString(R.string.accessibility_desc_on);
+                state.icon = ResourceIcon.get(R.drawable.ic_qs_bluetooth_on);
+                state.contentDescription = mContext.getString(
+                        R.string.accessibility_quick_settings_bluetooth_on);
             }
             if (TextUtils.isEmpty(state.label)) {
                 state.label = mContext.getString(R.string.quick_settings_bluetooth_label);
             }
         } else {
-            state.iconId = R.drawable.ic_qs_bluetooth_off;
+            state.icon = ResourceIcon.get(R.drawable.ic_qs_bluetooth_off);
             state.label = mContext.getString(R.string.quick_settings_bluetooth_label);
-            stateContentDescription = mContext.getString(R.string.accessibility_desc_off);
+            state.contentDescription = mContext.getString(
+                    R.string.accessibility_quick_settings_bluetooth_off);
         }
-        state.contentDescription = mContext.getString(
-                R.string.accessibility_quick_settings_bluetooth, stateContentDescription);
+
+        String bluetoothName = state.label;
+        if (connected) {
+            bluetoothName = state.dualLabelContentDescription = mContext.getString(
+                    R.string.accessibility_bluetooth_name, state.label);
+        }
+        state.dualLabelContentDescription = bluetoothName;
+    }
+
+    @Override
+    protected String composeChangeAnnouncement() {
+        if (mState.value) {
+            return mContext.getString(R.string.accessibility_quick_settings_bluetooth_changed_on);
+        } else {
+            return mContext.getString(R.string.accessibility_quick_settings_bluetooth_changed_off);
+        }
     }
 
     private final BluetoothController.Callback mCallback = new BluetoothController.Callback() {
@@ -132,6 +150,7 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
                     mDetailAdapter.updateItems();
                 }
             });
+            refreshState();
         }
     };
 
@@ -166,6 +185,7 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
             mItems.setEmptyState(R.drawable.ic_qs_bluetooth_detail_empty,
                     R.string.quick_settings_bluetooth_detail_empty_text);
             mItems.setCallback(this);
+            mItems.setMinHeightInItems(0);
             updateItems();
             setItemsVisible(mState.value);
             return mItems;

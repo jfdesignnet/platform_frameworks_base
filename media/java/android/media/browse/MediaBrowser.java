@@ -16,6 +16,7 @@
 
 package android.media.browse;
 
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.ComponentName;
@@ -23,26 +24,27 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.ParceledListSlice;
-import android.content.res.Configuration;
-import android.graphics.Bitmap;
+import android.media.MediaDescription;
+import android.media.session.MediaController;
 import android.media.session.MediaSession;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.os.RemoteException;
+import android.service.media.MediaBrowserService;
+import android.service.media.IMediaBrowserService;
+import android.service.media.IMediaBrowserServiceCallbacks;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
-import android.util.SparseArray;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 
 /**
  * Browses media content offered by a link MediaBrowserService.
@@ -65,19 +67,16 @@ public final class MediaBrowser {
     private final ConnectionCallback mCallback;
     private final Bundle mRootHints;
     private final Handler mHandler = new Handler();
-    private final ArrayMap<Uri,Subscription> mSubscriptions =
-            new ArrayMap<Uri, MediaBrowser.Subscription>();
-    private final SparseArray<ThumbnailRequest> mThumbnailRequests =
-            new SparseArray<ThumbnailRequest>();
+    private final ArrayMap<String,Subscription> mSubscriptions =
+            new ArrayMap<String, MediaBrowser.Subscription>();
 
     private int mState = CONNECT_STATE_DISCONNECTED;
     private MediaServiceConnection mServiceConnection;
     private IMediaBrowserService mServiceBinder;
     private IMediaBrowserServiceCallbacks mServiceCallbacks;
-    private Uri mRootUri;
+    private String mRootId;
     private MediaSession.Token mMediaSessionToken;
     private Bundle mExtras;
-    private int mNextSeq;
 
     /**
      * Creates a media browser for the specified media browse service.
@@ -86,7 +85,7 @@ public final class MediaBrowser {
      * @param serviceComponent The component name of the media browse service.
      * @param callback The connection callback.
      * @param rootHints An optional bundle of service-specific arguments to send
-     * to the media browse service when connecting and retrieving the root uri
+     * to the media browse service when connecting and retrieving the root id
      * for browsing, or null if none.  The contents of this bundle may affect
      * the information returned when browsing.
      */
@@ -137,31 +136,34 @@ public final class MediaBrowser {
 
         mState = CONNECT_STATE_CONNECTING;
 
-        final Intent intent = new Intent(MediaBrowserService.SERVICE_ACTION);
+        final Intent intent = new Intent(MediaBrowserService.SERVICE_INTERFACE);
         intent.setComponent(mServiceComponent);
 
         final ServiceConnection thisConnection = mServiceConnection = new MediaServiceConnection();
 
+        boolean bound = false;
         try {
-            mContext.bindService(intent, mServiceConnection, Context.BIND_AUTO_CREATE);
+            bound = mContext.bindService(intent, mServiceConnection, Context.BIND_AUTO_CREATE);
         } catch (Exception ex) {
             Log.e(TAG, "Failed binding to service " + mServiceComponent);
+        }
 
+        if (!bound) {
             // Tell them that it didn't work.  We are already on the main thread,
             // but we don't want to do callbacks inside of connect().  So post it,
             // and then check that we are on the same ServiceConnection.  We know
             // we won't also get an onServiceConnected or onServiceDisconnected,
             // so we won't be doing double callbacks.
             mHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        // Ensure that nobody else came in or tried to connect again.
-                        if (thisConnection == mServiceConnection) {
-                            forceCloseConnection();
-                            mCallback.onConnectionFailed();
-                        }
+                @Override
+                public void run() {
+                    // Ensure that nobody else came in or tried to connect again.
+                    if (thisConnection == mServiceConnection) {
+                        forceCloseConnection();
+                        mCallback.onConnectionFailed();
                     }
-                });
+                }
+            });
         }
 
         if (DBG) {
@@ -213,7 +215,7 @@ public final class MediaBrowser {
         mServiceConnection = null;
         mServiceBinder = null;
         mServiceCallbacks = null;
-        mRootUri = null;
+        mRootId = null;
         mMediaSessionToken = null;
     }
 
@@ -225,20 +227,31 @@ public final class MediaBrowser {
     }
 
     /**
-     * Gets the root Uri.
+     * Gets the service component that the media browser is connected to.
+     */
+    public @NonNull ComponentName getServiceComponent() {
+        if (!isConnected()) {
+            throw new IllegalStateException("getServiceComponent() called while not connected" +
+                    " (state=" + mState + ")");
+        }
+        return mServiceComponent;
+    }
+
+    /**
+     * Gets the root id.
      * <p>
-     * Note that the root uri may become invalid or change when when the
+     * Note that the root id may become invalid or change when when the
      * browser is disconnected.
      * </p>
      *
      * @throws IllegalStateException if not connected.
      */
-    public @NonNull Uri getRoot() {
-        if (mState != CONNECT_STATE_CONNECTED) {
+    public @NonNull String getRoot() {
+        if (!isConnected()) {
             throw new IllegalStateException("getSessionToken() called while not connected (state="
                     + getStateLabel(mState) + ")");
         }
-        return mRootUri;
+        return mRootId;
     }
 
     /**
@@ -247,7 +260,7 @@ public final class MediaBrowser {
      * @throws IllegalStateException if not connected.
      */
     public @Nullable Bundle getExtras() {
-        if (mState != CONNECT_STATE_CONNECTED) {
+        if (!isConnected()) {
             throw new IllegalStateException("getExtras() called while not connected (state="
                     + getStateLabel(mState) + ")");
         }
@@ -266,7 +279,7 @@ public final class MediaBrowser {
      * @throws IllegalStateException if not connected.
      */
      public @NonNull MediaSession.Token getSessionToken() {
-        if (mState != CONNECT_STATE_CONNECTED) {
+        if (!isConnected()) {
             throw new IllegalStateException("getSessionToken() called while not connected (state="
                     + mState + ")");
         }
@@ -275,35 +288,35 @@ public final class MediaBrowser {
 
     /**
      * Queries for information about the media items that are contained within
-     * the specified Uri and subscribes to receive updates when they change.
+     * the specified id and subscribes to receive updates when they change.
      * <p>
      * The list of subscriptions is maintained even when not connected and is
      * restored after reconnection.  It is ok to subscribe while not connected
      * but the results will not be returned until the connection completes.
      * </p><p>
-     * If the uri is already subscribed with a different callback then the new
+     * If the id is already subscribed with a different callback then the new
      * callback will replace the previous one.
      * </p>
      *
-     * @param parentUri The uri of the parent media item whose list of children
+     * @param parentId The id of the parent media item whose list of children
      * will be subscribed.
      * @param callback The callback to receive the list of children.
      */
-    public void subscribe(@NonNull Uri parentUri, @NonNull SubscriptionCallback callback) {
+    public void subscribe(@NonNull String parentId, @NonNull SubscriptionCallback callback) {
         // Check arguments.
-        if (parentUri == null) {
-            throw new IllegalArgumentException("parentUri is null");
+        if (parentId == null) {
+            throw new IllegalArgumentException("parentId is null");
         }
         if (callback == null) {
             throw new IllegalArgumentException("callback is null");
         }
 
         // Update or create the subscription.
-        Subscription sub = mSubscriptions.get(parentUri);
+        Subscription sub = mSubscriptions.get(parentId);
         boolean newSubscription = sub == null;
         if (newSubscription) {
-            sub = new Subscription(parentUri);
-            mSubscriptions.put(parentUri, sub);
+            sub = new Subscription(parentId);
+            mSubscriptions.put(parentId, sub);
         }
         sub.callback = callback;
 
@@ -311,87 +324,44 @@ public final class MediaBrowser {
         // connected, the service will be told when we connect.
         if (mState == CONNECT_STATE_CONNECTED && newSubscription) {
             try {
-                mServiceBinder.addSubscription(parentUri, mServiceCallbacks);
+                mServiceBinder.addSubscription(parentId, mServiceCallbacks);
             } catch (RemoteException ex) {
                 // Process is crashing.  We will disconnect, and upon reconnect we will
                 // automatically reregister. So nothing to do here.
-                Log.d(TAG, "addSubscription failed with RemoteException parentUri=" + parentUri);
+                Log.d(TAG, "addSubscription failed with RemoteException parentId=" + parentId);
             }
         }
     }
 
     /**
-     * Unsubscribes for changes to the children of the specified Uri.
+     * Unsubscribes for changes to the children of the specified media id.
      * <p>
      * The query callback will no longer be invoked for results associated with
-     * this Uri once this method returns.
+     * this id once this method returns.
      * </p>
      *
-     * @param parentUri The uri of the parent media item whose list of children
+     * @param parentId The id of the parent media item whose list of children
      * will be unsubscribed.
      */
-    public void unsubscribe(@NonNull Uri parentUri) {
+    public void unsubscribe(@NonNull String parentId) {
         // Check arguments.
-        if (parentUri == null) {
-            throw new IllegalArgumentException("parentUri is null");
+        if (parentId == null) {
+            throw new IllegalArgumentException("parentId is null");
         }
 
         // Remove from our list.
-        final Subscription sub = mSubscriptions.remove(parentUri);
+        final Subscription sub = mSubscriptions.remove(parentId);
 
         // Tell the service if necessary.
         if (mState == CONNECT_STATE_CONNECTED && sub != null) {
             try {
-                mServiceBinder.removeSubscription(parentUri, mServiceCallbacks);
+                mServiceBinder.removeSubscription(parentId, mServiceCallbacks);
             } catch (RemoteException ex) {
                 // Process is crashing.  We will disconnect, and upon reconnect we will
                 // automatically reregister. So nothing to do here.
-                Log.d(TAG, "removeSubscription failed with RemoteException parentUri=" + parentUri);
+                Log.d(TAG, "removeSubscription failed with RemoteException parentId=" + parentId);
             }
         }
-    }
-
-    /**
-     * Loads the thumbnail of a media item.
-     *
-     * @param uri The uri of the thumbnail.
-     * @param width The preferred width of the icon in dp.
-     * @param height The preferred width of the icon in dp.
-     * @param callback The callback to receive the thumbnail.
-     */
-    public void loadThumbnail(final @NonNull Uri uri, final int width, final int height,
-            final @NonNull ThumbnailCallback callback) {
-        if (uri == null) {
-            throw new IllegalArgumentException("thumbnail uri cannot be null");
-        }
-        if (callback == null) {
-            throw new IllegalArgumentException("thumbnail callback cannot be null");
-        }
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                for (int i = 0; i < mThumbnailRequests.size(); i++) {
-                    ThumbnailRequest existingRequest = mThumbnailRequests.valueAt(i);
-                    if (existingRequest.isSameRequest(uri, width, height)) {
-                        existingRequest.addCallback(callback);
-                        return;
-                    }
-                }
-                final int seq = mNextSeq++;
-                ThumbnailRequest request = new ThumbnailRequest(seq, uri, width, height);
-                request.addCallback(callback);
-                mThumbnailRequests.put(seq, request);
-                if (mState == CONNECT_STATE_CONNECTED) {
-                    try {
-                        mServiceBinder.loadThumbnail(seq, uri, width, height, mServiceCallbacks);
-                    } catch (RemoteException e) {
-                        // Process is crashing.  We will disconnect, and upon reconnect we will
-                        // automatically reload the thumbnails. So nothing to do here.
-                        Log.d(TAG, "loadThumbnail failed with RemoteException uri=" + uri);
-                    }
-                }
-            }
-        });
     }
 
     /**
@@ -413,7 +383,7 @@ public final class MediaBrowser {
     }
 
     private final void onServiceConnected(final IMediaBrowserServiceCallbacks callback,
-            final Uri root, final MediaSession.Token session, final Bundle extra) {
+            final String root, final MediaSession.Token session, final Bundle extra) {
         mHandler.post(new Runnable() {
             @Override
             public void run() {
@@ -428,7 +398,7 @@ public final class MediaBrowser {
                             + getStateLabel(mState) + "... ignoring");
                     return;
                 }
-                mRootUri = root;
+                mRootId = root;
                 mMediaSessionToken = session;
                 mExtras = extra;
                 mState = CONNECT_STATE_CONNECTED;
@@ -441,25 +411,13 @@ public final class MediaBrowser {
 
                 // we may receive some subscriptions before we are connected, so re-subscribe
                 // everything now
-                for (Uri uri : mSubscriptions.keySet()) {
+                for (String id : mSubscriptions.keySet()) {
                     try {
-                        mServiceBinder.addSubscription(uri, mServiceCallbacks);
+                        mServiceBinder.addSubscription(id, mServiceCallbacks);
                     } catch (RemoteException ex) {
                         // Process is crashing.  We will disconnect, and upon reconnect we will
                         // automatically reregister. So nothing to do here.
-                        Log.d(TAG, "addSubscription failed with RemoteException parentUri=" + uri);
-                    }
-                }
-
-                for (int i = 0; i < mThumbnailRequests.size(); i++) {
-                    ThumbnailRequest request = mThumbnailRequests.valueAt(i);
-                    try {
-                        mServiceBinder.loadThumbnail(request.mSeq, request.mUri,
-                                request.mWidth, request.mHeight, mServiceCallbacks);
-                    } catch (RemoteException e) {
-                        // Process is crashing.  We will disconnect, and upon reconnect we will
-                        // automatically reload. So nothing to do here.
-                        Log.d(TAG, "loadThumbnail failed with RemoteException request=" + request);
+                        Log.d(TAG, "addSubscription failed with RemoteException parentId=" + id);
                     }
                 }
             }
@@ -493,8 +451,8 @@ public final class MediaBrowser {
         });
     }
 
-    private final void onLoadChildren(final IMediaBrowserServiceCallbacks callback, final Uri uri,
-            final ParceledListSlice list) {
+    private final void onLoadChildren(final IMediaBrowserServiceCallbacks callback,
+            final String parentId, final ParceledListSlice list) {
         mHandler.post(new Runnable() {
             @Override
             public void run() {
@@ -504,55 +462,29 @@ public final class MediaBrowser {
                     return;
                 }
 
-                List<MediaBrowserItem> data = list.getList();
+                List<MediaItem> data = list.getList();
                 if (DBG) {
-                    Log.d(TAG, "onLoadChildren for " + mServiceComponent + " uri=" + uri);
+                    Log.d(TAG, "onLoadChildren for " + mServiceComponent + " id=" + parentId);
                 }
                 if (data == null) {
                     data = Collections.emptyList();
                 }
 
                 // Check that the subscription is still subscribed.
-                final Subscription subscription = mSubscriptions.get(uri);
+                final Subscription subscription = mSubscriptions.get(parentId);
                 if (subscription == null) {
                     if (DBG) {
-                        Log.d(TAG, "onLoadChildren for uri that isn't subscribed uri="
-                                + uri);
+                        Log.d(TAG, "onLoadChildren for id that isn't subscribed id="
+                                + parentId);
                     }
                     return;
                 }
 
                 // Tell the app.
-                subscription.callback.onChildrenLoaded(uri, data);
+                subscription.callback.onChildrenLoaded(parentId, data);
             }
         });
     }
-
-    private final void onLoadThumbnail(final IMediaBrowserServiceCallbacks callback,
-            final int seqNum, final Bitmap bitmap) {
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                // Check that there hasn't been a disconnect or a different
-                // ServiceConnection.
-                if (!isCurrent(callback, "onLoadThumbnail")) {
-                    return;
-                }
-
-                ThumbnailRequest request = mThumbnailRequests.get(seqNum);
-                if (request == null) {
-                    Log.d(TAG, "onLoadThumbnail called for seqNum=" + seqNum + " request="
-                            + request + " but the request is not registered");
-                    return;
-                }
-                mThumbnailRequests.delete(seqNum);
-                for (ThumbnailCallback thumbnailCallback : request.getCallbacks()) {
-                    thumbnailCallback.onThumbnailLoaded(request.mUri, bitmap);
-                }
-            }
-        });
-    }
-
 
     /**
      * Return true if {@code callback} is the current ServiceCallbacks.  Also logs if it's not.
@@ -585,8 +517,128 @@ public final class MediaBrowser {
         Log.d(TAG, "  mServiceConnection=" + mServiceConnection);
         Log.d(TAG, "  mServiceBinder=" + mServiceBinder);
         Log.d(TAG, "  mServiceCallbacks=" + mServiceCallbacks);
-        Log.d(TAG, "  mRootUri=" + mRootUri);
+        Log.d(TAG, "  mRootId=" + mRootId);
         Log.d(TAG, "  mMediaSessionToken=" + mMediaSessionToken);
+    }
+
+    public static class MediaItem implements Parcelable {
+        private final int mFlags;
+        private final MediaDescription mDescription;
+
+        /** @hide */
+        @Retention(RetentionPolicy.SOURCE)
+        @IntDef(flag=true, value = { FLAG_BROWSABLE, FLAG_PLAYABLE })
+        public @interface Flags { }
+
+        /**
+         * Flag: Indicates that the item has children of its own.
+         */
+        public static final int FLAG_BROWSABLE = 1 << 0;
+
+        /**
+         * Flag: Indicates that the item is playable.
+         * <p>
+         * The id of this item may be passed to
+         * {@link MediaController.TransportControls#playFromMediaId(String, Bundle)}
+         * to start playing it.
+         * </p>
+         */
+        public static final int FLAG_PLAYABLE = 1 << 1;
+
+        /**
+         * Create a new MediaItem for use in browsing media.
+         * @param description The description of the media, which must include a
+         *            media id.
+         * @param flags The flags for this item.
+         */
+        public MediaItem(@NonNull MediaDescription description, @Flags int flags) {
+            if (description == null) {
+                throw new IllegalArgumentException("description cannot be null");
+            }
+            if (TextUtils.isEmpty(description.getMediaId())) {
+                throw new IllegalArgumentException("description must have a non-empty media id");
+            }
+            mFlags = flags;
+            mDescription = description;
+        }
+
+        /**
+         * Private constructor.
+         */
+        private MediaItem(Parcel in) {
+            mFlags = in.readInt();
+            mDescription = MediaDescription.CREATOR.createFromParcel(in);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel out, int flags) {
+            out.writeInt(mFlags);
+            mDescription.writeToParcel(out, flags);
+        }
+
+        @Override
+        public String toString() {
+            final StringBuilder sb = new StringBuilder("MediaItem{");
+            sb.append("mFlags=").append(mFlags);
+            sb.append(", mDescription=").append(mDescription);
+            sb.append('}');
+            return sb.toString();
+        }
+
+        public static final Parcelable.Creator<MediaItem> CREATOR =
+                new Parcelable.Creator<MediaItem>() {
+                    @Override
+                    public MediaItem createFromParcel(Parcel in) {
+                        return new MediaItem(in);
+                    }
+
+                    @Override
+                    public MediaItem[] newArray(int size) {
+                        return new MediaItem[size];
+                    }
+                };
+
+        /**
+         * Gets the flags of the item.
+         */
+        public @Flags int getFlags() {
+            return mFlags;
+        }
+
+        /**
+         * Returns whether this item is browsable.
+         * @see #FLAG_BROWSABLE
+         */
+        public boolean isBrowsable() {
+            return (mFlags & FLAG_BROWSABLE) != 0;
+        }
+
+        /**
+         * Returns whether this item is playable.
+         * @see #FLAG_PLAYABLE
+         */
+        public boolean isPlayable() {
+            return (mFlags & FLAG_PLAYABLE) != 0;
+        }
+
+        /**
+         * Returns the description of the media.
+         */
+        public @NonNull MediaDescription getDescription() {
+            return mDescription;
+        }
+
+        /**
+         * Returns the media id for this item.
+         */
+        public @NonNull String getMediaId() {
+            return mDescription.getMediaId();
+        }
     }
 
 
@@ -620,99 +672,18 @@ public final class MediaBrowser {
         /**
          * Called when the list of children is loaded or updated.
          */
-        public void onChildrenLoaded(@NonNull Uri parentUri,
-                                     @NonNull List<MediaBrowserItem> children) {
+        public void onChildrenLoaded(@NonNull String parentId,
+                                     @NonNull List<MediaItem> children) {
         }
 
         /**
-         * Called when the Uri doesn't exist or other errors in subscribing.
+         * Called when the id doesn't exist or other errors in subscribing.
          * <p>
          * If this is called, the subscription remains until {@link MediaBrowser#unsubscribe}
          * called, because some errors may heal themselves.
          * </p>
          */
-        public void onError(@NonNull Uri uri) {
-        }
-    }
-
-    /**
-     * Callbacks for thumbnail loading.
-     */
-    public static abstract class ThumbnailCallback {
-        /**
-         * Called when the thumbnail is loaded.
-         */
-        public void onThumbnailLoaded(@NonNull Uri uri, @NonNull Bitmap bitmap) {
-        }
-
-        /**
-         * Called when the Uri doesn’t exist or the bitmap cannot be loaded.
-         */
-        public void onError(@NonNull Uri uri) {
-        }
-    }
-
-    private static class ThumbnailRequest {
-        final int mSeq;
-        final Uri mUri;
-        final int mWidth;
-        final int mHeight;
-        final List<ThumbnailCallback> mCallbacks;
-
-        /**
-         * Constructs a thumbnail request.
-         * @param seq The unique sequence number assigned to the request by the media browser.
-         * @param uri The Uri for the thumbnail.
-         * @param width The width for the thumbnail.
-         * @param height The height for the thumbnail.
-         */
-        ThumbnailRequest(int seq, @NonNull Uri uri, int width, int height) {
-            if (uri == null) {
-                throw new IllegalArgumentException("thumbnail uri cannot be null");
-            }
-            this.mSeq = seq;
-            this.mUri = uri;
-            this.mWidth = width;
-            this.mHeight = height;
-            mCallbacks = new ArrayList<ThumbnailCallback>();
-        }
-
-        /**
-         * Adds a callback to the thumbnail request.
-         * If the callback already exists, it will not be added again.
-         */
-        public void addCallback(@NonNull ThumbnailCallback callback) {
-            if (callback == null) {
-                throw new IllegalArgumentException("callback cannot be null in ThumbnailRequest");
-            }
-            if (!mCallbacks.contains(callback)) {
-                mCallbacks.add(callback);
-            }
-        }
-
-        /**
-         * Checks if the thumbnail request has the same uri, width, and height as the given values.
-         */
-        public boolean isSameRequest(@Nullable Uri uri, int width, int height) {
-            return Objects.equals(mUri, uri) && mWidth == width && mHeight == height;
-        }
-
-        @Override
-        public String toString() {
-            final StringBuilder sb = new StringBuilder("ThumbnailRequest{");
-            sb.append("uri=").append(mUri);
-            sb.append(", width=").append(mWidth);
-            sb.append(", height=").append(mHeight);
-            sb.append(", seq=").append(mSeq);
-            sb.append('}');
-            return sb.toString();
-        }
-
-        /**
-         * Gets an unmodifiable view of the list of callbacks associated with the request.
-         */
-        public List<ThumbnailCallback> getCallbacks() {
-            return Collections.unmodifiableList(mCallbacks);
+        public void onError(@NonNull String id) {
         }
     }
 
@@ -740,6 +711,7 @@ public final class MediaBrowser {
             // We make a new mServiceCallbacks each time we connect so that we can drop
             // responses from previous connections.
             mServiceCallbacks = getNewServiceCallbacks();
+            mState = CONNECT_STATE_CONNECTING;
 
             // Call connect, which is async. When we get a response from that we will
             // say that we're connected.
@@ -798,7 +770,7 @@ public final class MediaBrowser {
             }
             return true;
         }
-    };
+    }
 
     /**
      * Callbacks from the service.
@@ -815,7 +787,7 @@ public final class MediaBrowser {
          * are the initial data as requested.
          */
         @Override
-        public void onConnect(final Uri root, final MediaSession.Token session,
+        public void onConnect(final String root, final MediaSession.Token session,
                 final Bundle extras) {
             MediaBrowser mediaBrowser = mMediaBrowser.get();
             if (mediaBrowser != null) {
@@ -835,28 +807,20 @@ public final class MediaBrowser {
         }
 
         @Override
-        public void onLoadChildren(final Uri uri, final ParceledListSlice list) {
+        public void onLoadChildren(final String parentId, final ParceledListSlice list) {
             MediaBrowser mediaBrowser = mMediaBrowser.get();
             if (mediaBrowser != null) {
-                mediaBrowser.onLoadChildren(this, uri, list);
-            }
-        }
-
-        @Override
-        public void onLoadThumbnail(final int seqNum, final Bitmap bitmap) {
-            MediaBrowser mediaBrowser = mMediaBrowser.get();
-            if (mediaBrowser != null) {
-                mediaBrowser.onLoadThumbnail(this, seqNum, bitmap);
+                mediaBrowser.onLoadChildren(this, parentId, list);
             }
         }
     }
 
     private static class Subscription {
-        final Uri uri;
+        final String id;
         SubscriptionCallback callback;
 
-        Subscription(Uri u) {
-            this.uri = u;
+        Subscription(String id) {
+            this.id = id;
         }
     }
 }

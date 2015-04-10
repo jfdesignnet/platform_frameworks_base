@@ -41,20 +41,22 @@ import com.android.internal.os.SomeArgs;
 public class ITvInputSessionWrapper extends ITvInputSession.Stub implements HandlerCaller.Callback {
     private static final String TAG = "TvInputSessionWrapper";
 
+    private static final int MESSAGE_HANDLING_DURATION_THRESHOLD_MILLIS = 50;
+    private static final int MESSAGE_TUNE_DURATION_THRESHOLD_MILLIS = 2000;
+
     private static final int DO_RELEASE = 1;
-    private static final int DO_SET_MAIN_SESSION = 2;
+    private static final int DO_SET_MAIN = 2;
     private static final int DO_SET_SURFACE = 3;
     private static final int DO_DISPATCH_SURFACE_CHANGED = 4;
     private static final int DO_SET_STREAM_VOLUME = 5;
     private static final int DO_TUNE = 6;
     private static final int DO_SET_CAPTION_ENABLED = 7;
     private static final int DO_SELECT_TRACK = 8;
-    private static final int DO_UNSELECT_TRACK = 9;
-    private static final int DO_APP_PRIVATE_COMMAND = 10;
-    private static final int DO_CREATE_OVERLAY_VIEW = 11;
-    private static final int DO_RELAYOUT_OVERLAY_VIEW = 12;
-    private static final int DO_REMOVE_OVERLAY_VIEW = 13;
-    private static final int DO_REQUEST_UNBLOCK_CONTENT = 14;
+    private static final int DO_APP_PRIVATE_COMMAND = 9;
+    private static final int DO_CREATE_OVERLAY_VIEW = 10;
+    private static final int DO_RELAYOUT_OVERLAY_VIEW = 11;
+    private static final int DO_REMOVE_OVERLAY_VIEW = 12;
+    private static final int DO_REQUEST_UNBLOCK_CONTENT = 13;
 
     private final HandlerCaller mCaller;
 
@@ -78,6 +80,7 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
             return;
         }
 
+        long startTime = System.currentTimeMillis();
         switch (msg.what) {
             case DO_RELEASE: {
                 mTvInputSessionImpl.release();
@@ -90,81 +93,92 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
                     mChannel.dispose();
                     mChannel = null;
                 }
-                return;
+                break;
             }
-            case DO_SET_MAIN_SESSION: {
-                mTvInputSessionImpl.setMainSession((Boolean) msg.obj);
-                return;
+            case DO_SET_MAIN: {
+                mTvInputSessionImpl.setMain((Boolean) msg.obj);
+                break;
             }
             case DO_SET_SURFACE: {
                 mTvInputSessionImpl.setSurface((Surface) msg.obj);
-                return;
+                break;
             }
             case DO_DISPATCH_SURFACE_CHANGED: {
                 SomeArgs args = (SomeArgs) msg.obj;
                 mTvInputSessionImpl.dispatchSurfaceChanged(args.argi1, args.argi2, args.argi3);
                 args.recycle();
-                return;
+                break;
             }
             case DO_SET_STREAM_VOLUME: {
                 mTvInputSessionImpl.setStreamVolume((Float) msg.obj);
-                return;
+                break;
             }
             case DO_TUNE: {
-                mTvInputSessionImpl.tune((Uri) msg.obj);
-                return;
+                SomeArgs args = (SomeArgs) msg.obj;
+                mTvInputSessionImpl.tune((Uri) args.arg1, (Bundle) args.arg2);
+                args.recycle();
+                break;
             }
             case DO_SET_CAPTION_ENABLED: {
                 mTvInputSessionImpl.setCaptionEnabled((Boolean) msg.obj);
-                return;
+                break;
             }
             case DO_SELECT_TRACK: {
-                mTvInputSessionImpl.selectTrack((TvTrackInfo) msg.obj);
-                return;
-            }
-            case DO_UNSELECT_TRACK: {
-                mTvInputSessionImpl.unselectTrack((TvTrackInfo) msg.obj);
-                return;
+                SomeArgs args = (SomeArgs) msg.obj;
+                mTvInputSessionImpl.selectTrack((Integer) args.arg1, (String) args.arg2);
+                args.recycle();
+                break;
             }
             case DO_APP_PRIVATE_COMMAND: {
                 SomeArgs args = (SomeArgs) msg.obj;
                 mTvInputSessionImpl.appPrivateCommand((String) args.arg1, (Bundle) args.arg2);
                 args.recycle();
-                return;
+                break;
             }
             case DO_CREATE_OVERLAY_VIEW: {
                 SomeArgs args = (SomeArgs) msg.obj;
                 mTvInputSessionImpl.createOverlayView((IBinder) args.arg1, (Rect) args.arg2);
                 args.recycle();
-                return;
+                break;
             }
             case DO_RELAYOUT_OVERLAY_VIEW: {
                 mTvInputSessionImpl.relayoutOverlayView((Rect) msg.obj);
-                return;
+                break;
             }
             case DO_REMOVE_OVERLAY_VIEW: {
                 mTvInputSessionImpl.removeOverlayView(true);
-                return;
+                break;
             }
             case DO_REQUEST_UNBLOCK_CONTENT: {
-                mTvInputSessionImpl.requestUnblockContent((String) msg.obj);
-                return;
+                mTvInputSessionImpl.unblockContent((String) msg.obj);
+                break;
             }
             default: {
                 Log.w(TAG, "Unhandled message code: " + msg.what);
-                return;
+                break;
+            }
+        }
+        long duration = System.currentTimeMillis() - startTime;
+        if (duration > MESSAGE_HANDLING_DURATION_THRESHOLD_MILLIS) {
+            Log.w(TAG, "Handling message (" + msg.what + ") took too long time (duration="
+                    + duration + "ms)");
+            if (msg.what == DO_TUNE && duration > MESSAGE_TUNE_DURATION_THRESHOLD_MILLIS) {
+                throw new RuntimeException("Too much time to handle tune request. (" + duration
+                        + "ms > " + MESSAGE_TUNE_DURATION_THRESHOLD_MILLIS + "ms) "
+                        + "Consider handling the tune request in a separate thread.");
             }
         }
     }
 
     @Override
     public void release() {
+        mTvInputSessionImpl.scheduleOverlayViewCleanup();
         mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_RELEASE));
     }
 
     @Override
-    public void setMainSession(boolean isMain) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_SET_MAIN_SESSION, isMain));
+    public void setMain(boolean isMain) {
+        mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_SET_MAIN, isMain));
     }
 
     @Override
@@ -184,8 +198,10 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
     }
 
     @Override
-    public void tune(Uri channelUri) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_TUNE, channelUri));
+    public void tune(Uri channelUri, Bundle params) {
+        // Clear the pending tune requests.
+        mCaller.removeMessages(DO_TUNE);
+        mCaller.executeOrSendMessage(mCaller.obtainMessageOO(DO_TUNE, channelUri, params));
     }
 
     @Override
@@ -194,13 +210,8 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
     }
 
     @Override
-    public void selectTrack(TvTrackInfo track) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_SELECT_TRACK, track));
-    }
-
-    @Override
-    public void unselectTrack(TvTrackInfo track) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_UNSELECT_TRACK, track));
+    public void selectTrack(int type, String trackId) {
+        mCaller.executeOrSendMessage(mCaller.obtainMessageOO(DO_SELECT_TRACK, type, trackId));
     }
 
     @Override

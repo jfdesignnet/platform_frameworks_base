@@ -16,13 +16,6 @@
 
 package com.android.systemui.statusbar.policy;
 
-import com.android.systemui.BitmapHelper;
-import com.android.systemui.GuestResumeSessionReceiver;
-import com.android.systemui.R;
-import com.android.systemui.qs.QSTile;
-import com.android.systemui.qs.tiles.UserDetailView;
-import com.android.systemui.statusbar.phone.SystemUIDialog;
-
 import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.app.Dialog;
@@ -32,17 +25,28 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.UserInfo;
+import android.database.ContentObserver;
 import android.graphics.Bitmap;
+import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
+import android.os.Handler;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManagerGlobal;
 import android.widget.BaseAdapter;
+
+import com.android.internal.util.UserIcons;
+import com.android.systemui.BitmapHelper;
+import com.android.systemui.GuestResumeSessionReceiver;
+import com.android.systemui.R;
+import com.android.systemui.qs.QSTile;
+import com.android.systemui.qs.tiles.UserDetailView;
+import com.android.systemui.statusbar.phone.SystemUIDialog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -57,20 +61,27 @@ public class UserSwitcherController {
 
     private static final String TAG = "UserSwitcherController";
     private static final boolean DEBUG = false;
+    private static final String SIMPLE_USER_SWITCHER_GLOBAL_SETTING =
+            "lockscreenSimpleUserSwitcher";
 
     private final Context mContext;
     private final UserManager mUserManager;
     private final ArrayList<WeakReference<BaseUserAdapter>> mAdapters = new ArrayList<>();
     private final GuestResumeSessionReceiver mGuestResumeSessionReceiver
             = new GuestResumeSessionReceiver();
+    private final KeyguardMonitor mKeyguardMonitor;
 
     private ArrayList<UserRecord> mUsers = new ArrayList<>();
     private Dialog mExitGuestDialog;
+    private Dialog mAddUserDialog;
     private int mLastNonGuestUser = UserHandle.USER_OWNER;
+    private boolean mSimpleUserSwitcher;
+    private boolean mAddUsersWhenLocked;
 
-    public UserSwitcherController(Context context) {
+    public UserSwitcherController(Context context, KeyguardMonitor keyguardMonitor) {
         mContext = context;
         mGuestResumeSessionReceiver.register(context);
+        mKeyguardMonitor = keyguardMonitor;
         mUserManager = UserManager.get(context);
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_USER_ADDED);
@@ -80,6 +91,19 @@ public class UserSwitcherController {
         filter.addAction(Intent.ACTION_USER_STOPPING);
         mContext.registerReceiverAsUser(mReceiver, UserHandle.OWNER, filter,
                 null /* permission */, null /* scheduler */);
+
+
+        mContext.getContentResolver().registerContentObserver(
+                Settings.Global.getUriFor(SIMPLE_USER_SWITCHER_GLOBAL_SETTING), true,
+                mSettingsObserver);
+        mContext.getContentResolver().registerContentObserver(
+                Settings.Global.getUriFor(Settings.Global.ADD_USERS_WHEN_LOCKED), true,
+                mSettingsObserver);
+        // Fetch initial values.
+        mSettingsObserver.onChange(false);
+
+        keyguardMonitor.addCallback(mCallback);
+
         refreshUsers(UserHandle.USER_NULL);
     }
 
@@ -90,6 +114,7 @@ public class UserSwitcherController {
      *
      * @param forcePictureLoadForId forces the picture of the given user to be reloaded.
      */
+    @SuppressWarnings("unchecked")
     private void refreshUsers(int forcePictureLoadForId) {
 
         SparseArray<Bitmap> bitmaps = new SparseArray<>(mUsers.size());
@@ -103,6 +128,7 @@ public class UserSwitcherController {
             bitmaps.put(r.info.id, r.picture);
         }
 
+        final boolean addUsersWhenLocked = mAddUsersWhenLocked;
         new AsyncTask<SparseArray<Bitmap>, Void, ArrayList<UserRecord>>() {
             @SuppressWarnings("unchecked")
             @Override
@@ -122,25 +148,52 @@ public class UserSwitcherController {
                     boolean isCurrent = currentId == info.id;
                     if (info.isGuest()) {
                         guestRecord = new UserRecord(info, null /* picture */,
-                                true /* isGuest */, isCurrent);
+                                true /* isGuest */, isCurrent, false /* isAddUser */,
+                                false /* isRestricted */);
                     } else if (info.supportsSwitchTo()) {
                         Bitmap picture = bitmaps.get(info.id);
                         if (picture == null) {
                             picture = mUserManager.getUserIcon(info.id);
+
+                            if (picture != null) {
+                                picture = BitmapHelper.createCircularClip(
+                                        picture, avatarSize, avatarSize);
+                            }
                         }
-                        if (picture != null) {
-                            picture = BitmapHelper.createCircularClip(
-                                    picture, avatarSize, avatarSize);
-                        }
-                        records.add(new UserRecord(info, picture, false /* isGuest */, isCurrent));
+                        int index = isCurrent ? 0 : records.size();
+                        records.add(index, new UserRecord(info, picture, false /* isGuest */,
+                                isCurrent, false /* isAddUser */, false /* isRestricted */));
                     }
                 }
 
-                if (guestRecord == null) {
+                boolean ownerCanCreateUsers = !mUserManager.hasUserRestriction(
+                        UserManager.DISALLOW_ADD_USER, UserHandle.OWNER);
+                boolean currentUserCanCreateUsers =
+                        (currentId == UserHandle.USER_OWNER) && ownerCanCreateUsers;
+                boolean anyoneCanCreateUsers = ownerCanCreateUsers && addUsersWhenLocked;
+                boolean canCreateGuest = (currentUserCanCreateUsers || anyoneCanCreateUsers)
+                        && guestRecord == null;
+                boolean canCreateUser = (currentUserCanCreateUsers || anyoneCanCreateUsers)
+                        && mUserManager.canAddMoreUsers();
+                boolean createIsRestricted = !addUsersWhenLocked;
+
+                if (!mSimpleUserSwitcher) {
+                    if (guestRecord == null) {
+                        if (canCreateGuest) {
+                            records.add(new UserRecord(null /* info */, null /* picture */,
+                                    true /* isGuest */, false /* isCurrent */,
+                                    false /* isAddUser */, createIsRestricted));
+                        }
+                    } else {
+                        int index = guestRecord.isCurrent ? 0 : records.size();
+                        records.add(index, guestRecord);
+                    }
+                }
+
+                if (!mSimpleUserSwitcher && canCreateUser) {
                     records.add(new UserRecord(null /* info */, null /* picture */,
-                            true /* isGuest */, false /* isCurrent */));
-                } else {
-                    records.add(guestRecord);
+                            false /* isGuest */, false /* isCurrent */, true /* isAddUser */,
+                            createIsRestricted));
                 }
 
                 return records;
@@ -153,7 +206,7 @@ public class UserSwitcherController {
                     notifyAdapters();
                 }
             }
-        }.execute((SparseArray)bitmaps);
+        }.execute((SparseArray) bitmaps);
     }
 
     private void notifyAdapters() {
@@ -167,12 +220,25 @@ public class UserSwitcherController {
         }
     }
 
+    public boolean isSimpleUserSwitcher() {
+        return mSimpleUserSwitcher;
+    }
+
     public void switchTo(UserRecord record) {
         int id;
         if (record.isGuest && record.info == null) {
             // No guest user. Create one.
-            id = mUserManager.createGuest(mContext,
-                    mContext.getResources().getString(R.string.guest_nickname)).id;
+            UserInfo guest = mUserManager.createGuest(
+                    mContext, mContext.getString(R.string.guest_nickname));
+            if (guest == null) {
+                // Couldn't create guest, most likely because there already exists one, we just
+                // haven't reloaded the user list yet.
+                return;
+            }
+            id = guest.id;
+        } else if (record.isAddUser) {
+            showAddUserDialog();
+            return;
         } else {
             id = record.info.id;
         }
@@ -189,7 +255,6 @@ public class UserSwitcherController {
 
     private void switchToUserId(int id) {
         try {
-            WindowManagerGlobal.getWindowManagerService().lockNow(null);
             ActivityManagerNative.getDefault().switchUser(id);
         } catch (RemoteException e) {
             Log.e(TAG, "Couldn't switch user.", e);
@@ -202,6 +267,14 @@ public class UserSwitcherController {
         }
         mExitGuestDialog = new ExitGuestDialog(mContext, id);
         mExitGuestDialog.show();
+    }
+
+    private void showAddUserDialog() {
+        if (mAddUserDialog != null && mAddUserDialog.isShowing()) {
+            mAddUserDialog.cancel();
+        }
+        mAddUserDialog = new AddUserDialog(mContext);
+        mAddUserDialog.show();
     }
 
     private void exitGuest(int id) {
@@ -241,6 +314,11 @@ public class UserSwitcherController {
                     if (shouldBeCurrent && !record.isGuest) {
                         mLastNonGuestUser = record.info.id;
                     }
+                    if (currentId != UserHandle.USER_OWNER && record.isRestricted) {
+                        // Immediately remove restricted records in case the AsyncTask is too slow.
+                        mUsers.remove(i);
+                        i--;
+                    }
                 }
                 notifyAdapters();
             }
@@ -253,6 +331,16 @@ public class UserSwitcherController {
         }
     };
 
+    private final ContentObserver mSettingsObserver = new ContentObserver(new Handler()) {
+        public void onChange(boolean selfChange) {
+            mSimpleUserSwitcher = Settings.Global.getInt(mContext.getContentResolver(),
+                    SIMPLE_USER_SWITCHER_GLOBAL_SETTING, 0) != 0;
+            mAddUsersWhenLocked = Settings.Global.getInt(mContext.getContentResolver(),
+                    Settings.Global.ADD_USERS_WHEN_LOCKED, 0) != 0;
+            refreshUsers(UserHandle.USER_NULL);
+        };
+    };
+
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("UserSwitcherController state:");
         pw.println("  mLastNonGuestUser=" + mLastNonGuestUser);
@@ -261,6 +349,14 @@ public class UserSwitcherController {
             final UserRecord u = mUsers.get(i);
             pw.print("    "); pw.println(u.toString());
         }
+    }
+
+    public String getCurrentUserName(Context context) {
+        if (mUsers.isEmpty()) return null;
+        UserRecord item = mUsers.get(0);
+        if (item == null || item.info == null) return null;
+        if (item.isGuest) return context.getString(R.string.guest_nickname);
+        return item.info.name;
     }
 
     public static abstract class BaseUserAdapter extends BaseAdapter {
@@ -274,7 +370,22 @@ public class UserSwitcherController {
 
         @Override
         public int getCount() {
-            return mController.mUsers.size();
+            boolean secureKeyguardShowing = mController.mKeyguardMonitor.isShowing()
+                    && mController.mKeyguardMonitor.isSecure();
+            if (!secureKeyguardShowing) {
+                return mController.mUsers.size();
+            }
+            // The lock screen is secure and showing. Filter out restricted records.
+            final int N = mController.mUsers.size();
+            int count = 0;
+            for (int i = 0; i < N; i++) {
+                if (mController.mUsers.get(i).isRestricted) {
+                    break;
+                } else {
+                    count++;
+                }
+            }
+            return count;
         }
 
         @Override
@@ -299,21 +410,23 @@ public class UserSwitcherController {
                     return context.getString(
                             item.info == null ? R.string.guest_new_guest : R.string.guest_nickname);
                 }
+            } else if (item.isAddUser) {
+                return context.getString(R.string.user_add_user);
             } else {
                 return item.info.name;
             }
         }
 
-        public int getSwitchableUsers() {
-            int result = 0;
-            ArrayList<UserRecord> users = mController.mUsers;
-            int N = users.size();
-            for (int i = 0; i < N; i++) {
-                if (users.get(i).info != null) {
-                    result++;
-                }
+        public Drawable getDrawable(Context context, UserRecord item) {
+            if (item.isAddUser) {
+                return context.getDrawable(R.drawable.ic_add_circle_qs);
             }
-            return result;
+            return UserIcons.getDefaultUserIcon(item.isGuest ? UserHandle.USER_NULL : item.info.id,
+                    /* light= */ true);
+        }
+
+        public void refresh() {
+            mController.refreshUsers(UserHandle.USER_NULL);
         }
     }
 
@@ -322,16 +435,22 @@ public class UserSwitcherController {
         public final Bitmap picture;
         public final boolean isGuest;
         public final boolean isCurrent;
+        public final boolean isAddUser;
+        /** If true, the record is only visible to the owner and only when unlocked. */
+        public final boolean isRestricted;
 
-        public UserRecord(UserInfo info, Bitmap picture, boolean isGuest, boolean isCurrent) {
+        public UserRecord(UserInfo info, Bitmap picture, boolean isGuest, boolean isCurrent,
+                boolean isAddUser, boolean isRestricted) {
             this.info = info;
             this.picture = picture;
             this.isGuest = isGuest;
             this.isCurrent = isCurrent;
+            this.isAddUser = isAddUser;
+            this.isRestricted = isRestricted;
         }
 
         public UserRecord copyWithIsCurrent(boolean _isCurrent) {
-            return new UserRecord(info, picture, isGuest, _isCurrent);
+            return new UserRecord(info, picture, isGuest, _isCurrent, isAddUser, isRestricted);
         }
 
         public String toString() {
@@ -340,17 +459,17 @@ public class UserSwitcherController {
             if (info != null) {
                 sb.append("name=\"" + info.name + "\" id=" + info.id);
             } else {
-                sb.append("<add guest placeholder>");
+                if (isGuest) {
+                    sb.append("<add guest placeholder>");
+                } else if (isAddUser) {
+                    sb.append("<add user placeholder>");
+                }
             }
-            if (isGuest) {
-                sb.append(" <isGuest>");
-            }
-            if (isCurrent) {
-                sb.append(" <isCurrent>");
-            }
-            if (picture != null) {
-                sb.append(" <hasPicture>");
-            }
+            if (isGuest) sb.append(" <isGuest>");
+            if (isAddUser) sb.append(" <isAddUser>");
+            if (isCurrent) sb.append(" <isCurrent>");
+            if (picture != null) sb.append(" <hasPicture>");
+            if (isRestricted) sb.append(" <isRestricted>");
             sb.append(')');
             return sb.toString();
         }
@@ -366,13 +485,14 @@ public class UserSwitcherController {
 
         @Override
         public View createDetailView(Context context, View convertView, ViewGroup parent) {
+            UserDetailView v;
             if (!(convertView instanceof UserDetailView)) {
-                convertView = UserDetailView.inflate(context, parent, false);
-            }
-            UserDetailView v = (UserDetailView) convertView;
-            if (v.getAdapter() == null) {
+                v = UserDetailView.inflate(context, parent, false);
                 v.createAndSetAdapter(UserSwitcherController.this);
+            } else {
+                v = (UserDetailView) convertView;
             }
+            v.refreshAdapter();
             return v;
         }
 
@@ -391,6 +511,13 @@ public class UserSwitcherController {
         }
     };
 
+    private final KeyguardMonitor.Callback mCallback = new KeyguardMonitor.Callback() {
+        @Override
+        public void onKeyguardChanged() {
+            notifyAdapters();
+        }
+    };
+
     private final class ExitGuestDialog extends SystemUIDialog implements
             DialogInterface.OnClickListener {
 
@@ -401,9 +528,9 @@ public class UserSwitcherController {
             setTitle(R.string.guest_exit_guest_dialog_title);
             setMessage(context.getString(R.string.guest_exit_guest_dialog_message));
             setButton(DialogInterface.BUTTON_NEGATIVE,
-                    context.getString(android.R.string.no), this);
+                    context.getString(android.R.string.cancel), this);
             setButton(DialogInterface.BUTTON_POSITIVE,
-                    context.getString(android.R.string.yes), this);
+                    context.getString(R.string.guest_exit_guest_dialog_remove), this);
             setCanceledOnTouchOutside(false);
             mGuestId = guestId;
         }
@@ -418,4 +545,47 @@ public class UserSwitcherController {
             }
         }
     }
+
+    private final class AddUserDialog extends SystemUIDialog implements
+            DialogInterface.OnClickListener {
+
+        public AddUserDialog(Context context) {
+            super(context);
+            setTitle(R.string.user_add_user_title);
+            setMessage(context.getString(R.string.user_add_user_message_short));
+            setButton(DialogInterface.BUTTON_NEGATIVE,
+                    context.getString(android.R.string.cancel), this);
+            setButton(DialogInterface.BUTTON_POSITIVE,
+                    context.getString(android.R.string.ok), this);
+        }
+
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+            if (which == BUTTON_NEGATIVE) {
+                cancel();
+            } else {
+                dismiss();
+                if (ActivityManager.isUserAMonkey()) {
+                    return;
+                }
+                UserInfo user = mUserManager.createSecondaryUser(
+                        mContext.getString(R.string.user_new_user_name), 0 /* flags */);
+                if (user == null) {
+                    // Couldn't create user, most likely because there are too many, but we haven't
+                    // been able to reload the list yet.
+                    return;
+                }
+                int id = user.id;
+                Bitmap icon = UserIcons.convertToBitmap(UserIcons.getDefaultUserIcon(
+                        id, /* light= */ false));
+                mUserManager.setUserIcon(id, icon);
+                switchToUserId(id);
+            }
+        }
+    }
+
+    public static boolean isUserSwitcherAvailable(UserManager um) {
+        return UserManager.supportsMultipleUsers() && um.isUserSwitcherEnabled();
+    }
+
 }

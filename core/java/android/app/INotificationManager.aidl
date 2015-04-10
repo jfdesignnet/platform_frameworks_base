@@ -23,6 +23,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ParceledListSlice;
 import android.net.Uri;
+import android.os.Bundle;
 import android.service.notification.Condition;
 import android.service.notification.IConditionListener;
 import android.service.notification.IConditionProvider;
@@ -47,6 +48,9 @@ interface INotificationManager
     void setPackagePriority(String pkg, int uid, int priority);
     int getPackagePriority(String pkg, int uid);
 
+    void setPackageVisibilityOverride(String pkg, int uid, int visibility);
+    int getPackageVisibilityOverride(String pkg, int uid);
+
     // TODO: Remove this when callers have been migrated to the equivalent
     // INotificationListener method.
     StatusBarNotification[] getActiveNotifications(String callingPkg);
@@ -58,15 +62,22 @@ interface INotificationManager
     void cancelNotificationFromListener(in INotificationListener token, String pkg, String tag, int id);
     void cancelNotificationsFromListener(in INotificationListener token, in String[] keys);
 
-    ParceledListSlice getActiveNotificationsFromListener(in INotificationListener token);
-    void requestFlagsFromListener(in INotificationListener token, int flags);
-    int getFlagsFromListener(in INotificationListener token);
+    ParceledListSlice getActiveNotificationsFromListener(in INotificationListener token, in String[] keys, int trim);
+    void requestHintsFromListener(in INotificationListener token, int hints);
+    int getHintsFromListener(in INotificationListener token);
+    void requestInterruptionFilterFromListener(in INotificationListener token, int interruptionFilter);
+    int getInterruptionFilterFromListener(in INotificationListener token);
+    void setOnNotificationPostedTrimFromListener(in INotificationListener token, int trim);
+
+    ComponentName getEffectsSuppressor();
+    boolean matchesCallFilter(in Bundle extras);
+    boolean isSystemConditionProviderEnabled(String path);
 
     ZenModeConfig getZenModeConfig();
     boolean setZenModeConfig(in ZenModeConfig config);
     oneway void notifyConditions(String pkg, in IConditionProvider provider, in Condition[] conditions);
     oneway void requestZenModeConditions(in IConditionListener callback, int relevance);
-    oneway void setZenModeCondition(in Uri conditionId);
+    oneway void setZenModeCondition(in Condition condition);
     oneway void setAutomaticZenModeConditions(in Uri[] conditionIds);
     Condition[] getAutomaticZenModeConditions();
 }

@@ -135,8 +135,7 @@ public class SSLCertificateSocketFactory extends SSLSocketFactory {
      * disabled, using an optional handshake timeout and SSL session cache.
      *
      * <p class="caution"><b>Warning:</b> Sockets created using this factory
-     * are vulnerable to man-in-the-middle attacks!</p>. The caller must implement
-     * its own verification.
+     * are vulnerable to man-in-the-middle attacks!</p>
      *
      * @param handshakeTimeoutMillis to use for SSL connection handshake, or 0
      *         for none.  The socket timeout is reset to 0 after the handshake.
@@ -155,7 +154,13 @@ public class SSLCertificateSocketFactory extends SSLSocketFactory {
      *         for none.  The socket timeout is reset to 0 after the handshake.
      * @param cache The {@link SSLSessionCache} to use, or null for no cache.
      * @return a new SocketFactory with the specified parameters
+     *
+     * @deprecated Use {@link #getDefault()} along with a {@link javax.net.ssl.HttpsURLConnection}
+     *     instead. The Apache HTTP client is no longer maintained and may be removed in a future
+     *     release. Please visit <a href="http://android-developers.blogspot.com/2011/09/androids-http-clients.html">this webpage</a>
+     *     for further details.
      */
+    @Deprecated
     public static org.apache.http.conn.ssl.SSLSocketFactory getHttpSocketFactory(
             int handshakeTimeoutMillis, SSLSessionCache cache) {
         return new org.apache.http.conn.ssl.SSLSocketFactory(
@@ -224,6 +229,8 @@ public class SSLCertificateSocketFactory extends SSLSocketFactory {
             if (mInsecureFactory == null) {
                 if (mSecure) {
                     Log.w(TAG, "*** BYPASSING SSL SECURITY CHECKS (socket.relaxsslcheck=yes) ***");
+                } else {
+                    Log.w(TAG, "Bypassing SSL security checks at caller's request");
                 }
                 mInsecureFactory = makeSocketFactory(mKeyManagers, INSECURE_TRUST_MANAGER);
             }
@@ -430,7 +437,6 @@ public class SSLCertificateSocketFactory extends SSLSocketFactory {
         s.setAlpnProtocols(mAlpnProtocols);
         s.setHandshakeTimeout(mHandshakeTimeoutMillis);
         s.setChannelIdPrivateKey(mChannelIdPrivateKey);
-        s.setHostname(host);
         if (mSecure) {
             verifyHostname(s, host);
         }

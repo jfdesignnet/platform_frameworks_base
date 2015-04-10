@@ -49,12 +49,8 @@ public class KeyguardUpdateMonitorCallback {
 
     /**
      * Called when the carrier PLMN or SPN changes.
-     *
-     * @param plmn The operator name of the registered network.  May be null if it shouldn't
-     *   be displayed.
-     * @param spn The service provider name.  May be null if it shouldn't be displayed.
      */
-    public void onRefreshCarrierInfo(CharSequence plmn, CharSequence spn) { }
+    public void onRefreshCarrierInfo() { }
 
     /**
      * Called when the ringer mode changes.
@@ -121,9 +117,10 @@ public class KeyguardUpdateMonitorCallback {
 
     /**
      * Called when the SIM state changes.
+     * @param slotId
      * @param simState
      */
-    public void onSimStateChanged(IccCardConstants.State simState) { }
+    public void onSimStateChanged(int subId, int slotId, IccCardConstants.State simState) { }
 
     /**
      * Called when a user is removed.
@@ -146,7 +143,7 @@ public class KeyguardUpdateMonitorCallback {
     /**
      * Called when the emergency call button is pressed.
      */
-    void onEmergencyCallAction() { }
+    public void onEmergencyCallAction() { }
 
     /**
      * Called when the transport background changes.
@@ -174,6 +171,16 @@ public class KeyguardUpdateMonitorCallback {
     public void onTrustChanged(int userId) { }
 
     /**
+     * Called when trust being managed changes for a user.
+     */
+    public void onTrustManagedChanged(int userId) { }
+
+    /**
+     * Called when the user has proved to a trust agent that they want to use the device.
+     */
+    public void onTrustInitiatedByUser(int userId) { }
+
+    /**
      * Called when a fingerprint is recognized.
      * @param userId
      */
@@ -184,4 +191,8 @@ public class KeyguardUpdateMonitorCallback {
      */
     public void onFingerprintAcquired(int info) { }
 
+    /**
+     * Called when the state of face unlock changed.
+     */
+    public void onFaceUnlockStateChanged(boolean running, int userId) { }
 }

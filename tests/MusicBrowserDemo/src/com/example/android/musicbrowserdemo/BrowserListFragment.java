@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (C) 2014 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,8 +22,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.media.browse.MediaBrowser;
-import android.media.browse.MediaBrowserItem;
-import android.media.browse.MediaBrowserService;
+import android.service.media.MediaBrowserService;
 import android.os.Bundle;
 import android.net.Uri;
 import android.support.v4.app.FragmentActivity;
@@ -48,18 +47,18 @@ public class BrowserListFragment extends ListFragment {
 
     // For args
     public static final String ARG_COMPONENT = "component";
-    public static final String ARG_URI = "uri";
+    public static final String ARG_ID = "uri";
 
     private Adapter mAdapter;
     private List<Item> mItems = new ArrayList();
     private ComponentName mComponent;
-    private Uri mUri;
+    private String mNodeId;
     private MediaBrowser mBrowser;
 
     private static class Item {
-        final MediaBrowserItem media;
+        final MediaBrowser.MediaItem media;
 
-        Item(MediaBrowserItem m) {
+        Item(MediaBrowser.MediaItem m) {
             this.media = m;
         }
     }
@@ -77,7 +76,7 @@ public class BrowserListFragment extends ListFragment {
         // Get our arguments
         final Bundle args = getArguments();
         mComponent = args.getParcelable(ARG_COMPONENT);
-        mUri = args.getParcelable(ARG_URI);
+        mNodeId = args.getString(ARG_ID);
 
         // A hint about who we are, so the service can customize the results if it wants to.
         final Bundle rootHints = new Bundle();
@@ -103,13 +102,13 @@ public class BrowserListFragment extends ListFragment {
         final Item item = mItems.get(position);
 
         Log.i("BrowserListFragment", "Item clicked: " + position + " -- "
-                + mAdapter.getItem(position).media.getUri());
+                + mAdapter.getItem(position).media.getDescription().getIconUri());
 
         final BrowserListFragment fragment = new BrowserListFragment();
 
         final Bundle args = new Bundle();
         args.putParcelable(BrowserListFragment.ARG_COMPONENT, mComponent);
-        args.putParcelable(BrowserListFragment.ARG_URI, item.media.getUri());
+        args.putParcelable(BrowserListFragment.ARG_ID, item.media.getDescription().getIconUri());
         fragment.setArguments(args);
 
         getFragmentManager().beginTransaction()
@@ -125,13 +124,14 @@ public class BrowserListFragment extends ListFragment {
         @Override
         public void onConnected() {
             Log.d(TAG, "mConnectionCallbacks.onConnected");
-            if (mUri == null) {
-                mUri = mBrowser.getRoot();
+            if (mNodeId == null) {
+                mNodeId = mBrowser.getRoot();
             }
-            mBrowser.subscribe(mUri, new MediaBrowser.SubscriptionCallback() {
+            mBrowser.subscribe(mNodeId, new MediaBrowser.SubscriptionCallback() {
                     @Override
-                    public void onChildrenLoaded(Uri parentUri, List<MediaBrowserItem> children) {
-                        Log.d(TAG, "onChildrenLoaded parentUri=" + parentUri
+                public void onChildrenLoaded(String parentId,
+                            List<MediaBrowser.MediaItem> children) {
+                    Log.d(TAG, "onChildrenLoaded parentId=" + parentId
                                 + " children= " + children);
                         mItems.clear();
                         final int N = children.size();
@@ -142,8 +142,8 @@ public class BrowserListFragment extends ListFragment {
                     }
 
                     @Override
-                    public void onError(Uri parentUri) {
-                        Log.d(TAG, "onError parentUri=" + parentUri);
+                public void onError(String parentId) {
+                    Log.d(TAG, "onError parentId=" + parentId);
                     }
                 });
         }
@@ -197,7 +197,7 @@ public class BrowserListFragment extends ListFragment {
 
             final TextView tv = (TextView)convertView;
             final Item item = mItems.get(position);
-            tv.setText(item.media.getTitle());
+            tv.setText(item.media.getDescription().getTitle());
 
             return convertView;
         }

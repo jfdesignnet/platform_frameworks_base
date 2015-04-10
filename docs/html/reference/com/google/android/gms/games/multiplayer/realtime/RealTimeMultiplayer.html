@@ -84,6 +84,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 <html>
 <head>
 
@@ -99,7 +111,7 @@
 href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Roboto:light,regular,medium,thin,italic,mediumitalic,bold"
   title="roboto">
-<link href="/assets/css/default.css?v=2" rel="stylesheet" type="text/css">
+<link href="/assets/css/default.css?v=4" rel="stylesheet" type="text/css">
 
 
 
@@ -111,7 +123,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   var metaTags = [];
   var devsite = false;
 </script>
-<script src="/assets/js/docs.js?v=2" type="text/javascript"></script>
+<script src="/assets/js/docs.js?v=3" type="text/javascript"></script>
+
+
 
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
@@ -128,16 +142,66 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 </head>
 
 <body class="gc-documentation google
-  develop" itemscope itemtype="http://schema.org/Article">
+  develop reference" itemscope itemtype="http://schema.org/Article">
   <div id="doc-api-level" class="" style="display:none"></div>
   <a name="top"></a>
 
 
 <a name="top"></a>
 
+<!-- dialog to prompt lang pref change when loaded from hardcoded URL 
+<div id="langMessage" style="display:none">
+  <div>
+    <div class="lang en">
+      <p>You requested a page in English, would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang es">
+      <p>You requested a page in Spanish (Español), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ja">
+      <p>You requested a page in Japanese (日本語), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ko">
+      <p>You requested a page in Korean (한국어), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ru">
+      <p>You requested a page in Russian (Русский), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-cn">
+      <p>You requested a page in Simplified Chinese (简体中文), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-tw">
+      <p>You requested a page in Traditional Chinese (繁體中文), would you like to proceed with this language setting?</p>
+    </div>
+    <a href="#" class="button yes" onclick="return false;">
+      <span class="lang en">Yes</span>
+      <span class="lang es">Sí</span>
+      <span class="lang ja">Yes</span>
+      <span class="lang ko">Yes</span>
+      <span class="lang ru">Yes</span>
+      <span class="lang zh-cn">是的</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+    <a href="#" class="button" onclick="$('#langMessage').hide();return false;">
+      <span class="lang en">No</span>
+      <span class="lang es">No</span>
+      <span class="lang ja">No</span>
+      <span class="lang ko">No</span>
+      <span class="lang ru">No</span>
+      <span class="lang zh-cn">没有</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+  </div>
+</div> -->
+
+
   <!-- Header -->
   <div id="header-wrapper">
     <div id="header">
+
+    
+
+
       <div class="wrap" id="header-wrap">
         <div class="col-3 logo">
           <a href="/index.html">
@@ -179,8 +243,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         </ul>
 
 
-
-
+        
+        
 <div class="menu-container">
   <div class="moremenu">
     <div id="more-btn"></div>
@@ -211,8 +275,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 <option value="ja">日本語</option>
                 <option value="ko">한국어</option>
                 <option value="ru">Русский</option>
-                <option value="zh-cn">中文 (中国)</option>
-                <option value="zh-tw">中文 (台灣)</option>
+                <option value="zh-cn">中文（简体)</option>
+                <option value="zh-tw">中文（繁體)</option>
             </select>
           </div>
         <script type="text/javascript">
@@ -335,10 +399,10 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 </li>
                 <li><a href="/google/index.html">Google Services</a>
                 </li>
-
+                
                   <li><a href="/samples/index.html">Samples</a>
                   </li>
-
+                
               </ul>
             </li>
             <li class="distribute last">
@@ -360,7 +424,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   
     <!-- Secondary x-nav -->
     <div id="nav-x">
-        <div class="wrap">
+        <div class="wrap" style="position:relative;z-index:1">
+
+        
+        
+        
+
             <ul class="nav-x col-9 develop" style="width:100%">
                 <li class="training"><a href="/training/index.html"
                   zh-tw-lang="訓練課程"
@@ -420,7 +489,7 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <a class="logo" href="#top"></a>
       <a class="top" href="#top"></a>
       <ul class="breadcrumb">
-
+        
         <li class="current">RealTimeMultiplayer</li>
       </ul>
     </div>
@@ -498,11 +567,11 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
     </div>
     <ul>
       <li><a href="/google/play-services/setup.html">
-          <span class="en">Setup</span></a>
+          <span class="en">Setting Up Google Play Services</span></a>
       </li>
       <li class="nav-section">
         <div class="nav-section-header"><a href="/google/auth/api-client.html">
-          <span class="en">Accessing Google Play Services APIs</span></a>
+          <span class="en">Accessing Google APIs</span></a>
         </div>
         <ul>
           <li>
@@ -563,9 +632,6 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/billing/billing_admin.html">
               <span class="en">Administering In-app Billing</span></a>
       </li>
-      <li><a href="/google/play/billing/gp-purchase-status-api.html">
-              <span class="en">Purchase Status API</span></a>
-      </li>
       <li><a href="/google/play/billing/versions.html">
               <span class="en">Version Notes</span></a>
       </li>
@@ -617,6 +683,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   </li>
 
   <li class="nav-section">
+  <div class="nav-section-header empty"><a href="/google/gcs/index.html">
+        <span class="en">Google Cloud Save</span></a>
+      </div>
+  </li>
+
+  <li class="nav-section">
     <div class="nav-section-header"><a href="/google/play/dist.html">
       <span class="en">Google Play Distribution</span></a>
     </div>
@@ -624,7 +696,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/filters.html">
           <span class="en">Filters on Google Play</span></a>
       </li>
-
+      <li><a href="/google/play/billing/gp-purchase-status-api.html">
+              <span class="en">Google Play Developer API</span></a>
+      </li>
       <li><a href="/google/play/publishing/multiple-apks.html">
           <span class="en">Multiple APK Support</span></a>
       </li>
@@ -733,6 +807,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   
 
 
+    
+
+
 </div><!-- end header -->
 
 <div id="naMessage"></div>
@@ -803,7 +880,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         
         interface</nobr></td>
       <td class="jd-linkcol"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.ReliableMessageSentCallback.html">RealTimeMultiplayer.ReliableMessageSentCallback</a></td>
-      <td class="jd-descrcol" width="100%">The listener for callback that is called when a reliable message is sent successfully.&nbsp;</td>
+      <td class="jd-descrcol" width="100%">
+        The listener for callback that is called when a reliable message is sent successfully.&nbsp;
+        
+    
+
+      </td>
     </tr>
     
     
@@ -828,7 +910,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
     <tr class="alt-color api apilevel-" >
         <td class="jd-typecol">int</td>
         <td class="jd-linkcol"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#REAL_TIME_MESSAGE_FAILED">REAL_TIME_MESSAGE_FAILED</a></td>
-        <td class="jd-descrcol" width="100%">Return value indicating immediate failure.</td>
+        <td class="jd-descrcol" width="100%">
+          Return value indicating immediate failure.
+          
+    
+
+        </td>
     </tr>
     
     
@@ -868,7 +955,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#create(com.google.android.gms.common.api.GoogleApiClient, com.google.android.gms.games.multiplayer.realtime.RoomConfig)">create</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, <a href="/reference/com/google/android/gms/games/multiplayer/realtime/RoomConfig.html">RoomConfig</a> config)</nobr>
         
-        <div class="jd-descrdiv">Create a real-time room for the current game.</div>
+        <div class="jd-descrdiv">
+          Create a real-time room for the current game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -886,7 +978,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#declineInvitation(com.google.android.gms.common.api.GoogleApiClient, java.lang.String)">declineInvitation</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, String invitationId)</nobr>
         
-        <div class="jd-descrdiv">Decline an invitation for a real-time room.</div>
+        <div class="jd-descrdiv">
+          Decline an invitation for a real-time room.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -904,7 +1001,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#dismissInvitation(com.google.android.gms.common.api.GoogleApiClient, java.lang.String)">dismissInvitation</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, String invitationId)</nobr>
         
-        <div class="jd-descrdiv">Dismiss an invitation to a real-time room.</div>
+        <div class="jd-descrdiv">
+          Dismiss an invitation to a real-time room.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -922,8 +1024,13 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#getSelectOpponentsIntent(com.google.android.gms.common.api.GoogleApiClient, int, int, boolean)">getSelectOpponentsIntent</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, int minPlayers, int maxPlayers, boolean allowAutomatch)</nobr>
         
-        <div class="jd-descrdiv">Returns an intent that will let the user select opponents to send an invitation to for a
- turn based multiplayer match.</div>
+        <div class="jd-descrdiv">
+          Returns an intent that will let the user select opponents to send an invitation to for a
+ real-time multiplayer match.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -941,8 +1048,13 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#getSelectOpponentsIntent(com.google.android.gms.common.api.GoogleApiClient, int, int)">getSelectOpponentsIntent</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, int minPlayers, int maxPlayers)</nobr>
         
-        <div class="jd-descrdiv">Returns an intent that will let the user select opponents to send an invitation to for a
- turn based multiplayer match.</div>
+        <div class="jd-descrdiv">
+          Returns an intent that will let the user select opponents to send an invitation to for a
+ real-time multiplayer match.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -960,7 +1072,14 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#getSocketForParticipant(com.google.android.gms.common.api.GoogleApiClient, java.lang.String, java.lang.String)">getSocketForParticipant</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, String roomId, String participantId)</nobr>
         
-        <div class="jd-descrdiv">Returns a <code><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeSocket.html">RealTimeSocket</a></code> for carrying network traffic to the given peer.</div>
+        <div class="jd-descrdiv">
+          <em>
+      This method is deprecated.
+    Deprecated in favor of <code><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#sendUnreliableMessage(com.google.android.gms.common.api.GoogleApiClient, byte[], java.lang.String, java.lang.String)">sendUnreliableMessage(GoogleApiClient, byte[], String, String)</a></code></em>
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -978,8 +1097,13 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#getWaitingRoomIntent(com.google.android.gms.common.api.GoogleApiClient, com.google.android.gms.games.multiplayer.realtime.Room, int)">getWaitingRoomIntent</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, <a href="/reference/com/google/android/gms/games/multiplayer/realtime/Room.html">Room</a> room, int minParticipantsToStart)</nobr>
         
-        <div class="jd-descrdiv">Returns an intent that will display a "waiting room" screen that shows the progress of
- participants joining a real-time multiplayer room.</div>
+        <div class="jd-descrdiv">
+          Returns an intent that will display a "waiting room" screen that shows the progress of
+ participants joining a real-time multiplayer room.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -997,7 +1121,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#join(com.google.android.gms.common.api.GoogleApiClient, com.google.android.gms.games.multiplayer.realtime.RoomConfig)">join</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, <a href="/reference/com/google/android/gms/games/multiplayer/realtime/RoomConfig.html">RoomConfig</a> config)</nobr>
         
-        <div class="jd-descrdiv">Join a real-time room by accepting an invitation.</div>
+        <div class="jd-descrdiv">
+          Join a real-time room by accepting an invitation.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1015,7 +1144,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#leave(com.google.android.gms.common.api.GoogleApiClient, com.google.android.gms.games.multiplayer.realtime.RoomUpdateListener, java.lang.String)">leave</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, <a href="/reference/com/google/android/gms/games/multiplayer/realtime/RoomUpdateListener.html">RoomUpdateListener</a> listener, String roomId)</nobr>
         
-        <div class="jd-descrdiv">Leave the specified room.</div>
+        <div class="jd-descrdiv">
+          Leave the specified room.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1033,7 +1167,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#sendReliableMessage(com.google.android.gms.common.api.GoogleApiClient, com.google.android.gms.games.multiplayer.realtime.RealTimeMultiplayer.ReliableMessageSentCallback, byte[], java.lang.String, java.lang.String)">sendReliableMessage</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, <a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.ReliableMessageSentCallback.html">RealTimeMultiplayer.ReliableMessageSentCallback</a> listener, byte[] messageData, String roomId, String recipientParticipantId)</nobr>
         
-        <div class="jd-descrdiv">Send a message to a participant in a real-time room reliably.</div>
+        <div class="jd-descrdiv">
+          Send a message to a participant in a real-time room reliably.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1051,7 +1190,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#sendUnreliableMessage(com.google.android.gms.common.api.GoogleApiClient, byte[], java.lang.String, java.lang.String)">sendUnreliableMessage</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, byte[] messageData, String roomId, String recipientParticipantId)</nobr>
         
-        <div class="jd-descrdiv">Send a message to a participant in a real-time room.</div>
+        <div class="jd-descrdiv">
+          Send a message to a participant in a real-time room.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1069,7 +1213,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#sendUnreliableMessage(com.google.android.gms.common.api.GoogleApiClient, byte[], java.lang.String, java.util.List<java.lang.String>)">sendUnreliableMessage</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, byte[] messageData, String roomId, List&lt;String&gt; recipientParticipantIds)</nobr>
         
-        <div class="jd-descrdiv">Send a message to one or more participants in a real-time room.</div>
+        <div class="jd-descrdiv">
+          Send a message to one or more participants in a real-time room.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1087,7 +1236,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#sendUnreliableMessageToOthers(com.google.android.gms.common.api.GoogleApiClient, byte[], java.lang.String)">sendUnreliableMessageToOthers</a></span>(<a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a> apiClient, byte[] messageData, String roomId)</nobr>
         
-        <div class="jd-descrdiv">Send a message to all participants in a real-time room, excluding the current player.</div>
+        <div class="jd-descrdiv">
+          Send a message to all participants in a real-time room, excluding the current player.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1146,6 +1300,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Return value indicating immediate failure. Returned by
  <code><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#sendUnreliableMessage(com.google.android.gms.common.api.GoogleApiClient, byte[], java.lang.String, java.lang.String)">sendUnreliableMessage(GoogleApiClient, byte[], String, String)</a></code> and
@@ -1212,6 +1369,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Create a real-time room for the current game. The lifetime of the current game's connection
  to the room is bound to this <code><a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a></code>'s lifecycle. When the client
  disconnects, the player will leave the room and any peer-to-peer connections for this player
@@ -1267,6 +1427,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Decline an invitation for a real-time room.
  <p>
  Required API: <code><a href="/reference/com/google/android/gms/games/Games.html#API">API</a></code><br>
@@ -1312,6 +1475,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Dismiss an invitation to a real-time room. Dismissing an invitation will not change the state
  of the room for the other participants.
@@ -1360,9 +1526,13 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Returns an intent that will let the user select opponents to send an invitation to for a
- turn based multiplayer match. Note that this must be invoked with <code><a href="/reference/android/app/Activity.html#startActivityForResult(android.content.Intent, int)">startActivityForResult(Intent, int)</a></code>, so that the identity of the calling package
- can be established.
+ real-time multiplayer match. Note that this must be invoked with
+ <code><a href="/reference/android/app/Activity.html#startActivityForResult(android.content.Intent, int)">startActivityForResult(Intent, int)</a></code>, so that the identity of the calling
+ package can be established.
  <p>
  The number of players passed in should be the desired number of additional players to select,
  not including the current player. So, for a game that can handle between 2 and 4 players,
@@ -1373,12 +1543,11 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
  <p>
  If the user canceled, the result will be <code><a href="/reference/android/app/Activity.html#RESULT_CANCELED">RESULT_CANCELED</a></code>. If the user
  selected players, the result will be <code><a href="/reference/android/app/Activity.html#RESULT_OK">RESULT_OK</a></code>, and the data intent will
- contain the selected player IDs in <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> and the minimum and
- maximum numbers of additional auto-match players in
- <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MIN_AUTOMATCH_PLAYERS">EXTRA_MIN_AUTOMATCH_PLAYERS</a></code> and
- <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MAX_AUTOMATCH_PLAYERS">EXTRA_MAX_AUTOMATCH_PLAYERS</a></code> respectively. The player IDs in
- <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> will include only the other players selected,
- not the current player.
+ contain the selected player IDs in <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> and the minimum and maximum
+ numbers of additional auto-match players in <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MIN_AUTOMATCH_PLAYERS">EXTRA_MIN_AUTOMATCH_PLAYERS</a></code>
+ and <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MAX_AUTOMATCH_PLAYERS">EXTRA_MAX_AUTOMATCH_PLAYERS</a></code> respectively. The player IDs in
+ <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> will include only the other players selected, not the current
+ player.
  <p>
  If the <code>allowAutomatch</code> parameter is set to false, the UI will not display an option
  for selecting automatch players. Set this to false if your game does not support
@@ -1444,9 +1613,13 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Returns an intent that will let the user select opponents to send an invitation to for a
- turn based multiplayer match. Note that this must be invoked with <code><a href="/reference/android/app/Activity.html#startActivityForResult(android.content.Intent, int)">startActivityForResult(Intent, int)</a></code>, so that the identity of the calling package
- can be established.
+ real-time multiplayer match. Note that this must be invoked with
+ <code><a href="/reference/android/app/Activity.html#startActivityForResult(android.content.Intent, int)">startActivityForResult(Intent, int)</a></code>, so that the identity of the calling
+ package can be established.
  <p>
  The number of players passed in should be the desired number of additional players to select,
  not including the current player. So, for a game that can handle between 2 and 4 players,
@@ -1457,12 +1630,11 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
  <p>
  If the user canceled, the result will be <code><a href="/reference/android/app/Activity.html#RESULT_CANCELED">RESULT_CANCELED</a></code>. If the user
  selected players, the result will be <code><a href="/reference/android/app/Activity.html#RESULT_OK">RESULT_OK</a></code>, and the data intent will
- contain the selected player IDs in <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> and the minimum and
- maximum numbers of additional auto-match players in
- <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MIN_AUTOMATCH_PLAYERS">EXTRA_MIN_AUTOMATCH_PLAYERS</a></code> and
- <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MAX_AUTOMATCH_PLAYERS">EXTRA_MAX_AUTOMATCH_PLAYERS</a></code> respectively. The player IDs in
- <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> will include only the other players selected,
- not the current player.
+ contain the selected player IDs in <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> and the minimum and maximum
+ numbers of additional auto-match players in <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MIN_AUTOMATCH_PLAYERS">EXTRA_MIN_AUTOMATCH_PLAYERS</a></code>
+ and <code><a href="/reference/com/google/android/gms/games/multiplayer/Multiplayer.html#EXTRA_MAX_AUTOMATCH_PLAYERS">EXTRA_MAX_AUTOMATCH_PLAYERS</a></code> respectively. The player IDs in
+ <code><a href="/reference/com/google/android/gms/games/Games.html#EXTRA_PLAYER_IDS">EXTRA_PLAYER_IDS</a></code> will include only the other players selected, not the current
+ player.
  <p>
  This method is the equivalent of calling
  <code><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#getSelectOpponentsIntent(com.google.android.gms.common.api.GoogleApiClient, int, int, boolean)">getSelectOpponentsIntent(GoogleApiClient, int, int, boolean)</a></code> with the
@@ -1524,6 +1696,13 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       </div>
     <div class="jd-details-descr">
       
+    
+
+      <p>
+  <p class="caution"><strong>
+      This method is deprecated.</strong><br/>
+    Deprecated in favor of <code><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeMultiplayer.html#sendUnreliableMessage(com.google.android.gms.common.api.GoogleApiClient, byte[], java.lang.String, java.lang.String)">sendUnreliableMessage(GoogleApiClient, byte[], String, String)</a></code>
+  </p>
   <div class="jd-tagdata jd-tagdescr"><p>Returns a <code><a href="/reference/com/google/android/gms/games/multiplayer/realtime/RealTimeSocket.html">RealTimeSocket</a></code> for carrying network traffic to the given peer. Creates a
  new socket if one does not exist (or if an existing socket gets disconnected). Requires an
  active real-time room and players being available. Throws an <code><a href="/reference/java/lang/IllegalArgumentException.html">IllegalArgumentException</a></code>
@@ -1583,6 +1762,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Returns an intent that will display a "waiting room" screen that shows the progress of
  participants joining a real-time multiplayer room. Note that this must be invoked with
@@ -1680,6 +1862,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Join a real-time room by accepting an invitation. The lifetime of the current game's
  connection to the room is bound to this <code><a href="/reference/com/google/android/gms/common/api/GoogleApiClient.html">GoogleApiClient</a></code>'s lifecycle. When the client
  disconnects, the player will leave the room and any peer-to-peer connections for this player
@@ -1734,6 +1919,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Leave the specified room. This will disconnect the player from the room, but allow other
  players to continue playing the game. The result is delivered by the callback
@@ -1790,6 +1978,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Send a message to a participant in a real-time room reliably. The caller will receive a
  callback to report the status of the send message operation. Throws an
@@ -1860,6 +2051,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Send a message to a participant in a real-time room. The message delivery is not reliable and
  will not report status after completion. Throws an <code><a href="/reference/java/lang/IllegalArgumentException.html">IllegalArgumentException</a></code> if
  recipientParticipantId is not a valid participant or belongs to the current player. The
@@ -1922,6 +2116,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Send a message to one or more participants in a real-time room. The message delivery is not
  reliable and will not report status after completion. Throws an
@@ -1986,6 +2183,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Send a message to all participants in a real-time room, excluding the current player. The
  message delivery is not reliable and will not report status after completion. The maximum

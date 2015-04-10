@@ -16,17 +16,22 @@
 
 package android.service.voice;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.Activity;
 import android.content.Intent;
 import android.hardware.soundtrigger.IRecognitionStatusCallback;
 import android.hardware.soundtrigger.KeyphraseEnrollmentInfo;
 import android.hardware.soundtrigger.KeyphraseMetadata;
 import android.hardware.soundtrigger.SoundTrigger;
 import android.hardware.soundtrigger.SoundTrigger.ConfidenceLevel;
-import android.hardware.soundtrigger.SoundTrigger.Keyphrase;
+import android.hardware.soundtrigger.SoundTrigger.KeyphraseRecognitionEvent;
 import android.hardware.soundtrigger.SoundTrigger.KeyphraseRecognitionExtra;
 import android.hardware.soundtrigger.SoundTrigger.KeyphraseSoundModel;
 import android.hardware.soundtrigger.SoundTrigger.ModuleProperties;
 import android.hardware.soundtrigger.SoundTrigger.RecognitionConfig;
+import android.media.AudioFormat;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.Message;
@@ -35,7 +40,10 @@ import android.util.Slog;
 
 import com.android.internal.app.IVoiceInteractionManagerService;
 
-import java.util.List;
+import java.io.PrintWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.Locale;
 
 /**
  * A class that lets a VoiceInteractionService implementation interact with
@@ -47,18 +55,22 @@ public class AlwaysOnHotwordDetector {
      * Indicates that this hotword detector is no longer valid for any recognition
      * and should not be used anymore.
      */
-    public static final int STATE_INVALID = -3;
+    private static final int STATE_INVALID = -3;
+
     /**
      * Indicates that recognition for the given keyphrase is not available on the system
      * because of the hardware configuration.
+     * No further interaction should be performed with the detector that returns this availability.
      */
     public static final int STATE_HARDWARE_UNAVAILABLE = -2;
     /**
      * Indicates that recognition for the given keyphrase is not supported.
+     * No further interaction should be performed with the detector that returns this availability.
      */
     public static final int STATE_KEYPHRASE_UNSUPPORTED = -1;
     /**
      * Indicates that the given keyphrase is not enrolled.
+     * The caller may choose to begin an enrollment flow for the keyphrase.
      */
     public static final int STATE_KEYPHRASE_UNENROLLED = 1;
     /**
@@ -73,52 +85,104 @@ public class AlwaysOnHotwordDetector {
     private static final int STATE_NOT_READY = 0;
 
     // Keyphrase management actions. Used in getManageIntent() ----//
-    /** Indicates that we need to enroll. */
-    public static final int MANAGE_ACTION_ENROLL = 0;
-    /** Indicates that we need to re-enroll. */
-    public static final int MANAGE_ACTION_RE_ENROLL = 1;
-    /** Indicates that we need to un-enroll. */
-    public static final int MANAGE_ACTION_UN_ENROLL = 2;
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(value = {
+                MANAGE_ACTION_ENROLL,
+                MANAGE_ACTION_RE_ENROLL,
+                MANAGE_ACTION_UN_ENROLL
+            })
+    private @interface ManageActions {}
 
     /**
-     * Return codes for {@link #startRecognition(int)}, {@link #stopRecognition()}
+     * Indicates that we need to enroll.
+     *
+     * @hide
      */
-    public static final int STATUS_ERROR = SoundTrigger.STATUS_ERROR;
-    public static final int STATUS_OK = SoundTrigger.STATUS_OK;
+    public static final int MANAGE_ACTION_ENROLL = 0;
+    /**
+     * Indicates that we need to re-enroll.
+     *
+     * @hide
+     */
+    public static final int MANAGE_ACTION_RE_ENROLL = 1;
+    /**
+     * Indicates that we need to un-enroll.
+     *
+     * @hide
+     */
+    public static final int MANAGE_ACTION_UN_ENROLL = 2;
 
-    //-- Flags for startRecogntion    ----//
-    /** Empty flag for {@link #startRecognition(int)}. */
+    //-- Flags for startRecognition    ----//
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(flag = true,
+            value = {
+                RECOGNITION_FLAG_NONE,
+                RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO,
+                RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS
+            })
+    public @interface RecognitionFlags {}
+
+    /**
+     * Empty flag for {@link #startRecognition(int)}.
+     *
+     * @hide
+     */
     public static final int RECOGNITION_FLAG_NONE = 0;
     /**
      * Recognition flag for {@link #startRecognition(int)} that indicates
      * whether the trigger audio for hotword needs to be captured.
      */
     public static final int RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO = 0x1;
+    /**
+     * Recognition flag for {@link #startRecognition(int)} that indicates
+     * whether the recognition should keep going on even after the keyphrase triggers.
+     * If this flag is specified, it's possible to get multiple triggers after a
+     * call to {@link #startRecognition(int)} if the user speaks the keyphrase multiple times.
+     * When this isn't specified, the default behavior is to stop recognition once the
+     * keyphrase is spoken, till the caller starts recognition again.
+     */
+    public static final int RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS = 0x2;
 
     //---- Recognition mode flags. Return codes for getSupportedRecognitionModes() ----//
     // Must be kept in sync with the related attribute defined as searchKeyphraseRecognitionFlags.
 
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(flag = true,
+            value = {
+                RECOGNITION_MODE_VOICE_TRIGGER,
+                RECOGNITION_MODE_USER_IDENTIFICATION,
+            })
+    public @interface RecognitionModes {}
+
     /**
-     * Simple recognition of the key phrase. Returned by {@link #getSupportedRecognitionModes()}
+     * Simple recognition of the key phrase.
+     * Returned by {@link #getSupportedRecognitionModes()}
      */
     public static final int RECOGNITION_MODE_VOICE_TRIGGER
             = SoundTrigger.RECOGNITION_MODE_VOICE_TRIGGER;
     /**
-     * Trigger only if one user is identified. Returned by {@link #getSupportedRecognitionModes()}
+     * User identification performed with the keyphrase recognition.
+     * Returned by {@link #getSupportedRecognitionModes()}
      */
     public static final int RECOGNITION_MODE_USER_IDENTIFICATION
             = SoundTrigger.RECOGNITION_MODE_USER_IDENTIFICATION;
 
     static final String TAG = "AlwaysOnHotwordDetector";
-    // TODO: Set to false.
-    static final boolean DBG = true;
+    static final boolean DBG = false;
 
-    private static final int MSG_STATE_CHANGED = 1;
+    private static final int STATUS_ERROR = SoundTrigger.STATUS_ERROR;
+    private static final int STATUS_OK = SoundTrigger.STATUS_OK;
+
+    private static final int MSG_AVAILABILITY_CHANGED = 1;
     private static final int MSG_HOTWORD_DETECTED = 2;
-    private static final int MSG_DETECTION_STOPPED = 3;
+    private static final int MSG_DETECTION_ERROR = 3;
+    private static final int MSG_DETECTION_PAUSE = 4;
+    private static final int MSG_DETECTION_RESUME = 5;
 
     private final String mText;
-    private final String mLocale;
+    private final Locale mLocale;
     /**
      * The metadata of the Keyphrase, derived from the enrollment application.
      * This may be null if this keyphrase isn't supported by the enrollment application.
@@ -132,17 +196,90 @@ public class AlwaysOnHotwordDetector {
     private final Object mLock = new Object();
     private final Handler mHandler;
 
-    /**
-     * Indicates if there is a sound model enrolled for the keyphrase,
-     * derived from the model management service (IVoiceInteractionManagerService).
-     */
-    private boolean mIsEnrolledForDetection;
     private int mAvailability = STATE_NOT_READY;
+
+    /**
+     * Additional payload for {@link Callback#onDetected}.
+     */
+    public static class EventPayload {
+        private final boolean mTriggerAvailable;
+        // Indicates if {@code captureSession} can be used to continue capturing more audio
+        // from the DSP hardware.
+        private final boolean mCaptureAvailable;
+        // The session to use when attempting to capture more audio from the DSP hardware.
+        private final int mCaptureSession;
+        private final AudioFormat mAudioFormat;
+        // Raw data associated with the event.
+        // This is the audio that triggered the keyphrase if {@code isTriggerAudio} is true.
+        private final byte[] mData;
+
+        private EventPayload(boolean triggerAvailable, boolean captureAvailable,
+                AudioFormat audioFormat, int captureSession, byte[] data) {
+            mTriggerAvailable = triggerAvailable;
+            mCaptureAvailable = captureAvailable;
+            mCaptureSession = captureSession;
+            mAudioFormat = audioFormat;
+            mData = data;
+        }
+
+        /**
+         * Gets the format of the audio obtained using {@link #getTriggerAudio()}.
+         * May be null if there's no audio present.
+         */
+        @Nullable
+        public AudioFormat getCaptureAudioFormat() {
+            return mAudioFormat;
+        }
+
+        /**
+         * Gets the raw audio that triggered the keyphrase.
+         * This may be null if the trigger audio isn't available.
+         * If non-null, the format of the audio can be obtained by calling
+         * {@link #getCaptureAudioFormat()}.
+         *
+         * @see AlwaysOnHotwordDetector#RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO
+         */
+        @Nullable
+        public byte[] getTriggerAudio() {
+            if (mTriggerAvailable) {
+                return mData;
+            } else {
+                return null;
+            }
+        }
+
+        /**
+         * Gets the session ID to start a capture from the DSP.
+         * This may be null if streaming capture isn't possible.
+         * If non-null, the format of the audio that can be captured can be
+         * obtained using {@link #getCaptureAudioFormat()}.
+         *
+         * TODO: Candidate for Public API when the API to start capture with a session ID
+         * is made public.
+         *
+         * TODO: Add this to {@link #getCaptureAudioFormat()}:
+         * "Gets the format of the audio obtained using {@link #getTriggerAudio()}
+         * or {@link #getCaptureSession()}. May be null if no audio can be obtained
+         * for either the trigger or a streaming session."
+         *
+         * TODO: Should this return a known invalid value instead?
+         *
+         * @hide
+         */
+        @Nullable
+        public Integer getCaptureSession() {
+            if (mCaptureAvailable) {
+                return mCaptureSession;
+            } else {
+                return null;
+            }
+        }
+    }
 
     /**
      * Callbacks for always-on hotword detection.
      */
-    public interface Callback {
+    public static abstract class Callback {
         /**
          * Called when the hotword availability changes.
          * This indicates a change in the availability of recognition for the given keyphrase.
@@ -150,29 +287,40 @@ public class AlwaysOnHotwordDetector {
          *
          * Availability implies whether the hardware on this system is capable of listening for
          * the given keyphrase or not. <p/>
-         * If the return code is one of {@link #STATE_HARDWARE_UNAVAILABLE} or
-         * {@link #STATE_KEYPHRASE_UNSUPPORTED},
-         * detection is not possible and no further interaction should be
-         * performed with this detector. <br/>
-         * If it is {@link #STATE_KEYPHRASE_UNENROLLED} the caller may choose to begin
-         * an enrollment flow for the keyphrase. <br/>
-         * and for {@link #STATE_KEYPHRASE_ENROLLED} a recognition can be started as desired. <p/>
          *
-         * If the return code is {@link #STATE_INVALID}, this detector is stale.
-         * A new detector should be obtained for use in the future.
+         * @see AlwaysOnHotwordDetector#STATE_HARDWARE_UNAVAILABLE
+         * @see AlwaysOnHotwordDetector#STATE_KEYPHRASE_UNSUPPORTED
+         * @see AlwaysOnHotwordDetector#STATE_KEYPHRASE_UNENROLLED
+         * @see AlwaysOnHotwordDetector#STATE_KEYPHRASE_ENROLLED
          */
-        void onAvailabilityChanged(int status);
+        public abstract void onAvailabilityChanged(int status);
         /**
          * Called when the keyphrase is spoken.
+         * This implicitly stops listening for the keyphrase once it's detected.
+         * Clients should start a recognition again once they are done handling this
+         * detection.
          *
-         * @param data Optional trigger audio data, if it was requested during
+         * @param eventPayload Payload data for the detection event.
+         *        This may contain the trigger audio, if requested when calling
          *        {@link AlwaysOnHotwordDetector#startRecognition(int)}.
          */
-        void onDetected(byte[] data);
+        public abstract void onDetected(@NonNull EventPayload eventPayload);
         /**
-         * Called when the detection for the associated keyphrase stops.
+         * Called when the detection fails due to an error.
          */
-        void onDetectionStopped();
+        public abstract void onError();
+        /**
+         * Called when the recognition is paused temporarily for some reason.
+         * This is an informational callback, and the clients shouldn't be doing anything here
+         * except showing an indication on their UI if they have to.
+         */
+        public abstract void onRecognitionPaused();
+        /**
+         * Called when the recognition is resumed after it was temporarily paused.
+         * This is an informational callback, and the clients shouldn't be doing anything here
+         * except showing an indication on their UI if they have to.
+         */
+        public abstract void onRecognitionResumed();
     }
 
     /**
@@ -184,7 +332,7 @@ public class AlwaysOnHotwordDetector {
      *
      * @hide
      */
-    public AlwaysOnHotwordDetector(String text, String locale, Callback callback,
+    public AlwaysOnHotwordDetector(String text, Locale locale, Callback callback,
             KeyphraseEnrollmentInfo keyphraseEnrollmentInfo,
             IVoiceInteractionService voiceInteractionService,
             IVoiceInteractionManagerService modelManagementService) {
@@ -203,17 +351,29 @@ public class AlwaysOnHotwordDetector {
     /**
      * Gets the recognition modes supported by the associated keyphrase.
      *
+     * @see #RECOGNITION_MODE_USER_IDENTIFICATION
+     * @see #RECOGNITION_MODE_VOICE_TRIGGER
+     *
      * @throws UnsupportedOperationException if the keyphrase itself isn't supported.
      *         Callers should only call this method after a supported state callback on
      *         {@link Callback#onAvailabilityChanged(int)} to avoid this exception.
+     * @throws IllegalStateException if the detector is in an invalid state.
+     *         This may happen if another detector has been instantiated or the
+     *         {@link VoiceInteractionService} hosting this detector has been shut down.
      */
-    public int getSupportedRecognitionModes() {
+    public @RecognitionModes int getSupportedRecognitionModes() {
+        if (DBG) Slog.d(TAG, "getSupportedRecognitionModes()");
         synchronized (mLock) {
             return getSupportedRecognitionModesLocked();
         }
     }
 
     private int getSupportedRecognitionModesLocked() {
+        if (mAvailability == STATE_INVALID) {
+            throw new IllegalStateException(
+                    "getSupportedRecognitionModes called on an invalid detector");
+        }
+
         // This method only makes sense if we can actually support a recognition.
         if (mAvailability != STATE_KEYPHRASE_ENROLLED
                 && mAvailability != STATE_KEYPHRASE_UNENROLLED) {
@@ -227,105 +387,137 @@ public class AlwaysOnHotwordDetector {
     /**
      * Starts recognition for the associated keyphrase.
      *
+     * @see #RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO
+     * @see #RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS
+     *
      * @param recognitionFlags The flags to control the recognition properties.
-     *        The allowed flags are {@link #RECOGNITION_FLAG_NONE} and
-     *        {@link #RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO}.
-     * @return {@link #STATUS_OK} if the call succeeds, an error code otherwise.
+     * @return Indicates whether the call succeeded or not.
      * @throws UnsupportedOperationException if the recognition isn't supported.
      *         Callers should only call this method after a supported state callback on
      *         {@link Callback#onAvailabilityChanged(int)} to avoid this exception.
+     * @throws IllegalStateException if the detector is in an invalid state.
+     *         This may happen if another detector has been instantiated or the
+     *         {@link VoiceInteractionService} hosting this detector has been shut down.
      */
-    public int startRecognition(int recognitionFlags) {
+    public boolean startRecognition(@RecognitionFlags int recognitionFlags) {
+        if (DBG) Slog.d(TAG, "startRecognition(" + recognitionFlags + ")");
         synchronized (mLock) {
-            return startRecognitionLocked(recognitionFlags);
-        }
-    }
+            if (mAvailability == STATE_INVALID) {
+                throw new IllegalStateException("startRecognition called on an invalid detector");
+            }
 
-    private int startRecognitionLocked(int recognitionFlags) {
-        // This method only makes sense if we can start a recognition.
-        if (mAvailability != STATE_KEYPHRASE_ENROLLED) {
-            throw new UnsupportedOperationException(
-                    "Recognition for the given keyphrase is not supported");
-        }
+            // Check if we can start/stop a recognition.
+            if (mAvailability != STATE_KEYPHRASE_ENROLLED) {
+                throw new UnsupportedOperationException(
+                        "Recognition for the given keyphrase is not supported");
+            }
 
-        KeyphraseRecognitionExtra[] recognitionExtra = new KeyphraseRecognitionExtra[1];
-        // TODO: Do we need to do something about the confidence level here?
-        recognitionExtra[0] = new KeyphraseRecognitionExtra(mKeyphraseMetadata.id,
-                mKeyphraseMetadata.recognitionModeFlags, new ConfidenceLevel[0]);
-        boolean captureTriggerAudio =
-                (recognitionFlags & RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO) != 0;
-        int code = STATUS_ERROR;
-        try {
-            code = mModelManagementService.startRecognition(mVoiceInteractionService,
-                    mKeyphraseMetadata.id, mInternalCallback,
-                    new RecognitionConfig(
-                            captureTriggerAudio, recognitionExtra, null /* additional data */));
-        } catch (RemoteException e) {
-            Slog.w(TAG, "RemoteException in startRecognition!");
+            return startRecognitionLocked(recognitionFlags) == STATUS_OK;
         }
-        if (code != STATUS_OK) {
-            Slog.w(TAG, "startRecognition() failed with error code " + code);
-        }
-        return code;
     }
 
     /**
      * Stops recognition for the associated keyphrase.
      *
-     * @return {@link #STATUS_OK} if the call succeeds, an error code otherwise.
+     * @return Indicates whether the call succeeded or not.
      * @throws UnsupportedOperationException if the recognition isn't supported.
      *         Callers should only call this method after a supported state callback on
      *         {@link Callback#onAvailabilityChanged(int)} to avoid this exception.
+     * @throws IllegalStateException if the detector is in an invalid state.
+     *         This may happen if another detector has been instantiated or the
+     *         {@link VoiceInteractionService} hosting this detector has been shut down.
      */
-    public int stopRecognition() {
+    public boolean stopRecognition() {
+        if (DBG) Slog.d(TAG, "stopRecognition()");
         synchronized (mLock) {
-            return stopRecognitionLocked();
-        }
-    }
+            if (mAvailability == STATE_INVALID) {
+                throw new IllegalStateException("stopRecognition called on an invalid detector");
+            }
 
-    private int stopRecognitionLocked() {
-        // This method only makes sense if we can start a recognition.
-        if (mAvailability != STATE_KEYPHRASE_ENROLLED) {
-            throw new UnsupportedOperationException(
-                    "Recognition for the given keyphrase is not supported");
-        }
+            // Check if we can start/stop a recognition.
+            if (mAvailability != STATE_KEYPHRASE_ENROLLED) {
+                throw new UnsupportedOperationException(
+                        "Recognition for the given keyphrase is not supported");
+            }
 
-        int code = STATUS_ERROR;
-        try {
-            code = mModelManagementService.stopRecognition(
-                    mVoiceInteractionService, mKeyphraseMetadata.id, mInternalCallback);
-        } catch (RemoteException e) {
-            Slog.w(TAG, "RemoteException in stopRecognition!");
+            return stopRecognitionLocked() == STATUS_OK;
         }
-
-        if (code != STATUS_OK) {
-            Slog.w(TAG, "stopRecognition() failed with error code " + code);
-        }
-        return code;
     }
 
     /**
-     * Gets an intent to manage the associated keyphrase.
+     * Creates an intent to start the enrollment for the associated keyphrase.
+     * This intent must be invoked using {@link Activity#startActivityForResult(Intent, int)}.
+     * Starting re-enrollment is only valid if the keyphrase is un-enrolled,
+     * i.e. {@link #STATE_KEYPHRASE_UNENROLLED},
+     * otherwise {@link #createReEnrollIntent()} should be preferred.
      *
-     * @param action The manage action that needs to be performed.
-     *        One of {@link #MANAGE_ACTION_ENROLL}, {@link #MANAGE_ACTION_RE_ENROLL} or
-     *        {@link #MANAGE_ACTION_UN_ENROLL}.
-     * @return An {@link Intent} to manage the given keyphrase.
+     * @return An {@link Intent} to start enrollment for the given keyphrase.
      * @throws UnsupportedOperationException if managing they keyphrase isn't supported.
      *         Callers should only call this method after a supported state callback on
      *         {@link Callback#onAvailabilityChanged(int)} to avoid this exception.
+     * @throws IllegalStateException if the detector is in an invalid state.
+     *         This may happen if another detector has been instantiated or the
+     *         {@link VoiceInteractionService} hosting this detector has been shut down.
      */
-    public Intent getManageIntent(int action) {
+    public Intent createEnrollIntent() {
+        if (DBG) Slog.d(TAG, "createEnrollIntent");
+        synchronized (mLock) {
+            return getManageIntentLocked(MANAGE_ACTION_ENROLL);
+        }
+    }
+
+    /**
+     * Creates an intent to start the un-enrollment for the associated keyphrase.
+     * This intent must be invoked using {@link Activity#startActivityForResult(Intent, int)}.
+     * Starting re-enrollment is only valid if the keyphrase is already enrolled,
+     * i.e. {@link #STATE_KEYPHRASE_ENROLLED}, otherwise invoking this may result in an error.
+     *
+     * @return An {@link Intent} to start un-enrollment for the given keyphrase.
+     * @throws UnsupportedOperationException if managing they keyphrase isn't supported.
+     *         Callers should only call this method after a supported state callback on
+     *         {@link Callback#onAvailabilityChanged(int)} to avoid this exception.
+     * @throws IllegalStateException if the detector is in an invalid state.
+     *         This may happen if another detector has been instantiated or the
+     *         {@link VoiceInteractionService} hosting this detector has been shut down.
+     */
+    public Intent createUnEnrollIntent() {
+        if (DBG) Slog.d(TAG, "createUnEnrollIntent");
+        synchronized (mLock) {
+            return getManageIntentLocked(MANAGE_ACTION_UN_ENROLL);
+        }
+    }
+
+    /**
+     * Creates an intent to start the re-enrollment for the associated keyphrase.
+     * This intent must be invoked using {@link Activity#startActivityForResult(Intent, int)}.
+     * Starting re-enrollment is only valid if the keyphrase is already enrolled,
+     * i.e. {@link #STATE_KEYPHRASE_ENROLLED}, otherwise invoking this may result in an error.
+     *
+     * @return An {@link Intent} to start re-enrollment for the given keyphrase.
+     * @throws UnsupportedOperationException if managing they keyphrase isn't supported.
+     *         Callers should only call this method after a supported state callback on
+     *         {@link Callback#onAvailabilityChanged(int)} to avoid this exception.
+     * @throws IllegalStateException if the detector is in an invalid state.
+     *         This may happen if another detector has been instantiated or the
+     *         {@link VoiceInteractionService} hosting this detector has been shut down.
+     */
+    public Intent createReEnrollIntent() {
+        if (DBG) Slog.d(TAG, "createReEnrollIntent");
+        synchronized (mLock) {
+            return getManageIntentLocked(MANAGE_ACTION_RE_ENROLL);
+        }
+    }
+
+    private Intent getManageIntentLocked(int action) {
+        if (mAvailability == STATE_INVALID) {
+            throw new IllegalStateException("getManageIntent called on an invalid detector");
+        }
+
         // This method only makes sense if we can actually support a recognition.
         if (mAvailability != STATE_KEYPHRASE_ENROLLED
                 && mAvailability != STATE_KEYPHRASE_UNENROLLED) {
             throw new UnsupportedOperationException(
                     "Managing the given keyphrase is not supported");
-        }
-        if (action != MANAGE_ACTION_ENROLL
-                && action != MANAGE_ACTION_RE_ENROLL
-                && action != MANAGE_ACTION_UN_ENROLL) {
-            throw new IllegalArgumentException("Invalid action specified " + action);
         }
 
         return mKeyphraseEnrollmentInfo.getManageKeyphraseIntent(action, mText, mLocale);
@@ -351,8 +543,6 @@ public class AlwaysOnHotwordDetector {
      */
     void onSoundModelsChanged() {
         synchronized (mLock) {
-            // TODO: This should stop the recognition if it was using an enrolled sound model
-            // that's no longer available.
             if (mAvailability == STATE_INVALID
                     || mAvailability == STATE_HARDWARE_UNAVAILABLE
                     || mAvailability == STATE_KEYPHRASE_UNSUPPORTED) {
@@ -360,13 +550,59 @@ public class AlwaysOnHotwordDetector {
                 return;
             }
 
+            // Stop the recognition before proceeding.
+            // This is done because we want to stop the recognition on an older model if it changed
+            // or was deleted.
+            // The availability change callback should ensure that the client starts recognition
+            // again if needed.
+            stopRecognitionLocked();
+
             // Execute a refresh availability task - which should then notify of a change.
             new RefreshAvailabiltyTask().execute();
         }
     }
 
+    private int startRecognitionLocked(int recognitionFlags) {
+        KeyphraseRecognitionExtra[] recognitionExtra = new KeyphraseRecognitionExtra[1];
+        // TODO: Do we need to do something about the confidence level here?
+        recognitionExtra[0] = new KeyphraseRecognitionExtra(mKeyphraseMetadata.id,
+                mKeyphraseMetadata.recognitionModeFlags, 0, new ConfidenceLevel[0]);
+        boolean captureTriggerAudio =
+                (recognitionFlags&RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO) != 0;
+        boolean allowMultipleTriggers =
+                (recognitionFlags&RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS) != 0;
+        int code = STATUS_ERROR;
+        try {
+            code = mModelManagementService.startRecognition(mVoiceInteractionService,
+                    mKeyphraseMetadata.id, mLocale.toLanguageTag(), mInternalCallback,
+                    new RecognitionConfig(captureTriggerAudio, allowMultipleTriggers,
+                            recognitionExtra, null /* additional data */));
+        } catch (RemoteException e) {
+            Slog.w(TAG, "RemoteException in startRecognition!", e);
+        }
+        if (code != STATUS_OK) {
+            Slog.w(TAG, "startRecognition() failed with error code " + code);
+        }
+        return code;
+    }
+
+    private int stopRecognitionLocked() {
+        int code = STATUS_ERROR;
+        try {
+            code = mModelManagementService.stopRecognition(
+                    mVoiceInteractionService, mKeyphraseMetadata.id, mInternalCallback);
+        } catch (RemoteException e) {
+            Slog.w(TAG, "RemoteException in stopRecognition!", e);
+        }
+
+        if (code != STATUS_OK) {
+            Slog.w(TAG, "stopRecognition() failed with error code " + code);
+        }
+        return code;
+    }
+
     private void notifyStateChangedLocked() {
-        Message message = Message.obtain(mHandler, MSG_STATE_CHANGED);
+        Message message = Message.obtain(mHandler, MSG_AVAILABILITY_CHANGED);
         message.arg1 = mAvailability;
         message.sendToTarget();
     }
@@ -380,32 +616,63 @@ public class AlwaysOnHotwordDetector {
         }
 
         @Override
-        public void onDetected(byte[] data) {
-            Slog.i(TAG, "onDetected");
-            Message message = Message.obtain(mHandler, MSG_HOTWORD_DETECTED);
-            message.obj = data;
-            message.sendToTarget();
+        public void onDetected(KeyphraseRecognitionEvent event) {
+            if (DBG) {
+                Slog.d(TAG, "onDetected(" + event + ")");
+            } else {
+                Slog.i(TAG, "onDetected");
+            }
+            Message.obtain(mHandler, MSG_HOTWORD_DETECTED,
+                    new EventPayload(event.triggerInData, event.captureAvailable,
+                            event.captureFormat, event.captureSession, event.data))
+                    .sendToTarget();
         }
 
         @Override
-        public void onDetectionStopped() {
-            Slog.i(TAG, "onDetectionStopped");
-            mHandler.sendEmptyMessage(MSG_DETECTION_STOPPED);
+        public void onError(int status) {
+            Slog.i(TAG, "onError: " + status);
+            mHandler.sendEmptyMessage(MSG_DETECTION_ERROR);
+        }
+
+        @Override
+        public void onRecognitionPaused() {
+            Slog.i(TAG, "onRecognitionPaused");
+            mHandler.sendEmptyMessage(MSG_DETECTION_PAUSE);
+        }
+
+        @Override
+        public void onRecognitionResumed() {
+            Slog.i(TAG, "onRecognitionResumed");
+            mHandler.sendEmptyMessage(MSG_DETECTION_RESUME);
         }
     }
 
     class MyHandler extends Handler {
         @Override
         public void handleMessage(Message msg) {
+            synchronized (mLock) {
+                if (mAvailability == STATE_INVALID) {
+                    Slog.w(TAG, "Received message: " + msg.what + " for an invalid detector");
+                    return;
+                }
+            }
+
             switch (msg.what) {
-                case MSG_STATE_CHANGED:
+                case MSG_AVAILABILITY_CHANGED:
                     mExternalCallback.onAvailabilityChanged(msg.arg1);
                     break;
                 case MSG_HOTWORD_DETECTED:
-                    mExternalCallback.onDetected((byte[]) msg.obj);
+                    mExternalCallback.onDetected((EventPayload) msg.obj);
                     break;
-                case MSG_DETECTION_STOPPED:
-                    mExternalCallback.onDetectionStopped();
+                case MSG_DETECTION_ERROR:
+                    mExternalCallback.onError();
+                    break;
+                case MSG_DETECTION_PAUSE:
+                    mExternalCallback.onRecognitionPaused();
+                    break;
+                case MSG_DETECTION_RESUME:
+                    mExternalCallback.onRecognitionResumed();
+                    break;
                 default:
                     super.handleMessage(msg);
             }
@@ -422,7 +689,7 @@ public class AlwaysOnHotwordDetector {
             if (availability == STATE_NOT_READY
                     || availability == STATE_KEYPHRASE_UNENROLLED
                     || availability == STATE_KEYPHRASE_ENROLLED) {
-                enrolled = internalGetIsEnrolled(mKeyphraseMetadata.id);
+                enrolled = internalGetIsEnrolled(mKeyphraseMetadata.id, mLocale);
                 if (!enrolled) {
                     availability = STATE_KEYPHRASE_UNENROLLED;
                 } else {
@@ -435,7 +702,6 @@ public class AlwaysOnHotwordDetector {
                     Slog.d(TAG, "Hotword availability changed from " + mAvailability
                             + " -> " + availability);
                 }
-                mIsEnrolledForDetection = enrolled;
                 mAvailability = availability;
                 notifyStateChangedLocked();
             }
@@ -458,7 +724,7 @@ public class AlwaysOnHotwordDetector {
                 dspModuleProperties =
                         mModelManagementService.getDspModuleProperties(mVoiceInteractionService);
             } catch (RemoteException e) {
-                Slog.w(TAG, "RemoteException in getDspProperties!");
+                Slog.w(TAG, "RemoteException in getDspProperties!", e);
             }
             // No DSP available
             if (dspModuleProperties == null) {
@@ -474,14 +740,25 @@ public class AlwaysOnHotwordDetector {
         /**
          * @return The corresponding {@link KeyphraseSoundModel} or null if none is found.
          */
-        private boolean internalGetIsEnrolled(int keyphraseId) {
+        private boolean internalGetIsEnrolled(int keyphraseId, Locale locale) {
             try {
                 return mModelManagementService.isEnrolledForKeyphrase(
-                        mVoiceInteractionService, keyphraseId);
+                        mVoiceInteractionService, keyphraseId, locale.toLanguageTag());
             } catch (RemoteException e) {
-                Slog.w(TAG, "RemoteException in listRegisteredKeyphraseSoundModels!");
+                Slog.w(TAG, "RemoteException in listRegisteredKeyphraseSoundModels!", e);
             }
             return false;
+        }
+    }
+
+    /** @hide */
+    public void dump(String prefix, PrintWriter pw) {
+        synchronized (mLock) {
+            pw.print(prefix); pw.print("Text="); pw.println(mText);
+            pw.print(prefix); pw.print("Locale="); pw.println(mLocale);
+            pw.print(prefix); pw.print("Availability="); pw.println(mAvailability);
+            pw.print(prefix); pw.print("KeyphraseMetadata="); pw.println(mKeyphraseMetadata);
+            pw.print(prefix); pw.print("EnrollmentInfo="); pw.println(mKeyphraseEnrollmentInfo);
         }
     }
 }

@@ -18,11 +18,12 @@ package com.android.server.display;
 
 import android.content.Context;
 import android.hardware.display.DisplayManager;
-import android.hardware.display.IVirtualDisplayCallbacks;
+import android.hardware.display.IVirtualDisplayCallback;
 import android.media.projection.IMediaProjection;
 import android.media.projection.IMediaProjectionCallback;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.SystemProperties;
 import android.os.IBinder.DeathRecipient;
 import android.os.Message;
 import android.os.RemoteException;
@@ -33,6 +34,7 @@ import android.view.Surface;
 import android.view.SurfaceControl;
 
 import java.io.PrintWriter;
+import java.util.Iterator;
 
 /**
  * A display adapter that provides virtual displays on behalf of applications.
@@ -43,6 +45,9 @@ import java.io.PrintWriter;
 final class VirtualDisplayAdapter extends DisplayAdapter {
     static final String TAG = "VirtualDisplayAdapter";
     static final boolean DEBUG = false;
+
+    // Unique id prefix for virtual displays
+    private static final String UNIQUE_ID_PREFIX = "virtual:";
 
     private final ArrayMap<IBinder, VirtualDisplayDevice> mVirtualDisplayDevices =
             new ArrayMap<IBinder, VirtualDisplayDevice>();
@@ -55,21 +60,24 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
         mHandler = handler;
     }
 
-    public DisplayDevice createVirtualDisplayLocked(IVirtualDisplayCallbacks callbacks,
+    public DisplayDevice createVirtualDisplayLocked(IVirtualDisplayCallback callback,
             IMediaProjection projection, int ownerUid, String ownerPackageName,
             String name, int width, int height, int densityDpi, Surface surface, int flags) {
         boolean secure = (flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE) != 0;
-        IBinder appToken = callbacks.asBinder();
+        IBinder appToken = callback.asBinder();
         IBinder displayToken = SurfaceControl.createDisplay(name, secure);
+        final String baseUniqueId =
+                UNIQUE_ID_PREFIX + ownerPackageName + "," + ownerUid + "," + name + ",";
+        final int uniqueIndex = getNextUniqueIndex(baseUniqueId);
         VirtualDisplayDevice device = new VirtualDisplayDevice(displayToken, appToken,
                 ownerUid, ownerPackageName, name, width, height, densityDpi, surface, flags,
-                new Callbacks(callbacks, mHandler));
+                new Callback(callback, mHandler), baseUniqueId + uniqueIndex, uniqueIndex);
 
         mVirtualDisplayDevices.put(appToken, device);
 
         try {
             if (projection != null) {
-                projection.addCallback(new MediaProjectionCallback(appToken));
+                projection.registerCallback(new MediaProjectionCallback(appToken));
             }
             appToken.linkToDeath(device, 0);
         } catch (RemoteException ex) {
@@ -82,6 +90,15 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
         // that it was added.  The caller will handle it.
         return device;
     }
+
+    public void resizeVirtualDisplayLocked(IBinder appToken,
+            int width, int height, int densityDpi) {
+        VirtualDisplayDevice device = mVirtualDisplayDevices.get(appToken);
+        if (device != null) {
+            device.resizeLocked(width, height, densityDpi);
+        }
+    }
+
 
     public void setVirtualDisplaySurfaceLocked(IBinder appToken, Surface surface) {
         VirtualDisplayDevice device = mVirtualDisplayDevices.get(appToken);
@@ -100,6 +117,29 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
         // Return the display device that was removed without actually sending the
         // event indicating that it was removed.  The caller will handle it.
         return device;
+    }
+
+    /**
+     * Returns the next unique index for the uniqueIdPrefix
+     */
+    private int getNextUniqueIndex(String uniqueIdPrefix) {
+        if (mVirtualDisplayDevices.isEmpty()) {
+            return 0;
+        }
+
+        int nextUniqueIndex = 0;
+        Iterator<VirtualDisplayDevice> it = mVirtualDisplayDevices.values().iterator();
+        while (it.hasNext()) {
+            VirtualDisplayDevice device = it.next();
+            if (device.getUniqueId().startsWith(uniqueIdPrefix)
+                    && device.mUniqueIndex >= nextUniqueIndex) {
+                // Increment the next unique index to be greater than ones we have already ran
+                // across for displays that have the same unique Id prefix.
+                nextUniqueIndex = device.mUniqueIndex + 1;
+            }
+        }
+
+        return nextUniqueIndex;
     }
 
     private void handleBinderDiedLocked(IBinder appToken) {
@@ -122,26 +162,31 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
     }
 
     private final class VirtualDisplayDevice extends DisplayDevice implements DeathRecipient {
+        private static final int PENDING_SURFACE_CHANGE = 0x01;
+        private static final int PENDING_RESIZE = 0x02;
+
         private final IBinder mAppToken;
         private final int mOwnerUid;
         final String mOwnerPackageName;
         final String mName;
-        private final int mWidth;
-        private final int mHeight;
-        private final int mDensityDpi;
         private final int mFlags;
-        private final Callbacks mCallbacks;
+        private final Callback mCallback;
 
+        private int mWidth;
+        private int mHeight;
+        private int mDensityDpi;
         private Surface mSurface;
         private DisplayDeviceInfo mInfo;
-        private int mState;
+        private int mDisplayState;
         private boolean mStopped;
+        private int mPendingChanges;
+        private int mUniqueIndex;
 
         public VirtualDisplayDevice(IBinder displayToken, IBinder appToken,
                 int ownerUid, String ownerPackageName,
                 String name, int width, int height, int densityDpi, Surface surface, int flags,
-                Callbacks callbacks) {
-            super(VirtualDisplayAdapter.this, displayToken);
+                Callback callback, String uniqueId, int uniqueIndex) {
+            super(VirtualDisplayAdapter.this, displayToken, uniqueId);
             mAppToken = appToken;
             mOwnerUid = ownerUid;
             mOwnerPackageName = ownerPackageName;
@@ -151,8 +196,10 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
             mDensityDpi = densityDpi;
             mSurface = surface;
             mFlags = flags;
-            mCallbacks = callbacks;
-            mState = Display.STATE_UNKNOWN;
+            mCallback = callback;
+            mDisplayState = Display.STATE_UNKNOWN;
+            mPendingChanges |= PENDING_SURFACE_CHANGE;
+            mUniqueIndex = uniqueIndex;
         }
 
         @Override
@@ -170,24 +217,31 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
                 mSurface = null;
             }
             SurfaceControl.destroyDisplay(getDisplayTokenLocked());
-            mCallbacks.dispatchDisplayStopped();
+            mCallback.dispatchDisplayStopped();
         }
 
         @Override
-        public void requestDisplayStateLocked(int state) {
-            if (state != mState) {
-                mState = state;
+        public Runnable requestDisplayStateLocked(int state) {
+            if (state != mDisplayState) {
+                mDisplayState = state;
                 if (state == Display.STATE_OFF) {
-                    mCallbacks.dispatchDisplayPaused();
+                    mCallback.dispatchDisplayPaused();
                 } else {
-                    mCallbacks.dispatchDisplayResumed();
+                    mCallback.dispatchDisplayResumed();
                 }
             }
+            return null;
         }
 
         @Override
         public void performTraversalInTransactionLocked() {
-            setSurfaceInTransactionLocked(mSurface);
+            if ((mPendingChanges & PENDING_RESIZE) != 0) {
+                SurfaceControl.setDisplaySize(getDisplayTokenLocked(), mWidth, mHeight);
+            }
+            if ((mPendingChanges & PENDING_SURFACE_CHANGE) != 0) {
+                setSurfaceInTransactionLocked(mSurface);
+            }
+            mPendingChanges = 0;
         }
 
         public void setSurfaceLocked(Surface surface) {
@@ -198,6 +252,19 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
                 sendTraversalRequestLocked();
                 mSurface = surface;
                 mInfo = null;
+                mPendingChanges |= PENDING_SURFACE_CHANGE;
+            }
+        }
+
+        public void resizeLocked(int width, int height, int densityDpi) {
+            if (mWidth != width || mHeight != height || mDensityDpi != densityDpi) {
+                sendDisplayDeviceEventLocked(this, DISPLAY_DEVICE_EVENT_CHANGED);
+                sendTraversalRequestLocked();
+                mWidth = width;
+                mHeight = height;
+                mDensityDpi = densityDpi;
+                mInfo = null;
+                mPendingChanges |= PENDING_RESIZE;
             }
         }
 
@@ -210,7 +277,7 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
         public void dumpLocked(PrintWriter pw) {
             super.dumpLocked(pw);
             pw.println("mFlags=" + mFlags);
-            pw.println("mState=" + Display.stateToString(mState));
+            pw.println("mDisplayState=" + Display.stateToString(mDisplayState));
             pw.println("mStopped=" + mStopped);
         }
 
@@ -220,28 +287,40 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
             if (mInfo == null) {
                 mInfo = new DisplayDeviceInfo();
                 mInfo.name = mName;
+                mInfo.uniqueId = getUniqueId();
                 mInfo.width = mWidth;
                 mInfo.height = mHeight;
                 mInfo.refreshRate = 60;
+                mInfo.supportedRefreshRates = new float[] { 60.0f };
                 mInfo.densityDpi = mDensityDpi;
                 mInfo.xDpi = mDensityDpi;
                 mInfo.yDpi = mDensityDpi;
                 mInfo.presentationDeadlineNanos = 1000000000L / (int) mInfo.refreshRate; // 1 frame
                 mInfo.flags = 0;
                 if ((mFlags & DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC) == 0) {
-                    mInfo.flags |= DisplayDeviceInfo.FLAG_PRIVATE;
-                    if ((mFlags & DisplayManager.VIRTUAL_DISPLAY_FLAG_SCREEN_SHARE) == 0) {
-                        mInfo.flags |=  DisplayDeviceInfo.FLAG_OWN_CONTENT_ONLY
-                                | DisplayDeviceInfo.FLAG_NEVER_BLANK;
-                    }
-                } else if ((mFlags & DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY) != 0) {
+                    mInfo.flags |= DisplayDeviceInfo.FLAG_PRIVATE
+                            | DisplayDeviceInfo.FLAG_NEVER_BLANK;
+                }
+                if ((mFlags & DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR) != 0) {
+                    mInfo.flags &= ~DisplayDeviceInfo.FLAG_NEVER_BLANK;
+                } else {
                     mInfo.flags |= DisplayDeviceInfo.FLAG_OWN_CONTENT_ONLY;
                 }
+
                 if ((mFlags & DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE) != 0) {
                     mInfo.flags |= DisplayDeviceInfo.FLAG_SECURE;
                 }
                 if ((mFlags & DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION) != 0) {
                     mInfo.flags |= DisplayDeviceInfo.FLAG_PRESENTATION;
+
+                    if ((mFlags & DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC) != 0) {
+                        // For demonstration purposes, allow rotation of the external display.
+                        // In the future we might allow the user to configure this directly.
+                        if ("portrait".equals(SystemProperties.get(
+                                "persist.demo.remoterotation"))) {
+                            mInfo.rotation = Surface.ROTATION_270;
+                        }
+                    }
                 }
                 mInfo.type = Display.TYPE_VIRTUAL;
                 mInfo.touch = DisplayDeviceInfo.TOUCH_NONE;
@@ -253,16 +332,16 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
         }
     }
 
-    private static class Callbacks extends Handler {
+    private static class Callback extends Handler {
         private static final int MSG_ON_DISPLAY_PAUSED = 0;
         private static final int MSG_ON_DISPLAY_RESUMED = 1;
         private static final int MSG_ON_DISPLAY_STOPPED = 2;
 
-        private final IVirtualDisplayCallbacks mCallbacks;
+        private final IVirtualDisplayCallback mCallback;
 
-        public Callbacks(IVirtualDisplayCallbacks callbacks, Handler handler) {
+        public Callback(IVirtualDisplayCallback callback, Handler handler) {
             super(handler.getLooper());
-            mCallbacks = callbacks;
+            mCallback = callback;
         }
 
         @Override
@@ -270,13 +349,13 @@ final class VirtualDisplayAdapter extends DisplayAdapter {
             try {
                 switch (msg.what) {
                     case MSG_ON_DISPLAY_PAUSED:
-                        mCallbacks.onDisplayPaused();
+                        mCallback.onPaused();
                         break;
                     case MSG_ON_DISPLAY_RESUMED:
-                        mCallbacks.onDisplayResumed();
+                        mCallback.onResumed();
                         break;
                     case MSG_ON_DISPLAY_STOPPED:
-                        mCallbacks.onDisplayStopped();
+                        mCallback.onStopped();
                         break;
                 }
             } catch (RemoteException e) {

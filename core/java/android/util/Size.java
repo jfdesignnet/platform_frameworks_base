@@ -16,7 +16,7 @@
 
 package android.util;
 
-import static com.android.internal.util.Preconditions.*;
+import static com.android.internal.util.Preconditions.checkNotNull;
 
 /**
  * Immutable class for describing width and height dimensions in pixels.
@@ -149,4 +149,4 @@ public final class Size {
 
     private final int mWidth;
     private final int mHeight;
-};
+}

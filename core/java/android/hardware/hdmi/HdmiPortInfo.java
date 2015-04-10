@@ -114,7 +114,7 @@ public final class HdmiPortInfo implements Parcelable {
     }
 
     /**
-     * Describe the kinds of special objects contained in this Parcelable's
+     * Describes the kinds of special objects contained in this Parcelable's
      * marshalled representation.
      */
     @Override
@@ -136,7 +136,7 @@ public final class HdmiPortInfo implements Parcelable {
                     boolean cec = (source.readInt() == 1);
                     boolean arc = (source.readInt() == 1);
                     boolean mhl = (source.readInt() == 1);
-                    return new HdmiPortInfo(id, type, address, cec, arc, mhl);
+                    return new HdmiPortInfo(id, type, address, cec, mhl, arc);
                 }
 
                 @Override
@@ -146,7 +146,7 @@ public final class HdmiPortInfo implements Parcelable {
             };
 
     /**
-     * Serialize this object into a {@link Parcel}.
+     * Serializes this object into a {@link Parcel}.
      *
      * @param dest The Parcel in which the object should be written.
      * @param flags Additional flags about how the object should be written.
@@ -160,5 +160,27 @@ public final class HdmiPortInfo implements Parcelable {
         dest.writeInt(mCecSupported ? 1 : 0);
         dest.writeInt(mArcSupported ? 1 : 0);
         dest.writeInt(mMhlSupported ? 1 : 0);
+    }
+
+    @Override
+    public String toString() {
+        StringBuffer s = new StringBuffer();
+        s.append("port_id: ").append(mId).append(", ");
+        s.append("address: ").append(String.format("0x%04x", mAddress)).append(", ");
+        s.append("cec: ").append(mCecSupported).append(", ");
+        s.append("arc: ").append(mArcSupported).append(", ");
+        s.append("mhl: ").append(mMhlSupported);
+        return s.toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof HdmiPortInfo)) {
+            return false;
+        }
+        final HdmiPortInfo other = (HdmiPortInfo) o;
+        return mId == other.mId && mType == other.mType && mAddress == other.mAddress
+                && mCecSupported == other.mCecSupported && mArcSupported == other.mArcSupported
+                && mMhlSupported == other.mMhlSupported;
     }
 }

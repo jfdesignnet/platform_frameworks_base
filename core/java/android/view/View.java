@@ -17,9 +17,7 @@
 package android.view;
 
 import android.animation.AnimatorInflater;
-import android.animation.RevealAnimator;
 import android.animation.StateListAnimator;
-import android.animation.ValueAnimator;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -37,6 +35,8 @@ import android.graphics.LinearGradient;
 import android.graphics.Matrix;
 import android.graphics.Outline;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PathMeasure;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
@@ -56,6 +56,7 @@ import android.os.Parcelable;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.SystemProperties;
+import android.os.Trace;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.FloatProperty;
@@ -91,7 +92,6 @@ import static java.lang.Math.max;
 import com.android.internal.R;
 import com.android.internal.util.Predicate;
 import com.android.internal.view.menu.MenuBuilder;
-
 import com.google.android.collect.Lists;
 import com.google.android.collect.Maps;
 
@@ -447,16 +447,19 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <a name="Drawing"></a>
  * <h3>Drawing</h3>
  * <p>
- * Drawing is handled by walking the tree and rendering each view that
- * intersects the invalid region. Because the tree is traversed in-order,
- * this means that parents will draw before (i.e., behind) their children, with
- * siblings drawn in the order they appear in the tree.
- * If you set a background drawable for a View, then the View will draw it for you
- * before calling back to its <code>onDraw()</code> method.
+ * Drawing is handled by walking the tree and recording the drawing commands of
+ * any View that needs to update. After this, the drawing commands of the
+ * entire tree are issued to screen, clipped to the newly damaged area.
  * </p>
  *
  * <p>
- * Note that the framework will not draw views that are not in the invalid region.
+ * The tree is largely recorded and drawn in order, with parents drawn before
+ * (i.e., behind) their children, with siblings drawn in the order they appear
+ * in the tree. If you set a background drawable for a View, then the View will
+ * draw it before calling back to its <code>onDraw()</code> method. The child
+ * drawing order can be overridden with
+ * {@link ViewGroup#setChildrenDrawingOrderEnabled(boolean) custom child drawing order}
+ * in a ViewGroup, and with {@link #setZ(float)} custom Z values} set on Views.
  * </p>
  *
  * <p>
@@ -701,6 +704,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @hide
      */
     public static final String DEBUG_LAYOUT_PROPERTY = "debug.layout";
+
+    /**
+     * When set to true, this view will save its attribute data.
+     *
+     * @hide
+     */
+    public static boolean mDebugViewAttributes = false;
 
     /**
      * Used to mark a View that has no ID.
@@ -2906,7 +2916,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         @ViewDebug.FlagToString(mask = PFLAG_DRAWN, equals = PFLAG_DRAWN, name = "NOT_DRAWN", outputIf = false),
         @ViewDebug.FlagToString(mask = PFLAG_DIRTY_MASK, equals = PFLAG_DIRTY_OPAQUE, name = "DIRTY_OPAQUE"),
         @ViewDebug.FlagToString(mask = PFLAG_DIRTY_MASK, equals = PFLAG_DIRTY, name = "DIRTY")
-    })
+    }, formatToHexString = true)
     int mPrivateFlags;
     int mPrivateFlags2;
     int mPrivateFlags3;
@@ -2925,7 +2935,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         @ViewDebug.FlagToString(mask = PUBLIC_STATUS_BAR_VISIBILITY_MASK,
                                 equals = SYSTEM_UI_FLAG_VISIBLE,
                                 name = "SYSTEM_UI_FLAG_VISIBLE", outputIf = true)
-    })
+    }, formatToHexString = true)
     int mSystemUiVisibility;
 
     /**
@@ -2951,7 +2961,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * The view flags hold various views states.
      * {@hide}
      */
-    @ViewDebug.ExportedProperty
+    @ViewDebug.ExportedProperty(formatToHexString = true)
     int mViewFlags;
 
     static class TransformationInfo {
@@ -3094,6 +3104,16 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     private MatchLabelForPredicate mMatchLabelForPredicate;
 
     /**
+     * Specifies a view before which this one is visited in accessibility traversal.
+     */
+    private int mAccessibilityTraversalBeforeId = NO_ID;
+
+    /**
+     * Specifies a view after which this one is visited in accessibility traversal.
+     */
+    private int mAccessibilityTraversalAfterId = NO_ID;
+
+    /**
      * Predicate for matching a view by its id.
      */
     private MatchIdPredicate mMatchIdPredicate;
@@ -3178,9 +3198,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     @ViewDebug.ExportedProperty(deepExport = true, prefix = "bg_")
     private Drawable mBackground;
-    private ColorStateList mBackgroundTint = null;
-    private PorterDuff.Mode mBackgroundTintMode = PorterDuff.Mode.SRC_ATOP;
-    private boolean mHasBackgroundTint = false;
+    private TintInfo mBackgroundTint;
 
     /**
      * RenderNode used for backgrounds.
@@ -3196,6 +3214,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     private String mTransitionName;
 
+    private static class TintInfo {
+        ColorStateList mTintList;
+        PorterDuff.Mode mTintMode;
+        boolean mHasTintMode;
+        boolean mHasTintList;
+    }
+
     static class ListenerInfo {
         /**
          * Listener used to dispatch focus change events.
@@ -3208,6 +3233,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
          * Listeners for layout change events.
          */
         private ArrayList<OnLayoutChangeListener> mOnLayoutChangeListeners;
+
+        protected OnScrollChangeListener mOnScrollChangeListener;
 
         /**
          * Listeners for attach events.
@@ -3257,6 +3284,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * This field should be made private, so it is hidden from the SDK.
      * {@hide}
      */
+    @ViewDebug.ExportedProperty(deepExport = true)
     protected Context mContext;
 
     private final Resources mResources;
@@ -3520,6 +3548,25 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     private int[] mTempNestedScrollConsumed;
 
     /**
+     * An overlay is going to draw this View instead of being drawn as part of this
+     * View's parent. mGhostView is the View in the Overlay that must be invalidated
+     * when this view is invalidated.
+     */
+    GhostView mGhostView;
+
+    /**
+     * Holds pairs of adjacent attribute data: attribute name followed by its value.
+     * @hide
+     */
+    @ViewDebug.ExportedProperty(category = "attributes", hasAdjacentMapping = true)
+    public String[] mAttributes;
+
+    /**
+     * Maps a Resource id to its name.
+     */
+    private static SparseArray<String> mAttributeMap;
+
+    /**
      * Simple constructor to use when creating a view from code.
      *
      * @param context The Context the view is running in, through which it can
@@ -3541,7 +3588,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         setOverScrollMode(OVER_SCROLL_IF_CONTENT_SCROLLS);
         mUserPaddingStart = UNDEFINED_PADDING;
         mUserPaddingEnd = UNDEFINED_PADDING;
-        mRenderNode = RenderNode.create(getClass().getName());
+        mRenderNode = RenderNode.create(getClass().getName(), this);
 
         if (!sCompatibilityDone && context != null) {
             final int targetSdkVersion = context.getApplicationInfo().targetSdkVersion;
@@ -3636,6 +3683,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.View, defStyleAttr, defStyleRes);
+
+        if (mDebugViewAttributes) {
+            saveAttributeData(attrs, a);
+        }
 
         Drawable background = null;
 
@@ -3842,6 +3893,12 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 case com.android.internal.R.styleable.View_contentDescription:
                     setContentDescription(a.getString(attr));
                     break;
+                case com.android.internal.R.styleable.View_accessibilityTraversalBefore:
+                    setAccessibilityTraversalBefore(a.getResourceId(attr, NO_ID));
+                    break;
+                case com.android.internal.R.styleable.View_accessibilityTraversalAfter:
+                    setAccessibilityTraversalAfter(a.getResourceId(attr, NO_ID));
+                    break;
                 case com.android.internal.R.styleable.View_labelFor:
                     setLabelFor(a.getResourceId(attr, NO_ID));
                     break;
@@ -4011,13 +4068,25 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                     break;
                 case R.styleable.View_backgroundTint:
                     // This will get applied later during setBackground().
-                    mBackgroundTint = a.getColorStateList(R.styleable.View_backgroundTint);
-                    mHasBackgroundTint = true;
+                    if (mBackgroundTint == null) {
+                        mBackgroundTint = new TintInfo();
+                    }
+                    mBackgroundTint.mTintList = a.getColorStateList(
+                            R.styleable.View_backgroundTint);
+                    mBackgroundTint.mHasTintList = true;
                     break;
                 case R.styleable.View_backgroundTintMode:
                     // This will get applied later during setBackground().
-                    mBackgroundTintMode = Drawable.parseTintMode(a.getInt(
-                            R.styleable.View_backgroundTintMode, -1), mBackgroundTintMode);
+                    if (mBackgroundTint == null) {
+                        mBackgroundTint = new TintInfo();
+                    }
+                    mBackgroundTint.mTintMode = Drawable.parseTintMode(a.getInt(
+                            R.styleable.View_backgroundTintMode, -1), null);
+                    mBackgroundTint.mHasTintMode = true;
+                    break;
+                case R.styleable.View_outlineProvider:
+                    setOutlineProviderFromAttribute(a.getInt(R.styleable.View_outlineProvider,
+                            PROVIDER_BACKGROUND));
                     break;
             }
         }
@@ -4129,7 +4198,52 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      */
     View() {
         mResources = null;
-        mRenderNode = RenderNode.create(getClass().getName());
+        mRenderNode = RenderNode.create(getClass().getName(), this);
+    }
+
+    private static SparseArray<String> getAttributeMap() {
+        if (mAttributeMap == null) {
+            mAttributeMap = new SparseArray<String>();
+        }
+        return mAttributeMap;
+    }
+
+    private void saveAttributeData(AttributeSet attrs, TypedArray a) {
+        int length = ((attrs == null ? 0 : attrs.getAttributeCount()) + a.getIndexCount()) * 2;
+        mAttributes = new String[length];
+
+        int i = 0;
+        if (attrs != null) {
+            for (i = 0; i < attrs.getAttributeCount(); i += 2) {
+                mAttributes[i] = attrs.getAttributeName(i);
+                mAttributes[i + 1] = attrs.getAttributeValue(i);
+            }
+
+        }
+
+        SparseArray<String> attributeMap = getAttributeMap();
+        for (int j = 0; j < a.length(); ++j) {
+            if (a.hasValue(j)) {
+                try {
+                    int resourceId = a.getResourceId(j, 0);
+                    if (resourceId == 0) {
+                        continue;
+                    }
+
+                    String resourceName = attributeMap.get(resourceId);
+                    if (resourceName == null) {
+                        resourceName = a.getResources().getResourceName(resourceId);
+                        attributeMap.put(resourceId, resourceName);
+                    }
+
+                    mAttributes[i] = resourceName;
+                    mAttributes[i + 1] = a.getText(j).toString();
+                    i += 2;
+                } catch (Resources.NotFoundException e) {
+                    // if we can't get the resource name, we just ignore it
+                }
+            }
+        }
     }
 
     public String toString() {
@@ -4217,6 +4331,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * </p>
      *
      * @param a the styled attributes set to initialize the fading edges from
+     *
+     * @removed
      */
     protected void initializeFadingEdge(TypedArray a) {
         // This method probably shouldn't have been included in the SDK to begin with.
@@ -4357,6 +4473,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * </p>
      *
      * @param a the styled attributes set to initialize the scrollbars from
+     *
+     * @removed
      */
     protected void initializeScrollbars(TypedArray a) {
         // It's not safe to use this method from apps. The parameter 'a' must have been obtained
@@ -4498,6 +4616,17 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
         mListenerInfo = new ListenerInfo();
         return mListenerInfo;
+    }
+
+    /**
+     * Register a callback to be invoked when the scroll position of this view
+     * changed.
+     *
+     * @param l The callback that will run.
+     * @hide Only used internally.
+     */
+    public void setOnScrollChangeListener(OnScrollChangeListener l) {
+        getListenerInfo().mOnScrollChangeListener = l;
     }
 
     /**
@@ -4644,16 +4773,18 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *         otherwise is returned.
      */
     public boolean performClick() {
-        sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);
-
-        ListenerInfo li = mListenerInfo;
+        final boolean result;
+        final ListenerInfo li = mListenerInfo;
         if (li != null && li.mOnClickListener != null) {
             playSoundEffect(SoundEffectConstants.CLICK);
             li.mOnClickListener.onClick(this);
-            return true;
+            result = true;
+        } else {
+            result = false;
         }
 
-        return false;
+        sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);
+        return result;
     }
 
     /**
@@ -4829,33 +4960,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             }
 
             onFocusChanged(true, direction, previouslyFocusedRect);
-            manageFocusHotspot(true, oldFocus);
             refreshDrawableState();
         }
-    }
-
-    /**
-     * Forwards focus information to the background drawable, if necessary. When
-     * the view is gaining focus, <code>v</code> is the previous focus holder.
-     * When the view is losing focus, <code>v</code> is the next focus holder.
-     *
-     * @param focused whether this view is focused
-     * @param v previous or the next focus holder, or null if none
-     */
-    private void manageFocusHotspot(boolean focused, View v) {
-        final Rect r = new Rect();
-        if (v != null && mAttachInfo != null) {
-            v.getHotspotBounds(r);
-            final int[] location = mAttachInfo.mTmpLocation;
-            getLocationOnScreen(location);
-            r.offset(-location[0], -location[1]);
-        } else {
-            r.set(0, 0, mRight - mLeft, mBottom - mTop);
-        }
-
-        final float x = r.exactCenterX();
-        final float y = r.exactCenterY();
-        drawableHotspotChanged(x, y);
     }
 
     /**
@@ -4951,7 +5057,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * <strong>Note:</strong> When a View clears focus the framework is trying
      * to give focus to the first focusable View from the top. Hence, if this
      * View is the first from the top that can take focus, then all callbacks
-     * related to clearing focus will be invoked after wich the framework will
+     * related to clearing focus will be invoked after which the framework will
      * give focus to this view.
      * </p>
      */
@@ -4981,8 +5087,6 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             }
 
             onFocusChanged(false, 0, null);
-
-            manageFocusHotspot(false, focused);
             refreshDrawableState();
 
             if (propagate && (!refocus || !rootViewRequestFocus())) {
@@ -5449,12 +5553,23 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
-     * Gets the location of this view in screen coordintates.
+     * Gets the location of this view in screen coordinates.
      *
      * @param outRect The output location
      * @hide
      */
     public void getBoundsOnScreen(Rect outRect) {
+        getBoundsOnScreen(outRect, false);
+    }
+
+    /**
+     * Gets the location of this view in screen coordinates.
+     *
+     * @param outRect The output location
+     * @param clipToParent Whether to clip child bounds to the parent ones.
+     * @hide
+     */
+    public void getBoundsOnScreen(Rect outRect, boolean clipToParent) {
         if (mAttachInfo == null) {
             return;
         }
@@ -5473,6 +5588,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             View parentView = (View) parent;
 
             position.offset(-parentView.mScrollX, -parentView.mScrollY);
+
+            if (clipToParent) {
+                position.left = Math.max(position.left, 0);
+                position.top = Math.max(position.top, 0);
+                position.right = Math.min(position.right, parentView.getWidth());
+                position.bottom = Math.min(position.bottom, parentView.getHeight());
+            }
 
             if (!parentView.hasIdentityMatrix()) {
                 parentView.getMatrix().mapRect(position);
@@ -5505,7 +5627,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         getDrawingRect(bounds);
         info.setBoundsInParent(bounds);
 
-        getBoundsOnScreen(bounds);
+        getBoundsOnScreen(bounds, true);
         info.setBoundsInScreen(bounds);
 
         ViewParent parent = getParentForAccessibility();
@@ -5518,6 +5640,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             if (rootView == null) {
                 rootView = this;
             }
+
             View label = rootView.findLabelForView(this, mID);
             if (label != null) {
                 info.setLabeledBy(label);
@@ -5543,6 +5666,30 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             View labeled = rootView.findViewInsideOutShouldExist(this, mLabelForId);
             if (labeled != null) {
                 info.setLabelFor(labeled);
+            }
+        }
+
+        if (mAccessibilityTraversalBeforeId != View.NO_ID) {
+            View rootView = getRootView();
+            if (rootView == null) {
+                rootView = this;
+            }
+            View next = rootView.findViewInsideOutShouldExist(this,
+                    mAccessibilityTraversalBeforeId);
+            if (next != null) {
+                info.setTraversalBefore(next);
+            }
+        }
+
+        if (mAccessibilityTraversalAfterId != View.NO_ID) {
+            View rootView = getRootView();
+            if (rootView == null) {
+                rootView = this;
+            }
+            View next = rootView.findViewInsideOutShouldExist(this,
+                    mAccessibilityTraversalAfterId);
+            if (next != null) {
+                info.setTraversalAfter(next);
             }
         }
 
@@ -5805,6 +5952,94 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
+     * Sets the id of a view before which this one is visited in accessibility traversal.
+     * A screen-reader must visit the content of this view before the content of the one
+     * it precedes. For example, if view B is set to be before view A, then a screen-reader
+     * will traverse the entire content of B before traversing the entire content of A,
+     * regardles of what traversal strategy it is using.
+     * <p>
+     * Views that do not have specified before/after relationships are traversed in order
+     * determined by the screen-reader.
+     * </p>
+     * <p>
+     * Setting that this view is before a view that is not important for accessibility
+     * or if this view is not important for accessibility will have no effect as the
+     * screen-reader is not aware of unimportant views.
+     * </p>
+     *
+     * @param beforeId The id of a view this one precedes in accessibility traversal.
+     *
+     * @attr ref android.R.styleable#View_accessibilityTraversalBefore
+     *
+     * @see #setImportantForAccessibility(int)
+     */
+    @RemotableViewMethod
+    public void setAccessibilityTraversalBefore(int beforeId) {
+        if (mAccessibilityTraversalBeforeId == beforeId) {
+            return;
+        }
+        mAccessibilityTraversalBeforeId = beforeId;
+        notifyViewAccessibilityStateChangedIfNeeded(
+                AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
+    }
+
+    /**
+     * Gets the id of a view before which this one is visited in accessibility traversal.
+     *
+     * @return The id of a view this one precedes in accessibility traversal if
+     *         specified, otherwise {@link #NO_ID}.
+     *
+     * @see #setAccessibilityTraversalBefore(int)
+     */
+    public int getAccessibilityTraversalBefore() {
+        return mAccessibilityTraversalBeforeId;
+    }
+
+    /**
+     * Sets the id of a view after which this one is visited in accessibility traversal.
+     * A screen-reader must visit the content of the other view before the content of this
+     * one. For example, if view B is set to be after view A, then a screen-reader
+     * will traverse the entire content of A before traversing the entire content of B,
+     * regardles of what traversal strategy it is using.
+     * <p>
+     * Views that do not have specified before/after relationships are traversed in order
+     * determined by the screen-reader.
+     * </p>
+     * <p>
+     * Setting that this view is after a view that is not important for accessibility
+     * or if this view is not important for accessibility will have no effect as the
+     * screen-reader is not aware of unimportant views.
+     * </p>
+     *
+     * @param afterId The id of a view this one succedees in accessibility traversal.
+     *
+     * @attr ref android.R.styleable#View_accessibilityTraversalAfter
+     *
+     * @see #setImportantForAccessibility(int)
+     */
+    @RemotableViewMethod
+    public void setAccessibilityTraversalAfter(int afterId) {
+        if (mAccessibilityTraversalAfterId == afterId) {
+            return;
+        }
+        mAccessibilityTraversalAfterId = afterId;
+        notifyViewAccessibilityStateChangedIfNeeded(
+                AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
+    }
+
+    /**
+     * Gets the id of a view after which this one is visited in accessibility traversal.
+     *
+     * @return The id of a view this one succeedes in accessibility traversal if
+     *         specified, otherwise {@link #NO_ID}.
+     *
+     * @see #setAccessibilityTraversalAfter(int)
+     */
+    public int getAccessibilityTraversalAfter() {
+        return mAccessibilityTraversalAfterId;
+    }
+
+    /**
      * Gets the id of a view for which this view serves as a label for
      * accessibility purposes.
      *
@@ -5823,11 +6058,16 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      */
     @RemotableViewMethod
     public void setLabelFor(int id) {
+        if (mLabelForId == id) {
+            return;
+        }
         mLabelForId = id;
         if (mLabelForId != View.NO_ID
                 && mID == View.NO_ID) {
             mID = generateViewId();
         }
+        notifyViewAccessibilityStateChangedIfNeeded(
+                AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
     }
 
     /**
@@ -6169,7 +6409,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @see #setFitsSystemWindows(boolean)
      * @see #setSystemUiVisibility(int)
      *
-     * @deprecated As of API XX use {@link #dispatchApplyWindowInsets(WindowInsets)} to apply
+     * @deprecated As of API 20 use {@link #dispatchApplyWindowInsets(WindowInsets)} to apply
      * insets to views. Views should override {@link #onApplyWindowInsets(WindowInsets)} or use
      * {@link #setOnApplyWindowInsetsListener(android.view.View.OnApplyWindowInsetsListener)}
      * to implement handling their own insets.
@@ -6334,6 +6574,28 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
+     * Compute insets that should be consumed by this view and the ones that should propagate
+     * to those under it.
+     *
+     * @param in Insets currently being processed by this View, likely received as a parameter
+     *           to {@link #onApplyWindowInsets(WindowInsets)}.
+     * @param outLocalInsets A Rect that will receive the insets that should be consumed
+     *                       by this view
+     * @return Insets that should be passed along to views under this one
+     */
+    public WindowInsets computeSystemWindowInsets(WindowInsets in, Rect outLocalInsets) {
+        if ((mViewFlags & OPTIONAL_FITS_SYSTEM_WINDOWS) == 0
+                || mAttachInfo == null
+                || (mAttachInfo.mSystemUiVisibility & SYSTEM_UI_LAYOUT_FLAGS) == 0) {
+            outLocalInsets.set(in.getSystemWindowInsets());
+            return in.consumeSystemWindowInsets();
+        } else {
+            outLocalInsets.set(0, 0, 0, 0);
+            return in;
+        }
+    }
+
+    /**
      * Sets whether or not this view should account for system screen decorations
      * such as the status bar and inset its content; that is, controlling whether
      * the default implementation of {@link #fitSystemWindows(Rect)} will be
@@ -6369,6 +6631,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @see #fitSystemWindows(Rect)
      * @see #setSystemUiVisibility(int)
      */
+    @ViewDebug.ExportedProperty
     public boolean getFitsSystemWindows() {
         return (mViewFlags & FITS_SYSTEM_WINDOWS) == FITS_SYSTEM_WINDOWS;
     }
@@ -6894,6 +7157,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *
      * @return true if the view is currently pressed, false otherwise
      */
+    @ViewDebug.ExportedProperty
     public boolean isPressed() {
         return (mPrivateFlags & PFLAG_PRESSED) == PFLAG_PRESSED;
     }
@@ -7760,6 +8024,34 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
+     * Report an accessibility action to this view's parents for delegated processing.
+     *
+     * <p>Implementations of {@link #performAccessibilityAction(int, Bundle)} may internally
+     * call this method to delegate an accessibility action to a supporting parent. If the parent
+     * returns true from its
+     * {@link ViewParent#onNestedPrePerformAccessibilityAction(View, int, android.os.Bundle)}
+     * method this method will return true to signify that the action was consumed.</p>
+     *
+     * <p>This method is useful for implementing nested scrolling child views. If
+     * {@link #isNestedScrollingEnabled()} returns true and the action is a scrolling action
+     * a custom view implementation may invoke this method to allow a parent to consume the
+     * scroll first. If this method returns true the custom view should skip its own scrolling
+     * behavior.</p>
+     *
+     * @param action Accessibility action to delegate
+     * @param arguments Optional action arguments
+     * @return true if the action was consumed by a parent
+     */
+    public boolean dispatchNestedPrePerformAccessibilityAction(int action, Bundle arguments) {
+        for (ViewParent p = getParent(); p != null; p = p.getParent()) {
+            if (p.onNestedPrePerformAccessibilityAction(this, action, arguments)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Performs the specified accessibility action on the view. For
      * possible accessibility actions look at {@link AccessibilityNodeInfo}.
      * <p>
@@ -7768,6 +8060,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * {@link AccessibilityDelegate#performAccessibilityAction(View, int, Bundle)}
      * is responsible for handling this call.
      * </p>
+     *
+     * <p>The default implementation will delegate
+     * {@link AccessibilityNodeInfo#ACTION_SCROLL_BACKWARD} and
+     * {@link AccessibilityNodeInfo#ACTION_SCROLL_FORWARD} to nested scrolling parents if
+     * {@link #isNestedScrollingEnabled() nested scrolling is enabled} on this view.</p>
      *
      * @param action The action to perform.
      * @param arguments Optional action arguments.
@@ -7785,8 +8082,18 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     * @see #performAccessibilityAction(int, Bundle)
     *
     * Note: Called from the default {@link AccessibilityDelegate}.
+    *
+    * @hide Until we've refactored all accessibility delegation methods.
     */
-    boolean performAccessibilityActionInternal(int action, Bundle arguments) {
+    public boolean performAccessibilityActionInternal(int action, Bundle arguments) {
+        if (isNestedScrollingEnabled()
+                && (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                || action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+            if (dispatchNestedPrePerformAccessibilityAction(action, arguments)) {
+                return true;
+            }
+        }
+
         switch (action) {
             case AccessibilityNodeInfo.ACTION_CLICK: {
                 if (isClickable()) {
@@ -8130,6 +8437,16 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @return True if the event was handled by the view, false otherwise.
      */
     public boolean dispatchTouchEvent(MotionEvent event) {
+        // If the event should be handled by accessibility focus first.
+        if (event.isTargetAccessibilityFocus()) {
+            // We don't have focus or no virtual descendant has it, do not handle the event.
+            if (!isAccessibilityFocusedViewOrHost()) {
+                return false;
+            }
+            // We have focus and got the event, then use normal event dispatch.
+            event.setTargetAccessibilityFocus(false);
+        }
+
         boolean result = false;
 
         if (mInputEventConsistencyVerifier != null) {
@@ -8170,6 +8487,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
 
         return result;
+    }
+
+    boolean isAccessibilityFocusedViewOrHost() {
+        return isAccessibilityFocused() || (getViewRootImpl() != null && getViewRootImpl()
+                .getAccessibilityFocusedHost() == this);
     }
 
     /**
@@ -9545,6 +9867,29 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         if (ai != null) {
             ai.mViewScrollChanged = true;
         }
+
+        if (mListenerInfo != null && mListenerInfo.mOnScrollChangeListener != null) {
+            mListenerInfo.mOnScrollChangeListener.onScrollChange(this, l, t, oldl, oldt);
+        }
+    }
+
+    /**
+     * Interface definition for a callback to be invoked when the scroll
+     * position of a view changes.
+     *
+     * @hide Only used internally.
+     */
+    public interface OnScrollChangeListener {
+        /**
+         * Called when the scroll position of a view changes.
+         *
+         * @param v The view whose scroll position has changed.
+         * @param scrollX Current horizontal scroll origin.
+         * @param scrollY Current vertical scroll origin.
+         * @param oldScrollX Previous horizontal scroll origin.
+         * @param oldScrollY Previous vertical scroll origin.
+         */
+        void onScrollChange(View v, int scrollX, int scrollY, int oldScrollX, int oldScrollY);
     }
 
     /**
@@ -10168,6 +10513,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *
      * @return true if the content in this view might overlap, false otherwise.
      */
+    @ViewDebug.ExportedProperty(category = "drawing")
     public boolean hasOverlappingRendering() {
         return true;
     }
@@ -10284,6 +10630,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *
      * @hide
      */
+    @ViewDebug.ExportedProperty(category = "drawing")
     public float getTransitionAlpha() {
         return mTransformationInfo != null ? mTransformationInfo.mTransitionAlpha : 1;
     }
@@ -10712,6 +11059,15 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
     }
 
+    /** @hide */
+    public void setAnimationMatrix(Matrix matrix) {
+        invalidateViewProperty(true, false);
+        mRenderNode.setAnimationMatrix(matrix);
+        invalidateViewProperty(false, true);
+
+        invalidateParentIfNeededAndWasQuickRejected();
+    }
+
     /**
      * Returns the current StateListAnimator if exists.
      *
@@ -10747,14 +11103,6 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
-     * Deprecated, pending removal
-     *
-     * @hide
-     */
-    @Deprecated
-    public void setOutline(@Nullable Outline outline) {}
-
-    /**
      * Returns whether the Outline should be used to clip the contents of the View.
      * <p>
      * Note that this flag will only be respected if the View's Outline returns true from
@@ -10770,6 +11118,12 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     /**
      * Sets whether the View's Outline should be used to clip the contents of the View.
      * <p>
+     * Only a single non-rectangular clip can be applied on a View at any time.
+     * Circular clips from a {@link ViewAnimationUtils#createCircularReveal(View, int, int, float, float)
+     * circular reveal} animation take priority over Outline clipping, and
+     * child Outline clipping takes priority over Outline clipping done by a
+     * parent.
+     * <p>
      * Note that this flag will only be respected if the View's Outline returns true from
      * {@link Outline#canClip()}.
      *
@@ -10780,6 +11134,28 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         damageInParent();
         if (getClipToOutline() != clipToOutline) {
             mRenderNode.setClipToOutline(clipToOutline);
+        }
+    }
+
+    // correspond to the enum values of View_outlineProvider
+    private static final int PROVIDER_BACKGROUND = 0;
+    private static final int PROVIDER_NONE = 1;
+    private static final int PROVIDER_BOUNDS = 2;
+    private static final int PROVIDER_PADDED_BOUNDS = 3;
+    private void setOutlineProviderFromAttribute(int providerInt) {
+        switch (providerInt) {
+            case PROVIDER_BACKGROUND:
+                setOutlineProvider(ViewOutlineProvider.BACKGROUND);
+                break;
+            case PROVIDER_NONE:
+                setOutlineProvider(null);
+                break;
+            case PROVIDER_BOUNDS:
+                setOutlineProvider(ViewOutlineProvider.BOUNDS);
+                break;
+            case PROVIDER_PADDED_BOUNDS:
+                setOutlineProvider(ViewOutlineProvider.PADDED_BOUNDS);
+                break;
         }
     }
 
@@ -10821,32 +11197,52 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @see #setOutlineProvider(ViewOutlineProvider)
      */
     public void invalidateOutline() {
-        // Unattached views ignore this signal, and outline is recomputed in onAttachedToWindow()
-        if (mAttachInfo == null) return;
-
-        final Outline outline = mAttachInfo.mTmpOutline;
-        outline.setEmpty();
-
-        if (mOutlineProvider == null) {
-            // no provider, remove outline
-            mRenderNode.setOutline(null);
-        } else {
-            mOutlineProvider.getOutline(this, outline);
-            mRenderNode.setOutline(outline);
-        }
+        rebuildOutline();
 
         notifySubtreeAccessibilityStateChangedIfNeeded();
         invalidateViewProperty(false, false);
     }
 
     /**
-     * Private API to be used for reveal animation
+     * Internal version of {@link #invalidateOutline()} which invalidates the
+     * outline without invalidating the view itself. This is intended to be called from
+     * within methods in the View class itself which are the result of the view being
+     * invalidated already. For example, when we are drawing the background of a View,
+     * we invalidate the outline in case it changed in the meantime, but we do not
+     * need to invalidate the view because we're already drawing the background as part
+     * of drawing the view in response to an earlier invalidation of the view.
+     */
+    private void rebuildOutline() {
+        // Unattached views ignore this signal, and outline is recomputed in onAttachedToWindow()
+        if (mAttachInfo == null) return;
+
+        if (mOutlineProvider == null) {
+            // no provider, remove outline
+            mRenderNode.setOutline(null);
+        } else {
+            final Outline outline = mAttachInfo.mTmpOutline;
+            outline.setEmpty();
+            outline.setAlpha(1.0f);
+
+            mOutlineProvider.getOutline(this, outline);
+            mRenderNode.setOutline(outline);
+        }
+    }
+
+    /**
+     * HierarchyViewer only
      *
      * @hide
      */
-    public void setRevealClip(boolean shouldClip, boolean inverseClip,
-            float x, float y, float radius) {
-        mRenderNode.setRevealClip(shouldClip, inverseClip, x, y, radius);
+    @ViewDebug.ExportedProperty(category = "drawing")
+    public boolean hasShadow() {
+        return mRenderNode.hasShadow();
+    }
+
+
+    /** @hide */
+    public void setRevealClip(boolean shouldClip, float x, float y, float radius) {
+        mRenderNode.setRevealClip(shouldClip, x, y, radius);
         invalidateViewProperty(false, false);
     }
 
@@ -11371,6 +11767,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     void invalidateInternal(int l, int t, int r, int b, boolean invalidateCache,
             boolean fullInvalidate) {
+        if (mGhostView != null) {
+            mGhostView.invalidate(true);
+            return;
+        }
+
         if (skipInvalidate()) {
             return;
         }
@@ -11408,7 +11809,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 }
             }
 
-            // Damage the entire IsolatedZVolume recieving this view's shadow.
+            // Damage the entire IsolatedZVolume receiving this view's shadow.
             if (isHardwareAccelerated() && getZ() != 0) {
                 damageShadowReceiver();
             }
@@ -12475,7 +12876,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                         Interpolator.Result.FREEZE_END) {
                     cache.state = ScrollabilityCache.OFF;
                 } else {
-                    cache.scrollBar.setAlpha(Math.round(values[0]));
+                    cache.scrollBar.mutate().setAlpha(Math.round(values[0]));
                 }
 
                 // This will make the scroll bars inval themselves after
@@ -12485,7 +12886,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             } else {
                 // We're just on -- but we may have been fading before so
                 // reset alpha
-                cache.scrollBar.setAlpha(255);
+                cache.scrollBar.mutate().setAlpha(255);
             }
 
 
@@ -12666,7 +13067,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
         resetSubtreeAccessibilityStateChanged();
 
-        invalidateOutline();
+        // rebuild, since Outline not maintained while View is detached
+        rebuildOutline();
 
         if (isFocused()) {
             InputMethodManager imm = InputMethodManager.peekInstance();
@@ -12698,7 +13100,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
         // Should resolve Drawables before Padding because we need the layout direction of the
         // Drawable to correctly resolve Padding.
-        if (!isDrawablesResolved()) {
+        if (!areDrawablesResolved()) {
             resolveDrawables();
         }
         if (!isPaddingResolved()) {
@@ -12962,6 +13364,14 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @hide
      */
     public void resetResolvedPadding() {
+        resetResolvedPaddingInternal();
+    }
+
+    /**
+     * Used when we only want to reset *this* view's padding and not trigger overrides
+     * in ViewGroup that reset children too.
+     */
+    void resetResolvedPaddingInternal() {
         mPrivateFlags2 &= ~PFLAG2_PADDING_RESOLVED;
     }
 
@@ -12993,6 +13403,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         removePerformClickCallback();
         removeSendViewScrolledAccessibilityEventCallback();
         stopNestedScroll();
+
+        // Anything that started animating right before detach should already
+        // be in its final state when re-attached.
+        jumpDrawablesToCurrentState();
 
         destroyDrawingCache();
 
@@ -13562,11 +13976,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
         switch (mLayerType) {
             case LAYER_TYPE_HARDWARE:
-                // The only part of a hardware layer we can build in response to
-                // this call is to ensure the display list is up to date.
-                // The actual rendering of the display list into the layer must
-                // be done at playback time
                 updateDisplayListIfDirty();
+                if (attachInfo.mHardwareRenderer != null && mRenderNode.isValid()) {
+                    attachInfo.mHardwareRenderer.buildLayer(mRenderNode);
+                }
                 break;
             case LAYER_TYPE_SOFTWARE:
                 buildDrawingCache(true);
@@ -13918,143 +14331,158 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     public void buildDrawingCache(boolean autoScale) {
         if ((mPrivateFlags & PFLAG_DRAWING_CACHE_VALID) == 0 || (autoScale ?
                 mDrawingCache == null : mUnscaledDrawingCache == null)) {
-            mCachingFailed = false;
+            if (Trace.isTagEnabled(Trace.TRACE_TAG_VIEW)) {
+                Trace.traceBegin(Trace.TRACE_TAG_VIEW,
+                        "buildDrawingCache/SW Layer for " + getClass().getSimpleName());
+            }
+            try {
+                buildDrawingCacheImpl(autoScale);
+            } finally {
+                Trace.traceEnd(Trace.TRACE_TAG_VIEW);
+            }
+        }
+    }
 
-            int width = mRight - mLeft;
-            int height = mBottom - mTop;
+    /**
+     * private, internal implementation of buildDrawingCache, used to enable tracing
+     */
+    private void buildDrawingCacheImpl(boolean autoScale) {
+        mCachingFailed = false;
 
-            final AttachInfo attachInfo = mAttachInfo;
-            final boolean scalingRequired = attachInfo != null && attachInfo.mScalingRequired;
+        int width = mRight - mLeft;
+        int height = mBottom - mTop;
 
-            if (autoScale && scalingRequired) {
-                width = (int) ((width * attachInfo.mApplicationScale) + 0.5f);
-                height = (int) ((height * attachInfo.mApplicationScale) + 0.5f);
+        final AttachInfo attachInfo = mAttachInfo;
+        final boolean scalingRequired = attachInfo != null && attachInfo.mScalingRequired;
+
+        if (autoScale && scalingRequired) {
+            width = (int) ((width * attachInfo.mApplicationScale) + 0.5f);
+            height = (int) ((height * attachInfo.mApplicationScale) + 0.5f);
+        }
+
+        final int drawingCacheBackgroundColor = mDrawingCacheBackgroundColor;
+        final boolean opaque = drawingCacheBackgroundColor != 0 || isOpaque();
+        final boolean use32BitCache = attachInfo != null && attachInfo.mUse32BitDrawingCache;
+
+        final long projectedBitmapSize = width * height * (opaque && !use32BitCache ? 2 : 4);
+        final long drawingCacheSize =
+                ViewConfiguration.get(mContext).getScaledMaximumDrawingCacheSize();
+        if (width <= 0 || height <= 0 || projectedBitmapSize > drawingCacheSize) {
+            if (width > 0 && height > 0) {
+                Log.w(VIEW_LOG_TAG, "View too large to fit into drawing cache, needs "
+                        + projectedBitmapSize + " bytes, only "
+                        + drawingCacheSize + " available");
+            }
+            destroyDrawingCache();
+            mCachingFailed = true;
+            return;
+        }
+
+        boolean clear = true;
+        Bitmap bitmap = autoScale ? mDrawingCache : mUnscaledDrawingCache;
+
+        if (bitmap == null || bitmap.getWidth() != width || bitmap.getHeight() != height) {
+            Bitmap.Config quality;
+            if (!opaque) {
+                // Never pick ARGB_4444 because it looks awful
+                // Keep the DRAWING_CACHE_QUALITY_LOW flag just in case
+                switch (mViewFlags & DRAWING_CACHE_QUALITY_MASK) {
+                    case DRAWING_CACHE_QUALITY_AUTO:
+                    case DRAWING_CACHE_QUALITY_LOW:
+                    case DRAWING_CACHE_QUALITY_HIGH:
+                    default:
+                        quality = Bitmap.Config.ARGB_8888;
+                        break;
+                }
+            } else {
+                // Optimization for translucent windows
+                // If the window is translucent, use a 32 bits bitmap to benefit from memcpy()
+                quality = use32BitCache ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
             }
 
-            final int drawingCacheBackgroundColor = mDrawingCacheBackgroundColor;
-            final boolean opaque = drawingCacheBackgroundColor != 0 || isOpaque();
-            final boolean use32BitCache = attachInfo != null && attachInfo.mUse32BitDrawingCache;
+            // Try to cleanup memory
+            if (bitmap != null) bitmap.recycle();
 
-            final long projectedBitmapSize = width * height * (opaque && !use32BitCache ? 2 : 4);
-            final long drawingCacheSize =
-                    ViewConfiguration.get(mContext).getScaledMaximumDrawingCacheSize();
-            if (width <= 0 || height <= 0 || projectedBitmapSize > drawingCacheSize) {
-                if (width > 0 && height > 0) {
-                    Log.w(VIEW_LOG_TAG, "View too large to fit into drawing cache, needs "
-                            + projectedBitmapSize + " bytes, only "
-                            + drawingCacheSize + " available");
+            try {
+                bitmap = Bitmap.createBitmap(mResources.getDisplayMetrics(),
+                        width, height, quality);
+                bitmap.setDensity(getResources().getDisplayMetrics().densityDpi);
+                if (autoScale) {
+                    mDrawingCache = bitmap;
+                } else {
+                    mUnscaledDrawingCache = bitmap;
                 }
-                destroyDrawingCache();
+                if (opaque && use32BitCache) bitmap.setHasAlpha(false);
+            } catch (OutOfMemoryError e) {
+                // If there is not enough memory to create the bitmap cache, just
+                // ignore the issue as bitmap caches are not required to draw the
+                // view hierarchy
+                if (autoScale) {
+                    mDrawingCache = null;
+                } else {
+                    mUnscaledDrawingCache = null;
+                }
                 mCachingFailed = true;
                 return;
             }
 
-            boolean clear = true;
-            Bitmap bitmap = autoScale ? mDrawingCache : mUnscaledDrawingCache;
+            clear = drawingCacheBackgroundColor != 0;
+        }
 
-            if (bitmap == null || bitmap.getWidth() != width || bitmap.getHeight() != height) {
-                Bitmap.Config quality;
-                if (!opaque) {
-                    // Never pick ARGB_4444 because it looks awful
-                    // Keep the DRAWING_CACHE_QUALITY_LOW flag just in case
-                    switch (mViewFlags & DRAWING_CACHE_QUALITY_MASK) {
-                        case DRAWING_CACHE_QUALITY_AUTO:
-                        case DRAWING_CACHE_QUALITY_LOW:
-                        case DRAWING_CACHE_QUALITY_HIGH:
-                        default:
-                            quality = Bitmap.Config.ARGB_8888;
-                            break;
-                    }
-                } else {
-                    // Optimization for translucent windows
-                    // If the window is translucent, use a 32 bits bitmap to benefit from memcpy()
-                    quality = use32BitCache ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
-                }
-
-                // Try to cleanup memory
-                if (bitmap != null) bitmap.recycle();
-
-                try {
-                    bitmap = Bitmap.createBitmap(mResources.getDisplayMetrics(),
-                            width, height, quality);
-                    bitmap.setDensity(getResources().getDisplayMetrics().densityDpi);
-                    if (autoScale) {
-                        mDrawingCache = bitmap;
-                    } else {
-                        mUnscaledDrawingCache = bitmap;
-                    }
-                    if (opaque && use32BitCache) bitmap.setHasAlpha(false);
-                } catch (OutOfMemoryError e) {
-                    // If there is not enough memory to create the bitmap cache, just
-                    // ignore the issue as bitmap caches are not required to draw the
-                    // view hierarchy
-                    if (autoScale) {
-                        mDrawingCache = null;
-                    } else {
-                        mUnscaledDrawingCache = null;
-                    }
-                    mCachingFailed = true;
-                    return;
-                }
-
-                clear = drawingCacheBackgroundColor != 0;
+        Canvas canvas;
+        if (attachInfo != null) {
+            canvas = attachInfo.mCanvas;
+            if (canvas == null) {
+                canvas = new Canvas();
             }
+            canvas.setBitmap(bitmap);
+            // Temporarily clobber the cached Canvas in case one of our children
+            // is also using a drawing cache. Without this, the children would
+            // steal the canvas by attaching their own bitmap to it and bad, bad
+            // thing would happen (invisible views, corrupted drawings, etc.)
+            attachInfo.mCanvas = null;
+        } else {
+            // This case should hopefully never or seldom happen
+            canvas = new Canvas(bitmap);
+        }
 
-            Canvas canvas;
-            if (attachInfo != null) {
-                canvas = attachInfo.mCanvas;
-                if (canvas == null) {
-                    canvas = new Canvas();
-                }
-                canvas.setBitmap(bitmap);
-                // Temporarily clobber the cached Canvas in case one of our children
-                // is also using a drawing cache. Without this, the children would
-                // steal the canvas by attaching their own bitmap to it and bad, bad
-                // thing would happen (invisible views, corrupted drawings, etc.)
-                attachInfo.mCanvas = null;
-            } else {
-                // This case should hopefully never or seldom happen
-                canvas = new Canvas(bitmap);
+        if (clear) {
+            bitmap.eraseColor(drawingCacheBackgroundColor);
+        }
+
+        computeScroll();
+        final int restoreCount = canvas.save();
+
+        if (autoScale && scalingRequired) {
+            final float scale = attachInfo.mApplicationScale;
+            canvas.scale(scale, scale);
+        }
+
+        canvas.translate(-mScrollX, -mScrollY);
+
+        mPrivateFlags |= PFLAG_DRAWN;
+        if (mAttachInfo == null || !mAttachInfo.mHardwareAccelerated ||
+                mLayerType != LAYER_TYPE_NONE) {
+            mPrivateFlags |= PFLAG_DRAWING_CACHE_VALID;
+        }
+
+        // Fast path for layouts with no backgrounds
+        if ((mPrivateFlags & PFLAG_SKIP_DRAW) == PFLAG_SKIP_DRAW) {
+            mPrivateFlags &= ~PFLAG_DIRTY_MASK;
+            dispatchDraw(canvas);
+            if (mOverlay != null && !mOverlay.isEmpty()) {
+                mOverlay.getOverlayView().draw(canvas);
             }
+        } else {
+            draw(canvas);
+        }
 
-            if (clear) {
-                bitmap.eraseColor(drawingCacheBackgroundColor);
-            }
+        canvas.restoreToCount(restoreCount);
+        canvas.setBitmap(null);
 
-            computeScroll();
-            final int restoreCount = canvas.save();
-
-            if (autoScale && scalingRequired) {
-                final float scale = attachInfo.mApplicationScale;
-                canvas.scale(scale, scale);
-            }
-
-            canvas.translate(-mScrollX, -mScrollY);
-
-            mPrivateFlags |= PFLAG_DRAWN;
-            if (mAttachInfo == null || !mAttachInfo.mHardwareAccelerated ||
-                    mLayerType != LAYER_TYPE_NONE) {
-                mPrivateFlags |= PFLAG_DRAWING_CACHE_VALID;
-            }
-
-            // Fast path for layouts with no backgrounds
-            if ((mPrivateFlags & PFLAG_SKIP_DRAW) == PFLAG_SKIP_DRAW) {
-                mPrivateFlags &= ~PFLAG_DIRTY_MASK;
-                dispatchDraw(canvas);
-                if (mOverlay != null && !mOverlay.isEmpty()) {
-                    mOverlay.getOverlayView().draw(canvas);
-                }
-            } else {
-                draw(canvas);
-            }
-
-            canvas.restoreToCount(restoreCount);
-            canvas.setBitmap(null);
-
-            if (attachInfo != null) {
-                // Restore the cached Canvas for our siblings
-                attachInfo.mCanvas = canvas;
-            }
+        if (attachInfo != null) {
+            // Restore the cached Canvas for our siblings
+            attachInfo.mCanvas = canvas;
         }
     }
 
@@ -14281,27 +14709,21 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * this view, to which future drawing operations will be clipped.
      */
     public void setClipBounds(Rect clipBounds) {
+        if (clipBounds == mClipBounds
+                || (clipBounds != null && clipBounds.equals(mClipBounds))) {
+            return;
+        }
         if (clipBounds != null) {
-            if (clipBounds.equals(mClipBounds)) {
-                return;
-            }
             if (mClipBounds == null) {
-                invalidate();
                 mClipBounds = new Rect(clipBounds);
             } else {
-                invalidate(Math.min(mClipBounds.left, clipBounds.left),
-                        Math.min(mClipBounds.top, clipBounds.top),
-                        Math.max(mClipBounds.right, clipBounds.right),
-                        Math.max(mClipBounds.bottom, clipBounds.bottom));
                 mClipBounds.set(clipBounds);
             }
         } else {
-            if (mClipBounds != null) {
-                invalidate();
-                mClipBounds = null;
-            }
+            mClipBounds = null;
         }
         mRenderNode.setClipBounds(mClipBounds);
+        invalidateViewProperty(false, false);
     }
 
     /**
@@ -14640,8 +15062,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                         } else  if (layerType == LAYER_TYPE_NONE) {
                             final int scrollX = hasDisplayList ? 0 : sx;
                             final int scrollY = hasDisplayList ? 0 : sy;
-                            canvas.saveLayerAlpha(scrollX, scrollY, scrollX + mRight - mLeft,
-                                    scrollY + mBottom - mTop, multipliedAlpha, layerFlags);
+                            canvas.saveLayerAlpha(scrollX, scrollY,
+                                    scrollX + (mRight - mLeft), scrollY + (mBottom - mTop),
+                                    multipliedAlpha, layerFlags);
                         }
                     } else {
                         // Alpha is handled by the child directly, clobber the layer's alpha
@@ -14654,18 +15077,28 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             mPrivateFlags &= ~PFLAG_ALPHA_SET;
         }
 
-        if ((flags & ViewGroup.FLAG_CLIP_CHILDREN) == ViewGroup.FLAG_CLIP_CHILDREN &&
-                !usingRenderNodeProperties && cache == null) {
-            if (offsetForScroll) {
-                canvas.clipRect(sx, sy, sx + (mRight - mLeft), sy + (mBottom - mTop));
-            } else {
-                if (!scalingRequired || cache == null) {
-                    canvas.clipRect(0, 0, mRight - mLeft, mBottom - mTop);
+        if (!usingRenderNodeProperties) {
+            // apply clips directly, since RenderNode won't do it for this draw
+            if ((flags & ViewGroup.FLAG_CLIP_CHILDREN) == ViewGroup.FLAG_CLIP_CHILDREN
+                    && cache == null) {
+                if (offsetForScroll) {
+                    canvas.clipRect(sx, sy, sx + (mRight - mLeft), sy + (mBottom - mTop));
                 } else {
-                    canvas.clipRect(0, 0, cache.getWidth(), cache.getHeight());
+                    if (!scalingRequired || cache == null) {
+                        canvas.clipRect(0, 0, mRight - mLeft, mBottom - mTop);
+                    } else {
+                        canvas.clipRect(0, 0, cache.getWidth(), cache.getHeight());
+                    }
                 }
             }
+
+            if (mClipBounds != null) {
+                // clip bounds ignore scroll
+                canvas.clipRect(mClipBounds);
+            }
         }
+
+
 
         if (!usingRenderNodeProperties && hasDisplayList) {
             renderNode = getDisplayList();
@@ -14683,8 +15116,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             if (layerType == LAYER_TYPE_HARDWARE && !usingRenderNodeProperties) {
                 final HardwareLayer layer = getHardwareLayer();
                 if (layer != null && layer.isValid()) {
+                    int restoreAlpha = mLayerPaint.getAlpha();
                     mLayerPaint.setAlpha((int) (alpha * 255));
                     ((HardwareCanvas) canvas).drawHardwareLayer(layer, 0, 0, mLayerPaint);
+                    mLayerPaint.setAlpha(restoreAlpha);
                     layerRendered = true;
                 } else {
                     final int scrollX = hasDisplayList ? 0 : sx;
@@ -14712,6 +15147,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         } else if (cache != null) {
             mPrivateFlags &= ~PFLAG_DIRTY_MASK;
             Paint cachePaint;
+            int restoreAlpha = 0;
 
             if (layerType == LAYER_TYPE_NONE) {
                 cachePaint = parent.mCachePaint;
@@ -14720,18 +15156,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                     cachePaint.setDither(false);
                     parent.mCachePaint = cachePaint;
                 }
-                if (alpha < 1) {
-                    cachePaint.setAlpha((int) (alpha * 255));
-                    parent.mGroupFlags |= ViewGroup.FLAG_ALPHA_LOWER_THAN_ONE;
-                } else if  ((flags & ViewGroup.FLAG_ALPHA_LOWER_THAN_ONE) != 0) {
-                    cachePaint.setAlpha(255);
-                    parent.mGroupFlags &= ~ViewGroup.FLAG_ALPHA_LOWER_THAN_ONE;
-                }
             } else {
                 cachePaint = mLayerPaint;
-                cachePaint.setAlpha((int) (alpha * 255));
+                restoreAlpha = mLayerPaint.getAlpha();
             }
+            cachePaint.setAlpha((int) (alpha * 255));
             canvas.drawBitmap(cache, 0.0f, 0.0f, cachePaint);
+            cachePaint.setAlpha(restoreAlpha);
         }
 
         if (restoreTo >= 0) {
@@ -14767,10 +15198,6 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param canvas The Canvas to which the View is rendered.
      */
     public void draw(Canvas canvas) {
-        boolean usingRenderNodeProperties = canvas.isRecordingFor(mRenderNode);
-        if (mClipBounds != null && !usingRenderNodeProperties) {
-            canvas.clipRect(mClipBounds);
-        }
         final int privateFlags = mPrivateFlags;
         final boolean dirtyOpaque = (privateFlags & PFLAG_DIRTY_MASK) == PFLAG_DIRTY_OPAQUE &&
                 (mAttachInfo == null || !mAttachInfo.mIgnoreDirtyState);
@@ -14976,7 +15403,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         if (mBackgroundSizeChanged) {
             background.setBounds(0, 0,  mRight - mLeft, mBottom - mTop);
             mBackgroundSizeChanged = false;
-            invalidateOutline();
+            rebuildOutline();
         }
 
         // Attempt to use a display list if requested.
@@ -14984,10 +15411,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 && mAttachInfo.mHardwareRenderer != null) {
             mBackgroundRenderNode = getDrawableRenderNode(background, mBackgroundRenderNode);
 
-            final RenderNode displayList = mBackgroundRenderNode;
-            if (displayList != null && displayList.isValid()) {
-                setBackgroundDisplayListProperties(displayList);
-                ((HardwareCanvas) canvas).drawRenderNode(displayList);
+            final RenderNode renderNode = mBackgroundRenderNode;
+            if (renderNode != null && renderNode.isValid()) {
+                setBackgroundRenderNodeProperties(renderNode);
+                ((HardwareCanvas) canvas).drawRenderNode(renderNode);
                 return;
             }
         }
@@ -15003,14 +15430,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
     }
 
-    /**
-     * Set up background drawable display list properties.
-     *
-     * @param displayList Valid display list for the background drawable
-     */
-    private void setBackgroundDisplayListProperties(RenderNode displayList) {
-        displayList.setTranslationX(mScrollX);
-        displayList.setTranslationY(mScrollY);
+    private void setBackgroundRenderNodeProperties(RenderNode renderNode) {
+        renderNode.setTranslationX(mScrollX);
+        renderNode.setTranslationY(mScrollY);
     }
 
     /**
@@ -15021,15 +15443,22 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param renderNode Existing RenderNode, or {@code null}
      * @return A valid display list for the specified drawable
      */
-    private static RenderNode getDrawableRenderNode(Drawable drawable, RenderNode renderNode) {
+    private RenderNode getDrawableRenderNode(Drawable drawable, RenderNode renderNode) {
         if (renderNode == null) {
-            renderNode = RenderNode.create(drawable.getClass().getName());
+            renderNode = RenderNode.create(drawable.getClass().getName(), this);
         }
 
         final Rect bounds = drawable.getBounds();
         final int width = bounds.width();
         final int height = bounds.height();
         final HardwareCanvas canvas = renderNode.start(width, height);
+
+        // Reverse left/top translation done by drawable canvas, which will
+        // instead be applied by rendernode's LTRB bounds below. This way, the
+        // drawable's bounds match with its rendernode bounds and its content
+        // will lie within those bounds in the rendernode tree.
+        canvas.translate(-bounds.left, -bounds.top);
+
         try {
             drawable.draw(canvas);
         } finally {
@@ -15322,7 +15751,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 sizeChange(newWidth, newHeight, oldWidth, oldHeight);
             }
 
-            if ((mViewFlags & VISIBILITY_MASK) == VISIBLE) {
+            if ((mViewFlags & VISIBILITY_MASK) == VISIBLE || mGhostView != null) {
                 // If we are visible, force the DRAWN bit to on so that
                 // this invalidate will go through (at least to our parent).
                 // This is because someone may have invalidated this view
@@ -15345,13 +15774,21 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         return changed;
     }
 
+    /**
+     * Same as setFrame, but public and hidden. For use in {@link android.transition.ChangeBounds}.
+     * @hide
+     */
+    public void setLeftTopRightBottom(int left, int top, int right, int bottom) {
+        setFrame(left, top, right, bottom);
+    }
+
     private void sizeChange(int newWidth, int newHeight, int oldWidth, int oldHeight) {
         onSizeChanged(newWidth, newHeight, oldWidth, oldHeight);
         if (mOverlay != null) {
             mOverlay.getOverlayView().setRight(newWidth);
             mOverlay.getOverlayView().setBottom(newHeight);
         }
-        invalidateOutline();
+        rebuildOutline();
     }
 
     /**
@@ -15387,8 +15824,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
             invalidate(dirty.left + scrollX, dirty.top + scrollY,
                     dirty.right + scrollX, dirty.bottom + scrollY);
-
-            invalidateOutline();
+            rebuildOutline();
         }
     }
 
@@ -15478,6 +15914,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         onResolveDrawables(layoutDirection);
     }
 
+    boolean areDrawablesResolved() {
+        return (mPrivateFlags2 & PFLAG2_DRAWABLE_RESOLVED) == PFLAG2_DRAWABLE_RESOLVED;
+    }
+
     /**
      * Called when layout direction has been resolved.
      *
@@ -15497,11 +15937,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @hide
      */
     protected void resetResolvedDrawables() {
-        mPrivateFlags2 &= ~PFLAG2_DRAWABLE_RESOLVED;
+        resetResolvedDrawablesInternal();
     }
 
-    private boolean isDrawablesResolved() {
-        return (mPrivateFlags2 & PFLAG2_DRAWABLE_RESOLVED) == PFLAG2_DRAWABLE_RESOLVED;
+    void resetResolvedDrawablesInternal() {
+        mPrivateFlags2 &= ~PFLAG2_DRAWABLE_RESOLVED;
     }
 
     /**
@@ -15551,7 +15991,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     /**
      * This function is called whenever the view hotspot changes and needs to
-     * be propagated to drawables managed by the view.
+     * be propagated to drawables or child views managed by the view.
+     * <p>
+     * Dispatching to child views is handled by
+     * {@link #dispatchDrawableHotspotChanged(float, float)}.
      * <p>
      * Be sure to call through to the superclass when overriding this function.
      *
@@ -15562,6 +16005,18 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         if (mBackground != null) {
             mBackground.setHotspot(x, y);
         }
+
+        dispatchDrawableHotspotChanged(x, y);
+    }
+
+    /**
+     * Dispatches drawableHotspotChanged to all of this View's children.
+     *
+     * @param x hotspot x coordinate
+     * @param y hotspot y coordinate
+     * @see #drawableHotspotChanged(float, float)
+     */
+    public void dispatchDrawableHotspotChanged(float x, float y) {
     }
 
     /**
@@ -15801,10 +16256,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 padding = new Rect();
                 sThreadLocal.set(padding);
             }
-            resetResolvedDrawables();
+            resetResolvedDrawablesInternal();
             background.setLayoutDirection(getLayoutDirection());
             if (background.getPadding(padding)) {
-                resetResolvedPadding();
+                resetResolvedPaddingInternal();
                 switch (background.getLayoutDirection()) {
                     case LAYOUT_DIRECTION_RTL:
                         mUserPaddingLeftInitial = padding.right;
@@ -15894,66 +16349,95 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     /**
      * Applies a tint to the background drawable. Does not modify the current tint
-     * mode, which is {@link PorterDuff.Mode#SRC_ATOP} by default.
+     * mode, which is {@link PorterDuff.Mode#SRC_IN} by default.
      * <p>
      * Subsequent calls to {@link #setBackground(Drawable)} will automatically
      * mutate the drawable and apply the specified tint and tint mode using
-     * {@link Drawable#setTint(ColorStateList, PorterDuff.Mode)}.
+     * {@link Drawable#setTintList(ColorStateList)}.
      *
      * @param tint the tint to apply, may be {@code null} to clear tint
      *
      * @attr ref android.R.styleable#View_backgroundTint
-     * @see #getBackgroundTint()
-     * @see Drawable#setTint(ColorStateList, PorterDuff.Mode)
+     * @see #getBackgroundTintList()
+     * @see Drawable#setTintList(ColorStateList)
      */
-    public void setBackgroundTint(@Nullable ColorStateList tint) {
-        mBackgroundTint = tint;
-        mHasBackgroundTint = true;
+    public void setBackgroundTintList(@Nullable ColorStateList tint) {
+        if (mBackgroundTint == null) {
+            mBackgroundTint = new TintInfo();
+        }
+        mBackgroundTint.mTintList = tint;
+        mBackgroundTint.mHasTintList = true;
 
         applyBackgroundTint();
     }
 
     /**
+     * Return the tint applied to the background drawable, if specified.
+     *
      * @return the tint applied to the background drawable
      * @attr ref android.R.styleable#View_backgroundTint
-     * @see #setBackgroundTint(ColorStateList)
+     * @see #setBackgroundTintList(ColorStateList)
      */
     @Nullable
-    public ColorStateList getBackgroundTint() {
-        return mBackgroundTint;
+    public ColorStateList getBackgroundTintList() {
+        return mBackgroundTint != null ? mBackgroundTint.mTintList : null;
     }
 
     /**
      * Specifies the blending mode used to apply the tint specified by
-     * {@link #setBackgroundTint(ColorStateList)}} to the background drawable.
-     * The default mode is {@link PorterDuff.Mode#SRC_ATOP}.
+     * {@link #setBackgroundTintList(ColorStateList)}} to the background
+     * drawable. The default mode is {@link PorterDuff.Mode#SRC_IN}.
      *
      * @param tintMode the blending mode used to apply the tint, may be
      *                 {@code null} to clear tint
      * @attr ref android.R.styleable#View_backgroundTintMode
      * @see #getBackgroundTintMode()
-     * @see Drawable#setTint(ColorStateList, PorterDuff.Mode)
+     * @see Drawable#setTintMode(PorterDuff.Mode)
      */
     public void setBackgroundTintMode(@Nullable PorterDuff.Mode tintMode) {
-        mBackgroundTintMode = tintMode;
+        if (mBackgroundTint == null) {
+            mBackgroundTint = new TintInfo();
+        }
+        mBackgroundTint.mTintMode = tintMode;
+        mBackgroundTint.mHasTintMode = true;
 
         applyBackgroundTint();
     }
 
     /**
-     * @return the blending mode used to apply the tint to the background drawable
+     * Return the blending mode used to apply the tint to the background
+     * drawable, if specified.
+     *
+     * @return the blending mode used to apply the tint to the background
+     *         drawable
      * @attr ref android.R.styleable#View_backgroundTintMode
      * @see #setBackgroundTintMode(PorterDuff.Mode)
      */
     @Nullable
     public PorterDuff.Mode getBackgroundTintMode() {
-        return mBackgroundTintMode;
+        return mBackgroundTint != null ? mBackgroundTint.mTintMode : null;
     }
 
     private void applyBackgroundTint() {
-        if (mBackground != null && mHasBackgroundTint) {
-            mBackground = mBackground.mutate();
-            mBackground.setTint(mBackgroundTint, mBackgroundTintMode);
+        if (mBackground != null && mBackgroundTint != null) {
+            final TintInfo tintInfo = mBackgroundTint;
+            if (tintInfo.mHasTintList || tintInfo.mHasTintMode) {
+                mBackground = mBackground.mutate();
+
+                if (tintInfo.mHasTintList) {
+                    mBackground.setTintList(tintInfo.mTintList);
+                }
+
+                if (tintInfo.mHasTintMode) {
+                    mBackground.setTintMode(tintInfo.mTintMode);
+                }
+
+                // The drawable (or one of its children) may not have been
+                // stateful before applying the tint, so let's try again.
+                if (mBackground.isStateful()) {
+                    mBackground.setState(getDrawableState());
+                }
+            }
         }
     }
 
@@ -15975,7 +16459,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param bottom the bottom padding in pixels
      */
     public void setPadding(int left, int top, int right, int bottom) {
-        resetResolvedPadding();
+        resetResolvedPaddingInternal();
 
         mUserPaddingStart = UNDEFINED_PADDING;
         mUserPaddingEnd = UNDEFINED_PADDING;
@@ -16046,6 +16530,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
         if (changed) {
             requestLayout();
+            invalidateOutline();
         }
     }
 
@@ -16067,7 +16552,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param bottom the bottom padding in pixels
      */
     public void setPaddingRelative(int start, int top, int end, int bottom) {
-        resetResolvedPadding();
+        resetResolvedPaddingInternal();
 
         mUserPaddingStart = start;
         mUserPaddingEnd = end;
@@ -16240,8 +16725,12 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             invalidate(true);
             refreshDrawableState();
             dispatchSetSelected(selected);
-            notifyViewAccessibilityStateChangedIfNeeded(
-                    AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
+            if (selected) {
+                sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_SELECTED);
+            } else {
+                notifyViewAccessibilityStateChangedIfNeeded(
+                        AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
+            }
         }
     }
 
@@ -16444,6 +16933,19 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         if (!hasIdentityMatrix()) {
             m.postConcat(getInverseMatrix());
         }
+    }
+
+    /**
+     * @hide
+     */
+    @ViewDebug.ExportedProperty(category = "layout", indexMapping = {
+            @ViewDebug.IntToString(from = 0, to = "x"),
+            @ViewDebug.IntToString(from = 1, to = "y")
+    })
+    public int[] getLocationOnScreen() {
+        int[] location = new int[2];
+        getLocationOnScreen(location);
+        return location;
     }
 
     /**
@@ -17024,17 +17526,22 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         long key = (long) widthMeasureSpec << 32 | (long) heightMeasureSpec & 0xffffffffL;
         if (mMeasureCache == null) mMeasureCache = new LongSparseLongArray(2);
 
-        if ((mPrivateFlags & PFLAG_FORCE_LAYOUT) == PFLAG_FORCE_LAYOUT ||
-                widthMeasureSpec != mOldWidthMeasureSpec ||
-                heightMeasureSpec != mOldHeightMeasureSpec) {
+        final boolean forceLayout = (mPrivateFlags & PFLAG_FORCE_LAYOUT) == PFLAG_FORCE_LAYOUT;
+        final boolean isExactly = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY &&
+                MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY;
+        final boolean matchingSize = isExactly &&
+                getMeasuredWidth() == MeasureSpec.getSize(widthMeasureSpec) &&
+                getMeasuredHeight() == MeasureSpec.getSize(heightMeasureSpec);
+        if (forceLayout || !matchingSize &&
+                (widthMeasureSpec != mOldWidthMeasureSpec ||
+                        heightMeasureSpec != mOldHeightMeasureSpec)) {
 
             // first clears the measured dimension flag
             mPrivateFlags &= ~PFLAG_MEASURED_DIMENSION_SET;
 
             resolveRtlPropertiesIfNeeded();
 
-            int cacheIndex = (mPrivateFlags & PFLAG_FORCE_LAYOUT) == PFLAG_FORCE_LAYOUT ? -1 :
-                    mMeasureCache.indexOfKey(key);
+            int cacheIndex = forceLayout ? -1 : mMeasureCache.indexOfKey(key);
             if (cacheIndex < 0 || sIgnoreMeasureCache) {
                 // measure ourselves, this should set the measured dimension flag back
                 onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -18977,7 +19484,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @hide
      */
     public void findNamedViews(Map<String, View> namedElements) {
-        if (getVisibility() == VISIBLE) {
+        if (getVisibility() == VISIBLE || mGhostView != null) {
             String transitionName = getTransitionName();
             if (transitionName != null) {
                 namedElements.put(transitionName, this);
@@ -19397,6 +19904,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @return The name used of the View to be used to identify Views in Transitions or null
      * if no name has been given.
      */
+    @ViewDebug.ExportedProperty
     public String getTransitionName() {
         return mTransitionName;
     }
@@ -19734,6 +20242,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         boolean mHardwareAccelerated;
         boolean mHardwareAccelerationRequested;
         HardwareRenderer mHardwareRenderer;
+        List<RenderNode> mPendingAnimatingRenderNodes;
 
         /**
          * The state of the display to which the window is attached, as reported
@@ -19978,6 +20487,16 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
          * Temporary for use in computing hit areas with transformed views
          */
         final RectF mTmpTransformRect = new RectF();
+
+        /**
+         * Temporary for use in computing hit areas with transformed views
+         */
+        final RectF mTmpTransformRect1 = new RectF();
+
+        /**
+         * Temporary list of rectanges.
+         */
+        final List<RectF> mTmpRectList = new ArrayList<>();
 
         /**
          * Temporary for use in transforming invalidation rect
@@ -20514,6 +21033,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             if (mPosted) {
                 return;
             }
+
             final long timeSinceLastMillis = SystemClock.uptimeMillis() - mLastEventTimeMillis;
             final long minEventIntevalMillis =
                     ViewConfiguration.getSendRecurringAccessibilityEventsInterval();
@@ -20522,7 +21042,6 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 run();
             } else {
                 postDelayed(this, minEventIntevalMillis - timeSinceLastMillis);
-                mPosted = true;
                 mPostedWithDelay = true;
             }
         }

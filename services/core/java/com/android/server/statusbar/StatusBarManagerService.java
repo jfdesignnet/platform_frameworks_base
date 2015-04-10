@@ -22,7 +22,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.service.notification.StatusBarNotification;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
@@ -39,18 +38,14 @@ import com.android.server.wm.WindowManagerService;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 
 /**
  * A note on locking:  We rely on the fact that calls onto mBar are oneway or
  * if they are local, that they just enqueue messages to not deadlock.
  */
-public class StatusBarManagerService extends IStatusBarService.Stub
-    implements WindowManagerService.OnHardKeyboardStatusChangeListener
-{
+public class StatusBarManagerService extends IStatusBarService.Stub {
     private static final String TAG = "StatusBarManagerService";
     private static final boolean SPEW = false;
 
@@ -95,7 +90,6 @@ public class StatusBarManagerService extends IStatusBarService.Stub
     public StatusBarManagerService(Context context, WindowManagerService windowManager) {
         mContext = context;
         mWindowManager = windowManager;
-        mWindowManager.setOnHardKeyboardStatusChangeListener(this);
 
         final Resources res = context.getResources();
         mIcons.defineSlots(res.getStringArray(com.android.internal.R.array.config_statusBarIcons));
@@ -107,16 +101,53 @@ public class StatusBarManagerService extends IStatusBarService.Stub
      * Private API used by NotificationManagerService.
      */
     private final StatusBarManagerInternal mInternalService = new StatusBarManagerInternal() {
+        private boolean mNotificationLightOn;
+
         @Override
         public void setNotificationDelegate(NotificationDelegate delegate) {
             mNotificationDelegate = delegate;
         }
+
         @Override
         public void buzzBeepBlinked() {
             if (mBar != null) {
                 try {
                     mBar.buzzBeepBlinked();
                 } catch (RemoteException ex) {
+                }
+            }
+        }
+
+        @Override
+        public void notificationLightPulse(int argb, int onMillis, int offMillis) {
+            mNotificationLightOn = true;
+            if (mBar != null) {
+                try {
+                    mBar.notificationLightPulse(argb, onMillis, offMillis);
+                } catch (RemoteException ex) {
+                }
+            }
+        }
+
+        @Override
+        public void notificationLightOff() {
+            if (mNotificationLightOn) {
+                mNotificationLightOn = false;
+                if (mBar != null) {
+                    try {
+                        mBar.notificationLightOff();
+                    } catch (RemoteException ex) {
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void showScreenPinningRequest() {
+            if (mBar != null) {
+                try {
+                    mBar.showScreenPinningRequest();
+                } catch (RemoteException e) {
                 }
             }
         }
@@ -163,10 +194,6 @@ public class StatusBarManagerService extends IStatusBarService.Stub
 
     @Override
     public void disable(int what, IBinder token, String pkg) {
-        if (!mNotificationDelegate.allowDisable(what, token, pkg)) {
-            if (SPEW) Slog.d(TAG, "Blocking disable request from " + pkg);
-            return;
-        }
         disableInternal(mCurrentUserId, what, token, pkg);
     }
 
@@ -278,9 +305,10 @@ public class StatusBarManagerService extends IStatusBarService.Stub
         }
     }
 
-    /** 
+    /**
      * Hide or show the on-screen Menu key. Only call this from the window manager, typically in
-     * response to a window with FLAG_NEEDS_MENU_KEY set.
+     * response to a window with {@link android.view.WindowManager.LayoutParams#needsMenuKey} set
+     * to {@link android.view.WindowManager.LayoutParams#NEEDS_MENU_SET_TRUE}.
      */
     @Override
     public void topAppWindowChanged(final boolean menuVisible) {
@@ -334,7 +362,7 @@ public class StatusBarManagerService extends IStatusBarService.Stub
     }
 
     @Override
-    public void setSystemUiVisibility(int vis, int mask) {
+    public void setSystemUiVisibility(int vis, int mask, String cause) {
         // also allows calls from window manager which is in this process.
         enforceStatusBarService();
 
@@ -346,7 +374,7 @@ public class StatusBarManagerService extends IStatusBarService.Stub
                     mCurrentUserId,
                     vis & StatusBarManager.DISABLE_MASK,
                     mSysUiVisToken,
-                    "WindowManager.LayoutParams");
+                    cause);
         }
     }
 
@@ -364,29 +392,6 @@ public class StatusBarManagerService extends IStatusBarService.Stub
                     }
                 });
         }
-    }
-
-    @Override
-    public void setHardKeyboardEnabled(final boolean enabled) {
-        mHandler.post(new Runnable() {
-            public void run() {
-                mWindowManager.setHardKeyboardEnabled(enabled);
-            }
-        });
-    }
-
-    @Override
-    public void onHardKeyboardStatusChange(final boolean available, final boolean enabled) {
-        mHandler.post(new Runnable() {
-            public void run() {
-                if (mBar != null) {
-                    try {
-                        mBar.setHardKeyboardStatus(available, enabled);
-                    } catch (RemoteException ex) {
-                    }
-                }
-            }
-        });
     }
 
     @Override
@@ -426,10 +431,10 @@ public class StatusBarManagerService extends IStatusBarService.Stub
     }
 
     @Override
-    public void hideRecentApps(boolean triggeredFromAltTab) {
+    public void hideRecentApps(boolean triggeredFromAltTab, boolean triggeredFromHomeKey) {
         if (mBar != null) {
             try {
-                mBar.hideRecentApps(triggeredFromAltTab);
+                mBar.hideRecentApps(triggeredFromAltTab, triggeredFromHomeKey);
             } catch (RemoteException ex) {}
         }
     }
@@ -483,24 +488,32 @@ public class StatusBarManagerService extends IStatusBarService.Stub
             switches[2] = mMenuVisible ? 1 : 0;
             switches[3] = mImeWindowVis;
             switches[4] = mImeBackDisposition;
-            switches[7] = mShowImeSwitcher ? 1 : 0;
+            switches[5] = mShowImeSwitcher ? 1 : 0;
             binders.add(mImeToken);
         }
-        switches[5] = mWindowManager.isHardKeyboardAvailable() ? 1 : 0;
-        switches[6] = mWindowManager.isHardKeyboardEnabled() ? 1 : 0;
     }
 
     /**
-     * The status bar service should call this each time the user brings the panel from
-     * invisible to visible in order to clear the notification light.
+     * @param clearNotificationEffects whether to consider notifications as "shown" and stop
+     *     LED, vibration, and ringing
      */
     @Override
-    public void onPanelRevealed() {
+    public void onPanelRevealed(boolean clearNotificationEffects) {
         enforceStatusBarService();
         long identity = Binder.clearCallingIdentity();
         try {
-            // tell the notification manager to turn off the lights.
-            mNotificationDelegate.onPanelRevealed();
+            mNotificationDelegate.onPanelRevealed(clearNotificationEffects);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    @Override
+    public void clearNotificationEffects() throws RemoteException {
+        enforceStatusBarService();
+        long identity = Binder.clearCallingIdentity();
+        try {
+            mNotificationDelegate.clearEffects();
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
@@ -525,6 +538,20 @@ public class StatusBarManagerService extends IStatusBarService.Stub
         long identity = Binder.clearCallingIdentity();
         try {
             mNotificationDelegate.onNotificationClick(callingUid, callingPid, key);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    @Override
+    public void onNotificationActionClick(String key, int actionIndex) {
+        enforceStatusBarService();
+        final int callingUid = Binder.getCallingUid();
+        final int callingPid = Binder.getCallingPid();
+        long identity = Binder.clearCallingIdentity();
+        try {
+            mNotificationDelegate.onNotificationActionClick(callingUid, callingPid, key,
+                    actionIndex);
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
@@ -567,6 +594,19 @@ public class StatusBarManagerService extends IStatusBarService.Stub
         try {
             mNotificationDelegate.onNotificationVisibilityChanged(
                     newlyVisibleKeys, noLongerVisibleKeys);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    @Override
+    public void onNotificationExpansionChanged(String key, boolean userAction,
+            boolean expanded) throws RemoteException {
+        enforceStatusBarService();
+        long identity = Binder.clearCallingIdentity();
+        try {
+            mNotificationDelegate.onNotificationExpansionChanged(
+                    key, userAction, expanded);
         } finally {
             Binder.restoreCallingIdentity(identity);
         }

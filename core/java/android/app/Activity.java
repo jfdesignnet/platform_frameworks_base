@@ -31,6 +31,7 @@ import com.android.internal.policy.PolicyManager;
 
 import android.annotation.IntDef;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentCallbacks2;
 import android.content.ComponentName;
@@ -53,7 +54,6 @@ import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.session.MediaController;
-import android.media.session.MediaSession;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -693,6 +693,7 @@ public class Activity extends ContextThemeWrapper
     /*package*/ String mEmbeddedID;
     private Application mApplication;
     /*package*/ Intent mIntent;
+    /*package*/ String mReferrer;
     private ComponentName mComponent;
     /*package*/ ActivityInfo mActivityInfo;
     /*package*/ ActivityThread mMainThread;
@@ -745,10 +746,15 @@ public class Activity extends ContextThemeWrapper
         public View findViewById(int id) {
             return Activity.this.findViewById(id);
         }
+        @Override
+        public boolean hasView() {
+            Window window = Activity.this.getWindow();
+            return (window != null && window.peekDecorView() != null);
+        }
     };
 
-    // Most recent call to setMediaPlaying().
-    boolean mMediaPlaying;
+    // Most recent call to requestVisibleBehind().
+    boolean mVisibleBehind;
 
     ArrayMap<String, LoaderManagerImpl> mAllLoaderManagers;
     LoaderManagerImpl mLoaderManager;
@@ -788,8 +794,8 @@ public class Activity extends ContextThemeWrapper
     final Handler mHandler = new Handler();
 
     ActivityTransitionState mActivityTransitionState = new ActivityTransitionState();
-    SharedElementListener mEnterTransitionListener = SharedElementListener.NULL_LISTENER;
-    SharedElementListener mExitTransitionListener = SharedElementListener.NULL_LISTENER;
+    SharedElementCallback mEnterTransitionListener = SharedElementCallback.NULL_CALLBACK;
+    SharedElementCallback mExitTransitionListener = SharedElementCallback.NULL_CALLBACK;
 
     /** Return the intent that started this activity. */
     public Intent getIntent() {
@@ -955,7 +961,7 @@ public class Activity extends ContextThemeWrapper
      * @see #onRestoreInstanceState
      * @see #onPostCreate
      */
-    protected void onCreate(@Nullable Bundle savedInstanceState,
+    public void onCreate(@Nullable Bundle savedInstanceState,
             @Nullable PersistableBundle persistentState) {
         onCreate(savedInstanceState);
     }
@@ -1040,7 +1046,7 @@ public class Activity extends ContextThemeWrapper
      * @see #onResume
      * @see #onSaveInstanceState
      */
-    protected void onRestoreInstanceState(Bundle savedInstanceState,
+    public void onRestoreInstanceState(Bundle savedInstanceState,
             PersistableBundle persistentState) {
         if (savedInstanceState != null) {
             onRestoreInstanceState(savedInstanceState);
@@ -1130,7 +1136,7 @@ public class Activity extends ContextThemeWrapper
      *
      * @see #onCreate
      */
-    protected void onPostCreate(@Nullable Bundle savedInstanceState,
+    public void onPostCreate(@Nullable Bundle savedInstanceState,
             @Nullable PersistableBundle persistentState) {
         onPostCreate(savedInstanceState);
     }
@@ -1236,18 +1242,22 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
+     * @hide
      * Check whether this activity is running as part of a voice interaction with the user.
      * If true, it should perform its interaction with the user through the
      * {@link VoiceInteractor} returned by {@link #getVoiceInteractor}.
      */
+    @SystemApi
     public boolean isVoiceInteraction() {
         return mVoiceInteractor != null;
     }
 
     /**
+     * @hide
      * Retrieve the active {@link VoiceInteractor} that the user is going through to
      * interact with this activity.
      */
+    @SystemApi
     public VoiceInteractor getVoiceInteractor() {
         return mVoiceInteractor;
     }
@@ -1376,7 +1386,7 @@ public class Activity extends ContextThemeWrapper
      * @see #onRestoreInstanceState(Bundle, PersistableBundle)
      * @see #onPause
      */
-    protected void onSaveInstanceState(Bundle outState, PersistableBundle outPersistentState) {
+    public void onSaveInstanceState(Bundle outState, PersistableBundle outPersistentState) {
         onSaveInstanceState(outState);
     }
 
@@ -2094,7 +2104,9 @@ public class Activity extends ContextThemeWrapper
                     "by the window decor. Do not request Window.FEATURE_ACTION_BAR and set " +
                     "android:windowActionBar to false in your theme to use a Toolbar instead.");
         }
-        mActionBar = new ToolbarActionBar(toolbar, getTitle(), this);
+        ToolbarActionBar tbab = new ToolbarActionBar(toolbar, getTitle(), this);
+        mActionBar = tbab;
+        mWindow.setCallback(tbab.getWrappedWindowCallback());
         mActionBar.invalidateOptionsMenu();
     }
 
@@ -2365,8 +2377,10 @@ public class Activity extends ContextThemeWrapper
         if (mDefaultKeyMode == DEFAULT_KEYS_DISABLE) {
             return false;
         } else if (mDefaultKeyMode == DEFAULT_KEYS_SHORTCUT) {
-            if (getWindow().performPanelShortcut(Window.FEATURE_OPTIONS_PANEL,
-                    keyCode, event, Menu.FLAG_ALWAYS_PERFORM_CLOSE)) {
+            Window w = getWindow();
+            if (w.hasFeature(Window.FEATURE_OPTIONS_PANEL) &&
+                    w.performPanelShortcut(Window.FEATURE_OPTIONS_PANEL, keyCode, event,
+                            Menu.FLAG_ALWAYS_PERFORM_CLOSE)) {
                 return true;
             }
             return false;
@@ -2931,7 +2945,8 @@ public class Activity extends ContextThemeWrapper
      * time it needs to be displayed.
      */
     public void invalidateOptionsMenu() {
-        if (mActionBar == null || !mActionBar.invalidateOptionsMenu()) {
+        if (mWindow.hasFeature(Window.FEATURE_OPTIONS_PANEL) &&
+                (mActionBar == null || !mActionBar.invalidateOptionsMenu())) {
             mWindow.invalidatePanelMenu(Window.FEATURE_OPTIONS_PANEL);
         }
     }
@@ -3143,7 +3158,8 @@ public class Activity extends ContextThemeWrapper
      * open, this method does nothing.
      */
     public void openOptionsMenu() {
-        if (mActionBar == null || !mActionBar.openOptionsMenu()) {
+        if (mWindow.hasFeature(Window.FEATURE_OPTIONS_PANEL) &&
+                (mActionBar == null || !mActionBar.openOptionsMenu())) {
             mWindow.openPanel(Window.FEATURE_OPTIONS_PANEL, null);
         }
     }
@@ -3153,7 +3169,9 @@ public class Activity extends ContextThemeWrapper
      * closed, this method does nothing.
      */
     public void closeOptionsMenu() {
-        mWindow.closePanel(Window.FEATURE_OPTIONS_PANEL);
+        if (mWindow.hasFeature(Window.FEATURE_OPTIONS_PANEL)) {
+            mWindow.closePanel(Window.FEATURE_OPTIONS_PANEL);
+        }
     }
 
     /**
@@ -3212,7 +3230,9 @@ public class Activity extends ContextThemeWrapper
      * Programmatically closes the most recently opened context menu, if showing.
      */
     public void closeContextMenu() {
-        mWindow.closePanel(Window.FEATURE_CONTEXT_MENU);
+        if (mWindow.hasFeature(Window.FEATURE_CONTEXT_MENU)) {
+            mWindow.closePanel(Window.FEATURE_CONTEXT_MENU);
+        }
     }
 
     /**
@@ -3487,14 +3507,24 @@ public class Activity extends ContextThemeWrapper
      * <p>You can override this function to force global search, e.g. in response to a dedicated
      * search key, or to block search entirely (by simply returning false).
      *
-     * @return Returns {@code true} if search launched, and {@code false} if activity blocks it.
-     *         The default implementation always returns {@code true}.
+     * <p>Note: when running in a {@link Configuration#UI_MODE_TYPE_TELEVISION}, the default
+     * implementation changes to simply return false and you must supply your own custom
+     * implementation if you want to support search.</p>
+     *
+     * @return Returns {@code true} if search launched, and {@code false} if the activity does
+     * not respond to search.  The default implementation always returns {@code true}, except
+     * when in {@link Configuration#UI_MODE_TYPE_TELEVISION} mode where it returns false.
      *
      * @see android.app.SearchManager
      */
     public boolean onSearchRequested() {
-        startSearch(null, false, null, false);
-        return true;
+        if ((getResources().getConfiguration().uiMode&Configuration.UI_MODE_TYPE_MASK)
+                != Configuration.UI_MODE_TYPE_TELEVISION) {
+            startSearch(null, false, null, false);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -3819,6 +3849,29 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
+     * Start a new activity as if it was started by the activity that started our
+     * current activity.  This is for the resolver and chooser activities, which operate
+     * as intermediaries that dispatch their intent to the target the user selects -- to
+     * do this, they must perform all security checks including permission grants as if
+     * their launch had come from the original activity.
+     * @hide
+     */
+    public void startActivityAsCaller(Intent intent, @Nullable Bundle options, int userId) {
+        if (mParent != null) {
+            throw new RuntimeException("Can't be called from a child");
+        }
+        Instrumentation.ActivityResult ar =
+                mInstrumentation.execStartActivityAsCaller(
+                        this, mMainThread.getApplicationThread(), mToken, this,
+                        intent, -1, options, userId);
+        if (ar != null) {
+            mMainThread.sendActivityResult(
+                mToken, mEmbeddedID, -1, ar.getResultCode(),
+                ar.getResultData());
+        }
+    }
+
+    /**
      * Same as calling {@link #startIntentSenderForResult(IntentSender, int,
      * Intent, int, int, int, Bundle)} with no options.
      *
@@ -4120,10 +4173,9 @@ public class Activity extends ContextThemeWrapper
                 intent.prepareToLeaveProcess();
                 result = ActivityManagerNative.getDefault()
                     .startActivity(mMainThread.getApplicationThread(), getBasePackageName(),
-                            intent, intent.resolveTypeIfNeeded(getContentResolver()),
-                            mToken, mEmbeddedID, requestCode,
-                            ActivityManager.START_FLAG_ONLY_IF_NEEDED, null, null,
-                            options);
+                            intent, intent.resolveTypeIfNeeded(getContentResolver()), mToken,
+                            mEmbeddedID, requestCode, ActivityManager.START_FLAG_ONLY_IF_NEEDED,
+                            null, options);
             } catch (RemoteException e) {
                 // Empty
             }
@@ -4405,6 +4457,39 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
+     * Return information about who launched this activity.  If the launching Intent
+     * contains an {@link android.content.Intent#EXTRA_REFERRER Intent.EXTRA_REFERRER},
+     * that will be returned as-is; otherwise, if known, an
+     * {@link Intent#URI_ANDROID_APP_SCHEME android-app:} referrer URI containing the
+     * package name that started the Intent will be returned.  This may return null if no
+     * referrer can be identified -- it is neither explicitly specified, nor is it known which
+     * application package was involved.
+     *
+     * <p>If called while inside the handling of {@link #onNewIntent}, this function will
+     * return the referrer that submitted that new intent to the activity.  Otherwise, it
+     * always returns the referrer of the original Intent.</p>
+     *
+     * <p>Note that this is <em>not</em> a security feature -- you can not trust the
+     * referrer information, applications can spoof it.</p>
+     */
+    @Nullable
+    public Uri getReferrer() {
+        Intent intent = getIntent();
+        Uri referrer = intent.getParcelableExtra(Intent.EXTRA_REFERRER);
+        if (referrer != null) {
+            return referrer;
+        }
+        String referrerName = intent.getStringExtra(Intent.EXTRA_REFERRER_NAME);
+        if (referrerName != null) {
+            return Uri.parse(referrerName);
+        }
+        if (mReferrer != null) {
+            return new Uri.Builder().scheme("android-app").authority(mReferrer).build();
+        }
+        return null;
+    }
+
+    /**
      * Return the name of the package that invoked this activity.  This is who
      * the data in {@link #setResult setResult()} will be sent to.  You can
      * use this information to validate that the recipient is allowed to
@@ -4679,6 +4764,26 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
+     * Ask that the local app instance of this activity be released to free up its memory.
+     * This is asking for the activity to be destroyed, but does <b>not</b> finish the activity --
+     * a new instance of the activity will later be re-created if needed due to the user
+     * navigating back to it.
+     *
+     * @return Returns true if the activity was in a state that it has started the process
+     * of destroying its current instance; returns false if for any reason this could not
+     * be done: it is currently visible to the user, it is already being destroyed, it is
+     * being finished, it hasn't yet saved its state, etc.
+     */
+    public boolean releaseInstance() {
+        try {
+            return ActivityManagerNative.getDefault().releaseActivityInstance(mToken);
+        } catch (RemoteException e) {
+            // Empty
+        }
+        return false;
+    }
+
+    /**
      * Called when an activity you launched exits, giving you the requestCode
      * you started it with, the resultCode it returned, and any additional
      * data from it.  The <var>resultCode</var> will be
@@ -4687,6 +4792,10 @@ public class Activity extends ContextThemeWrapper
      *
      * <p>You will receive this call immediately before onResume() when your
      * activity is re-starting.
+     *
+     * <p>This method is never invoked if your activity sets
+     * {@link android.R.styleable#AndroidManifestActivity_noHistory noHistory} to
+     * <code>true</code>.
      *
      * @param requestCode The integer request code originally supplied to
      *                    startActivityForResult(), allowing you to identify who this
@@ -4708,7 +4817,7 @@ public class Activity extends ContextThemeWrapper
      * Activity through a returning activity transition, giving you the resultCode
      * and any additional data from it. This method will only be called if the activity
      * set a result code other than {@link #RESULT_CANCELED} and it supports activity
-     * transitions with {@link Window#FEATURE_CONTENT_TRANSITIONS}.
+     * transitions with {@link Window#FEATURE_ACTIVITY_TRANSITIONS}.
      *
      * <p>The purpose of this function is to let the called Activity send a hint about
      * its state so that this underlying Activity can prepare to be exposed. A call to
@@ -4721,7 +4830,7 @@ public class Activity extends ContextThemeWrapper
      * @param data An Intent, which can return result data to the caller
      *               (various data can be attached to Intent "extras").
      */
-    protected void onActivityReenter(int resultCode, Intent data) {
+    public void onActivityReenter(int resultCode, Intent data) {
     }
 
     /**
@@ -4994,6 +5103,9 @@ public class Activity extends ContextThemeWrapper
                     win.setTitleColor(color);
                 }
             }
+            if (mActionBar != null) {
+                mActionBar.setWindowTitle(title);
+            }
         }
     }
 
@@ -5015,7 +5127,7 @@ public class Activity extends ContextThemeWrapper
     public void setTaskDescription(ActivityManager.TaskDescription taskDescription) {
         ActivityManager.TaskDescription td;
         // Scale the icon down to something reasonable if it is provided
-        if (taskDescription.getIcon() != null) {
+        if (taskDescription.getIconFilename() == null && taskDescription.getIcon() != null) {
             final int size = ActivityManager.getLauncherLargeIconSizeInner(this);
             final Bitmap icon = Bitmap.createScaledBitmap(taskDescription.getIcon(), size, size, true);
             td = new ActivityManager.TaskDescription(taskDescription.getLabel(), icon,
@@ -5314,6 +5426,7 @@ public class Activity extends ContextThemeWrapper
      *
      * @hide
      */
+    @SystemApi
     public void convertFromTranslucent() {
         try {
             mTranslucentCallback = null;
@@ -5350,6 +5463,7 @@ public class Activity extends ContextThemeWrapper
      *
      * @hide
      */
+    @SystemApi
     public boolean convertToTranslucent(TranslucentConversionListener callback,
             ActivityOptions options) {
         boolean drawComplete;
@@ -5357,6 +5471,7 @@ public class Activity extends ContextThemeWrapper
             mTranslucentCallback = callback;
             mChangeCanvasToTranslucent =
                     ActivityManagerNative.getDefault().convertToTranslucent(mToken, options);
+            WindowManagerGlobal.getInstance().changeCanvasOpacity(mToken, false);
             drawComplete = true;
         } catch (RemoteException e) {
             // Make callback return as though it timed out.
@@ -5406,98 +5521,106 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
-     * Activities that want to show media behind a translucent activity above them must call this
-     * method anytime before a return from {@link #onPause()}. If this call is successful
-     * then the activity should continue to play media when {@link #onPause()} is called, but must
-     * stop playing and release resources prior to or within the call to
-     * {@link #onStopMediaPlaying()}. If this call returns false the activity must stop
-     * playing and release resources immediately.
+     * Activities that want to remain visible behind a translucent activity above them must call
+     * this method anytime between the start of {@link #onResume()} and the return from
+     * {@link #onPause()}. If this call is successful then the activity will remain visible after
+     * {@link #onPause()} is called, and is allowed to continue playing media in the background.
+     *
+     * <p>The actions of this call are reset each time that this activity is brought to the
+     * front. That is, every time {@link #onResume()} is called the activity will be assumed
+     * to not have requested visible behind. Therefore, if you want this activity to continue to
+     * be visible in the background you must call this method again.
      *
      * <p>Only fullscreen opaque activities may make this call. I.e. this call is a nop
      * for dialog and translucent activities.
      *
-     * <p>False will be returned any time this method is call between the return of onPause and
+     * <p>Under all circumstances, the activity must stop playing and release resources prior to or
+     * within a call to {@link #onVisibleBehindCanceled()} or if this call returns false.
+     *
+     * <p>False will be returned any time this method is called between the return of onPause and
      *      the next call to onResume.
      *
-     * @param playing true to notify the system that media is starting or continuing playing,
-     *                false to indicate that media has stopped or is stopping. Resources must
-     *                be released when passing false to this method.
-     * @return the resulting play state. If true the activity may continue playing media beyond
-     *      {@link #onPause()}, if false then the caller must stop playing and immediately
-     *      release all media resources. Returning false may occur in lieu of a call to
-     *      onReleaseMediaResources() so the return value must be checked.
+     * @param visible true to notify the system that the activity wishes to be visible behind other
+     *                translucent activities, false to indicate otherwise. Resources must be
+     *                released when passing false to this method.
+     * @return the resulting visibiity state. If true the activity will remain visible beyond
+     *      {@link #onPause()} if the next activity is translucent or not fullscreen. If false
+     *      then the activity may not count on being visible behind other translucent activities,
+     *      and must stop any media playback and release resources.
+     *      Returning false may occur in lieu of a call to {@link #onVisibleBehindCanceled()} so
+     *      the return value must be checked.
      *
-     * @see #isBackgroundMediaPlaying()
-     * @see #onStopMediaPlaying()
-     * @see #onBackgroundMediaPlayingChanged(boolean)
+     * @see #onVisibleBehindCanceled()
+     * @see #onBackgroundVisibleBehindChanged(boolean)
      */
-    public boolean setMediaPlaying(boolean playing) {
+    public boolean requestVisibleBehind(boolean visible) {
         if (!mResumed) {
-            // Do not permit paused or stopped activities to start playing.
-            playing = false;
+            // Do not permit paused or stopped activities to do this.
+            visible = false;
         }
         try {
-            mMediaPlaying = ActivityManagerNative.getDefault().setMediaPlaying(mToken, playing) &&
-                    playing;
+            mVisibleBehind = ActivityManagerNative.getDefault()
+                    .requestVisibleBehind(mToken, visible) && visible;
         } catch (RemoteException e) {
-            mMediaPlaying = false;
+            mVisibleBehind = false;
         }
-        return mMediaPlaying;
+        return mVisibleBehind;
     }
 
     /**
-     * Called when a translucent activity over playing media is becoming opaque or another
-     * activity is being launched. Activities that call {@link #setMediaPlaying(boolean)}
-     * must implement this method to at the minimum call
-     * <code>super.onStopMediaPlayback()</code>.
+     * Called when a translucent activity over this activity is becoming opaque or another
+     * activity is being launched. Activities that override this method must call
+     * <code>super.onVisibleBehindCanceled()</code> or a SuperNotCalledException will be thrown.
      *
-     * <p>When this method is called the activity has 500 msec to release the media resources.
+     * <p>When this method is called the activity has 500 msec to release any resources it may be
+     * using while visible in the background.
      * If the activity has not returned from this method in 500 msec the system will destroy
-     * the activity and kill the process in order to recover the media resources for another
+     * the activity and kill the process in order to recover the resources for another
      * process. Otherwise {@link #onStop()} will be called following return.
      *
-     * @see #setMediaPlaying(boolean)
-     * @see #isBackgroundMediaPlaying()
-     * @see #onBackgroundMediaPlayingChanged(boolean)
+     * @see #requestVisibleBehind(boolean)
+     * @see #onBackgroundVisibleBehindChanged(boolean)
      */
-    public void onStopMediaPlaying() {
+    public void onVisibleBehindCanceled() {
         mCalled = true;
     }
 
     /**
-     * Translucent activities may call this to determine if there is an activity below it that
-     * is playing media.
+     * Translucent activities may call this to determine if there is an activity below them that
+     * is currently set to be visible in the background.
      *
-     * @return true if media is playing according to the most recent call to
-     * {@link #setMediaPlaying(boolean)}, false otherwise.
+     * @return true if an activity below is set to visible according to the most recent call to
+     * {@link #requestVisibleBehind(boolean)}, false otherwise.
      *
-     * @see #setMediaPlaying(boolean)
-     * @see #onStopMediaPlaying()
-     * @see #onBackgroundMediaPlayingChanged(boolean)
+     * @see #requestVisibleBehind(boolean)
+     * @see #onVisibleBehindCanceled()
+     * @see #onBackgroundVisibleBehindChanged(boolean)
      * @hide
      */
-    public boolean isBackgroundMediaPlaying() {
+    @SystemApi
+    public boolean isBackgroundVisibleBehind() {
         try {
-            return ActivityManagerNative.getDefault().isBackgroundMediaPlaying(mToken);
+            return ActivityManagerNative.getDefault().isBackgroundVisibleBehind(mToken);
         } catch (RemoteException e) {
         }
         return false;
     }
 
     /**
-     * The topmost foreground activity will receive this call when an activity below it either
-     * starts or stops playing media.
+     * The topmost foreground activity will receive this call when the background visibility state
+     * of the activity below it changes.
      *
-     * This call may be a consequence of {@link #setMediaPlaying(boolean)} or might be
+     * This call may be a consequence of {@link #requestVisibleBehind(boolean)} or might be
      * due to a background activity finishing itself.
      *
-     * @param playing true if media playback is starting, false if it is stopping.
+     * @param visible true if a background activity is visible, false otherwise.
      *
-     * @see #setMediaPlaying(boolean)
-     * @see #isBackgroundMediaPlaying()
-     * @see #onStopMediaPlaying()
+     * @see #requestVisibleBehind(boolean)
+     * @see #onVisibleBehindCanceled()
+     * @hide
      */
-    public void onBackgroundMediaPlayingChanged(boolean playing) {
+    @SystemApi
+    public void onBackgroundVisibleBehindChanged(boolean visible) {
     }
 
     /**
@@ -5506,6 +5629,16 @@ public class Activity extends ContextThemeWrapper
      * called when the entering animation has completed.
      */
     public void onEnterAnimationComplete() {
+    }
+
+    /**
+     * @hide
+     */
+    public void dispatchEnterAnimationComplete() {
+        onEnterAnimationComplete();
+        if (getWindow() != null && getWindow().getDecorView() != null) {
+            getWindow().getDecorView().getViewTreeObserver().dispatchOnEnterAnimationComplete();
+        }
     }
 
     /**
@@ -5608,8 +5741,8 @@ public class Activity extends ContextThemeWrapper
             if (info.taskAffinity == null) {
                 return false;
             }
-            return !ActivityManagerNative.getDefault()
-                    .targetTaskAffinityMatchesActivity(mToken, info.taskAffinity);
+            return ActivityManagerNative.getDefault()
+                    .shouldUpRecreateTask(mToken, info.taskAffinity);
         } catch (RemoteException e) {
             return false;
         } catch (NameNotFoundException e) {
@@ -5723,33 +5856,33 @@ public class Activity extends ContextThemeWrapper
 
     /**
      * When {@link android.app.ActivityOptions#makeSceneTransitionAnimation(Activity,
-     * android.view.View, String)} was used to start an Activity, <var>listener</var>
+     * android.view.View, String)} was used to start an Activity, <var>callback</var>
      * will be called to handle shared elements on the <i>launched</i> Activity. This requires
-     * {@link Window#FEATURE_CONTENT_TRANSITIONS}.
+     * {@link Window#FEATURE_ACTIVITY_TRANSITIONS}.
      *
-     * @param listener Used to manipulate shared element transitions on the launched Activity.
+     * @param callback Used to manipulate shared element transitions on the launched Activity.
      */
-    public void setEnterSharedElementListener(SharedElementListener listener) {
-        if (listener == null) {
-            listener = SharedElementListener.NULL_LISTENER;
+    public void setEnterSharedElementCallback(SharedElementCallback callback) {
+        if (callback == null) {
+            callback = SharedElementCallback.NULL_CALLBACK;
         }
-        mEnterTransitionListener = listener;
+        mEnterTransitionListener = callback;
     }
 
     /**
      * When {@link android.app.ActivityOptions#makeSceneTransitionAnimation(Activity,
-     * android.view.View, String)} was used to start an Activity, <var>listener</var>
+     * android.view.View, String)} was used to start an Activity, <var>callback</var>
      * will be called to handle shared elements on the <i>launching</i> Activity. Most
      * calls will only come when returning from the started Activity.
-     * This requires {@link Window#FEATURE_CONTENT_TRANSITIONS}.
+     * This requires {@link Window#FEATURE_ACTIVITY_TRANSITIONS}.
      *
-     * @param listener Used to manipulate shared element transitions on the launching Activity.
+     * @param callback Used to manipulate shared element transitions on the launching Activity.
      */
-    public void setExitSharedElementListener(SharedElementListener listener) {
-        if (listener == null) {
-            listener = SharedElementListener.NULL_LISTENER;
+    public void setExitSharedElementCallback(SharedElementCallback callback) {
+        if (callback == null) {
+            callback = SharedElementCallback.NULL_CALLBACK;
         }
-        mExitTransitionListener = listener;
+        mExitTransitionListener = callback;
     }
 
     /**
@@ -5791,7 +5924,7 @@ public class Activity extends ContextThemeWrapper
             Application application, Intent intent, ActivityInfo info,
             CharSequence title, Activity parent, String id,
             NonConfigurationInstances lastNonConfigurationInstances,
-            Configuration config, IVoiceInteractor voiceInteractor) {
+            Configuration config, String referrer, IVoiceInteractor voiceInteractor) {
         attachBaseContext(context);
 
         mFragments.attachActivity(this, mContainer, null);
@@ -5814,6 +5947,7 @@ public class Activity extends ContextThemeWrapper
         mIdent = ident;
         mApplication = application;
         mIntent = intent;
+        mReferrer = referrer;
         mComponent = intent.getComponent();
         mActivityInfo = info;
         mTitle = title;
@@ -6077,9 +6211,9 @@ public class Activity extends ContextThemeWrapper
      *
      * If {@link DevicePolicyManager#isLockTaskPermitted(String)} returns false
      * then the system will prompt the user with a dialog requesting permission to enter
-     * this mode.  When entered through this method the user can exit at any time by
-     * swiping down twice from the top of the screen.  Calling stopLockTask will also
-     * exit the mode.
+     * this mode.  When entered through this method the user can exit at any time through
+     * an action described by the request dialog.  Calling stopLockTask will also exit the
+     * mode.
      */
     public void startLockTask() {
         try {
@@ -6114,6 +6248,7 @@ public class Activity extends ContextThemeWrapper
      *
      * @hide
      */
+    @SystemApi
     public interface TranslucentConversionListener {
         /**
          * Callback made following {@link Activity#convertToTranslucent} once all visible Activities

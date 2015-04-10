@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ReadOnlyBufferException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -93,9 +94,17 @@ import java.util.Map;
  * and {@link #dequeueOutputBuffer} then transfer ownership from the codec
  * to the client.<p>
  * The client is not required to resubmit/release buffers immediately
- * to the codec, the sample code above simply does this for simplicity's sake.<p>
+ * to the codec, the sample code above simply does this for simplicity's sake.
+ * Nonetheless, it is possible that a codec may hold off on generating
+ * output buffers until all outstanding buffers have been
+ * released/resubmitted.
+ * <p>
  * Once the client has an input buffer available it can fill it with data
- * and submit it it to the codec via a call to {@link #queueInputBuffer}.<p>
+ * and submit it it to the codec via a call to {@link #queueInputBuffer}.
+ * Do not submit multiple input buffers with the same timestamp (unless
+ * it is codec-specific data marked as such using the flag
+ * {@link #BUFFER_FLAG_CODEC_CONFIG}).
+ * <p>
  * The codec in turn will return an output buffer to the client in response
  * to {@link #dequeueOutputBuffer}. After the output buffer has been processed
  * a call to {@link #releaseOutputBuffer} will return it to the codec.
@@ -127,17 +136,63 @@ import java.util.Map;
  * {@link #queueInputBuffer}. The codec will continue to return output buffers
  * until it eventually signals the end of the output stream by specifying
  * the same flag ({@link #BUFFER_FLAG_END_OF_STREAM}) on the BufferInfo returned in
- * {@link #dequeueOutputBuffer}.
+ * {@link #dequeueOutputBuffer}.  Do not submit additional input buffers after
+ * signaling the end of the input stream, unless the codec has been flushed,
+ * or stopped and restarted.
  * <p>
+ * <h3>Seeking &amp; Adaptive Playback Support</h3>
+ *
+ * You can check if a decoder supports adaptive playback via {@link
+ * MediaCodecInfo.CodecCapabilities#isFeatureSupported}.  Adaptive playback
+ * is only supported if you configure the codec to decode onto a {@link
+ * android.view.Surface}.
+ *
+ * <h4>For decoders that do not support adaptive playback (including
+ * when not decoding onto a Surface)</h4>
+ *
  * In order to start decoding data that's not adjacent to previously submitted
- * data (i.e. after a seek) it is necessary to {@link #flush} the decoder.
+ * data (i.e. after a seek) <em>one must</em> {@link #flush} the decoder.
  * Any input or output buffers the client may own at the point of the flush are
  * immediately revoked, i.e. after a call to {@link #flush} the client does not
  * own any buffers anymore.
+ * <p>
+ * It is important that the input data after a flush starts at a suitable
+ * stream boundary.  The first frame must be able to be decoded completely on
+ * its own (for most codecs this means an I-frame), and that no frames should
+ * refer to frames before that first new frame.
  * Note that the format of the data submitted after a flush must not change,
  * flush does not support format discontinuities,
- * for this a full {@link #stop}, {@link #configure}, {@link #start}
+ * for this a full {@link #stop}, {@link #configure configure()}, {@link #start}
  * cycle is necessary.
+ *
+ * <h4>For decoders that support adaptive playback</h4>
+ *
+ * In order to start decoding data that's not adjacent to previously submitted
+ * data (i.e. after a seek) it is <em>not necessary</em> to {@link #flush} the
+ * decoder.
+ * <p>
+ * It is still important that the input data after the discontinuity starts
+ * at a suitable stream boundary (e.g. I-frame), and that no new frames refer
+ * to frames before the first frame of the new input data segment.
+ * <p>
+ * For some video formats it is also possible to change the picture size
+ * mid-stream.  To do this for H.264, the new Sequence Parameter Set (SPS) and
+ * Picture Parameter Set (PPS) values must be packaged together with an
+ * Instantaneous Decoder Refresh (IDR) frame in a single buffer, which then
+ * can be enqueued as a regular input buffer.
+ * The client will receive an {@link #INFO_OUTPUT_FORMAT_CHANGED} return
+ * value from {@link #dequeueOutputBuffer dequeueOutputBuffer()} or
+ * {@link Callback#onOutputBufferAvailable onOutputBufferAvailable()}
+ * just after the picture-size change takes place and before any
+ * frames with the new size have been returned.
+ * <p>
+ * Be careful when calling {@link #flush} shortly after you have changed
+ * the picture size.  If you have not received confirmation of the picture
+ * size change, you will need to repeat the request for the new picture size.
+ * E.g. for H.264 you will need to prepend the PPS/SPS to the new IDR
+ * frame to ensure that the codec receives the picture size change request.
+ *
+ * <h3>States and error handling</h3>
  *
  * <p> During its life, a codec conceptually exists in one of the following states:
  * Initialized, Configured, Executing, Error, Uninitialized, (omitting transitory states
@@ -501,8 +556,20 @@ final public class MediaCodec {
 
             int i = 0;
             for (Map.Entry<String, Object> entry: formatMap.entrySet()) {
-                keys[i] = entry.getKey();
-                values[i] = entry.getValue();
+                if (entry.getKey().equals(MediaFormat.KEY_AUDIO_SESSION_ID)) {
+                    int sessionId = 0;
+                    try {
+                        sessionId = (Integer)entry.getValue();
+                    }
+                    catch (Exception e) {
+                        throw new IllegalArgumentException("Wrong Session ID Parameter!");
+                    }
+                    keys[i] = "audio-hw-sync";
+                    values[i] = AudioSystem.getAudioHwSyncForSession(sessionId);
+                } else {
+                    keys[i] = entry.getKey();
+                    values[i] = entry.getValue();
+                }
                 ++i;
             }
         }
@@ -531,9 +598,13 @@ final public class MediaCodec {
     public native final Surface createInputSurface();
 
     /**
-     * After successfully configuring the component, call start. On return
-     * you can query the component for its input/output buffers.
-     * @throws IllegalStateException if not in the Configured state.
+     * After successfully configuring the component, call {@code start}.
+     * <p>
+     * Call {@code start} also if the codec is configured in asynchronous mode,
+     * and it has just been flushed, to resume requesting input buffers.
+     * @throws IllegalStateException if not in the Configured state
+     *         or just after {@link #flush} for a codec that is configured
+     *         in asynchronous mode.
      * @throws MediaCodec.CodecException upon codec error. Note that some codec errors
      * for start may be attributed to future method calls.
      */
@@ -569,6 +640,15 @@ final public class MediaCodec {
      * Flush both input and output ports of the component, all indices
      * previously returned in calls to {@link #dequeueInputBuffer} and
      * {@link #dequeueOutputBuffer} become invalid.
+     * <p>
+     * If codec is configured in asynchronous mode, call {@link #start}
+     * after {@code flush} has returned to resume codec operations. The
+     * codec will not request input buffers until this has happened.
+     * <p>
+     * If codec is configured in synchronous mode, codec will resume
+     * automatically if an input surface was created.  Otherwise, it
+     * will resume when {@link #dequeueInputBuffer} is called.
+     *
      * @throws IllegalStateException if not in the Executing state.
      * @throws MediaCodec.CodecException upon codec error.
      */
@@ -576,10 +656,8 @@ final public class MediaCodec {
         synchronized(mBufferLock) {
             invalidateByteBuffers(mCachedInputBuffers);
             invalidateByteBuffers(mCachedOutputBuffers);
-            invalidateByteBuffers(mDequeuedInputBuffers);
-            invalidateByteBuffers(mDequeuedOutputBuffers);
-            freeImages(mDequeuedInputImages);
-            freeImages(mDequeuedOutputImages);
+            mDequeuedInputBuffers.clear();
+            mDequeuedOutputBuffers.clear();
         }
         native_flush();
     }
@@ -590,10 +668,15 @@ final public class MediaCodec {
      * Thrown when an internal codec error occurs.
      */
     public final static class CodecException extends IllegalStateException {
-        public CodecException(int errorCode, int actionCode, String detailMessage) {
+        CodecException(int errorCode, int actionCode, String detailMessage) {
             super(detailMessage);
             mErrorCode = errorCode;
             mActionCode = actionCode;
+
+            // TODO get this from codec
+            final String sign = errorCode < 0 ? "neg_" : "";
+            mDiagnosticInfo =
+                "android.media.MediaCodec.error_" + sign + Math.abs(errorCode);
         }
 
         /**
@@ -618,15 +701,28 @@ final public class MediaCodec {
          * Retrieve the error code associated with a CodecException.
          * This is opaque diagnostic information and may depend on
          * hardware or API level.
+         *
+         * @hide
          */
         public int getErrorCode() {
             return mErrorCode;
+        }
+
+        /**
+         * Retrieve a developer-readable diagnostic information string
+         * associated with the exception. Do not show this to end-users,
+         * since this string will not be localized or generally
+         * comprehensible to end-users.
+         */
+        public String getDiagnosticInfo() {
+            return mDiagnosticInfo;
         }
 
         /* Must be in sync with android_media_MediaCodec.cpp */
         private final static int ACTION_TRANSIENT = 1;
         private final static int ACTION_RECOVERABLE = 2;
 
+        private final String mDiagnosticInfo;
         private final int mErrorCode;
         private final int mActionCode;
     }
@@ -642,21 +738,31 @@ final public class MediaCodec {
 
         /**
          * This indicates that no key has been set to perform the requested
-         * decrypt operation.
+         * decrypt operation.  The operation can be retried after adding
+         * a decryption key.
          */
         public static final int ERROR_NO_KEY = 1;
 
         /**
          * This indicates that the key used for decryption is no longer
-         * valid due to license term expiration.
+         * valid due to license term expiration.  The operation can be retried
+         * after updating the expired keys.
          */
         public static final int ERROR_KEY_EXPIRED = 2;
 
         /**
          * This indicates that a required crypto resource was not able to be
-         * allocated while attempting the requested operation.
+         * allocated while attempting the requested operation.  The operation
+         * can be retried if the app is able to release resources.
          */
         public static final int ERROR_RESOURCE_BUSY = 3;
+
+        /**
+         * This indicates that the output protection levels supported by the
+         * device are not sufficient to meet the requirements set by the
+         * content owner in the license policy.
+         */
+        public static final int ERROR_INSUFFICIENT_OUTPUT_PROTECTION = 4;
 
         /**
          * Retrieve the error code associated with a CryptoException
@@ -719,10 +825,15 @@ final public class MediaCodec {
         throws CryptoException {
         synchronized(mBufferLock) {
             invalidateByteBuffer(mCachedInputBuffers, index);
-            updateDequeuedByteBuffer(mDequeuedInputBuffers, index, null);
+            mDequeuedInputBuffers.remove(index);
         }
-        native_queueInputBuffer(
-                index, offset, size, presentationTimeUs, flags);
+        try {
+            native_queueInputBuffer(
+                    index, offset, size, presentationTimeUs, flags);
+        } catch (CryptoException | IllegalStateException e) {
+            revalidateByteBuffer(mCachedInputBuffers, index);
+            throw e;
+        }
     }
 
     private native final void native_queueInputBuffer(
@@ -839,10 +950,15 @@ final public class MediaCodec {
             int flags) throws CryptoException {
         synchronized(mBufferLock) {
             invalidateByteBuffer(mCachedInputBuffers, index);
-            updateDequeuedByteBuffer(mDequeuedInputBuffers, index, null);
+            mDequeuedInputBuffers.remove(index);
         }
-        native_queueSecureInputBuffer(
-                index, offset, info, presentationTimeUs, flags);
+        try {
+            native_queueSecureInputBuffer(
+                    index, offset, info, presentationTimeUs, flags);
+        } catch (CryptoException | IllegalStateException e) {
+            revalidateByteBuffer(mCachedInputBuffers, index);
+            throw e;
+        }
     }
 
     private native final void native_queueSecureInputBuffer(
@@ -859,7 +975,8 @@ final public class MediaCodec {
      * for the availability of an input buffer if timeoutUs &lt; 0 or wait up
      * to "timeoutUs" microseconds if timeoutUs &gt; 0.
      * @param timeoutUs The timeout in microseconds, a negative timeout indicates "infinite".
-     * @throws IllegalStateException if not in the Executing state.
+     * @throws IllegalStateException if not in the Executing state,
+     *         or codec is configured in asynchronous mode.
      * @throws MediaCodec.CodecException upon codec error.
      */
     public final int dequeueInputBuffer(long timeoutUs) {
@@ -907,7 +1024,8 @@ final public class MediaCodec {
      * decoded or one of the INFO_* constants below.
      * @param info Will be filled with buffer meta data.
      * @param timeoutUs The timeout in microseconds, a negative timeout indicates "infinite".
-     * @throws IllegalStateException if not in the Executing state.
+     * @throws IllegalStateException if not in the Executing state,
+     *         or codec is configured in asynchronous mode.
      * @throws MediaCodec.CodecException upon codec error.
      */
     public final int dequeueOutputBuffer(
@@ -946,7 +1064,7 @@ final public class MediaCodec {
     public final void releaseOutputBuffer(int index, boolean render) {
         synchronized(mBufferLock) {
             invalidateByteBuffer(mCachedOutputBuffers, index);
-            updateDequeuedByteBuffer(mDequeuedOutputBuffers, index, null);
+            mDequeuedOutputBuffers.remove(index);
         }
         releaseOutputBuffer(index, render, false /* updatePTS */, 0 /* dummy */);
     }
@@ -1003,7 +1121,7 @@ final public class MediaCodec {
     public final void releaseOutputBuffer(int index, long renderTimestampNs) {
         synchronized(mBufferLock) {
             invalidateByteBuffer(mCachedOutputBuffers, index);
-            updateDequeuedByteBuffer(mDequeuedOutputBuffers, index, null);
+            mDequeuedOutputBuffers.remove(index);
         }
         releaseOutputBuffer(
                 index, true /* render */, true /* updatePTS */, renderTimestampNs);
@@ -1068,17 +1186,82 @@ final public class MediaCodec {
 
     private native final Map<String, Object> getOutputFormatNative(int index);
 
+    // used to track dequeued buffers
+    private static class BufferMap {
+        // various returned representations of the codec buffer
+        private static class CodecBuffer {
+            private Image mImage;
+            private ByteBuffer mByteBuffer;
+
+            public void free() {
+                if (mByteBuffer != null) {
+                    // all of our ByteBuffers are direct
+                    java.nio.NioUtils.freeDirectBuffer(mByteBuffer);
+                    mByteBuffer = null;
+                }
+                if (mImage != null) {
+                    mImage.close();
+                    mImage = null;
+                }
+            }
+
+            public void setImage(Image image) {
+                free();
+                mImage = image;
+            }
+
+            public void setByteBuffer(ByteBuffer buffer) {
+                free();
+                mByteBuffer = buffer;
+            }
+        }
+
+        private final Map<Integer, CodecBuffer> mMap =
+            new HashMap<Integer, CodecBuffer>();
+
+        public void remove(int index) {
+            CodecBuffer buffer = mMap.get(index);
+            if (buffer != null) {
+                buffer.free();
+                mMap.remove(index);
+            }
+        }
+
+        public void put(int index, ByteBuffer newBuffer) {
+            CodecBuffer buffer = mMap.get(index);
+            if (buffer == null) { // likely
+                buffer = new CodecBuffer();
+                mMap.put(index, buffer);
+            }
+            buffer.setByteBuffer(newBuffer);
+        }
+
+        public void put(int index, Image newImage) {
+            CodecBuffer buffer = mMap.get(index);
+            if (buffer == null) { // likely
+                buffer = new CodecBuffer();
+                mMap.put(index, buffer);
+            }
+            buffer.setImage(newImage);
+        }
+
+        public void clear() {
+            for (CodecBuffer buffer: mMap.values()) {
+                buffer.free();
+            }
+            mMap.clear();
+        }
+    }
+
     private ByteBuffer[] mCachedInputBuffers;
     private ByteBuffer[] mCachedOutputBuffers;
-    private ByteBuffer[] mDequeuedInputBuffers;
-    private ByteBuffer[] mDequeuedOutputBuffers;
-    private Image[] mDequeuedInputImages;
-    private Image[] mDequeuedOutputImages;
+    private final BufferMap mDequeuedInputBuffers = new BufferMap();
+    private final BufferMap mDequeuedOutputBuffers = new BufferMap();
     final private Object mBufferLock;
 
     private final void invalidateByteBuffer(
             ByteBuffer[] buffers, int index) {
-        if (index >= 0 && index < buffers.length) {
+        if (buffers != null && index >= 0 && index < buffers.length) {
             ByteBuffer buffer = buffers[index];
             if (buffer != null) {
                 buffer.setAccessible(false);
@@ -1088,7 +1271,7 @@ final public class MediaCodec {
 
     private final void validateInputByteBuffer(
             ByteBuffer[] buffers, int index) {
-        if (index >= 0 && index < buffers.length) {
+        if (buffers != null && index >= 0 && index < buffers.length) {
             ByteBuffer buffer = buffers[index];
             if (buffer != null) {
                 buffer.setAccessible(true);
@@ -1097,9 +1280,21 @@ final public class MediaCodec {
         }
     }
 
+    private final void revalidateByteBuffer(
+            ByteBuffer[] buffers, int index) {
+        synchronized(mBufferLock) {
+            if (buffers != null && index >= 0 && index < buffers.length) {
+                ByteBuffer buffer = buffers[index];
+                if (buffer != null) {
+                    buffer.setAccessible(true);
+                }
+            }
+        }
+    }
+
     private final void validateOutputByteBuffer(
             ByteBuffer[] buffers, int index, BufferInfo info) {
-        if (index >= 0 && index < buffers.length) {
+        if (buffers != null && index >= 0 && index < buffers.length) {
             ByteBuffer buffer = buffers[index];
             if (buffer != null) {
                 buffer.setAccessible(true);
@@ -1133,46 +1328,29 @@ final public class MediaCodec {
         }
     }
 
-    private final void freeImage(Image image) {
-        if (image != null) {
-            image.close();
-        }
-    }
-
-    private final void freeImages(Image[] images) {
-        if (images != null) {
-            for (Image image: images) {
-                freeImage(image);
-            }
-        }
-    }
-
     private final void freeAllTrackedBuffers() {
-        freeByteBuffers(mCachedInputBuffers);
-        freeByteBuffers(mCachedOutputBuffers);
-        freeImages(mDequeuedInputImages);
-        freeImages(mDequeuedOutputImages);
-        freeByteBuffers(mDequeuedInputBuffers);
-        freeByteBuffers(mDequeuedOutputBuffers);
-        mCachedInputBuffers = null;
-        mCachedOutputBuffers = null;
-        mDequeuedInputImages = null;
-        mDequeuedOutputImages = null;
-        mDequeuedInputBuffers = null;
-        mDequeuedOutputBuffers = null;
+        synchronized(mBufferLock) {
+            freeByteBuffers(mCachedInputBuffers);
+            freeByteBuffers(mCachedOutputBuffers);
+            mCachedInputBuffers = null;
+            mCachedOutputBuffers = null;
+            mDequeuedInputBuffers.clear();
+            mDequeuedOutputBuffers.clear();
+        }
     }
 
     private final void cacheBuffers(boolean input) {
-        ByteBuffer[] buffers = getBuffers(input);
-        invalidateByteBuffers(buffers);
+        ByteBuffer[] buffers = null;
+        try {
+            buffers = getBuffers(input);
+            invalidateByteBuffers(buffers);
+        } catch (IllegalStateException e) {
+            // we don't get buffers in async mode
+        }
         if (input) {
             mCachedInputBuffers = buffers;
-            mDequeuedInputImages = new Image[buffers.length];
-            mDequeuedInputBuffers = new ByteBuffer[buffers.length];
         } else {
             mCachedOutputBuffers = buffers;
-            mDequeuedOutputImages = new Image[buffers.length];
-            mDequeuedOutputBuffers = new ByteBuffer[buffers.length];
         }
     }
 
@@ -1188,7 +1366,8 @@ final public class MediaCodec {
      * <b>Note:</b>As of API 21, dequeued input buffers are
      * automatically {@link java.nio.Buffer#clear cleared}.
      *
-     * @throws IllegalStateException if not in the Executing state.
+     * @throws IllegalStateException if not in the Executing state,
+     *         or codec is configured in asynchronous mode.
      * @throws MediaCodec.CodecException upon codec error.
      */
     public ByteBuffer[] getInputBuffers() {
@@ -1227,26 +1406,6 @@ final public class MediaCodec {
         return mCachedOutputBuffers;
     }
 
-    private boolean updateDequeuedByteBuffer(
-            ByteBuffer[] buffers, int index, ByteBuffer newBuffer) {
-        if (index < 0 || index >= buffers.length) {
-            return false;
-        }
-        freeByteBuffer(buffers[index]);
-        buffers[index] = newBuffer;
-        return newBuffer != null;
-    }
-
-    private boolean updateDequeuedImage(
-            Image[] images, int index, Image newImage) {
-        if (index < 0 || index >= images.length) {
-            return false;
-        }
-        freeImage(images[index]);
-        images[index] = newImage;
-        return newImage != null;
-    }
-
     /**
      * Returns a {@link java.nio.Buffer#clear cleared}, writable ByteBuffer
      * object for a dequeued input buffer index to contain the input data.
@@ -1268,13 +1427,10 @@ final public class MediaCodec {
     public ByteBuffer getInputBuffer(int index) {
         ByteBuffer newBuffer = getBuffer(true /* input */, index);
         synchronized(mBufferLock) {
-            if (updateDequeuedByteBuffer(mDequeuedInputBuffers, index, newBuffer)) {
-                updateDequeuedImage(mDequeuedInputImages, index, null);
-                invalidateByteBuffer(mCachedInputBuffers, index);
-                return newBuffer;
-            }
+            invalidateByteBuffer(mCachedInputBuffers, index);
+            mDequeuedInputBuffers.put(index, newBuffer);
         }
-        return null;
+        return newBuffer;
     }
 
     /**
@@ -1298,12 +1454,11 @@ final public class MediaCodec {
      */
     public Image getInputImage(int index) {
         Image newImage = getImage(true /* input */, index);
-        if (updateDequeuedImage(mDequeuedInputImages, index, newImage)) {
-            updateDequeuedByteBuffer(mDequeuedInputBuffers, index, null);
+        synchronized(mBufferLock) {
             invalidateByteBuffer(mCachedInputBuffers, index);
-            return newImage;
+            mDequeuedInputBuffers.put(index, newImage);
         }
-        return null;
+        return newImage;
     }
 
     /**
@@ -1328,13 +1483,10 @@ final public class MediaCodec {
     public ByteBuffer getOutputBuffer(int index) {
         ByteBuffer newBuffer = getBuffer(false /* input */, index);
         synchronized(mBufferLock) {
-            if (updateDequeuedByteBuffer(mDequeuedOutputBuffers, index, newBuffer)) {
-                updateDequeuedImage(mDequeuedOutputImages, index, null);
-                invalidateByteBuffer(mCachedOutputBuffers, index);
-                return newBuffer;
-            }
+            invalidateByteBuffer(mCachedOutputBuffers, index);
+            mDequeuedOutputBuffers.put(index, newBuffer);
         }
-        return null;
+        return newBuffer;
     }
 
     /**
@@ -1358,13 +1510,10 @@ final public class MediaCodec {
     public Image getOutputImage(int index) {
         Image newImage = getImage(false /* input */, index);
         synchronized(mBufferLock) {
-            if (updateDequeuedImage(mDequeuedOutputImages, index, newImage)) {
-                updateDequeuedByteBuffer(mDequeuedOutputBuffers, index, null);
-                invalidateByteBuffer(mCachedOutputBuffers, index);
-                return newImage;
-            }
+            invalidateByteBuffer(mCachedOutputBuffers, index);
+            mDequeuedOutputBuffers.put(index, newImage);
         }
-        return null;
+        return newImage;
     }
 
     /**
@@ -1445,7 +1594,12 @@ final public class MediaCodec {
      * a valid callback should be provided before {@link #configure} is called.
      *
      * When asynchronous callback is enabled, the client should not call
-     * {@link #dequeueInputBuffer(long)} or {@link #dequeueOutputBuffer(BufferInfo, long)}
+     * {@link #getInputBuffers}, {@link #getOutputBuffers},
+     * {@link #dequeueInputBuffer(long)} or {@link #dequeueOutputBuffer(BufferInfo, long)}.
+     * <p>
+     * Also, {@link #flush} behaves differently in asynchronous mode.  After calling
+     * {@code flush}, you must call {@link #start} to "resume" receiving input buffers,
+     * even if an input surface was created.
      *
      * @param cb The callback that will run.
      */
@@ -1518,8 +1672,7 @@ final public class MediaCodec {
      * @throws IllegalStateException if in the Uninitialized state.
      */
     public MediaCodecInfo getCodecInfo() {
-        return MediaCodecList.getCodecInfoAt(
-                   MediaCodecList.findCodecByName(getName()));
+        return MediaCodecList.getInfoFor(getName());
     }
 
     private native final ByteBuffer[] getBuffers(boolean input);
@@ -1625,21 +1778,17 @@ final public class MediaCodec {
             mIsValid = true;
             mIsReadOnly = buffer.isReadOnly();
             mBuffer = buffer.duplicate();
-            if (cropRect != null) {
-                cropRect.offset(-xOffset, -yOffset);
-            }
-            mCropRect = cropRect;
 
             // save offsets and info
             mXOffset = xOffset;
             mYOffset = yOffset;
             mInfo = info;
 
-            // read media-info.  the size of media info can be 80 or 156 depending on
+            // read media-info.  the size of media info can be 80 or 156/160 depending on
             // whether it was created on a 32- or 64-bit process.  See MediaImage
-            if (info.remaining() == 80 || info.remaining() == 156) {
-                boolean sizeIsLong = info.remaining() == 156;
-                int type = info.getInt();
+            if (info.remaining() == 80 || info.remaining() == 156 || info.remaining() == 160) {
+                boolean sizeIsLong = info.remaining() != 80;
+                int type = readInt(info, info.remaining() == 160);
                 if (type != TYPE_YUV) {
                     throw new UnsupportedOperationException("unsupported type: " + type);
                 }
@@ -1680,6 +1829,12 @@ final public class MediaCodec {
                 throw new UnsupportedOperationException(
                         "unsupported info length: " + info.remaining());
             }
+
+            if (cropRect == null) {
+                cropRect = new Rect(0, 0, mWidth, mHeight);
+            }
+            cropRect.offset(-xOffset, -yOffset);
+            super.setCropRect(cropRect);
         }
 
         private class MediaPlane extends Plane {

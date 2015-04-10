@@ -3,6 +3,7 @@
 //
 // Android Asset Packaging Tool main entry point.
 //
+#include "AaptXml.h"
 #include "ApkBuilder.h"
 #include "Bundle.h"
 #include "Images.h"
@@ -22,7 +23,15 @@
 #include <errno.h>
 #include <fcntl.h>
 
+#include <iostream>
+#include <string>
+#include <sstream>
+
 using namespace android;
+
+#ifndef AAPT_VERSION
+    #define AAPT_VERSION ""
+#endif
 
 /*
  * Show version info.  All the cool kids do it.
@@ -32,7 +41,7 @@ int doVersion(Bundle* bundle)
     if (bundle->getFileSpecCount() != 0) {
         printf("(ignoring extra arguments)\n");
     }
-    printf("Android Asset Packaging Tool, v0.2\n");
+    printf("Android Asset Packaging Tool, v0.2-" AAPT_VERSION "\n");
 
     return 0;
 }
@@ -237,162 +246,17 @@ bail:
     return result;
 }
 
-static ssize_t indexOfAttribute(const ResXMLTree& tree, uint32_t attrRes)
-{
-    size_t N = tree.getAttributeCount();
-    for (size_t i=0; i<N; i++) {
-        if (tree.getAttributeNameResID(i) == attrRes) {
-            return (ssize_t)i;
-        }
-    }
-    return -1;
-}
-
-String8 getAttribute(const ResXMLTree& tree, const char* ns,
-                            const char* attr, String8* outError)
-{
-    ssize_t idx = tree.indexOfAttribute(ns, attr);
-    if (idx < 0) {
-        return String8();
-    }
-    Res_value value;
-    if (tree.getAttributeValue(idx, &value) != NO_ERROR) {
-        if (value.dataType != Res_value::TYPE_STRING) {
-            if (outError != NULL) {
-                *outError = "attribute is not a string value";
-            }
-            return String8();
-        }
-    }
-    size_t len;
-    const uint16_t* str = tree.getAttributeStringValue(idx, &len);
-    return str ? String8(str, len) : String8();
-}
-
-static String8 getAttribute(const ResXMLTree& tree, uint32_t attrRes, String8* outError)
-{
-    ssize_t idx = indexOfAttribute(tree, attrRes);
-    if (idx < 0) {
-        return String8();
-    }
-    Res_value value;
-    if (tree.getAttributeValue(idx, &value) != NO_ERROR) {
-        if (value.dataType != Res_value::TYPE_STRING) {
-            if (outError != NULL) {
-                *outError = "attribute is not a string value";
-            }
-            return String8();
-        }
-    }
-    size_t len;
-    const uint16_t* str = tree.getAttributeStringValue(idx, &len);
-    return str ? String8(str, len) : String8();
-}
-
-static int32_t getIntegerAttribute(const ResXMLTree& tree, uint32_t attrRes,
-        String8* outError, int32_t defValue = -1)
-{
-    ssize_t idx = indexOfAttribute(tree, attrRes);
-    if (idx < 0) {
-        return defValue;
-    }
-    Res_value value;
-    if (tree.getAttributeValue(idx, &value) != NO_ERROR) {
-        if (value.dataType < Res_value::TYPE_FIRST_INT
-                || value.dataType > Res_value::TYPE_LAST_INT) {
-            if (outError != NULL) {
-                *outError = "attribute is not an integer value";
-            }
-            return defValue;
-        }
-    }
-    return value.data;
-}
-
-static int32_t getResolvedIntegerAttribute(const ResTable* resTable, const ResXMLTree& tree,
-        uint32_t attrRes, String8* outError, int32_t defValue = -1)
-{
-    ssize_t idx = indexOfAttribute(tree, attrRes);
-    if (idx < 0) {
-        return defValue;
-    }
-    Res_value value;
-    if (tree.getAttributeValue(idx, &value) != NO_ERROR) {
-        if (value.dataType == Res_value::TYPE_REFERENCE) {
-            resTable->resolveReference(&value, 0);
-        }
-        if (value.dataType < Res_value::TYPE_FIRST_INT
-                || value.dataType > Res_value::TYPE_LAST_INT) {
-            if (outError != NULL) {
-                *outError = "attribute is not an integer value";
-            }
-            return defValue;
-        }
-    }
-    return value.data;
-}
-
-static String8 getResolvedAttribute(const ResTable* resTable, const ResXMLTree& tree,
-        uint32_t attrRes, String8* outError)
-{
-    ssize_t idx = indexOfAttribute(tree, attrRes);
-    if (idx < 0) {
-        return String8();
-    }
-    Res_value value;
-    if (tree.getAttributeValue(idx, &value) != NO_ERROR) {
-        if (value.dataType == Res_value::TYPE_STRING) {
-            size_t len;
-            const uint16_t* str = tree.getAttributeStringValue(idx, &len);
-            return str ? String8(str, len) : String8();
-        }
-        resTable->resolveReference(&value, 0);
-        if (value.dataType != Res_value::TYPE_STRING) {
-            if (outError != NULL) {
-                *outError = "attribute is not a string value";
-            }
-            return String8();
-        }
-    }
-    size_t len;
-    const Res_value* value2 = &value;
-    const char16_t* str = const_cast<ResTable*>(resTable)->valueToString(value2, 0, NULL, &len);
-    return str ? String8(str, len) : String8();
-}
-
-static void getResolvedResourceAttribute(Res_value* value, const ResTable* resTable,
-        const ResXMLTree& tree, uint32_t attrRes, String8* outError)
-{
-    ssize_t idx = indexOfAttribute(tree, attrRes);
-    if (idx < 0) {
-        if (outError != NULL) {
-            *outError = "attribute could not be found";
-        }
-        return;
-    }
-    if (tree.getAttributeValue(idx, value) != NO_ERROR) {
-        if (value->dataType == Res_value::TYPE_REFERENCE) {
-            resTable->resolveReference(value, 0);
-        }
-        // The attribute was found and was resolved if need be.
-        return;
-    }
-    if (outError != NULL) {
-        *outError = "error getting resolved resource attribute";
-    }
-}
-
-static void printResolvedResourceAttribute(const ResTable* resTable, const ResXMLTree& tree,
+static void printResolvedResourceAttribute(const ResTable& resTable, const ResXMLTree& tree,
         uint32_t attrRes, String8 attrLabel, String8* outError)
 {
     Res_value value;
-    getResolvedResourceAttribute(&value, resTable, tree, attrRes, outError);
+    AaptXml::getResolvedResourceAttribute(resTable, tree, attrRes, &value, outError);
     if (*outError != "") {
         *outError = "error print resolved resource attribute";
         return;
     }
     if (value.dataType == Res_value::TYPE_STRING) {
-        String8 result = getResolvedAttribute(resTable, tree, attrRes, outError);
+        String8 result = AaptXml::getResolvedAttribute(resTable, tree, attrRes, outError);
         printf("%s='%s'", attrLabel.string(),
                 ResTable::normalizeForOutput(result.string()).string());
     } else if (Res_value::TYPE_FIRST_INT <= value.dataType &&
@@ -434,6 +298,7 @@ enum {
     LARGE_SCREEN_ATTR = 0x01010286,
     XLARGE_SCREEN_ATTR = 0x010102bf,
     REQUIRED_ATTR = 0x0101028e,
+    INSTALL_LOCATION_ATTR = 0x010102b7,
     SCREEN_SIZE_ATTR = 0x010102ca,
     SCREEN_DENSITY_ATTR = 0x010102cb,
     REQUIRES_SMALLEST_WIDTH_DP_ATTR = 0x01010364,
@@ -442,6 +307,7 @@ enum {
     PUBLIC_KEY_ATTR = 0x010103a6,
     CATEGORY_ATTR = 0x010103e8,
     BANNER_ATTR = 0x10103f2,
+    ISGAME_ATTR = 0x10103f4,
 };
 
 String8 getComponentName(String8 &pkgName, String8 &componentName) {
@@ -483,10 +349,10 @@ static void printCompatibleScreens(ResXMLTree& tree, String8* outError) {
         }
         String8 tag(ctag16);
         if (tag == "screen") {
-            int32_t screenSize = getIntegerAttribute(tree,
-                    SCREEN_SIZE_ATTR, NULL, -1);
-            int32_t screenDensity = getIntegerAttribute(tree,
-                    SCREEN_DENSITY_ATTR, NULL, -1);
+            int32_t screenSize = AaptXml::getIntegerAttribute(tree,
+                    SCREEN_SIZE_ATTR);
+            int32_t screenDensity = AaptXml::getIntegerAttribute(tree,
+                    SCREEN_DENSITY_ATTR);
             if (screenSize > 0 && screenDensity > 0) {
                 if (!first) {
                     printf(",");
@@ -572,7 +438,7 @@ Vector<String8> getNfcAidCategories(AssetManager& assets, String8 xmlPath, bool 
                 }
             } else if (depth == 2 && withinApduService) {
                 if (tag == "aid-group") {
-                    String8 category = getAttribute(tree, CATEGORY_ATTR, &error);
+                    String8 category = AaptXml::getAttribute(tree, CATEGORY_ATTR, &error);
                     if (error != "") {
                         if (outError != NULL) *outError = error;
                         return Vector<String8>();
@@ -611,6 +477,8 @@ struct ImpliedFeature {
  * Represents a <feature-group> tag in the AndroidManifest.xml
  */
 struct FeatureGroup {
+    FeatureGroup() : openGLESVersion(-1) {}
+
     /**
      * Human readable label
      */
@@ -620,6 +488,11 @@ struct FeatureGroup {
      * Explicit features defined in the group
      */
     KeyedVector<String8, bool> features;
+
+    /**
+     * OpenGL ES version required
+     */
+    int openGLESVersion;
 };
 
 static void addImpliedFeature(KeyedVector<String8, ImpliedFeature>* impliedFeatures,
@@ -637,14 +510,16 @@ static void printFeatureGroup(const FeatureGroup& grp,
         const KeyedVector<String8, ImpliedFeature>* impliedFeatures = NULL) {
     printf("feature-group: label='%s'\n", grp.label.string());
 
+    if (grp.openGLESVersion > 0) {
+        printf("  uses-gl-es: '0x%x'\n", grp.openGLESVersion);
+    }
+
     const size_t numFeatures = grp.features.size();
     for (size_t i = 0; i < numFeatures; i++) {
-        if (!grp.features[i]) {
-            continue;
-        }
+        const bool required = grp.features[i];
 
         const String8& featureName = grp.features.keyAt(i);
-        printf("  uses-feature: name='%s'\n",
+        printf("  uses-feature%s: name='%s'\n", (required ? "" : "-not-required"),
                 ResTable::normalizeForOutput(featureName.string()).string());
     }
 
@@ -688,6 +563,11 @@ static void addParentFeatures(FeatureGroup* grp, const String8& name) {
     } else if (name == "android.hardware.touchscreen.multitouch.distinct") {
         grp->features.add(String8("android.hardware.touchscreen.multitouch"), true);
         grp->features.add(String8("android.hardware.touchscreen"), true);
+    } else if (name == "android.hardware.opengles.aep") {
+        const int openGLESVersion31 = 0x00030001;
+        if (openGLESVersion31 > grp->openGLESVersion) {
+            grp->openGLESVersion = openGLESVersion31;
+        }
     }
 }
 
@@ -698,7 +578,6 @@ extern char CONSOLE_DATA[2925]; // see EOF
 int doDump(Bundle* bundle)
 {
     status_t result = UNKNOWN_ERROR;
-    Asset* asset = NULL;
 
     if (bundle->getFileSpecCount() < 1) {
         fprintf(stderr, "ERROR: no dump option specified\n");
@@ -737,16 +616,23 @@ int doDump(Bundle* bundle)
     config.screenWidthDp = 320;
     config.screenHeightDp = 480;
     config.smallestScreenWidthDp = 320;
+    config.screenLayout |= ResTable_config::SCREENSIZE_NORMAL;
     assets.setConfiguration(config);
 
     const ResTable& res = assets.getResources(false);
     if (&res == NULL) {
         fprintf(stderr, "ERROR: dump failed because no resource table was found\n");
-        goto bail;
+        return 1;
     } else if (res.getError() != NO_ERROR) {
         fprintf(stderr, "ERROR: dump failed because the resource table is invalid/corrupt.\n");
-        goto bail;
+        return 1;
     }
+
+    // The dynamicRefTable can be null if there are no resources for this asset cookie.
+    // This fine.
+    const DynamicRefTable* dynamicRefTable = res.getDynamicRefTableForCookie(assetsCookie);
+
+    Asset* asset = NULL;
 
     if (strcmp("resources", option) == 0) {
 #ifndef HAVE_ANDROID_OS
@@ -765,8 +651,8 @@ int doDump(Bundle* bundle)
 
         for (int i=2; i<bundle->getFileSpecCount(); i++) {
             const char* resname = bundle->getFileSpecEntry(i);
-            ResXMLTree tree;
-            asset = assets.openNonAsset(resname, Asset::ACCESS_BUFFER);
+            ResXMLTree tree(dynamicRefTable);
+            asset = assets.openNonAsset(assetsCookie, resname, Asset::ACCESS_BUFFER);
             if (asset == NULL) {
                 fprintf(stderr, "ERROR: dump failed because resource %s found\n", resname);
                 goto bail;
@@ -792,13 +678,13 @@ int doDump(Bundle* bundle)
 
         for (int i=2; i<bundle->getFileSpecCount(); i++) {
             const char* resname = bundle->getFileSpecEntry(i);
-            ResXMLTree tree;
-            asset = assets.openNonAsset(resname, Asset::ACCESS_BUFFER);
+            asset = assets.openNonAsset(assetsCookie, resname, Asset::ACCESS_BUFFER);
             if (asset == NULL) {
                 fprintf(stderr, "ERROR: dump failed because resource %s found\n", resname);
                 goto bail;
             }
 
+            ResXMLTree tree(dynamicRefTable);
             if (tree.setTo(asset->getBuffer(true),
                            asset->getLength()) != NO_ERROR) {
                 fprintf(stderr, "ERROR: Resource %s is corrupt\n", resname);
@@ -810,14 +696,13 @@ int doDump(Bundle* bundle)
         }
 
     } else {
-        ResXMLTree tree;
-        asset = assets.openNonAsset("AndroidManifest.xml",
-                                            Asset::ACCESS_BUFFER);
+        asset = assets.openNonAsset(assetsCookie, "AndroidManifest.xml", Asset::ACCESS_BUFFER);
         if (asset == NULL) {
             fprintf(stderr, "ERROR: dump failed because no AndroidManifest.xml found\n");
             goto bail;
         }
 
+        ResXMLTree tree(dynamicRefTable);
         if (tree.setTo(asset->getBuffer(true),
                        asset->getLength()) != NO_ERROR) {
             fprintf(stderr, "ERROR: AndroidManifest.xml is corrupt\n");
@@ -850,11 +735,11 @@ int doDump(Bundle* bundle)
                         fprintf(stderr, "ERROR: manifest does not start with <manifest> tag\n");
                         goto bail;
                     }
-                    String8 pkg = getAttribute(tree, NULL, "package", NULL);
+                    String8 pkg = AaptXml::getAttribute(tree, NULL, "package", NULL);
                     printf("package: %s\n", ResTable::normalizeForOutput(pkg.string()).string());
                 } else if (depth == 2 && tag == "permission") {
                     String8 error;
-                    String8 name = getAttribute(tree, NAME_ATTR, &error);
+                    String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                     if (error != "") {
                         fprintf(stderr, "ERROR: %s\n", error.string());
                         goto bail;
@@ -863,14 +748,14 @@ int doDump(Bundle* bundle)
                             ResTable::normalizeForOutput(name.string()).string());
                 } else if (depth == 2 && tag == "uses-permission") {
                     String8 error;
-                    String8 name = getAttribute(tree, NAME_ATTR, &error);
+                    String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                     if (error != "") {
                         fprintf(stderr, "ERROR: %s\n", error.string());
                         goto bail;
                     }
                     printUsesPermission(name,
-                            getIntegerAttribute(tree, REQUIRED_ATTR, NULL, 1) == 0,
-                            getIntegerAttribute(tree, MAX_SDK_VERSION_ATTR, NULL, -1));
+                            AaptXml::getIntegerAttribute(tree, REQUIRED_ATTR, 1) == 0,
+                            AaptXml::getIntegerAttribute(tree, MAX_SDK_VERSION_ATTR));
                 }
             }
         } else if (strcmp("badging", option) == 0) {
@@ -967,6 +852,10 @@ int doDump(Bundle* bundle)
             bool hasWriteContactsPermission = false;
             bool hasReadCallLogPermission = false;
             bool hasWriteCallLogPermission = false;
+
+            // If an app declares itself as multiArch, we report the
+            // native libraries differently.
+            bool hasMultiArch = false;
 
             // This next group of variables is used to implement a group of
             // backward-compatibility heuristics necessitated by the addition of
@@ -1121,12 +1010,14 @@ int doDump(Bundle* bundle)
                         fprintf(stderr, "ERROR: manifest does not start with <manifest> tag\n");
                         goto bail;
                     }
-                    pkg = getAttribute(tree, NULL, "package", NULL);
+                    pkg = AaptXml::getAttribute(tree, NULL, "package", NULL);
                     printf("package: name='%s' ",
                             ResTable::normalizeForOutput(pkg.string()).string());
-                    int32_t versionCode = getIntegerAttribute(tree, VERSION_CODE_ATTR, &error);
+                    int32_t versionCode = AaptXml::getIntegerAttribute(tree, VERSION_CODE_ATTR,
+                            &error);
                     if (error != "") {
-                        fprintf(stderr, "ERROR getting 'android:versionCode' attribute: %s\n", error.string());
+                        fprintf(stderr, "ERROR getting 'android:versionCode' attribute: %s\n",
+                                error.string());
                         goto bail;
                     }
                     if (versionCode > 0) {
@@ -1134,13 +1025,53 @@ int doDump(Bundle* bundle)
                     } else {
                         printf("versionCode='' ");
                     }
-                    String8 versionName = getResolvedAttribute(&res, tree, VERSION_NAME_ATTR, &error);
+                    String8 versionName = AaptXml::getResolvedAttribute(res, tree,
+                            VERSION_NAME_ATTR, &error);
                     if (error != "") {
-                        fprintf(stderr, "ERROR getting 'android:versionName' attribute: %s\n", error.string());
+                        fprintf(stderr, "ERROR getting 'android:versionName' attribute: %s\n",
+                                error.string());
                         goto bail;
                     }
-                    printf("versionName='%s'\n",
+                    printf("versionName='%s'",
                             ResTable::normalizeForOutput(versionName.string()).string());
+
+                    String8 splitName = AaptXml::getAttribute(tree, NULL, "split");
+                    if (!splitName.isEmpty()) {
+                        printf(" split='%s'", ResTable::normalizeForOutput(
+                                    splitName.string()).string());
+                    }
+
+                    String8 platformVersionName = AaptXml::getAttribute(tree, NULL,
+                            "platformBuildVersionName");
+                    printf(" platformBuildVersionName='%s'", platformVersionName.string());
+                    printf("\n");
+
+                    int32_t installLocation = AaptXml::getResolvedIntegerAttribute(res, tree,
+                            INSTALL_LOCATION_ATTR, &error);
+                    if (error != "") {
+                        fprintf(stderr, "ERROR getting 'android:installLocation' attribute: %s\n",
+                                error.string());
+                        goto bail;
+                    }
+
+                    if (installLocation >= 0) {
+                        printf("install-location:'");
+                        switch (installLocation) {
+                            case 0:
+                                printf("auto");
+                                break;
+                            case 1:
+                                printf("internalOnly");
+                                break;
+                            case 2:
+                                printf("preferExternal");
+                                break;
+                            default:
+                                fprintf(stderr, "Invalid installLocation %d\n", installLocation);
+                                goto bail;
+                        }
+                        printf("'\n");
+                    }
                 } else if (depth == 2) {
                     withinApplication = false;
                     if (tag == "application") {
@@ -1151,7 +1082,8 @@ int doDump(Bundle* bundle)
                         for (size_t i=0; i<NL; i++) {
                             const char* localeStr =  locales[i].string();
                             assets.setLocale(localeStr != NULL ? localeStr : "");
-                            String8 llabel = getResolvedAttribute(&res, tree, LABEL_ATTR, &error);
+                            String8 llabel = AaptXml::getResolvedAttribute(res, tree, LABEL_ATTR,
+                                    &error);
                             if (llabel != "") {
                                 if (localeStr == NULL || strlen(localeStr) == 0) {
                                     label = llabel;
@@ -1172,7 +1104,8 @@ int doDump(Bundle* bundle)
                         for (size_t i=0; i<ND; i++) {
                             tmpConfig.density = densities[i];
                             assets.setConfiguration(tmpConfig);
-                            String8 icon = getResolvedAttribute(&res, tree, ICON_ATTR, &error);
+                            String8 icon = AaptXml::getResolvedAttribute(res, tree, ICON_ATTR,
+                                    &error);
                             if (icon != "") {
                                 printf("application-icon-%d:'%s'\n", densities[i],
                                         ResTable::normalizeForOutput(icon.string()).string());
@@ -1180,36 +1113,78 @@ int doDump(Bundle* bundle)
                         }
                         assets.setConfiguration(config);
 
-                        String8 icon = getResolvedAttribute(&res, tree, ICON_ATTR, &error);
+                        String8 icon = AaptXml::getResolvedAttribute(res, tree, ICON_ATTR, &error);
                         if (error != "") {
-                            fprintf(stderr, "ERROR getting 'android:icon' attribute: %s\n", error.string());
+                            fprintf(stderr, "ERROR getting 'android:icon' attribute: %s\n",
+                                    error.string());
                             goto bail;
                         }
-                        int32_t testOnly = getIntegerAttribute(tree, TEST_ONLY_ATTR, &error, 0);
+                        int32_t testOnly = AaptXml::getIntegerAttribute(tree, TEST_ONLY_ATTR, 0,
+                                &error);
                         if (error != "") {
-                            fprintf(stderr, "ERROR getting 'android:testOnly' attribute: %s\n", error.string());
+                            fprintf(stderr, "ERROR getting 'android:testOnly' attribute: %s\n",
+                                    error.string());
+                            goto bail;
+                        }
+
+                        String8 banner = AaptXml::getResolvedAttribute(res, tree, BANNER_ATTR, &error);
+                        if (error != "") {
+                            fprintf(stderr, "ERROR getting 'android:banner' attribute: %s\n",
+                                    error.string());
                             goto bail;
                         }
                         printf("application: label='%s' ",
                                 ResTable::normalizeForOutput(label.string()).string());
-                        printf("icon='%s'\n", ResTable::normalizeForOutput(icon.string()).string());
+                        printf("icon='%s'", ResTable::normalizeForOutput(icon.string()).string());
+                        if (banner != "") {
+                            printf(" banner='%s'", ResTable::normalizeForOutput(banner.string()).string());
+                        }
+                        printf("\n");
                         if (testOnly != 0) {
                             printf("testOnly='%d'\n", testOnly);
                         }
 
-                        int32_t debuggable = getResolvedIntegerAttribute(&res, tree, DEBUGGABLE_ATTR, &error, 0);
+                        int32_t isGame = AaptXml::getResolvedIntegerAttribute(res, tree,
+                                ISGAME_ATTR, 0, &error);
                         if (error != "") {
-                            fprintf(stderr, "ERROR getting 'android:debuggable' attribute: %s\n", error.string());
+                            fprintf(stderr, "ERROR getting 'android:isGame' attribute: %s\n",
+                                    error.string());
+                            goto bail;
+                        }
+                        if (isGame != 0) {
+                            printf("application-isGame\n");
+                        }
+
+                        int32_t debuggable = AaptXml::getResolvedIntegerAttribute(res, tree,
+                                DEBUGGABLE_ATTR, 0, &error);
+                        if (error != "") {
+                            fprintf(stderr, "ERROR getting 'android:debuggable' attribute: %s\n",
+                                    error.string());
                             goto bail;
                         }
                         if (debuggable != 0) {
                             printf("application-debuggable\n");
                         }
+
+                        // We must search by name because the multiArch flag hasn't been API
+                        // frozen yet.
+                        int32_t multiArchIndex = tree.indexOfAttribute(RESOURCES_ANDROID_NAMESPACE,
+                                "multiArch");
+                        if (multiArchIndex >= 0) {
+                            Res_value value;
+                            if (tree.getAttributeValue(multiArchIndex, &value) != NO_ERROR) {
+                                if (value.dataType >= Res_value::TYPE_FIRST_INT &&
+                                        value.dataType <= Res_value::TYPE_LAST_INT) {
+                                    hasMultiArch = value.data;
+                                }
+                            }
+                        }
                     } else if (tag == "uses-sdk") {
-                        int32_t code = getIntegerAttribute(tree, MIN_SDK_VERSION_ATTR, &error);
+                        int32_t code = AaptXml::getIntegerAttribute(tree, MIN_SDK_VERSION_ATTR, &error);
                         if (error != "") {
                             error = "";
-                            String8 name = getResolvedAttribute(&res, tree, MIN_SDK_VERSION_ATTR, &error);
+                            String8 name = AaptXml::getResolvedAttribute(res, tree,
+                                    MIN_SDK_VERSION_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:minSdkVersion' attribute: %s\n",
                                         error.string());
@@ -1222,14 +1197,15 @@ int doDump(Bundle* bundle)
                             targetSdk = code;
                             printf("sdkVersion:'%d'\n", code);
                         }
-                        code = getIntegerAttribute(tree, MAX_SDK_VERSION_ATTR, NULL, -1);
+                        code = AaptXml::getIntegerAttribute(tree, MAX_SDK_VERSION_ATTR);
                         if (code != -1) {
                             printf("maxSdkVersion:'%d'\n", code);
                         }
-                        code = getIntegerAttribute(tree, TARGET_SDK_VERSION_ATTR, &error);
+                        code = AaptXml::getIntegerAttribute(tree, TARGET_SDK_VERSION_ATTR, &error);
                         if (error != "") {
                             error = "";
-                            String8 name = getResolvedAttribute(&res, tree, TARGET_SDK_VERSION_ATTR, &error);
+                            String8 name = AaptXml::getResolvedAttribute(res, tree,
+                                    TARGET_SDK_VERSION_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:targetSdkVersion' attribute: %s\n",
                                         error.string());
@@ -1245,16 +1221,16 @@ int doDump(Bundle* bundle)
                             printf("targetSdkVersion:'%d'\n", code);
                         }
                     } else if (tag == "uses-configuration") {
-                        int32_t reqTouchScreen = getIntegerAttribute(tree,
-                                REQ_TOUCH_SCREEN_ATTR, NULL, 0);
-                        int32_t reqKeyboardType = getIntegerAttribute(tree,
-                                REQ_KEYBOARD_TYPE_ATTR, NULL, 0);
-                        int32_t reqHardKeyboard = getIntegerAttribute(tree,
-                                REQ_HARD_KEYBOARD_ATTR, NULL, 0);
-                        int32_t reqNavigation = getIntegerAttribute(tree,
-                                REQ_NAVIGATION_ATTR, NULL, 0);
-                        int32_t reqFiveWayNav = getIntegerAttribute(tree,
-                                REQ_FIVE_WAY_NAV_ATTR, NULL, 0);
+                        int32_t reqTouchScreen = AaptXml::getIntegerAttribute(tree,
+                                REQ_TOUCH_SCREEN_ATTR, 0);
+                        int32_t reqKeyboardType = AaptXml::getIntegerAttribute(tree,
+                                REQ_KEYBOARD_TYPE_ATTR, 0);
+                        int32_t reqHardKeyboard = AaptXml::getIntegerAttribute(tree,
+                                REQ_HARD_KEYBOARD_ATTR, 0);
+                        int32_t reqNavigation = AaptXml::getIntegerAttribute(tree,
+                                REQ_NAVIGATION_ATTR, 0);
+                        int32_t reqFiveWayNav = AaptXml::getIntegerAttribute(tree,
+                                REQ_FIVE_WAY_NAV_ATTR, 0);
                         printf("uses-configuration:");
                         if (reqTouchScreen != 0) {
                             printf(" reqTouchScreen='%d'", reqTouchScreen);
@@ -1275,26 +1251,26 @@ int doDump(Bundle* bundle)
                     } else if (tag == "supports-input") {
                         withinSupportsInput = true;
                     } else if (tag == "supports-screens") {
-                        smallScreen = getIntegerAttribute(tree,
-                                SMALL_SCREEN_ATTR, NULL, 1);
-                        normalScreen = getIntegerAttribute(tree,
-                                NORMAL_SCREEN_ATTR, NULL, 1);
-                        largeScreen = getIntegerAttribute(tree,
-                                LARGE_SCREEN_ATTR, NULL, 1);
-                        xlargeScreen = getIntegerAttribute(tree,
-                                XLARGE_SCREEN_ATTR, NULL, 1);
-                        anyDensity = getIntegerAttribute(tree,
-                                ANY_DENSITY_ATTR, NULL, 1);
-                        requiresSmallestWidthDp = getIntegerAttribute(tree,
-                                REQUIRES_SMALLEST_WIDTH_DP_ATTR, NULL, 0);
-                        compatibleWidthLimitDp = getIntegerAttribute(tree,
-                                COMPATIBLE_WIDTH_LIMIT_DP_ATTR, NULL, 0);
-                        largestWidthLimitDp = getIntegerAttribute(tree,
-                                LARGEST_WIDTH_LIMIT_DP_ATTR, NULL, 0);
+                        smallScreen = AaptXml::getIntegerAttribute(tree,
+                                SMALL_SCREEN_ATTR, 1);
+                        normalScreen = AaptXml::getIntegerAttribute(tree,
+                                NORMAL_SCREEN_ATTR, 1);
+                        largeScreen = AaptXml::getIntegerAttribute(tree,
+                                LARGE_SCREEN_ATTR, 1);
+                        xlargeScreen = AaptXml::getIntegerAttribute(tree,
+                                XLARGE_SCREEN_ATTR, 1);
+                        anyDensity = AaptXml::getIntegerAttribute(tree,
+                                ANY_DENSITY_ATTR, 1);
+                        requiresSmallestWidthDp = AaptXml::getIntegerAttribute(tree,
+                                REQUIRES_SMALLEST_WIDTH_DP_ATTR, 0);
+                        compatibleWidthLimitDp = AaptXml::getIntegerAttribute(tree,
+                                COMPATIBLE_WIDTH_LIMIT_DP_ATTR, 0);
+                        largestWidthLimitDp = AaptXml::getIntegerAttribute(tree,
+                                LARGEST_WIDTH_LIMIT_DP_ATTR, 0);
                     } else if (tag == "feature-group") {
                         withinFeatureGroup = true;
                         FeatureGroup group;
-                        group.label = getResolvedAttribute(&res, tree, LABEL_ATTR, &error);
+                        group.label = AaptXml::getResolvedAttribute(res, tree, LABEL_ATTR, &error);
                         if (error != "") {
                             fprintf(stderr, "ERROR getting 'android:label' attribute:"
                                     " %s\n", error.string());
@@ -1303,27 +1279,29 @@ int doDump(Bundle* bundle)
                         featureGroups.add(group);
 
                     } else if (tag == "uses-feature") {
-                        String8 name = getAttribute(tree, NAME_ATTR, &error);
+                        String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (name != "" && error == "") {
-                            int req = getIntegerAttribute(tree,
-                                    REQUIRED_ATTR, NULL, 1);
+                            int req = AaptXml::getIntegerAttribute(tree,
+                                    REQUIRED_ATTR, 1);
 
                             commonFeatures.features.add(name, req);
                             if (req) {
                                 addParentFeatures(&commonFeatures, name);
                             }
                         } else {
-                            int vers = getIntegerAttribute(tree,
+                            int vers = AaptXml::getIntegerAttribute(tree,
                                     GL_ES_VERSION_ATTR, &error);
                             if (error == "") {
-                                printf("uses-gl-es:'0x%x'\n", vers);
+                                if (vers > commonFeatures.openGLESVersion) {
+                                    commonFeatures.openGLESVersion = vers;
+                                }
                             }
                         }
                     } else if (tag == "uses-permission") {
-                        String8 name = getAttribute(tree, NAME_ATTR, &error);
+                        String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (name != "" && error == "") {
                             if (name == "android.permission.CAMERA") {
-                                addImpliedFeature(&impliedFeatures, "android.hardware.feature",
+                                addImpliedFeature(&impliedFeatures, "android.hardware.camera",
                                         String8::format("requested %s permission", name.string())
                                         .string());
                             } else if (name == "android.permission.ACCESS_FINE_LOCATION") {
@@ -1398,15 +1376,15 @@ int doDump(Bundle* bundle)
                             }
 
                             printUsesPermission(name,
-                                    getIntegerAttribute(tree, REQUIRED_ATTR, NULL, 1) == 0,
-                                    getIntegerAttribute(tree, MAX_SDK_VERSION_ATTR, NULL, -1));
+                                    AaptXml::getIntegerAttribute(tree, REQUIRED_ATTR, 1) == 0,
+                                    AaptXml::getIntegerAttribute(tree, MAX_SDK_VERSION_ATTR));
                        } else {
                             fprintf(stderr, "ERROR getting 'android:name' attribute: %s\n",
                                     error.string());
                             goto bail;
                         }
                     } else if (tag == "uses-package") {
-                        String8 name = getAttribute(tree, NAME_ATTR, &error);
+                        String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (name != "" && error == "") {
                             printf("uses-package:'%s'\n",
                                     ResTable::normalizeForOutput(name.string()).string());
@@ -1416,7 +1394,7 @@ int doDump(Bundle* bundle)
                                 goto bail;
                         }
                     } else if (tag == "original-package") {
-                        String8 name = getAttribute(tree, NAME_ATTR, &error);
+                        String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (name != "" && error == "") {
                             printf("original-package:'%s'\n",
                                     ResTable::normalizeForOutput(name.string()).string());
@@ -1426,7 +1404,7 @@ int doDump(Bundle* bundle)
                                 goto bail;
                         }
                     } else if (tag == "supports-gl-texture") {
-                        String8 name = getAttribute(tree, NAME_ATTR, &error);
+                        String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (name != "" && error == "") {
                             printf("supports-gl-texture:'%s'\n",
                                     ResTable::normalizeForOutput(name.string()).string());
@@ -1444,9 +1422,9 @@ int doDump(Bundle* bundle)
                         }
                         depth--;
                     } else if (tag == "package-verifier") {
-                        String8 name = getAttribute(tree, NAME_ATTR, &error);
+                        String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (name != "" && error == "") {
-                            String8 publicKey = getAttribute(tree, PUBLIC_KEY_ATTR, &error);
+                            String8 publicKey = AaptXml::getAttribute(tree, PUBLIC_KEY_ATTR, &error);
                             if (publicKey != "" && error == "") {
                                 printf("package-verifier: name='%s' publicKey='%s'\n",
                                         ResTable::normalizeForOutput(name.string()).string(),
@@ -1473,35 +1451,38 @@ int doDump(Bundle* bundle)
                     if (withinApplication) {
                         if(tag == "activity") {
                             withinActivity = true;
-                            activityName = getAttribute(tree, NAME_ATTR, &error);
+                            activityName = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:name' attribute: %s\n",
                                         error.string());
                                 goto bail;
                             }
 
-                            activityLabel = getResolvedAttribute(&res, tree, LABEL_ATTR, &error);
+                            activityLabel = AaptXml::getResolvedAttribute(res, tree, LABEL_ATTR,
+                                    &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:label' attribute: %s\n",
                                         error.string());
                                 goto bail;
                             }
 
-                            activityIcon = getResolvedAttribute(&res, tree, ICON_ATTR, &error);
+                            activityIcon = AaptXml::getResolvedAttribute(res, tree, ICON_ATTR,
+                                    &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:icon' attribute: %s\n",
                                         error.string());
                                 goto bail;
                             }
 
-                            activityBanner = getResolvedAttribute(&res, tree, BANNER_ATTR, &error);
+                            activityBanner = AaptXml::getResolvedAttribute(res, tree, BANNER_ATTR,
+                                    &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:banner' attribute: %s\n",
                                         error.string());
                                 goto bail;
                             }
 
-                            int32_t orien = getResolvedIntegerAttribute(&res, tree,
+                            int32_t orien = AaptXml::getResolvedIntegerAttribute(res, tree,
                                     SCREEN_ORIENTATION_ATTR, &error);
                             if (error == "") {
                                 if (orien == 0 || orien == 6 || orien == 8) {
@@ -1515,21 +1496,21 @@ int doDump(Bundle* bundle)
                                 }
                             }
                         } else if (tag == "uses-library") {
-                            String8 libraryName = getAttribute(tree, NAME_ATTR, &error);
+                            String8 libraryName = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr,
                                         "ERROR getting 'android:name' attribute for uses-library"
                                         " %s\n", error.string());
                                 goto bail;
                             }
-                            int req = getIntegerAttribute(tree,
-                                    REQUIRED_ATTR, NULL, 1);
+                            int req = AaptXml::getIntegerAttribute(tree,
+                                    REQUIRED_ATTR, 1);
                             printf("uses-library%s:'%s'\n",
                                     req ? "" : "-not-required", ResTable::normalizeForOutput(
                                             libraryName.string()).string());
                         } else if (tag == "receiver") {
                             withinReceiver = true;
-                            receiverName = getAttribute(tree, NAME_ATTR, &error);
+                            receiverName = AaptXml::getAttribute(tree, NAME_ATTR, &error);
 
                             if (error != "") {
                                 fprintf(stderr,
@@ -1538,7 +1519,8 @@ int doDump(Bundle* bundle)
                                 goto bail;
                             }
 
-                            String8 permission = getAttribute(tree, PERMISSION_ATTR, &error);
+                            String8 permission = AaptXml::getAttribute(tree, PERMISSION_ATTR,
+                                    &error);
                             if (error == "") {
                                 if (permission == "android.permission.BIND_DEVICE_ADMIN") {
                                     hasBindDeviceAdminPermission = true;
@@ -1549,7 +1531,7 @@ int doDump(Bundle* bundle)
                             }
                         } else if (tag == "service") {
                             withinService = true;
-                            serviceName = getAttribute(tree, NAME_ATTR, &error);
+                            serviceName = AaptXml::getAttribute(tree, NAME_ATTR, &error);
 
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:name' attribute for "
@@ -1557,7 +1539,8 @@ int doDump(Bundle* bundle)
                                 goto bail;
                             }
 
-                            String8 permission = getAttribute(tree, PERMISSION_ATTR, &error);
+                            String8 permission = AaptXml::getAttribute(tree, PERMISSION_ATTR,
+                                    &error);
                             if (error == "") {
                                 if (permission == "android.permission.BIND_INPUT_METHOD") {
                                     hasBindInputMethodPermission = true;
@@ -1579,22 +1562,24 @@ int doDump(Bundle* bundle)
                         } else if (tag == "provider") {
                             withinProvider = true;
 
-                            bool exported = getResolvedIntegerAttribute(&res, tree, EXPORTED_ATTR, &error);
+                            bool exported = AaptXml::getResolvedIntegerAttribute(res, tree,
+                                    EXPORTED_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:exported' attribute for provider:"
                                         " %s\n", error.string());
                                 goto bail;
                             }
 
-                            bool grantUriPermissions = getResolvedIntegerAttribute(&res, tree,
-                                    GRANT_URI_PERMISSIONS_ATTR, &error);
+                            bool grantUriPermissions = AaptXml::getResolvedIntegerAttribute(
+                                    res, tree, GRANT_URI_PERMISSIONS_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:grantUriPermissions' attribute for provider:"
                                         " %s\n", error.string());
                                 goto bail;
                             }
 
-                            String8 permission = getResolvedAttribute(&res, tree, PERMISSION_ATTR, &error);
+                            String8 permission = AaptXml::getResolvedAttribute(res, tree,
+                                    PERMISSION_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:permission' attribute for provider:"
                                         " %s\n", error.string());
@@ -1605,7 +1590,8 @@ int doDump(Bundle* bundle)
                                 permission == "android.permission.MANAGE_DOCUMENTS";
 
                         } else if (bundle->getIncludeMetaData() && tag == "meta-data") {
-                            String8 metaDataName = getResolvedAttribute(&res, tree, NAME_ATTR, &error);
+                            String8 metaDataName = AaptXml::getResolvedAttribute(res, tree,
+                                    NAME_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:name' attribute for "
                                         "meta-data:%s\n", error.string());
@@ -1613,12 +1599,12 @@ int doDump(Bundle* bundle)
                             }
                             printf("meta-data: name='%s' ",
                                     ResTable::normalizeForOutput(metaDataName.string()).string());
-                            printResolvedResourceAttribute(&res, tree, VALUE_ATTR, String8("value"),
+                            printResolvedResourceAttribute(res, tree, VALUE_ATTR, String8("value"),
                                     &error);
                             if (error != "") {
                                 // Try looking for a RESOURCE_ATTR
                                 error = "";
-                                printResolvedResourceAttribute(&res, tree, RESOURCE_ATTR,
+                                printResolvedResourceAttribute(res, tree, RESOURCE_ATTR,
                                         String8("resource"), &error);
                                 if (error != "") {
                                     fprintf(stderr, "ERROR getting 'android:value' or "
@@ -1629,7 +1615,7 @@ int doDump(Bundle* bundle)
                             }
                             printf("\n");
                         } else if (withinSupportsInput && tag == "input-type") {
-                            String8 name = getAttribute(tree, NAME_ATTR, &error);
+                            String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                             if (name != "" && error == "") {
                                 supportedInput.add(name);
                             } else {
@@ -1639,18 +1625,20 @@ int doDump(Bundle* bundle)
                             }
                         }
                     } else if (withinFeatureGroup && tag == "uses-feature") {
-                        String8 name = getResolvedAttribute(&res, tree, NAME_ATTR, &error);
-                        if (error != "") {
-                            fprintf(stderr, "ERROR getting 'android:name' attribute: %s\n",
-                                    error.string());
-                            goto bail;
-                        }
-
-                        int required = getIntegerAttribute(tree, REQUIRED_ATTR, NULL, 1);
                         FeatureGroup& top = featureGroups.editTop();
-                        top.features.add(name, required);
-                        if (required) {
+
+                        String8 name = AaptXml::getResolvedAttribute(res, tree, NAME_ATTR, &error);
+                        if (name != "" && error == "") {
+                            top.features.add(name, true);
                             addParentFeatures(&top, name);
+                        } else {
+                            int vers = AaptXml::getIntegerAttribute(tree, GL_ES_VERSION_ATTR,
+                                    &error);
+                            if (error == "") {
+                                if (vers > top.openGLESVersion) {
+                                    top.openGLESVersion = vers;
+                                }
+                            }
                         }
                     }
                 } else if (depth == 4) {
@@ -1673,7 +1661,7 @@ int doDump(Bundle* bundle)
                         actCameraSecure = false;
                         catLauncher = false;
                     } else if (withinService && tag == "meta-data") {
-                        String8 name = getAttribute(tree, NAME_ATTR, &error);
+                        String8 name = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (error != "") {
                             fprintf(stderr, "ERROR getting 'android:name' attribute for"
                                     " meta-data tag in service '%s': %s\n", serviceName.string(), error.string());
@@ -1687,7 +1675,8 @@ int doDump(Bundle* bundle)
                                 offHost = false;
                             }
 
-                            String8 xmlPath = getResolvedAttribute(&res, tree, RESOURCE_ATTR, &error);
+                            String8 xmlPath = AaptXml::getResolvedAttribute(res, tree,
+                                    RESOURCE_ATTR, &error);
                             if (error != "") {
                                 fprintf(stderr, "ERROR getting 'android:resource' attribute for"
                                         " meta-data tag in service '%s': %s\n", serviceName.string(), error.string());
@@ -1716,7 +1705,7 @@ int doDump(Bundle* bundle)
                 } else if ((depth == 5) && withinIntentFilter) {
                     String8 action;
                     if (tag == "action") {
-                        action = getAttribute(tree, NAME_ATTR, &error);
+                        action = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (error != "") {
                             fprintf(stderr, "ERROR getting 'android:name' attribute: %s\n",
                                     error.string());
@@ -1768,7 +1757,7 @@ int doDump(Bundle* bundle)
                     }
 
                     if (tag == "category") {
-                        String8 category = getAttribute(tree, NAME_ATTR, &error);
+                        String8 category = AaptXml::getAttribute(tree, NAME_ATTR, &error);
                         if (error != "") {
                             fprintf(stderr, "ERROR getting 'name' attribute: %s\n",
                                     error.string());
@@ -1839,16 +1828,21 @@ int doDump(Bundle* bundle)
                 for (size_t i = 0; i < numFeatureGroups; i++) {
                     FeatureGroup& grp = featureGroups.editItemAt(i);
 
+                    if (commonFeatures.openGLESVersion > grp.openGLESVersion) {
+                        grp.openGLESVersion = commonFeatures.openGLESVersion;
+                    }
+
                     // Merge the features defined in the top level (not inside a <feature-group>)
                     // with this feature group.
                     const size_t numCommonFeatures = commonFeatures.features.size();
                     for (size_t j = 0; j < numCommonFeatures; j++) {
                         if (grp.features.indexOfKey(commonFeatures.features.keyAt(j)) < 0) {
-                            grp.features.add(commonFeatures.features.keyAt(j), commonFeatures.features[j]);
+                            grp.features.add(commonFeatures.features.keyAt(j),
+                                    commonFeatures.features[j]);
                         }
                     }
 
-                   if (!grp.features.isEmpty()) {
+                    if (!grp.features.isEmpty()) {
                         printFeatureGroup(grp);
                     }
                 }
@@ -2008,12 +2002,54 @@ int doDump(Bundle* bundle)
             AssetDir* dir = assets.openNonAssetDir(assetsCookie, "lib");
             if (dir != NULL) {
                 if (dir->getFileCount() > 0) {
-                    printf("native-code:");
+                    SortedVector<String8> architectures;
                     for (size_t i=0; i<dir->getFileCount(); i++) {
-                        printf(" '%s'", ResTable::normalizeForOutput(
-                                dir->getFileName(i).string()).string());
+                        architectures.add(ResTable::normalizeForOutput(
+                                dir->getFileName(i).string()));
                     }
-                    printf("\n");
+
+                    bool outputAltNativeCode = false;
+                    // A multiArch package is one that contains 64-bit and
+                    // 32-bit versions of native code and expects 3rd-party
+                    // apps to load these native code libraries. Since most
+                    // 64-bit systems also support 32-bit apps, the apps
+                    // loading this multiArch package's code may be either
+                    // 32-bit or 64-bit.
+                    if (hasMultiArch) {
+                        // If this is a multiArch package, report the 64-bit
+                        // version only. Then as a separate entry, report the
+                        // rest.
+                        //
+                        // If we report the 32-bit architecture, this APK will
+                        // be installed on a 32-bit device, causing a large waste
+                        // of bandwidth and disk space. This assumes that
+                        // the developer of the multiArch package has also
+                        // made a version that is 32-bit only.
+                        String8 intel64("x86_64");
+                        String8 arm64("arm64-v8a");
+                        ssize_t index = architectures.indexOf(intel64);
+                        if (index < 0) {
+                            index = architectures.indexOf(arm64);
+                        }
+
+                        if (index >= 0) {
+                            printf("native-code: '%s'\n", architectures[index].string());
+                            architectures.removeAt(index);
+                            outputAltNativeCode = true;
+                        }
+                    }
+
+                    const size_t archCount = architectures.size();
+                    if (archCount > 0) {
+                        if (outputAltNativeCode) {
+                            printf("alt-");
+                        }
+                        printf("native-code:");
+                        for (size_t i = 0; i < archCount; i++) {
+                            printf(" '%s'", architectures[i].string());
+                        }
+                        printf("\n");
+                    }
                 }
                 delete dir;
             }
@@ -2360,10 +2396,12 @@ int doPackage(Bundle* bundle)
         if (bundle->getCustomPackage() == NULL) {
             // Write the R.java file into the appropriate class directory
             // e.g. gen/com/foo/app/R.java
-            err = writeResourceSymbols(bundle, assets, assets->getPackage(), true);
+            err = writeResourceSymbols(bundle, assets, assets->getPackage(), true,
+                    bundle->getBuildSharedLibrary());
         } else {
             const String8 customPkg(bundle->getCustomPackage());
-            err = writeResourceSymbols(bundle, assets, customPkg, true);
+            err = writeResourceSymbols(bundle, assets, customPkg, true,
+                    bundle->getBuildSharedLibrary());
         }
         if (err < 0) {
             goto bail;
@@ -2377,7 +2415,8 @@ int doPackage(Bundle* bundle)
             char* packageString = strtok(libs.lockBuffer(libs.length()), ":");
             while (packageString != NULL) {
                 // Write the R.java file out with the correct package name
-                err = writeResourceSymbols(bundle, assets, String8(packageString), true);
+                err = writeResourceSymbols(bundle, assets, String8(packageString), true,
+                        bundle->getBuildSharedLibrary());
                 if (err < 0) {
                     goto bail;
                 }
@@ -2386,11 +2425,11 @@ int doPackage(Bundle* bundle)
             libs.unlockBuffer();
         }
     } else {
-        err = writeResourceSymbols(bundle, assets, assets->getPackage(), false);
+        err = writeResourceSymbols(bundle, assets, assets->getPackage(), false, false);
         if (err < 0) {
             goto bail;
         }
-        err = writeResourceSymbols(bundle, assets, assets->getSymbolsPrivatePackage(), true);
+        err = writeResourceSymbols(bundle, assets, assets->getSymbolsPrivatePackage(), true, false);
         if (err < 0) {
             goto bail;
         }
@@ -2490,6 +2529,32 @@ int doSingleCrunch(Bundle* bundle)
     }
 
     return NO_ERROR;
+}
+
+int runInDaemonMode(Bundle* bundle) {
+    std::cout << "Ready" << std::endl;
+    for (std::string cmd; std::getline(std::cin, cmd);) {
+        if (cmd == "quit") {
+            return NO_ERROR;
+        } else if (cmd == "s") {
+            // Two argument crunch
+            std::string inputFile, outputFile;
+            std::getline(std::cin, inputFile);
+            std::getline(std::cin, outputFile);
+            bundle->setSingleCrunchInputFile(inputFile.c_str());
+            bundle->setSingleCrunchOutputFile(outputFile.c_str());
+            std::cout << "Crunching " << inputFile << std::endl;
+            if (doSingleCrunch(bundle) != NO_ERROR) {
+                std::cout << "Error" << std::endl;
+            }
+            std::cout << "Done" << std::endl;
+        } else {
+            // in case of invalid command, just bail out.
+            std::cerr << "Unknown command" << std::endl;
+            return -1;
+        }
+    }
+    return -1;
 }
 
 char CONSOLE_DATA[2925] = {

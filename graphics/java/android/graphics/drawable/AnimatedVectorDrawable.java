@@ -16,13 +16,17 @@ package android.graphics.drawable;
 
 import android.animation.Animator;
 import android.animation.AnimatorInflater;
-import android.animation.ValueAnimator;
+import android.annotation.NonNull;
+import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
+import android.graphics.Outline;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
+import android.util.ArrayMap;
 import android.util.AttributeSet;
 import android.util.Log;
 
@@ -127,32 +131,52 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
 
     private static final boolean DBG_ANIMATION_VECTOR_DRAWABLE = false;
 
-    private final AnimatedVectorDrawableState mAnimatedVectorState;
+    private AnimatedVectorDrawableState mAnimatedVectorState;
 
+    private boolean mMutated;
 
     public AnimatedVectorDrawable() {
-        mAnimatedVectorState = new AnimatedVectorDrawableState(
-                new AnimatedVectorDrawableState(null));
+        this(null, null);
     }
 
-    private AnimatedVectorDrawable(AnimatedVectorDrawableState state, Resources res,
-            Theme theme) {
-        // TODO: Correctly handle the constant state for AVD.
-        mAnimatedVectorState = new AnimatedVectorDrawableState(state);
-        if (theme != null && canApplyTheme()) {
-            applyTheme(theme);
+    private AnimatedVectorDrawable(AnimatedVectorDrawableState state, Resources res) {
+        mAnimatedVectorState = new AnimatedVectorDrawableState(state, mCallback, res);
+    }
+
+    @Override
+    public Drawable mutate() {
+        if (!mMutated && super.mutate() == this) {
+            mAnimatedVectorState = new AnimatedVectorDrawableState(
+                    mAnimatedVectorState, mCallback, null);
+            mMutated = true;
         }
+        return this;
+    }
+
+    /**
+     * @hide
+     */
+    public void clearMutated() {
+        super.clearMutated();
+        mAnimatedVectorState.mVectorDrawable.clearMutated();
+        mMutated = false;
     }
 
     @Override
     public ConstantState getConstantState() {
-        return null;
+        mAnimatedVectorState.mChangingConfigurations = getChangingConfigurations();
+        return mAnimatedVectorState;
+    }
+
+    @Override
+    public int getChangingConfigurations() {
+        return super.getChangingConfigurations() | mAnimatedVectorState.mChangingConfigurations;
     }
 
     @Override
     public void draw(Canvas canvas) {
         mAnimatedVectorState.mVectorDrawable.draw(canvas);
-        if (isRunning()) {
+        if (isStarted()) {
             invalidateSelf();
         }
     }
@@ -160,6 +184,16 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
     @Override
     protected void onBoundsChange(Rect bounds) {
         mAnimatedVectorState.mVectorDrawable.setBounds(bounds);
+    }
+
+    @Override
+    protected boolean onStateChange(int[] state) {
+        return mAnimatedVectorState.mVectorDrawable.setState(state);
+    }
+
+    @Override
+    protected boolean onLevelChange(int level) {
+        return mAnimatedVectorState.mVectorDrawable.setLevel(level);
     }
 
     @Override
@@ -178,6 +212,43 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
     }
 
     @Override
+    public void setTintList(ColorStateList tint) {
+        mAnimatedVectorState.mVectorDrawable.setTintList(tint);
+    }
+
+    @Override
+    public void setHotspot(float x, float y) {
+        mAnimatedVectorState.mVectorDrawable.setHotspot(x, y);
+    }
+
+    @Override
+    public void setHotspotBounds(int left, int top, int right, int bottom) {
+        mAnimatedVectorState.mVectorDrawable.setHotspotBounds(left, top, right, bottom);
+    }
+
+    @Override
+    public void setTintMode(PorterDuff.Mode tintMode) {
+        mAnimatedVectorState.mVectorDrawable.setTintMode(tintMode);
+    }
+
+    @Override
+    public boolean setVisible(boolean visible, boolean restart) {
+        mAnimatedVectorState.mVectorDrawable.setVisible(visible, restart);
+        return super.setVisible(visible, restart);
+    }
+
+    /** {@hide} */
+    @Override
+    public void setLayoutDirection(int layoutDirection) {
+        mAnimatedVectorState.mVectorDrawable.setLayoutDirection(layoutDirection);
+    }
+
+    @Override
+    public boolean isStateful() {
+        return mAnimatedVectorState.mVectorDrawable.isStateful();
+    }
+
+    @Override
     public int getOpacity() {
         return mAnimatedVectorState.mVectorDrawable.getOpacity();
     }
@@ -193,10 +264,16 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
     }
 
     @Override
+    public void getOutline(@NonNull Outline outline) {
+        mAnimatedVectorState.mVectorDrawable.getOutline(outline);
+    }
+
+    @Override
     public void inflate(Resources res, XmlPullParser parser, AttributeSet attrs, Theme theme)
             throws XmlPullParserException, IOException {
 
         int eventType = parser.getEventType();
+        float pathErrorScale = 1;
         while (eventType != XmlPullParser.END_DOCUMENT) {
             if (eventType == XmlPullParser.START_TAG) {
                 final String tagName = parser.getName();
@@ -206,9 +283,15 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
                     int drawableRes = a.getResourceId(
                             R.styleable.AnimatedVectorDrawable_drawable, 0);
                     if (drawableRes != 0) {
-                        mAnimatedVectorState.mVectorDrawable = (VectorDrawable) res.getDrawable(
+                        VectorDrawable vectorDrawable = (VectorDrawable) res.getDrawable(
                                 drawableRes, theme).mutate();
-                        mAnimatedVectorState.mVectorDrawable.setAllowCaching(false);
+                        vectorDrawable.setAllowCaching(false);
+                        vectorDrawable.setCallback(mCallback);
+                        pathErrorScale = vectorDrawable.getPixelSize();
+                        if (mAnimatedVectorState.mVectorDrawable != null) {
+                            mAnimatedVectorState.mVectorDrawable.setCallback(null);
+                        }
+                        mAnimatedVectorState.mVectorDrawable = vectorDrawable;
                     }
                     a.recycle();
                 } else if (TARGET.equals(tagName)) {
@@ -220,7 +303,8 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
                     int id = a.getResourceId(
                             R.styleable.AnimatedVectorDrawableTarget_animation, 0);
                     if (id != 0) {
-                        Animator objectAnimator = AnimatorInflater.loadAnimator(res, theme, id);
+                        Animator objectAnimator = AnimatorInflater.loadAnimator(res, theme, id,
+                                pathErrorScale);
                         setupAnimatorsForTarget(target, objectAnimator);
                     }
                     a.recycle();
@@ -233,9 +317,8 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
 
     @Override
     public boolean canApplyTheme() {
-        return super.canApplyTheme() || mAnimatedVectorState != null
-                && mAnimatedVectorState.mVectorDrawable != null
-                && mAnimatedVectorState.mVectorDrawable.canApplyTheme();
+        return (mAnimatedVectorState != null && mAnimatedVectorState.canApplyTheme())
+                || super.canApplyTheme();
     }
 
     @Override
@@ -252,30 +335,58 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
         int mChangingConfigurations;
         VectorDrawable mVectorDrawable;
         ArrayList<Animator> mAnimators;
+        ArrayMap<Animator, String> mTargetNameMap;
 
-        public AnimatedVectorDrawableState(AnimatedVectorDrawableState copy) {
+        public AnimatedVectorDrawableState(AnimatedVectorDrawableState copy,
+                Callback owner, Resources res) {
             if (copy != null) {
                 mChangingConfigurations = copy.mChangingConfigurations;
-                // TODO: Make sure the constant state are handled correctly.
+                if (copy.mVectorDrawable != null) {
+                    final ConstantState cs = copy.mVectorDrawable.getConstantState();
+                    if (res != null) {
+                        mVectorDrawable = (VectorDrawable) cs.newDrawable(res);
+                    } else {
+                        mVectorDrawable = (VectorDrawable) cs.newDrawable();
+                    }
+                    mVectorDrawable = (VectorDrawable) mVectorDrawable.mutate();
+                    mVectorDrawable.setCallback(owner);
+                    mVectorDrawable.setLayoutDirection(copy.mVectorDrawable.getLayoutDirection());
+                    mVectorDrawable.setBounds(copy.mVectorDrawable.getBounds());
+                    mVectorDrawable.setAllowCaching(false);
+                }
+                if (copy.mAnimators != null) {
+                    final int numAnimators = copy.mAnimators.size();
+                    mAnimators = new ArrayList<Animator>(numAnimators);
+                    mTargetNameMap = new ArrayMap<Animator, String>(numAnimators);
+                    for (int i = 0; i < numAnimators; ++i) {
+                        Animator anim = copy.mAnimators.get(i);
+                        Animator animClone = anim.clone();
+                        String targetName = copy.mTargetNameMap.get(anim);
+                        Object targetObject = mVectorDrawable.getTargetByName(targetName);
+                        animClone.setTarget(targetObject);
+                        mAnimators.add(animClone);
+                        mTargetNameMap.put(animClone, targetName);
+                    }
+                }
+            } else {
                 mVectorDrawable = new VectorDrawable();
-                mVectorDrawable.setAllowCaching(false);
-                mAnimators = new ArrayList<Animator>();
             }
         }
 
         @Override
+        public boolean canApplyTheme() {
+            return (mVectorDrawable != null && mVectorDrawable.canApplyTheme())
+                    || super.canApplyTheme();
+        }
+
+        @Override
         public Drawable newDrawable() {
-            return new AnimatedVectorDrawable(this, null, null);
+            return new AnimatedVectorDrawable(this, null);
         }
 
         @Override
         public Drawable newDrawable(Resources res) {
-            return new AnimatedVectorDrawable(this, res, null);
-        }
-
-        @Override
-        public Drawable newDrawable(Resources res, Theme theme) {
-            return new AnimatedVectorDrawable(this, res, theme);
+            return new AnimatedVectorDrawable(this, res);
         }
 
         @Override
@@ -287,7 +398,12 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
     private void setupAnimatorsForTarget(String name, Animator animator) {
         Object target = mAnimatedVectorState.mVectorDrawable.getTargetByName(name);
         animator.setTarget(target);
+        if (mAnimatedVectorState.mAnimators == null) {
+            mAnimatedVectorState.mAnimators = new ArrayList<Animator>();
+            mAnimatedVectorState.mTargetNameMap = new ArrayMap<Animator, String>();
+        }
         mAnimatedVectorState.mAnimators.add(animator);
+        mAnimatedVectorState.mTargetNameMap.put(animator, name);
         if (DBG_ANIMATION_VECTOR_DRAWABLE) {
             Log.v(LOGTAG, "add animator  for target " + name + " " + animator);
         }
@@ -306,17 +422,30 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
         return false;
     }
 
-    @Override
-    public void start() {
+    private boolean isStarted() {
         final ArrayList<Animator> animators = mAnimatedVectorState.mAnimators;
         final int size = animators.size();
         for (int i = 0; i < size; i++) {
             final Animator animator = animators.get(i);
-            if (animator.isPaused()) {
-                animator.resume();
-            } else if (!animator.isRunning()) {
-                animator.start();
+            if (animator.isStarted()) {
+                return true;
             }
+        }
+        return false;
+    }
+
+    @Override
+    public void start() {
+        // If any one of the animator has not ended, do nothing.
+        if (isStarted()) {
+            return;
+        }
+        // Otherwise, kick off every animator.
+        final ArrayList<Animator> animators = mAnimatedVectorState.mAnimators;
+        final int size = animators.size();
+        for (int i = 0; i < size; i++) {
+            final Animator animator = animators.get(i);
+            animator.start();
         }
         invalidateSelf();
     }
@@ -327,26 +456,29 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
         final int size = animators.size();
         for (int i = 0; i < size; i++) {
             final Animator animator = animators.get(i);
-            animator.pause();
+            animator.end();
         }
     }
 
     /**
      * Reverses ongoing animations or starts pending animations in reverse.
      * <p>
-     * NOTE: Only works of all animations are ValueAnimators.
+     * NOTE: Only works if all animations support reverse. Otherwise, this will
+     * do nothing.
      * @hide
      */
     public void reverse() {
+        // Only reverse when all the animators can be reverse. Otherwise, partially
+        // reverse is confusing.
+        if (!canReverse()) {
+            Log.w(LOGTAG, "AnimatedVectorDrawable can't reverse()");
+            return;
+        }
         final ArrayList<Animator> animators = mAnimatedVectorState.mAnimators;
         final int size = animators.size();
         for (int i = 0; i < size; i++) {
             final Animator animator = animators.get(i);
-            if (animator.canReverse()) {
-                animator.reverse();
-            } else {
-                Log.w(LOGTAG, "AnimatedVectorDrawable can't reverse()");
-            }
+            animator.reverse();
         }
     }
 
@@ -364,4 +496,21 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable {
         }
         return true;
     }
+
+    private final Callback mCallback = new Callback() {
+        @Override
+        public void invalidateDrawable(Drawable who) {
+            invalidateSelf();
+        }
+
+        @Override
+        public void scheduleDrawable(Drawable who, Runnable what, long when) {
+            scheduleSelf(what, when);
+        }
+
+        @Override
+        public void unscheduleDrawable(Drawable who, Runnable what) {
+            unscheduleSelf(what);
+        }
+    };
 }

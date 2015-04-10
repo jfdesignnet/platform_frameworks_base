@@ -61,6 +61,12 @@ public class Process {
     public static final String SECONDARY_ZYGOTE_SOCKET = "zygote_secondary";
 
     /**
+     * Defines the root UID.
+     * @hide
+     */
+    public static final int ROOT_UID = 0;
+
+    /**
      * Defines the UID/GID under which system code runs.
      */
     public static final int SYSTEM_UID = 1000;
@@ -462,6 +468,8 @@ public class Process {
      * @param targetSdkVersion The target SDK version for the app.
      * @param seInfo null-ok SELinux information for the new process.
      * @param abi non-null the ABI this app should be started with.
+     * @param instructionSet null-ok the instruction set to use.
+     * @param appDataDir null-ok the data directory of the app.
      * @param zygoteArgs Additional arguments to supply to the zygote process.
      * 
      * @return An object that describes the result of the attempt to start the process.
@@ -476,11 +484,13 @@ public class Process {
                                   int targetSdkVersion,
                                   String seInfo,
                                   String abi,
+                                  String instructionSet,
+                                  String appDataDir,
                                   String[] zygoteArgs) {
         try {
             return startViaZygote(processClass, niceName, uid, gid, gids,
                     debugFlags, mountExternal, targetSdkVersion, seInfo,
-                    abi, zygoteArgs);
+                    abi, instructionSet, appDataDir, zygoteArgs);
         } catch (ZygoteStartFailedEx ex) {
             Log.e(LOG_TAG,
                     "Starting VM process through Zygote failed");
@@ -583,6 +593,8 @@ public class Process {
      * @param targetSdkVersion The target SDK version for the app.
      * @param seInfo null-ok SELinux information for the new process.
      * @param abi the ABI the process should use.
+     * @param instructionSet null-ok the instruction set to use.
+     * @param appDataDir null-ok the data directory of the app.
      * @param extraArgs Additional arguments to supply to the zygote process.
      * @return An object that describes the result of the attempt to start the process.
      * @throws ZygoteStartFailedEx if process start failed for any reason
@@ -595,6 +607,8 @@ public class Process {
                                   int targetSdkVersion,
                                   String seInfo,
                                   String abi,
+                                  String instructionSet,
+                                  String appDataDir,
                                   String[] extraArgs)
                                   throws ZygoteStartFailedEx {
         synchronized(Process.class) {
@@ -654,6 +668,14 @@ public class Process {
                 argsForZygote.add("--seinfo=" + seInfo);
             }
 
+            if (instructionSet != null) {
+                argsForZygote.add("--instruction-set=" + instructionSet);
+            }
+
+            if (appDataDir != null) {
+                argsForZygote.add("--app-data-dir=" + appDataDir);
+            }
+
             argsForZygote.add(processClass);
 
             if (extraArgs != null) {
@@ -663,6 +685,20 @@ public class Process {
             }
 
             return zygoteSendArgsAndGetResult(openZygoteSocketIfNeeded(abi), argsForZygote);
+        }
+    }
+
+    /**
+     * Tries to establish a connection to the zygote that handles a given {@code abi}. Might block and retry if the
+     * zygote is unresponsive. This method is a no-op if a connection is already open.
+     *
+     * @hide
+     */
+    public static void establishZygoteConnectionForAbi(String abi) {
+        try {
+            openZygoteSocketIfNeeded(abi);
+        } catch (ZygoteStartFailedEx ex) {
+            throw new RuntimeException("Unable to connect to zygote for abi: " + abi, ex);
         }
     }
 

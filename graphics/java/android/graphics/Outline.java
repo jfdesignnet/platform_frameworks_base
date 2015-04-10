@@ -18,15 +18,15 @@ package android.graphics;
 
 import android.annotation.NonNull;
 import android.graphics.drawable.Drawable;
-import android.view.View;
 
 /**
  * Defines a simple shape, used for bounding graphical regions.
  * <p>
- * Can be used with a View, or computed by a Drawable, to drive the shape of shadows cast by a
- * View, or to clip the contents of the View.
+ * Can be computed for a View, or computed by a Drawable, to drive the shape of
+ * shadows cast by a View, or to clip the contents of the View.
  *
- * @see View#setOutline(Outline)
+ * @see android.view.ViewOutlineProvider
+ * @see android.view.View#setOutlineProvider(android.view.ViewOutlineProvider)
  * @see Drawable#getOutline(Outline)
  */
 public final class Outline {
@@ -37,9 +37,8 @@ public final class Outline {
     public Rect mRect;
     /** @hide */
     public float mRadius;
-
     /** @hide */
-    public boolean mIsFilled;
+    public float mAlpha;
 
     /**
      * Constructs an empty Outline. Call one of the setter methods to make
@@ -63,7 +62,6 @@ public final class Outline {
         mPath = null;
         mRect = null;
         mRadius = 0;
-        mIsFilled = true;
     }
 
     /**
@@ -81,35 +79,37 @@ public final class Outline {
 
     /**
      * Returns whether the outline can be used to clip a View.
+     * <p>
+     * Currently, only Outlines that can be represented as a rectangle, circle,
+     * or round rect support clipping.
      *
-     * Currently, only outlines that can be represented as a rectangle, circle, or round rect
-     * support clipping.
-     *
-     * @see {@link View#setClipToOutline(boolean)}
+     * @see {@link android.view.View#setClipToOutline(boolean)}
      */
     public boolean canClip() {
         return !isEmpty() && mRect != null;
     }
 
     /**
-     * Sets whether the outline represents a fully opaque area.
-     *
-     * A filled outline is assumed, by the drawing system, to fully cover content beneath it,
+     * Sets the alpha represented by the Outline - the degree to which the
+     * producer is guaranteed to be opaque over the Outline's shape.
+     * <p>
+     * An alpha value of <code>0.0f</code> either represents completely
+     * transparent content, or content that isn't guaranteed to fill the shape
+     * it publishes.
+     * <p>
+     * Content producing a fully opaque (alpha = <code>1.0f</code>) outline is
+     * assumed by the drawing system to fully cover content beneath it,
      * meaning content beneath may be optimized away.
-     *
-     * @hide
      */
-    public void setFilled(boolean isFilled) {
-        mIsFilled = isFilled;
+    public void setAlpha(float alpha) {
+        mAlpha = alpha;
     }
 
     /**
-     * Returns whether the outline represents a fully opaque area.
-     *
-     * @hide
+     * Returns the alpha represented by the Outline.
      */
-    public boolean isFilled() {
-        return !isEmpty() && mIsFilled;
+    public float getAlpha() {
+        return mAlpha;
     }
 
     /**
@@ -132,11 +132,12 @@ public final class Outline {
             mRect.set(src.mRect);
         }
         mRadius = src.mRadius;
-        mIsFilled = src.mIsFilled;
+        mAlpha = src.mAlpha;
     }
 
     /**
-     * Sets the Outline to the rounded rect defined by the input rect, and corner radius.
+     * Sets the Outline to the rounded rect defined by the input rect, and
+     * corner radius.
      */
     public void setRect(int left, int top, int right, int bottom) {
         setRoundRect(left, top, right, bottom, 0.0f);
@@ -151,7 +152,7 @@ public final class Outline {
 
     /**
      * Sets the Outline to the rounded rect defined by the input rect, and corner radius.
-     *
+     * <p>
      * Passing a zero radius is equivalent to calling {@link #setRect(int, int, int, int)}
      */
     public void setRoundRect(int left, int top, int right, int bottom, float radius) {
@@ -164,7 +165,6 @@ public final class Outline {
         mRect.set(left, top, right, bottom);
         mRadius = radius;
         mPath = null;
-        mIsFilled = true;
     }
 
     /**
@@ -193,7 +193,6 @@ public final class Outline {
         mPath.reset();
         mPath.addOval(left, top, right, bottom, Path.Direction.CW);
         mRect = null;
-        mIsFilled = true;
     }
 
     /**
@@ -204,7 +203,8 @@ public final class Outline {
     }
 
     /**
-     * Sets the Constructs an Outline from a {@link android.graphics.Path#isConvex() convex path}.
+     * Sets the Constructs an Outline from a
+     * {@link android.graphics.Path#isConvex() convex path}.
      */
     public void setConvexPath(@NonNull Path convexPath) {
         if (convexPath.isEmpty()) {
@@ -220,6 +220,16 @@ public final class Outline {
         mPath.set(convexPath);
         mRect = null;
         mRadius = -1.0f;
-        mIsFilled = true;
+    }
+
+    /**
+     * Offsets the Outline by (dx,dy)
+     */
+    public void offset(int dx, int dy) {
+        if (mRect != null) {
+            mRect.offset(dx, dy);
+        } else if (mPath != null) {
+            mPath.offset(dx, dy);
+        }
     }
 }

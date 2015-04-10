@@ -36,9 +36,12 @@ final class AccessibilityCache {
 
     private static final boolean DEBUG = false;
 
-    private static final boolean CHECK_INTEGRITY = Build.IS_DEBUGGABLE;
+    private static final boolean CHECK_INTEGRITY = "eng".equals(Build.TYPE);
 
     private final Object mLock = new Object();
+
+    private long mAccessibilityFocus = AccessibilityNodeInfo.UNDEFINED_ITEM_ID;
+    private long mInputFocus = AccessibilityNodeInfo.UNDEFINED_ITEM_ID;
 
     private final SparseArray<AccessibilityWindowInfo> mWindowCache =
             new SparseArray<>();
@@ -54,23 +57,12 @@ final class AccessibilityCache {
             if (DEBUG) {
                 Log.i(LOG_TAG, "Caching window: " + window.getId());
             }
-            mWindowCache.put(window.getId(), window);
-        }
-    }
-
-    public void clearWindows() {
-        synchronized (mLock) {
-            final int windowCount = mWindowCache.size();
-            for (int i = windowCount - 1; i >= 0; i--) {
-                AccessibilityWindowInfo window = mWindowCache.valueAt(i);
-                if (window != null) {
-                    if (DEBUG) {
-                        Log.i(LOG_TAG, "Removing window: " + window.getId());
-                    }
-                    window.recycle();
-                    mWindowCache.removeAt(i);
-                }
+            final int windowId = window.getId();
+            AccessibilityWindowInfo oldWindow = mWindowCache.get(windowId);
+            if (oldWindow != null) {
+                oldWindow.recycle();
             }
+            mWindowCache.put(windowId, AccessibilityWindowInfo.obtain(window));
         }
     }
 
@@ -84,11 +76,32 @@ final class AccessibilityCache {
         synchronized (mLock) {
             final int eventType = event.getEventType();
             switch (eventType) {
-                case AccessibilityEvent.TYPE_VIEW_FOCUSED:
-                case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED:
-                case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED:
+                case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED: {
+                    if (mAccessibilityFocus != AccessibilityNodeInfo.UNDEFINED_ITEM_ID) {
+                        refreshCachedNodeLocked(event.getWindowId(), mAccessibilityFocus);
+                    }
+                    mAccessibilityFocus = event.getSourceNodeId();
+                    refreshCachedNodeLocked(event.getWindowId(), mAccessibilityFocus);
+                } break;
+
+                case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED: {
+                    if (mAccessibilityFocus == event.getSourceNodeId()) {
+                        refreshCachedNodeLocked(event.getWindowId(), mAccessibilityFocus);
+                        mAccessibilityFocus = AccessibilityNodeInfo.UNDEFINED_ITEM_ID;
+                    }
+                } break;
+
+                case AccessibilityEvent.TYPE_VIEW_FOCUSED: {
+                    if (mInputFocus != AccessibilityNodeInfo.UNDEFINED_ITEM_ID) {
+                        refreshCachedNodeLocked(event.getWindowId(), mInputFocus);
+                    }
+                    mInputFocus = event.getSourceNodeId();
+                    refreshCachedNodeLocked(event.getWindowId(), mInputFocus);
+                } break;
+
                 case AccessibilityEvent.TYPE_VIEW_SELECTED:
                 case AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED:
+                case AccessibilityEvent.TYPE_VIEW_CLICKED:
                 case AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED: {
                     refreshCachedNodeLocked(event.getWindowId(), event.getSourceNodeId());
                 } break;
@@ -110,8 +123,9 @@ final class AccessibilityCache {
                     clearSubTreeLocked(event.getWindowId(), event.getSourceNodeId());
                 } break;
 
-                case AccessibilityEvent.TYPE_WINDOWS_CHANGED: {
-                    clearWindows();
+                case AccessibilityEvent.TYPE_WINDOWS_CHANGED:
+                case AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED: {
+                    clear();
                 } break;
             }
         }
@@ -183,13 +197,12 @@ final class AccessibilityCache {
                     sortedWindows.put(window.getLayer(), window);
                 }
 
-                List<AccessibilityWindowInfo> windows = new ArrayList<>();
+                List<AccessibilityWindowInfo> windows = new ArrayList<>(windowCount);
                 for (int i = windowCount - 1; i >= 0; i--) {
                     AccessibilityWindowInfo window = sortedWindows.valueAt(i);
                     windows.add(AccessibilityWindowInfo.obtain(window));
+                    sortedWindows.removeAt(i);
                 }
-
-                sortedWindows.clear();
 
                 return windows;
             }
@@ -278,12 +291,15 @@ final class AccessibilityCache {
                 final int windowId = mNodeCache.keyAt(i);
                 clearNodesForWindowLocked(windowId);
             }
+
+            mAccessibilityFocus = AccessibilityNodeInfo.UNDEFINED_ITEM_ID;
+            mInputFocus = AccessibilityNodeInfo.UNDEFINED_ITEM_ID;
         }
     }
 
     private void clearNodesForWindowLocked(int windowId) {
         if (DEBUG) {
-            Log.i(LOG_TAG, "clearWindowLocked(" + windowId + ")");
+            Log.i(LOG_TAG, "clearNodesForWindowLocked(" + windowId + ")");
         }
         LongSparseArray<AccessibilityNodeInfo> nodes = mNodeCache.get(windowId);
         if (nodes == null) {
@@ -436,7 +452,7 @@ final class AccessibilityCache {
                             }
                         }
                         if (!childOfItsParent) {
-                            Log.e(LOG_TAG, "Invalid parent-child ralation between parent: "
+                            Log.e(LOG_TAG, "Invalid parent-child relation between parent: "
                                     + nodeParent + " and child: " + node);
                         }
                     }
@@ -448,7 +464,7 @@ final class AccessibilityCache {
                         if (child != null) {
                             AccessibilityNodeInfo parent = nodes.get(child.getParentNodeId());
                             if (parent != node) {
-                                Log.e(LOG_TAG, "Invalid child-parent ralation between child: "
+                                Log.e(LOG_TAG, "Invalid child-parent relation between child: "
                                         + node + " and parent: " + nodeParent);
                             }
                         }

@@ -18,6 +18,7 @@ package android.location;
 
 import com.android.internal.location.ProviderProperties;
 
+import android.annotation.SystemApi;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -808,6 +809,7 @@ public class LocationManager {
      *
      * @hide
      */
+    @SystemApi
     public void requestLocationUpdates(LocationRequest request, LocationListener listener,
             Looper looper) {
         checkListener(listener);
@@ -835,6 +837,7 @@ public class LocationManager {
      *
      * @hide
      */
+    @SystemApi
     public void requestLocationUpdates(LocationRequest request, PendingIntent intent) {
         checkPendingIntent(intent);
         requestLocationUpdates(request, null, null, intent);
@@ -1109,9 +1112,9 @@ public class LocationManager {
      * {@link #requestLocationUpdates(String, long, float, LocationListener)}.
      *
      * <p>
-     * Before API version 20, this method would throw {@link SecurityException}
-     * if the location permissions were not sufficient to use the specified
-     * provider.
+     * Before API version {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this
+     * method would throw {@link SecurityException} if the location permissions
+     * were not sufficient to use the specified provider.
      *
      * @param provider the name of the provider
      * @return true if the provider exists and is enabled
@@ -1119,7 +1122,6 @@ public class LocationManager {
      * @throws IllegalArgumentException if provider is null
      */
     public boolean isProviderEnabled(String provider) {
-        // STOPSHIP: finalize API version number in javadoc
         checkProvider(provider);
 
         try {
@@ -1577,10 +1579,11 @@ public class LocationManager {
      * Adds a GPS Measurement listener.
      *
      * @param listener a {@link GpsMeasurementsEvent.Listener} object to register.
-     * @return {@code true} if the listener was successfully registered, {@code false} otherwise.
+     * @return {@code true} if the listener was added successfully, {@code false} otherwise.
      *
      * @hide
      */
+    @SystemApi
     public boolean addGpsMeasurementListener(GpsMeasurementsEvent.Listener listener) {
         return mGpsMeasurementListenerTransport.add(listener);
     }
@@ -1592,6 +1595,7 @@ public class LocationManager {
      *
      * @hide
      */
+    @SystemApi
     public void removeGpsMeasurementListener(GpsMeasurementsEvent.Listener listener) {
         mGpsMeasurementListenerTransport.remove(listener);
     }
@@ -1600,10 +1604,11 @@ public class LocationManager {
      * Adds a GPS Navigation Message listener.
      *
      * @param listener a {@link GpsNavigationMessageEvent.Listener} object to register.
-     * @return {@code true} if the listener was successfully registered, {@code false} otherwise.
+     * @return {@code true} if the listener was added successfully, {@code false} otherwise.
      *
      * @hide
      */
+    @SystemApi
     public boolean addGpsNavigationMessageListener(GpsNavigationMessageEvent.Listener listener) {
         return mGpsNavigationMessageListenerTransport.add(listener);
     }
@@ -1615,6 +1620,7 @@ public class LocationManager {
      *
      * @hide
      */
+    @SystemApi
     public void removeGpsNavigationMessageListener(
             GpsNavigationMessageEvent.Listener listener) {
         mGpsNavigationMessageListenerTransport.remove(listener);

@@ -69,15 +69,22 @@ class DrawRenderNodeOp;
 class PlaybackStateStruct {
 protected:
     PlaybackStateStruct(OpenGLRenderer& renderer, int replayFlags, LinearAllocator* allocator)
-            : mRenderer(renderer), mReplayFlags(replayFlags), mAllocator(allocator){}
+            : mRenderer(renderer)
+            , mReplayFlags(replayFlags)
+            , mAllocator(allocator) {}
 
 public:
     OpenGLRenderer& mRenderer;
     const int mReplayFlags;
 
-    // Allocator with the lifetime of a single frame.
-    // replay uses an Allocator owned by the struct, while defer shares the DeferredDisplayList's Allocator
+    // Allocator with the lifetime of a single frame. replay uses an Allocator owned by the struct,
+    // while defer shares the DeferredDisplayList's Allocator
+    // TODO: move this allocator to be owned by object with clear frame lifecycle
     LinearAllocator * const mAllocator;
+
+    SkPath* allocPathForFrame() {
+        return mRenderer.allocPathForFrame();
+    }
 };
 
 class DeferStateStruct : public PlaybackStateStruct {
@@ -104,12 +111,23 @@ public:
  * Data structure that holds the list of commands used in display list stream
  */
 class DisplayListData {
+    friend class DisplayListRenderer;
 public:
+    struct Chunk {
+        // range of included ops in DLD::displayListOps
+        size_t beginOpIndex;
+        size_t endOpIndex;
+
+        // range of included children in DLD::mChildren
+        size_t beginChildIndex;
+        size_t endChildIndex;
+
+        // whether children with non-zero Z in the chunk should be reordered
+        bool reorderChildren;
+    };
+
     DisplayListData();
     ~DisplayListData();
-
-    // allocator into which all ops were allocated
-    LinearAllocator allocator;
 
     // pointers to all ops within display list, pointing into allocator data
     Vector<DisplayListOp*> displayListOps;
@@ -125,23 +143,24 @@ public:
     Vector<const SkPath*> paths;
     SortedVector<const SkPath*> sourcePaths;
     Vector<const SkRegion*> regions;
-    Vector<Layer*> layers;
-    uint32_t functorCount;
-    bool hasDrawOps;
+    Vector<Functor*> functors;
 
-    bool isEmpty() {
-        return !displayListOps.size();
+    const Vector<Chunk>& getChunks() const {
+        return chunks;
     }
 
-    void addChild(DrawRenderNodeOp* childOp);
+    size_t addChild(DrawRenderNodeOp* childOp);
     const Vector<DrawRenderNodeOp*>& children() { return mChildren; }
 
-    void refProperty(CanvasPropertyPrimitive* prop) {
+    void ref(VirtualLightRefBase* prop) {
         mReferenceHolders.push(prop);
     }
 
-    void refProperty(CanvasPropertyPaint* prop) {
-        mReferenceHolders.push(prop);
+    size_t getUsedSize() {
+        return allocator.usedSize();
+    }
+    bool isEmpty() {
+        return !hasDrawOps;
     }
 
 private:
@@ -149,6 +168,12 @@ private:
 
     // list of children display lists for quick, non-drawing traversal
     Vector<DrawRenderNodeOp*> mChildren;
+
+    Vector<Chunk> chunks;
+
+    // allocator into which all ops were allocated
+    LinearAllocator allocator;
+    bool hasDrawOps;
 
     void cleanupResources();
 };

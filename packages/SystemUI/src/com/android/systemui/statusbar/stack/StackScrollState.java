@@ -23,6 +23,7 @@ import android.view.ViewGroup;
 
 import com.android.systemui.R;
 import com.android.systemui.statusbar.DismissView;
+import com.android.systemui.statusbar.EmptyShadeView;
 import com.android.systemui.statusbar.ExpandableView;
 import com.android.systemui.statusbar.SpeedBumpView;
 
@@ -118,9 +119,7 @@ public class StackScrollState {
                     }
 
                     // apply alpha
-                    if (!becomesInvisible) {
-                        child.setAlpha(newAlpha);
-                    }
+                    child.setAlpha(newAlpha);
                 }
 
                 // apply visibility
@@ -155,13 +154,14 @@ public class StackScrollState {
                 child.setDimmed(state.dimmed, false /* animate */);
 
                 // apply dark
-                child.setDark(state.dark, false /* animate */);
+                child.setDark(state.dark, false /* animate */, 0 /* delay */);
+
+                // apply hiding sensitive
+                child.setHideSensitive(
+                        state.hideSensitive, false /* animated */, 0 /* delay */, 0 /* duration */);
 
                 // apply speed bump state
                 child.setBelowSpeedBump(state.belowSpeedBump);
-
-                // apply scrimming
-                child.setScrimAmount(state.scrimAmount);
 
                 // apply clipping
                 float oldClipTopAmount = child.getClipTopAmount();
@@ -171,12 +171,16 @@ public class StackScrollState {
                 updateChildClip(child, newHeight, state.topOverLap);
 
                 if(child instanceof SpeedBumpView) {
-                    float lineEnd = newYTranslation + newHeight / 2;
-                    performSpeedBumpAnimation(i, (SpeedBumpView) child, lineEnd);
+                    performSpeedBumpAnimation(i, (SpeedBumpView) child, state, 0);
                 } else if (child instanceof DismissView) {
                     DismissView dismissView = (DismissView) child;
                     boolean visible = state.topOverLap < mClearAllTopPadding;
-                    dismissView.performVisibilityAnimation(visible);
+                    dismissView.performVisibilityAnimation(visible && !dismissView.willBeGone());
+                } else if (child instanceof EmptyShadeView) {
+                    EmptyShadeView emptyShadeView = (EmptyShadeView) child;
+                    boolean visible = state.topOverLap <= 0;
+                    emptyShadeView.performVisibilityAnimation(
+                            visible && !emptyShadeView.willBeGone());
                 }
             }
         }
@@ -197,12 +201,14 @@ public class StackScrollState {
         child.setClipBounds(mClipRect);
     }
 
-    private void performSpeedBumpAnimation(int i, SpeedBumpView speedBump, float speedBumpEnd) {
+    public void performSpeedBumpAnimation(int i, SpeedBumpView speedBump, ViewState state,
+            long delay) {
         View nextChild = getNextChildNotGone(i);
         if (nextChild != null) {
+            float lineEnd = state.yTranslation + state.height / 2;
             ViewState nextState = getViewStateForView(nextChild);
-            boolean startIsAboveNext = nextState.yTranslation > speedBumpEnd;
-            speedBump.animateDivider(startIsAboveNext, null /* onFinishedRunnable */);
+            boolean startIsAboveNext = nextState.yTranslation > lineEnd;
+            speedBump.animateDivider(startIsAboveNext, delay, null /* onFinishedRunnable */);
         }
     }
 
@@ -228,6 +234,8 @@ public class StackScrollState {
         public static final int LOCATION_MAIN_AREA = 0x08;
         public static final int LOCATION_BOTTOM_STACK_PEEKING = 0x10;
         public static final int LOCATION_BOTTOM_STACK_HIDDEN = 0x20;
+        /** The view isn't layouted at all. */
+        public static final int LOCATION_GONE = 0x40;
 
         float alpha;
         float yTranslation;
@@ -237,13 +245,8 @@ public class StackScrollState {
         float scale;
         boolean dimmed;
         boolean dark;
+        boolean hideSensitive;
         boolean belowSpeedBump;
-
-        /**
-         * A value between 0 and 1 indicating how much the view should be scrimmed.
-         * 1 means that the notifications will be darkened as much as possible.
-         */
-        float scrimAmount;
 
         /**
          * The amount which the view should be clipped from the top. This is calculated to

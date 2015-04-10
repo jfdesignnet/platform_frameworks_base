@@ -43,6 +43,10 @@ please see styles_device_defaults.xml.
         <item name="shadowRadius">2.75</item>
     </style>
 
+    <style name="DialogWindowTitleBackground">
+        <item name="background">@drawable/title_bar</item>
+    </style>
+
     <style name="DialogWindowTitle">
         <item name="maxLines">1</item>
         <item name="scrollHorizontally">true</item>
@@ -62,6 +66,7 @@ please see styles_device_defaults.xml.
         <item name="centerMedium">@drawable/popup_center_medium</item>
         <item name="progressLayout">@layout/progress_dialog</item>
         <item name="horizontalProgressLayout">@layout/alert_dialog_progress</item>
+        <item name="needsDefaultBackgrounds">false</item>
     </style>
 
     <style name="Widget.PreferenceFrameLayout">
@@ -82,7 +87,7 @@ please see styles_device_defaults.xml.
         <item name="activityCloseExitAnimation">@anim/activity_close_exit</item>
         <item name="taskOpenEnterAnimation">@anim/task_open_enter</item>
         <item name="taskOpenExitAnimation">@anim/task_open_exit</item>
-        <item name="launchTaskBehindBackgroundAnimation">@anim/launch_task_behind_background</item>
+        <item name="launchTaskBehindTargetAnimation">@anim/launch_task_behind_target</item>
         <item name="launchTaskBehindSourceAnimation">@anim/launch_task_behind_source</item>
         <item name="taskCloseEnterAnimation">@anim/task_close_enter</item>
         <item name="taskCloseExitAnimation">@anim/task_close_exit</item>
@@ -532,6 +537,8 @@ please see styles_device_defaults.xml.
     <style name="Widget.FragmentBreadCrumbs">
         <item name="padding">4dp</item>
         <item name="animateLayoutChanges">true</item>
+        <item name="itemLayout">@layout/fragment_bread_crumb_item</item>
+        <item name="itemColor">@null</item>
     </style>
 
     <style name="Widget.ImageWell">
@@ -558,6 +565,7 @@ please see styles_device_defaults.xml.
         <item name="selectedDateVerticalBar">@drawable/day_picker_week_view_dayline_holo</item>
         <item name="weekDayTextAppearance">@style/TextAppearance.Small.CalendarViewWeekDayView</item>
         <item name="dateTextAppearance">?attr/textAppearanceSmall</item>
+        <item name="calendarViewMode">holo</item>
     </style>
 
     <style name="Widget.NumberPicker">
@@ -568,12 +576,13 @@ please see styles_device_defaults.xml.
     </style>
 
     <style name="Widget.TimePicker">
-        <item name="legacyMode">true</item>
+        <item name="timePickerMode">spinner</item>
         <item name="legacyLayout">@layout/time_picker_legacy</item>
     </style>
 
     <style name="Widget.DatePicker">
-        <item name="legacyLayout">@android:layout/date_picker_legacy</item>
+        <item name="datePickerMode">spinner</item>
+        <item name="legacyLayout">@layout/date_picker_legacy</item>
         <item name="calendarViewShown">false</item>
     </style>
 
@@ -947,9 +956,15 @@ please see styles_device_defaults.xml.
     </style>
 
     <style name="PreferenceFragment">
-        <item name="android:layout">@android:layout/preference_list_fragment</item>
-        <item name="android:paddingStart">0dp</item>
-        <item name="android:paddingEnd">0dp</item>
+        <item name="layout">@layout/preference_list_fragment</item>
+        <item name="paddingStart">0dp</item>
+        <item name="paddingEnd">0dp</item>
+    </style>
+
+    <style name="PreferenceActivity">
+        <item name="layout">@layout/preference_list_content</item>
+        <item name="headerLayout">@layout/preference_header_item</item>
+        <item name="headerRemoveIconIfEmpty">false</item>
     </style>
 
     <style name="Preference.Information">
@@ -1104,26 +1119,32 @@ please see styles_device_defaults.xml.
 
     <style name="MediaButton.Previous">
         <item name="src">@drawable/ic_media_previous</item>
+        <item name="contentDescription">@string/lockscreen_transport_prev_description</item>
     </style>
 
     <style name="MediaButton.Next">
         <item name="src">@drawable/ic_media_next</item>
+        <item name="contentDescription">@string/lockscreen_transport_next_description</item>
     </style>
 
     <style name="MediaButton.Play">
         <item name="src">@drawable/ic_media_play</item>
+        <item name="contentDescription">@string/lockscreen_transport_play_description</item>
     </style>
 
     <style name="MediaButton.Ffwd">
         <item name="src">@drawable/ic_media_ff</item>
+        <item name="contentDescription">@string/lockscreen_transport_ffw_description</item>
     </style>
 
     <style name="MediaButton.Rew">
         <item name="src">@drawable/ic_media_rew</item>
+        <item name="contentDescription">@string/lockscreen_transport_rew_description</item>
     </style>
 
     <style name="MediaButton.Pause">
         <item name="src">@drawable/ic_media_pause</item>
+        <item name="contentDescription">@string/lockscreen_transport_pause_description</item>
     </style>
 
     <style name="ZoomControls">
@@ -1202,6 +1223,7 @@ please see styles_device_defaults.xml.
         <item name="buttonGravity">top</item>
         <item name="navigationButtonStyle">@style/Widget.Toolbar.Button.Navigation</item>
         <item name="collapseIcon">?attr/homeAsUpIndicator</item>
+        <item name="collapseContentDescription">@string/toolbar_collapse_description</item>
         <item name="contentInsetStart">16dp</item>
         <item name="touchscreenBlocksFocus">true</item>
     </style>
@@ -1333,9 +1355,6 @@ please see styles_device_defaults.xml.
         <item name="orientation">vertical</item>
     </style>
 
-    <style name="TextAppearance.TimePicker.TimeLabel" parent="TextAppearance" />
-    <style name="TextAppearance.TimePicker.AmPmLabel" parent="TextAppearance" />
-
     <style name="Widget.FastScroll">
         <item name="thumbDrawable">?attr/fastScrollThumbDrawable</item>
         <item name="trackDrawable">?attr/fastScrollTrackDrawable</item>
@@ -1349,32 +1368,6 @@ please see styles_device_defaults.xml.
         <item name="minWidth">72dp</item>
         <item name="minHeight">72dp</item>
         <item name="padding">16dp</item>
-    </style>
-
-    <style name="Lighting">
-        <item name="lightY">-200dp</item>
-        <item name="lightZ">800dp</item>
-        <item name="lightRadius">800dp</item>
-        <item name="ambientShadowAlpha">0.0471</item>
-        <item name="spotShadowAlpha">0.1765</item>
-    </style>
-
-    <style name="TextAppearance.DatePicker.DayOfWeekLabel" parent="TextAppearance">
-    </style>
-
-    <style name="TextAppearance.DatePicker.Selector" parent="TextAppearance">
-    </style>
-
-    <style name="TextAppearance.DatePicker.Selector.MonthLabel" parent="TextAppearance.DatePicker.Selector">
-    </style>
-
-    <style name="TextAppearance.DatePicker.Selector.DayOfMonthLabel" parent="TextAppearance.DatePicker.Selector">
-    </style>
-
-    <style name="TextAppearance.DatePicker.Selector.YearLabel" parent="TextAppearance.DatePicker.Selector">
-    </style>
-
-    <style name="TextAppearance.DatePicker.List.YearLabel" parent="TextAppearance">
     </style>
 
 </resources>

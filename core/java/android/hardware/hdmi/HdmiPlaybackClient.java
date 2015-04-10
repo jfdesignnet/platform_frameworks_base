@@ -52,22 +52,24 @@ public final class HdmiPlaybackClient extends HdmiClient {
         /**
          * Called when display device status is reported.
          *
-         * @param status display device status
-         * @see {@link HdmiControlManager#POWER_STATUS_ON}
-         * @see {@link HdmiControlManager#POWER_STATUS_STANDBY}
-         * @see {@link HdmiControlManager#POWER_STATUS_TRANSIENT_TO_ON}
-         * @see {@link HdmiControlManager#POWER_STATUS_TRANSIENT_TO_STANDBY}
-         * @see {@link HdmiControlManager#POWER_STATUS_UNKNOWN}
+         * @param status display device status. It should be one of the following values.
+         *            <ul>
+         *            <li>{@link HdmiControlManager#POWER_STATUS_ON}
+         *            <li>{@link HdmiControlManager#POWER_STATUS_STANDBY}
+         *            <li>{@link HdmiControlManager#POWER_STATUS_TRANSIENT_TO_ON}
+         *            <li>{@link HdmiControlManager#POWER_STATUS_TRANSIENT_TO_STANDBY}
+         *            <li>{@link HdmiControlManager#POWER_STATUS_UNKNOWN}
+         *            </ul>
          */
         public void onComplete(int status);
     }
 
-    HdmiPlaybackClient(IHdmiControlService service) {
+    /* package */ HdmiPlaybackClient(IHdmiControlService service) {
         super(service);
     }
 
     /**
-     * Perform the feature 'one touch play' from playback device to turn on display
+     * Performs the feature 'one touch play' from playback device to turn on display
      * and switch the input.
      *
      * @param callback {@link OneTouchPlayCallback} object to get informed
@@ -82,18 +84,18 @@ public final class HdmiPlaybackClient extends HdmiClient {
         }
     }
 
+    @Override
     public int getDeviceType() {
-        return HdmiCecDeviceInfo.DEVICE_PLAYBACK;
+        return HdmiDeviceInfo.DEVICE_PLAYBACK;
     }
 
     /**
-     * Get the status of display device connected through HDMI bus.
+     * Gets the status of display device connected through HDMI bus.
      *
      * @param callback {@link DisplayStatusCallback} object to get informed
      *         of the result
      */
     public void queryDisplayStatus(DisplayStatusCallback callback) {
-        // TODO: PendingResult.
         try {
             mService.queryDisplayStatus(getCallbackWrapper(callback));
         } catch (RemoteException e) {

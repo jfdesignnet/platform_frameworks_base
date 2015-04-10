@@ -16,19 +16,19 @@
 
 package android.bluetooth.le;
 
+import android.annotation.SystemApi;
 import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallbackWrapper;
 import android.bluetooth.IBluetoothGatt;
-import android.bluetooth.IBluetoothGattCallback;
 import android.bluetooth.IBluetoothManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
-import android.os.SystemClock;
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +51,7 @@ public final class BluetoothLeScanner {
 
     private static final String TAG = "BluetoothLeScanner";
     private static final boolean DBG = true;
+    private static final boolean VDBG = false;
 
     private final IBluetoothManager mBluetoothManager;
     private final Handler mHandler;
@@ -83,7 +84,7 @@ public final class BluetoothLeScanner {
         if (callback == null) {
             throw new IllegalArgumentException("callback is null");
         }
-        this.startScan(null, new ScanSettings.Builder().build(), callback);
+        startScan(null, new ScanSettings.Builder().build(), callback);
     }
 
     /**
@@ -98,6 +99,12 @@ public final class BluetoothLeScanner {
      */
     public void startScan(List<ScanFilter> filters, ScanSettings settings,
             final ScanCallback callback) {
+        startScan(filters, settings, callback, null);
+    }
+
+    private void startScan(List<ScanFilter> filters, ScanSettings settings,
+            final ScanCallback callback, List<List<ResultStorageDescriptor>> resultStorages) {
+        BluetoothLeUtils.checkAdapterStateOn(mBluetoothAdapter);
         if (settings == null || callback == null) {
             throw new IllegalArgumentException("settings or callback is null");
         }
@@ -122,21 +129,8 @@ public final class BluetoothLeScanner {
                 return;
             }
             BleScanCallbackWrapper wrapper = new BleScanCallbackWrapper(gatt, filters,
-                    settings, callback);
-            try {
-                UUID uuid = UUID.randomUUID();
-                gatt.registerClient(new ParcelUuid(uuid), wrapper);
-                if (wrapper.scanStarted()) {
-                    mLeScanClients.put(callback, wrapper);
-                } else {
-                    postCallbackError(callback,
-                            ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED);
-                    return;
-                }
-            } catch (RemoteException e) {
-                Log.e(TAG, "GATT service exception when starting scan", e);
-                postCallbackError(callback, ScanCallback.SCAN_FAILED_INTERNAL_ERROR);
-            }
+                    settings, callback, resultStorages);
+            wrapper.startRegisteration();
         }
     }
 
@@ -148,6 +142,7 @@ public final class BluetoothLeScanner {
      * @param callback
      */
     public void stopScan(ScanCallback callback) {
+        BluetoothLeUtils.checkAdapterStateOn(mBluetoothAdapter);
         synchronized (mLeScanClients) {
             BleScanCallbackWrapper wrapper = mLeScanClients.remove(callback);
             if (wrapper == null) {
@@ -167,6 +162,7 @@ public final class BluetoothLeScanner {
      *            used to start scan.
      */
     public void flushPendingScanResults(ScanCallback callback) {
+        BluetoothLeUtils.checkAdapterStateOn(mBluetoothAdapter);
         if (callback == null) {
             throw new IllegalArgumentException("callback cannot be null!");
         }
@@ -180,15 +176,44 @@ public final class BluetoothLeScanner {
     }
 
     /**
+     * Start truncated scan.
+     *
+     * @hide
+     */
+    @SystemApi
+    public void startTruncatedScan(List<TruncatedFilter> truncatedFilters, ScanSettings settings,
+            final ScanCallback callback) {
+        int filterSize = truncatedFilters.size();
+        List<ScanFilter> scanFilters = new ArrayList<ScanFilter>(filterSize);
+        List<List<ResultStorageDescriptor>> scanStorages =
+                new ArrayList<List<ResultStorageDescriptor>>(filterSize);
+        for (TruncatedFilter filter : truncatedFilters) {
+            scanFilters.add(filter.getFilter());
+            scanStorages.add(filter.getStorageDescriptors());
+        }
+        startScan(scanFilters, settings, callback, scanStorages);
+    }
+
+    /**
+     * Cleans up scan clients. Should be called when bluetooth is down.
+     *
+     * @hide
+     */
+    public void cleanup() {
+        mLeScanClients.clear();
+    }
+
+    /**
      * Bluetooth GATT interface callbacks
      */
-    private static class BleScanCallbackWrapper extends IBluetoothGattCallback.Stub {
-        private static final int REGISTRATION_CALLBACK_TIMEOUT_SECONDS = 5;
+    private class BleScanCallbackWrapper extends BluetoothGattCallbackWrapper {
+        private static final int REGISTRATION_CALLBACK_TIMEOUT_MILLIS = 2000;
 
         private final ScanCallback mScanCallback;
         private final List<ScanFilter> mFilters;
         private ScanSettings mSettings;
         private IBluetoothGatt mBluetoothGatt;
+        private List<List<ResultStorageDescriptor>> mResultStorages;
 
         // mLeHandle 0: not registered
         // -1: scan stopped
@@ -197,26 +222,34 @@ public final class BluetoothLeScanner {
 
         public BleScanCallbackWrapper(IBluetoothGatt bluetoothGatt,
                 List<ScanFilter> filters, ScanSettings settings,
-                ScanCallback scanCallback) {
+                ScanCallback scanCallback, List<List<ResultStorageDescriptor>> resultStorages) {
             mBluetoothGatt = bluetoothGatt;
             mFilters = filters;
             mSettings = settings;
             mScanCallback = scanCallback;
             mClientIf = 0;
+            mResultStorages = resultStorages;
         }
 
-        public boolean scanStarted() {
+        public void startRegisteration() {
             synchronized (this) {
-                if (mClientIf == -1) {
-                    return false;
-                }
+                // Scan stopped.
+                if (mClientIf == -1) return;
                 try {
-                    wait(REGISTRATION_CALLBACK_TIMEOUT_SECONDS);
-                } catch (InterruptedException e) {
-                    Log.e(TAG, "Callback reg wait interrupted: " + e);
+                    UUID uuid = UUID.randomUUID();
+                    mBluetoothGatt.registerClient(new ParcelUuid(uuid), this);
+                    wait(REGISTRATION_CALLBACK_TIMEOUT_MILLIS);
+                } catch (InterruptedException | RemoteException e) {
+                    Log.e(TAG, "application registeration exception", e);
+                    postCallbackError(mScanCallback, ScanCallback.SCAN_FAILED_INTERNAL_ERROR);
+                }
+                if (mClientIf > 0) {
+                    mLeScanClients.put(mScanCallback, this);
+                } else {
+                    postCallbackError(mScanCallback,
+                            ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED);
                 }
             }
-            return mClientIf > 0;
         }
 
         public void stopLeScan() {
@@ -232,7 +265,6 @@ public final class BluetoothLeScanner {
                     Log.e(TAG, "Failed to stop scan and unregister", e);
                 }
                 mClientIf = -1;
-                notifyAll();
             }
         }
 
@@ -257,17 +289,16 @@ public final class BluetoothLeScanner {
         public void onClientRegistered(int status, int clientIf) {
             Log.d(TAG, "onClientRegistered() - status=" + status +
                     " clientIf=" + clientIf);
-
             synchronized (this) {
                 if (mClientIf == -1) {
-                    if (DBG)
-                        Log.d(TAG, "onClientRegistered LE scan canceled");
+                    if (DBG) Log.d(TAG, "onClientRegistered LE scan canceled");
                 }
 
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     mClientIf = clientIf;
                     try {
-                        mBluetoothGatt.startScan(mClientIf, false, mSettings, mFilters);
+                        mBluetoothGatt.startScan(mClientIf, false, mSettings, mFilters,
+                                mResultStorages);
                     } catch (RemoteException e) {
                         Log.e(TAG, "fail to start le scan: " + e);
                         mClientIf = -1;
@@ -280,37 +311,24 @@ public final class BluetoothLeScanner {
             }
         }
 
-        @Override
-        public void onClientConnectionState(int status, int clientIf,
-                boolean connected, String address) {
-            // no op
-        }
-
         /**
          * Callback reporting an LE scan result.
          *
          * @hide
          */
         @Override
-        public void onScanResult(String address, int rssi, byte[] advData) {
-            if (DBG)
-                Log.d(TAG, "onScanResult() - Device=" + address + " RSSI=" + rssi);
+        public void onScanResult(final ScanResult scanResult) {
+            if (VDBG) Log.d(TAG, "onScanResult() - " + scanResult.toString());
 
             // Check null in case the scan has been stopped
             synchronized (this) {
-                if (mClientIf <= 0)
-                    return;
+                if (mClientIf <= 0) return;
             }
-            BluetoothDevice device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(
-                    address);
-            long scanNanos = SystemClock.elapsedRealtimeNanos();
-            final ScanResult result = new ScanResult(device, ScanRecord.parseFromBytes(advData),
-                    rssi, scanNanos);
             Handler handler = new Handler(Looper.getMainLooper());
             handler.post(new Runnable() {
-                    @Override
+                @Override
                 public void run() {
-                    mScanCallback.onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, result);
+                    mScanCallback.onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, scanResult);
                 }
             });
 
@@ -320,7 +338,7 @@ public final class BluetoothLeScanner {
         public void onBatchScanResults(final List<ScanResult> results) {
             Handler handler = new Handler(Looper.getMainLooper());
             handler.post(new Runnable() {
-                    @Override
+                @Override
                 public void run() {
                     mScanCallback.onBatchScanResults(results);
                 }
@@ -328,126 +346,36 @@ public final class BluetoothLeScanner {
         }
 
         @Override
-        public void onGetService(String address, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid) {
-            // no op
-        }
-
-        @Override
-        public void onGetIncludedService(String address, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int inclSrvcType, int inclSrvcInstId,
-                ParcelUuid inclSrvcUuid) {
-            // no op
-        }
-
-        @Override
-        public void onGetCharacteristic(String address, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int charInstId, ParcelUuid charUuid,
-                int charProps) {
-            // no op
-        }
-
-        @Override
-        public void onGetDescriptor(String address, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int charInstId, ParcelUuid charUuid,
-                int descInstId, ParcelUuid descUuid) {
-            // no op
-        }
-
-        @Override
-        public void onSearchComplete(String address, int status) {
-            // no op
-        }
-
-        @Override
-        public void onCharacteristicRead(String address, int status, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int charInstId, ParcelUuid charUuid, byte[] value) {
-            // no op
-        }
-
-        @Override
-        public void onCharacteristicWrite(String address, int status, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int charInstId, ParcelUuid charUuid) {
-            // no op
-        }
-
-        @Override
-        public void onNotify(String address, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int charInstId, ParcelUuid charUuid,
-                byte[] value) {
-            // no op
-        }
-
-        @Override
-        public void onDescriptorRead(String address, int status, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int charInstId, ParcelUuid charUuid,
-                int descInstId, ParcelUuid descrUuid, byte[] value) {
-            // no op
-        }
-
-        @Override
-        public void onDescriptorWrite(String address, int status, int srvcType,
-                int srvcInstId, ParcelUuid srvcUuid,
-                int charInstId, ParcelUuid charUuid,
-                int descInstId, ParcelUuid descrUuid) {
-            // no op
-        }
-
-        @Override
-        public void onExecuteWrite(String address, int status) {
-            // no op
-        }
-
-        @Override
-        public void onReadRemoteRssi(String address, int rssi, int status) {
-            // no op
-        }
-
-        @Override
-        public void onMultiAdvertiseCallback(int status) {
-            // no op
-        }
-
-        @Override
-        public void onConfigureMTU(String address, int mtu, int status) {
-            // no op
-        }
-
-        @Override
-        public void onConnectionCongested(String address, boolean congested) {
-            // no op
-        }
-
-        @Override
-        public void onFoundOrLost(boolean onFound, String address, int rssi,
-                byte[] advData) {
-            if (DBG) {
-                Log.d(TAG, "onFoundOrLost() - Device=" + address);
+        public void onFoundOrLost(final boolean onFound, final ScanResult scanResult) {
+            if (VDBG) {
+                Log.d(TAG, "onFoundOrLost() - onFound = " + onFound +
+                        " " + scanResult.toString());
             }
-            // ToDo: Fix issue with underlying reporting from chipset
-            BluetoothDevice device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(
-                    address);
-            long scanNanos = SystemClock.elapsedRealtimeNanos();
-            ScanResult result = new ScanResult(device, ScanRecord.parseFromBytes(advData), rssi,
-                    scanNanos);
-            if (onFound) {
-                mScanCallback.onScanResult(ScanSettings.CALLBACK_TYPE_FIRST_MATCH, result);
-            } else {
-                mScanCallback.onScanResult(ScanSettings.CALLBACK_TYPE_MATCH_LOST, result);
+
+            // Check null in case the scan has been stopped
+            synchronized (this) {
+                if (mClientIf <= 0)
+                    return;
             }
+            Handler handler = new Handler(Looper.getMainLooper());
+            handler.post(new Runnable() {
+                    @Override
+                public void run() {
+                    if (onFound) {
+                        mScanCallback.onScanResult(ScanSettings.CALLBACK_TYPE_FIRST_MATCH,
+                                scanResult);
+                    } else {
+                        mScanCallback.onScanResult(ScanSettings.CALLBACK_TYPE_MATCH_LOST,
+                                scanResult);
+                    }
+                }
+            });
         }
     }
 
     private void postCallbackError(final ScanCallback callback, final int errorCode) {
         mHandler.post(new Runnable() {
-                @Override
+            @Override
             public void run() {
                 callback.onScanFailed(errorCode);
             }

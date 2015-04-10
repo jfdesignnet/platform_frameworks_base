@@ -28,6 +28,8 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
+import android.view.View;
+import android.view.ViewAnimationUtils;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 import android.widget.ImageView;
@@ -69,6 +71,16 @@ public class KeyguardAffordanceView extends ImageView {
     private int mCircleColor;
     private boolean mIsLeft;
     private float mArrowAlpha = 0.0f;
+    private View mPreviewView;
+    private float mCircleStartRadius;
+    private float mMaxCircleSize;
+    private Animator mPreviewClipper;
+    private AnimatorListenerAdapter mClipEndListener = new AnimatorListenerAdapter() {
+        @Override
+        public void onAnimationEnd(Animator animation) {
+            mPreviewClipper = null;
+        }
+    };
     private AnimatorListenerAdapter mCircleEndListener = new AnimatorListenerAdapter() {
         @Override
         public void onAnimationEnd(Animator animation) {
@@ -136,6 +148,7 @@ public class KeyguardAffordanceView extends ImageView {
         super.onLayout(changed, left, top, right, bottom);
         mCenterX = getWidth() / 2;
         mCenterY = getHeight() / 2;
+        mMaxCircleSize = getMaxCircleSize();
     }
 
     @Override
@@ -143,10 +156,16 @@ public class KeyguardAffordanceView extends ImageView {
         drawBackgroundCircle(canvas);
         drawArrow(canvas);
         canvas.save();
-        updateIconColor();
         canvas.scale(mImageScale, mImageScale, getWidth() / 2, getHeight() / 2);
         super.onDraw(canvas);
         canvas.restore();
+    }
+
+    public void setPreviewView(View v) {
+        mPreviewView = v;
+        if (mPreviewView != null) {
+            mPreviewView.setVisibility(INVISIBLE);
+        }
     }
 
     private void drawArrow(Canvas canvas) {
@@ -183,6 +202,11 @@ public class KeyguardAffordanceView extends ImageView {
     private void updateCircleColor() {
         float fraction = 0.5f + 0.5f * Math.max(0.0f, Math.min(1.0f,
                 (mCircleRadius - mMinBackgroundRadius) / (0.5f * mMinBackgroundRadius)));
+        if (mPreviewView != null) {
+            float finishingFraction = 1 - Math.max(0, mCircleRadius - mCircleStartRadius)
+                    / (mMaxCircleSize - mCircleStartRadius);
+            fraction *= finishingFraction;
+        }
         int color = Color.argb((int) (Color.alpha(mCircleColor) * fraction),
                 Color.red(mCircleColor),
                 Color.green(mCircleColor), Color.blue(mCircleColor));
@@ -191,6 +215,8 @@ public class KeyguardAffordanceView extends ImageView {
 
     public void finishAnimation(float velocity, final Runnable mAnimationEndRunnable) {
         cancelAnimator(mCircleAnimator);
+        cancelAnimator(mPreviewClipper);
+        mCircleStartRadius = mCircleRadius;
         float maxCircleSize = getMaxCircleSize();
         ValueAnimator animatorToRadius = getAnimatorToRadius(maxCircleSize);
         mFlingAnimationUtils.applyDismissing(animatorToRadius, mCircleRadius, maxCircleSize,
@@ -203,6 +229,16 @@ public class KeyguardAffordanceView extends ImageView {
         });
         animatorToRadius.start();
         setImageAlpha(0, true);
+        if (mPreviewView != null) {
+            mPreviewView.setVisibility(View.VISIBLE);
+            mPreviewClipper = ViewAnimationUtils.createCircularReveal(
+                    mPreviewView, getLeft() + mCenterX, getTop() + mCenterY, mCircleRadius,
+                    maxCircleSize);
+            mFlingAnimationUtils.applyDismissing(mPreviewClipper, mCircleRadius, maxCircleSize,
+                    velocity, maxCircleSize);
+            mPreviewClipper.addListener(mClipEndListener);
+            mPreviewClipper.start();
+        }
     }
 
     private float getMaxCircleSize() {
@@ -215,15 +251,19 @@ public class KeyguardAffordanceView extends ImageView {
     }
 
     public void setCircleRadius(float circleRadius) {
-        setCircleRadius(circleRadius, false);
+        setCircleRadius(circleRadius, false, false);
+    }
+
+    public void setCircleRadius(float circleRadius, boolean slowAnimation) {
+        setCircleRadius(circleRadius, slowAnimation, false);
     }
 
     public void setCircleRadiusWithoutAnimation(float circleRadius) {
         cancelAnimator(mCircleAnimator);
-        setCircleRadius(circleRadius, true);
+        setCircleRadius(circleRadius, false ,true);
     }
 
-    private void setCircleRadius(float circleRadius, boolean noAnimation) {
+    private void setCircleRadius(float circleRadius, boolean slowAnimation, boolean noAnimation) {
 
         // Check if we need a new animation
         boolean radiusHidden = (mCircleAnimator != null && mCircleWillBeHidden)
@@ -233,7 +273,13 @@ public class KeyguardAffordanceView extends ImageView {
         if (!radiusNeedsAnimation) {
             if (mCircleAnimator == null) {
                 mCircleRadius = circleRadius;
+                updateIconColor();
                 invalidate();
+                if (nowHidden) {
+                    if (mPreviewView != null) {
+                        mPreviewView.setVisibility(View.INVISIBLE);
+                    }
+                }
             } else if (!mCircleWillBeHidden) {
 
                 // We just update the end value
@@ -244,17 +290,37 @@ public class KeyguardAffordanceView extends ImageView {
             }
         } else {
             cancelAnimator(mCircleAnimator);
+            cancelAnimator(mPreviewClipper);
             ValueAnimator animator = getAnimatorToRadius(circleRadius);
             Interpolator interpolator = circleRadius == 0.0f
                     ? mDisappearInterpolator
                     : mAppearInterpolator;
             animator.setInterpolator(interpolator);
-            float durationFactor = Math.abs(mCircleRadius - circleRadius)
-                    / (float) mMinBackgroundRadius;
-            long duration = (long) (CIRCLE_APPEAR_DURATION * durationFactor);
-            duration = Math.min(duration, CIRCLE_DISAPPEAR_MAX_DURATION);
+            long duration = 250;
+            if (!slowAnimation) {
+                float durationFactor = Math.abs(mCircleRadius - circleRadius)
+                        / (float) mMinBackgroundRadius;
+                duration = (long) (CIRCLE_APPEAR_DURATION * durationFactor);
+                duration = Math.min(duration, CIRCLE_DISAPPEAR_MAX_DURATION);
+            }
             animator.setDuration(duration);
             animator.start();
+            if (mPreviewView != null && mPreviewView.getVisibility() == View.VISIBLE) {
+                mPreviewView.setVisibility(View.VISIBLE);
+                mPreviewClipper = ViewAnimationUtils.createCircularReveal(
+                        mPreviewView, getLeft() + mCenterX, getTop() + mCenterY, mCircleRadius,
+                        circleRadius);
+                mPreviewClipper.setInterpolator(interpolator);
+                mPreviewClipper.setDuration(duration);
+                mPreviewClipper.addListener(mClipEndListener);
+                mPreviewClipper.addListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        mPreviewView.setVisibility(View.INVISIBLE);
+                    }
+                });
+                mPreviewClipper.start();
+            }
         }
     }
 
@@ -267,6 +333,7 @@ public class KeyguardAffordanceView extends ImageView {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
                 mCircleRadius = (float) animation.getAnimatedValue();
+                updateIconColor();
                 invalidate();
             }
         });
@@ -344,7 +411,9 @@ public class KeyguardAffordanceView extends ImageView {
             Interpolator interpolator, Runnable runnable) {
         cancelAnimator(mAlphaAnimator);
         int endAlpha = (int) (alpha * 255);
+        final Drawable background = getBackground();
         if (!animate) {
+            if (background != null) background.mutate().setAlpha(endAlpha);
             setImageAlpha(endAlpha);
         } else {
             int currentAlpha = getImageAlpha();
@@ -353,7 +422,9 @@ public class KeyguardAffordanceView extends ImageView {
             animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                 @Override
                 public void onAnimationUpdate(ValueAnimator animation) {
-                    setImageAlpha((int) animation.getAnimatedValue());
+                    int alpha = (int) animation.getAnimatedValue();
+                    if (background != null) background.mutate().setAlpha(alpha);
+                    setImageAlpha(alpha);
                 }
             });
             animator.addListener(mAlphaEndListener);
@@ -425,5 +496,14 @@ public class KeyguardAffordanceView extends ImageView {
 
     public void setIsLeft(boolean left) {
         mIsLeft = left;
+    }
+
+    @Override
+    public boolean performClick() {
+        if (isClickable()) {
+            return super.performClick();
+        } else {
+            return false;
+        }
     }
 }

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#define LOG_NDEBUG 0
 #define LOG_TAG "BootAnimation"
 
 #include <stdint.h>
@@ -30,7 +31,6 @@
 #include <utils/Atomic.h>
 #include <utils/Errors.h>
 #include <utils/Log.h>
-#include <utils/threads.h>
 
 #include <ui/PixelFormat.h>
 #include <ui/Rect.h>
@@ -50,6 +50,7 @@
 #include <EGL/eglext.h>
 
 #include "BootAnimation.h"
+#include "AudioPlayer.h"
 
 #define OEM_BOOTANIMATION_FILE "/oem/media/bootanimation.zip"
 #define SYSTEM_BOOTANIMATION_FILE "/system/media/bootanimation.zip"
@@ -99,6 +100,9 @@ void BootAnimation::binderDied(const wp<IBinder>&)
     // might be blocked on a condition variable that will never be updated.
     kill( getpid(), SIGKILL );
     requestExit();
+    if (mAudioPlayer != NULL) {
+        mAudioPlayer->requestExit();
+    }
 }
 
 status_t BootAnimation::initTexture(Texture* texture, AssetManager& assets,
@@ -394,28 +398,75 @@ void BootAnimation::checkExit() {
     int exitnow = atoi(value);
     if (exitnow) {
         requestExit();
+        if (mAudioPlayer != NULL) {
+            mAudioPlayer->requestExit();
+        }
     }
+}
+
+// Parse a color represented as an HTML-style 'RRGGBB' string: each pair of
+// characters in str is a hex number in [0, 255], which are converted to
+// floating point values in the range [0.0, 1.0] and placed in the
+// corresponding elements of color.
+//
+// If the input string isn't valid, parseColor returns false and color is
+// left unchanged.
+static bool parseColor(const char str[7], float color[3]) {
+    float tmpColor[3];
+    for (int i = 0; i < 3; i++) {
+        int val = 0;
+        for (int j = 0; j < 2; j++) {
+            val *= 16;
+            char c = str[2*i + j];
+            if      (c >= '0' && c <= '9') val += c - '0';
+            else if (c >= 'A' && c <= 'F') val += (c - 'A') + 10;
+            else if (c >= 'a' && c <= 'f') val += (c - 'a') + 10;
+            else                           return false;
+        }
+        tmpColor[i] = static_cast<float>(val) / 255.0f;
+    }
+    memcpy(color, tmpColor, sizeof(tmpColor));
+    return true;
+}
+
+bool BootAnimation::readFile(const char* name, String8& outString)
+{
+    ZipEntryRO entry = mZip->findEntryByName(name);
+    ALOGE_IF(!entry, "couldn't find %s", name);
+    if (!entry) {
+        return false;
+    }
+
+    FileMap* entryMap = mZip->createEntryFileMap(entry);
+    mZip->releaseEntry(entry);
+    ALOGE_IF(!entryMap, "entryMap is null");
+    if (!entryMap) {
+        return false;
+    }
+
+    outString.setTo((char const*)entryMap->getDataPtr(), entryMap->getDataLength());
+    entryMap->release();
+    return true;
 }
 
 bool BootAnimation::movie()
 {
-    ZipEntryRO desc = mZip->findEntryByName("desc.txt");
-    ALOGE_IF(!desc, "couldn't find desc.txt");
-    if (!desc) {
+    String8 desString;
+
+    if (!readFile("desc.txt", desString)) {
         return false;
     }
-
-    FileMap* descMap = mZip->createEntryFileMap(desc);
-    mZip->releaseEntry(desc);
-    ALOGE_IF(!descMap, "descMap is null");
-    if (!descMap) {
-        return false;
-    }
-
-    String8 desString((char const*)descMap->getDataPtr(),
-            descMap->getDataLength());
-    descMap->release();
     char const* s = desString.string();
+
+    // Create and initialize an AudioPlayer if we have an audio_conf.txt file
+    String8 audioConf;
+    if (readFile("audio_conf.txt", audioConf)) {
+        mAudioPlayer = new AudioPlayer;
+        if (!mAudioPlayer->init(audioConf.string())) {
+            ALOGE("mAudioPlayer.init failed");
+            mAudioPlayer = NULL;
+        }
+    }
 
     Animation animation;
 
@@ -427,20 +478,29 @@ bool BootAnimation::movie()
         const char* l = line.string();
         int fps, width, height, count, pause;
         char path[ANIM_ENTRY_NAME_MAX];
+        char color[7] = "000000"; // default to black if unspecified
+
         char pathType;
         if (sscanf(l, "%d %d %d", &width, &height, &fps) == 3) {
-            //LOGD("> w=%d, h=%d, fps=%d", width, height, fps);
+            // ALOGD("> w=%d, h=%d, fps=%d", width, height, fps);
             animation.width = width;
             animation.height = height;
             animation.fps = fps;
         }
-        else if (sscanf(l, " %c %d %d %s", &pathType, &count, &pause, path) == 4) {
-            //LOGD("> type=%c, count=%d, pause=%d, path=%s", pathType, count, pause, path);
+        else if (sscanf(l, " %c %d %d %s #%6s", &pathType, &count, &pause, path, color) >= 4) {
+            // ALOGD("> type=%c, count=%d, pause=%d, path=%s, color=%s", pathType, count, pause, path, color);
             Animation::Part part;
             part.playUntilComplete = pathType == 'c';
             part.count = count;
             part.pause = pause;
             part.path = path;
+            part.audioFile = NULL;
+            if (!parseColor(color, part.backgroundColor)) {
+                ALOGE("> invalid color '#%s'", color);
+                part.backgroundColor[0] = 0.0f;
+                part.backgroundColor[1] = 0.0f;
+                part.backgroundColor[2] = 0.0f;
+            }
             animation.parts.add(part);
         }
 
@@ -475,11 +535,16 @@ bool BootAnimation::movie()
                         if (method == ZipFileRO::kCompressStored) {
                             FileMap* map = mZip->createEntryFileMap(entry);
                             if (map) {
-                                Animation::Frame frame;
-                                frame.name = leaf;
-                                frame.map = map;
                                 Animation::Part& part(animation.parts.editItemAt(j));
-                                part.frames.add(frame);
+                                if (leaf == "audio.wav") {
+                                    // a part may have at most one audio file
+                                    part.audioFile = map;
+                                } else {
+                                    Animation::Frame frame;
+                                    frame.name = leaf;
+                                    frame.map = map;
+                                    part.frames.add(frame);
+                                }
                             }
                         }
                     }
@@ -525,6 +590,17 @@ bool BootAnimation::movie()
             // Exit any non playuntil complete parts immediately
             if(exitPending() && !part.playUntilComplete)
                 break;
+
+            // only play audio file the first time we animate the part
+            if (r == 0 && mAudioPlayer != NULL && part.audioFile) {
+                mAudioPlayer->playFile(part.audioFile);
+            }
+
+            glClearColor(
+                    part.backgroundColor[0],
+                    part.backgroundColor[1],
+                    part.backgroundColor[2],
+                    1.0f);
 
             for (size_t j=0 ; j<fcount && (!exitPending() || part.playUntilComplete) ; j++) {
                 const Animation::Frame& frame(part.frames[j]);

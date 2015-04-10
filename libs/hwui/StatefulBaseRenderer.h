@@ -52,7 +52,8 @@ public:
      * the render target.
      */
     virtual void setViewport(int width, int height);
-    void initializeSaveStack(float clipLeft, float clipTop, float clipRight, float clipBottom);
+    void initializeSaveStack(float clipLeft, float clipTop, float clipRight, float clipBottom,
+            const Vector3& lightCenter);
 
     // getters
     bool hasRectToRectTransform() const {
@@ -68,7 +69,6 @@ public:
     //        int alpha, SkXfermode::Mode mode, int flags);
 
     // Matrix
-    void getMatrix(Matrix4* outMatrix) const;
     virtual void getMatrix(SkMatrix* outMatrix) const;
     virtual void translate(float dx, float dy, float dz = 0.0f);
     virtual void rotate(float degrees);
@@ -96,6 +96,12 @@ public:
      * The clipping outline is independent from the regular clip.
      */
     void setClippingOutline(LinearAllocator& allocator, const Outline* outline);
+    void setClippingRoundRect(LinearAllocator& allocator,
+            const Rect& rect, float radius, bool highPriority = true);
+
+    inline const mat4* currentTransform() const {
+        return mSnapshot->transform;
+    }
 
 protected:
     const Rect& getRenderTargetClipBounds() const { return mSnapshot->getRenderTargetClip(); }
@@ -129,10 +135,6 @@ protected:
 
     inline const Rect* currentClipRect() const {
         return mSnapshot->clipRect;
-    }
-
-    inline const mat4* currentTransform() const {
-        return mSnapshot->transform;
     }
 
     inline const Snapshot* currentSnapshot() const {

@@ -16,12 +16,13 @@
 
 package android.hardware.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.hardware.hdmi.HdmiPortInfo;
 import android.hardware.hdmi.IHdmiControlCallback;
 import android.hardware.hdmi.IHdmiDeviceEventListener;
 import android.hardware.hdmi.IHdmiHotplugEventListener;
 import android.hardware.hdmi.IHdmiInputChangeListener;
+import android.hardware.hdmi.IHdmiMhlVendorCommandListener;
 import android.hardware.hdmi.IHdmiRecordListener;
 import android.hardware.hdmi.IHdmiSystemAudioModeChangeListener;
 import android.hardware.hdmi.IHdmiVendorCommandListener;
@@ -37,12 +38,13 @@ import java.util.List;
  */
 interface IHdmiControlService {
     int[] getSupportedTypes();
+    HdmiDeviceInfo getActiveSource();
     void oneTouchPlay(IHdmiControlCallback callback);
     void queryDisplayStatus(IHdmiControlCallback callback);
     void addHotplugEventListener(IHdmiHotplugEventListener listener);
     void removeHotplugEventListener(IHdmiHotplugEventListener listener);
     void addDeviceEventListener(IHdmiDeviceEventListener listener);
-    void deviceSelect(int logicalAddress, IHdmiControlCallback callback);
+    void deviceSelect(int deviceId, IHdmiControlCallback callback);
     void portSelect(int portId, IHdmiControlCallback callback);
     void sendKeyEvent(int deviceType, int keyCode, boolean isPressed);
     List<HdmiPortInfo> getPortInfo();
@@ -51,20 +53,22 @@ interface IHdmiControlService {
     void setSystemAudioMode(boolean enabled, IHdmiControlCallback callback);
     void addSystemAudioModeChangeListener(IHdmiSystemAudioModeChangeListener listener);
     void removeSystemAudioModeChangeListener(IHdmiSystemAudioModeChangeListener listener);
-    void setControlEnabled(boolean enabled);
     void setArcMode(boolean enabled);
-    void setOption(int option, int value);
     void setProhibitMode(boolean enabled);
     void setSystemAudioVolume(int oldIndex, int newIndex, int maxIndex);
     void setSystemAudioMute(boolean mute);
     void setInputChangeListener(IHdmiInputChangeListener listener);
-    List<HdmiCecDeviceInfo> getInputDevices();
+    List<HdmiDeviceInfo> getInputDevices();
+    List<HdmiDeviceInfo> getDeviceList();
     void sendVendorCommand(int deviceType, int targetAddress, in byte[] params,
             boolean hasVendorId);
     void addVendorCommandListener(IHdmiVendorCommandListener listener, int deviceType);
+    void sendStandby(int deviceType, int deviceId);
     void setHdmiRecordListener(IHdmiRecordListener callback);
     void startOneTouchRecord(int recorderAddress, in byte[] recordSource);
     void stopOneTouchRecord(int recorderAddress);
     void startTimerRecording(int recorderAddress, int sourceType, in byte[] recordSource);
     void clearTimerRecording(int recorderAddress, int sourceType, in byte[] recordSource);
+    void sendMhlVendorCommand(int portId, int offset, int length, in byte[] data);
+    void addHdmiMhlVendorCommandListener(IHdmiMhlVendorCommandListener listener);
 }

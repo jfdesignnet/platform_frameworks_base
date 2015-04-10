@@ -159,11 +159,15 @@ final class AccessibilityController {
         }
     }
 
-    public void onWindowFocusChangedLocked() {
+    public void onWindowFocusChangedNotLocked() {
         // Not relevant for the display magnifier.
 
-        if (mWindowsForAccessibilityObserver != null) {
-            mWindowsForAccessibilityObserver.scheduleComputeChangedWindowsLocked();
+        WindowsForAccessibilityObserver observer = null;
+        synchronized (mWindowManagerService) {
+            observer = mWindowsForAccessibilityObserver;
+        }
+        if (observer != null) {
+            observer.performComputeChangedWindowsNotLocked();
         }
     }
 
@@ -346,8 +350,7 @@ final class AccessibilityController {
                         case WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG:
                         case WindowManager.LayoutParams.TYPE_SYSTEM_ERROR:
                         case WindowManager.LayoutParams.TYPE_VOLUME_OVERLAY:
-                        case WindowManager.LayoutParams.TYPE_NAVIGATION_BAR_PANEL:
-                        case WindowManager.LayoutParams.TYPE_RECENTS_OVERLAY: {
+                        case WindowManager.LayoutParams.TYPE_NAVIGATION_BAR_PANEL: {
                             Rect magnifiedRegionBounds = mTempRect2;
                             mMagnifedViewport.getMagnifiedFrameInContentCoordsLocked(
                                     magnifiedRegionBounds);
@@ -412,8 +415,9 @@ final class AccessibilityController {
 
             private final WindowManager mWindowManager;
 
-            private final int mBorderWidth;
+            private final float mBorderWidth;
             private final int mHalfBorderWidth;
+            private final int mDrawBorderInset;
 
             private final ViewportWindow mWindow;
 
@@ -421,10 +425,11 @@ final class AccessibilityController {
 
             public MagnifiedViewport() {
                 mWindowManager = (WindowManager) mContext.getSystemService(Service.WINDOW_SERVICE);
-                mBorderWidth = (int) TypedValue.applyDimension(
+                mBorderWidth = TypedValue.applyDimension(
                         TypedValue.COMPLEX_UNIT_DIP, DEFAUTLT_BORDER_WIDTH_DIP,
                                 mContext.getResources().getDisplayMetrics());
-                mHalfBorderWidth = (int) (mBorderWidth + 0.5) / 2;
+                mHalfBorderWidth = (int) Math.ceil(mBorderWidth / 2);
+                mDrawBorderInset = (int) mBorderWidth / 2;
                 mWindow = new ViewportWindow(mContext);
                 recomputeBoundsLocked();
             }
@@ -437,7 +442,8 @@ final class AccessibilityController {
                 }
                 // If this message is pending we are in a rotation animation and do not want
                 // to show the border. We will do so when the pending message is handled.
-                if (!mHandler.hasMessages(MyHandler.MESSAGE_SHOW_MAGNIFIED_REGION_BOUNDS_IF_NEEDED)) {
+                if (!mHandler.hasMessages(
+                        MyHandler.MESSAGE_SHOW_MAGNIFIED_REGION_BOUNDS_IF_NEEDED)) {
                     setMagnifiedRegionBorderShownLocked(isMagnifyingLocked(), true);
                 }
             }
@@ -454,7 +460,7 @@ final class AccessibilityController {
                 availableBounds.set(0, 0, screenWidth, screenHeight);
 
                 Region nonMagnifiedBounds = mTempRegion4;
-                nonMagnifiedBounds.set(0,  0,  0,  0);
+                nonMagnifiedBounds.set(0, 0, 0, 0);
 
                 SparseArray<WindowState> visibleWindows = mTempWindowStates;
                 visibleWindows.clear();
@@ -513,8 +519,8 @@ final class AccessibilityController {
 
                 visibleWindows.clear();
 
-                magnifiedBounds.op(mHalfBorderWidth, mHalfBorderWidth,
-                        screenWidth - mHalfBorderWidth, screenHeight - mHalfBorderWidth,
+                magnifiedBounds.op(mDrawBorderInset, mDrawBorderInset,
+                        screenWidth - mDrawBorderInset, screenHeight - mDrawBorderInset,
                         Region.Op.INTERSECT);
 
                 if (!mOldMagnifiedBounds.equals(magnifiedBounds)) {
@@ -527,8 +533,8 @@ final class AccessibilityController {
                     Rect dirtyRect = mTempRect1;
                     if (mFullRedrawNeeded) {
                         mFullRedrawNeeded = false;
-                        dirtyRect.set(mHalfBorderWidth, mHalfBorderWidth,
-                                screenWidth - mHalfBorderWidth, screenHeight - mHalfBorderWidth);
+                        dirtyRect.set(mDrawBorderInset, mDrawBorderInset,
+                                screenWidth - mDrawBorderInset, screenHeight - mDrawBorderInset);
                         mWindow.invalidate(dirtyRect);
                     } else {
                         Region dirtyRegion = mTempRegion3;
@@ -563,7 +569,7 @@ final class AccessibilityController {
             public void setMagnifiedRegionBorderShownLocked(boolean shown, boolean animate) {
                 if (shown) {
                     mFullRedrawNeeded = true;
-                    mOldMagnifiedBounds.set(0,  0,  0,  0);
+                    mOldMagnifiedBounds.set(0, 0, 0, 0);
                 }
                 mWindow.setShown(shown, animate);
             }
@@ -611,18 +617,14 @@ final class AccessibilityController {
             private final class ViewportWindow {
                 private static final String SURFACE_TITLE = "Magnification Overlay";
 
-                private static final String PROPERTY_NAME_ALPHA = "alpha";
-
-                private static final int MIN_ALPHA = 0;
-                private static final int MAX_ALPHA = 255;
-
                 private final Region mBounds = new Region();
                 private final Rect mDirtyRect = new Rect();
                 private final Paint mPaint = new Paint();
 
-                private final ValueAnimator mShowHideFrameAnimator;
                 private final SurfaceControl mSurfaceControl;
                 private final Surface mSurface = new Surface();
+
+                private final AnimationController mAnimationController;
 
                 private boolean mShown;
                 private int mAlpha;
@@ -648,6 +650,9 @@ final class AccessibilityController {
                     mSurfaceControl.setPosition(0, 0);
                     mSurface.copyFrom(mSurfaceControl);
 
+                    mAnimationController = new AnimationController(context,
+                            mWindowManagerService.mH.getLooper());
+
                     TypedValue typedValue = new TypedValue();
                     context.getTheme().resolveAttribute(R.attr.colorActivatedHighlight,
                             typedValue, true);
@@ -657,14 +662,6 @@ final class AccessibilityController {
                     mPaint.setStrokeWidth(mBorderWidth);
                     mPaint.setColor(borderColor);
 
-                    Interpolator interpolator = new DecelerateInterpolator(2.5f);
-                    final long longAnimationDuration = context.getResources().getInteger(
-                            com.android.internal.R.integer.config_longAnimTime);
-
-                    mShowHideFrameAnimator = ObjectAnimator.ofInt(this, PROPERTY_NAME_ALPHA,
-                            MIN_ALPHA, MAX_ALPHA);
-                    mShowHideFrameAnimator.setInterpolator(interpolator);
-                    mShowHideFrameAnimator.setDuration(longAnimationDuration);
                     mInvalidated = true;
                 }
 
@@ -674,24 +671,7 @@ final class AccessibilityController {
                             return;
                         }
                         mShown = shown;
-                        if (animate) {
-                            if (mShowHideFrameAnimator.isRunning()) {
-                                mShowHideFrameAnimator.reverse();
-                            } else {
-                                if (shown) {
-                                    mShowHideFrameAnimator.start();
-                                } else {
-                                    mShowHideFrameAnimator.reverse();
-                                }
-                            }
-                        } else {
-                            mShowHideFrameAnimator.cancel();
-                            if (shown) {
-                                setAlpha(MAX_ALPHA);
-                            } else {
-                                setAlpha(MIN_ALPHA);
-                            }
-                        }
+                        mAnimationController.onFrameShownStateChanged(shown, animate);
                         if (DEBUG_VIEWPORT_WINDOW) {
                             Slog.i(LOG_TAG, "ViewportWindow shown: " + mShown);
                         }
@@ -798,6 +778,64 @@ final class AccessibilityController {
                     mSurfaceControl.release();
                     mSurface.release();
                 }
+
+                private final class AnimationController extends Handler {
+                    private static final String PROPERTY_NAME_ALPHA = "alpha";
+
+                    private static final int MIN_ALPHA = 0;
+                    private static final int MAX_ALPHA = 255;
+
+                    private static final int MSG_FRAME_SHOWN_STATE_CHANGED = 1;
+
+                    private final ValueAnimator mShowHideFrameAnimator;
+
+                    public AnimationController(Context context, Looper looper) {
+                        super(looper);
+                        mShowHideFrameAnimator = ObjectAnimator.ofInt(ViewportWindow.this,
+                                PROPERTY_NAME_ALPHA, MIN_ALPHA, MAX_ALPHA);
+
+                        Interpolator interpolator = new DecelerateInterpolator(2.5f);
+                        final long longAnimationDuration = context.getResources().getInteger(
+                                com.android.internal.R.integer.config_longAnimTime);
+
+                        mShowHideFrameAnimator.setInterpolator(interpolator);
+                        mShowHideFrameAnimator.setDuration(longAnimationDuration);
+                    }
+
+                    public void onFrameShownStateChanged(boolean shown, boolean animate) {
+                        obtainMessage(MSG_FRAME_SHOWN_STATE_CHANGED,
+                                shown ? 1 : 0, animate ? 1 : 0).sendToTarget();
+                    }
+
+                    @Override
+                    public void handleMessage(Message message) {
+                        switch (message.what) {
+                            case MSG_FRAME_SHOWN_STATE_CHANGED: {
+                                final boolean shown = message.arg1 == 1;
+                                final boolean animate = message.arg2 == 1;
+
+                                if (animate) {
+                                    if (mShowHideFrameAnimator.isRunning()) {
+                                        mShowHideFrameAnimator.reverse();
+                                    } else {
+                                        if (shown) {
+                                            mShowHideFrameAnimator.start();
+                                        } else {
+                                            mShowHideFrameAnimator.reverse();
+                                        }
+                                    }
+                                } else {
+                                    mShowHideFrameAnimator.cancel();
+                                    if (shown) {
+                                        setAlpha(MAX_ALPHA);
+                                    } else {
+                                        setAlpha(MIN_ALPHA);
+                                    }
+                                }
+                            } break;
+                        }
+                    }
+                }
             }
         }
 
@@ -903,14 +941,13 @@ final class AccessibilityController {
             computeChangedWindows();
         }
 
+        public void performComputeChangedWindowsNotLocked() {
+            mHandler.removeMessages(MyHandler.MESSAGE_COMPUTE_CHANGED_WINDOWS);
+            computeChangedWindows();
+        }
+
         public void scheduleComputeChangedWindowsLocked() {
-            // If focus changed, compute changed windows immediately as the focused window
-            // is used by the accessibility manager service to determine the active window.
-            if (mWindowManagerService.mCurrentFocus != null
-                    && mWindowManagerService.mCurrentFocus != mWindowManagerService.mLastFocus) {
-                mHandler.removeMessages(MyHandler.MESSAGE_COMPUTE_CHANGED_WINDOWS);
-                computeChangedWindows();
-            } else if (!mHandler.hasMessages(MyHandler.MESSAGE_COMPUTE_CHANGED_WINDOWS)) {
+            if (!mHandler.hasMessages(MyHandler.MESSAGE_COMPUTE_CHANGED_WINDOWS)) {
                 mHandler.sendEmptyMessageDelayed(MyHandler.MESSAGE_COMPUTE_CHANGED_WINDOWS,
                         mRecurringAccessibilityEventsIntervalMillis);
             }
@@ -920,6 +957,9 @@ final class AccessibilityController {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "computeChangedWindows()");
             }
+
+            boolean windowsChanged = false;
+            List<WindowInfo> windows = new ArrayList<WindowInfo>();
 
             synchronized (mWindowManagerService.mWindowMap) {
                 // Do not send the windows if there is no current focus as
@@ -941,8 +981,6 @@ final class AccessibilityController {
                 SparseArray<WindowState> visibleWindows = mTempWindowStates;
                 populateVisibleWindowsOnScreenLocked(visibleWindows);
 
-                List<WindowInfo> windows = new ArrayList<WindowInfo>();
-
                 Set<IBinder> addedWindows = mTempBinderSet;
                 addedWindows.clear();
 
@@ -950,19 +988,17 @@ final class AccessibilityController {
 
                 final int visibleWindowCount = visibleWindows.size();
                 for (int i = visibleWindowCount - 1; i >= 0; i--) {
-                    WindowState windowState = visibleWindows.valueAt(i);
-
-                    // Compute the bounds in the screen.
-                    Rect boundsInScreen = mTempRect;
-                    computeWindowBoundsInScreen(windowState, boundsInScreen);
-
+                    final WindowState windowState = visibleWindows.valueAt(i);
                     final int flags = windowState.mAttrs.flags;
 
-                    // If the window is not touchable, do not report it but take into account
-                    // the space it takes since the content behind it cannot be touched.
+                    // If the window is not touchable - ignore.
                     if ((flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0) {
                         continue;
                     }
+
+                    // Compute the bounds in the screen.
+                    final Rect boundsInScreen = mTempRect;
+                    computeWindowBoundsInScreen(windowState, boundsInScreen);
 
                     // If the window is completely covered by other windows - ignore.
                     if (unaccountedSpace.quickReject(boundsInScreen)) {
@@ -980,9 +1016,14 @@ final class AccessibilityController {
                         }
                     }
 
-                    // Account for the space this window takes.
-                    unaccountedSpace.op(boundsInScreen, unaccountedSpace,
-                            Region.Op.REVERSE_DIFFERENCE);
+                    // Account for the space this window takes if the window
+                    // is not an accessibility overlay which does not change
+                    // the reported windows.
+                    if (windowState.mAttrs.type !=
+                            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) {
+                        unaccountedSpace.op(boundsInScreen, unaccountedSpace,
+                                Region.Op.REVERSE_DIFFERENCE);
+                    }
 
                     // We figured out what is touchable for the entire screen - done.
                     if (unaccountedSpace.isEmpty()) {
@@ -1037,7 +1078,6 @@ final class AccessibilityController {
                 addedWindows.clear();
 
                 // We computed the windows and if they changed notify the client.
-                boolean windowsChanged = false;
                 if (mOldWindows.size() != windows.size()) {
                     // Different size means something changed.
                     windowsChanged = true;
@@ -1059,22 +1099,24 @@ final class AccessibilityController {
                 }
 
                 if (windowsChanged) {
-                    if (DEBUG) {
-                        Log.i(LOG_TAG, "Windows changed:" + windows);
-                    }
-                    // Remember the old windows to detect changes.
                     cacheWindows(windows);
-                    // Announce the change.
-                    mHandler.obtainMessage(MyHandler.MESSAGE_NOTIFY_WINDOWS_CHANGED,
-                            windows).sendToTarget();
-                } else {
-                    if (DEBUG) {
-                        Log.i(LOG_TAG, "No windows changed.");
-                    }
-                    // Recycle the nodes as we do not need them.
-                    clearAndRecycleWindows(windows);
                 }
             }
+
+            // Now we do not hold the lock, so send the windows over.
+            if (windowsChanged) {
+                if (DEBUG) {
+                    Log.i(LOG_TAG, "Windows changed:" + windows);
+                }
+                mCallback.onWindowsForAccessibilityChanged(windows);
+            } else {
+                if (DEBUG) {
+                    Log.i(LOG_TAG, "No windows changed.");
+                }
+            }
+
+            // Recycle the windows as we do not need them.
+            clearAndRecycleWindows(windows);
         }
 
         private void computeWindowBoundsInScreen(WindowState windowState, Rect outBounds) {
@@ -1180,7 +1222,7 @@ final class AccessibilityController {
             return false;
         }
 
-        private void clearAndRecycleWindows(List<WindowInfo> windows) {
+        private static void clearAndRecycleWindows(List<WindowInfo> windows) {
             final int windowCount = windows.size();
             for (int i = windowCount - 1; i >= 0; i--) {
                 windows.remove(i).recycle();
@@ -1217,7 +1259,6 @@ final class AccessibilityController {
 
         private class MyHandler extends Handler {
             public static final int MESSAGE_COMPUTE_CHANGED_WINDOWS = 1;
-            public static final int MESSAGE_NOTIFY_WINDOWS_CHANGED = 2;
 
             public MyHandler(Looper looper) {
                 super(looper, null, false);
@@ -1229,12 +1270,6 @@ final class AccessibilityController {
                 switch (message.what) {
                     case MESSAGE_COMPUTE_CHANGED_WINDOWS: {
                         computeChangedWindows();
-                    } break;
-
-                    case MESSAGE_NOTIFY_WINDOWS_CHANGED: {
-                        List<WindowInfo> windows = (List<WindowInfo>) message.obj;
-                        mCallback.onWindowsForAccessibilityChanged(windows);
-                        clearAndRecycleWindows(windows);
                     } break;
                 }
             }

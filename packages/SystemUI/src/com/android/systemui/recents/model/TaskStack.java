@@ -16,9 +16,11 @@
 
 package com.android.systemui.recents.model;
 
+import android.graphics.Color;
 import com.android.systemui.recents.Constants;
 import com.android.systemui.recents.RecentsConfiguration;
 import com.android.systemui.recents.misc.NamedCounter;
+import com.android.systemui.recents.misc.Utilities;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -59,6 +61,14 @@ class FilteredTaskList {
         }
     }
 
+    /** Resets this FilteredTaskList. */
+    void reset() {
+        mTasks.clear();
+        mFilteredTasks.clear();
+        mTaskIndices.clear();
+        mFilter = null;
+    }
+
     /** Removes the task filter and returns the previous touch state */
     void removeFilter() {
         mFilter = null;
@@ -90,7 +100,10 @@ class FilteredTaskList {
 
     /** Returns the index of this task in the list of filtered tasks */
     int indexOf(Task t) {
-        return mTaskIndices.get(t.key);
+        if (mTaskIndices.containsKey(t.key)) {
+            return mTaskIndices.get(t.key);
+        }
+        return -1;
     }
 
     /** Returns the size of the list of filtered tasks */
@@ -185,6 +198,14 @@ public class TaskStack {
         mCb = cb;
     }
 
+    /** Resets this TaskStack. */
+    public void reset() {
+        mCb = null;
+        mTaskList.reset();
+        mGroups.clear();
+        mAffinitiesGroups.clear();
+    }
+
     /** Adds a new task */
     public void addTask(Task t) {
         mTaskList.add(t);
@@ -231,6 +252,8 @@ public class TaskStack {
             if (group.getTaskCount() == 0) {
                 removeGroup(group);
             }
+            // Update the lock-to-app state
+            t.lockToThisTask = false;
             if (mCb != null) {
                 // Notify that a task has been removed
                 mCb.onStackTaskRemoved(this, t, null);
@@ -250,6 +273,17 @@ public class TaskStack {
         return mTaskList.getTasks().get(mTaskList.size() - 1);
     }
 
+    /** Gets the task keys */
+    public ArrayList<Task.TaskKey> getTaskKeys() {
+        ArrayList<Task.TaskKey> taskKeys = new ArrayList<Task.TaskKey>();
+        ArrayList<Task> tasks = mTaskList.getTasks();
+        int taskCount = tasks.size();
+        for (int i = 0; i < taskCount; i++) {
+            taskKeys.add(tasks.get(i).key);
+        }
+        return taskKeys;
+    }
+
     /** Gets the tasks */
     public ArrayList<Task> getTasks() {
         return mTaskList.getTasks();
@@ -263,6 +297,19 @@ public class TaskStack {
     /** Returns the index of this task in this current task stack */
     public int indexOfTask(Task t) {
         return mTaskList.indexOf(t);
+    }
+
+    /** Finds the task with the specified task id. */
+    public Task findTaskWithId(int taskId) {
+        ArrayList<Task> tasks = mTaskList.getTasks();
+        int taskCount = tasks.size();
+        for (int i = 0; i < taskCount; i++) {
+            Task task = tasks.get(i);
+            if (task.key.id == taskId) {
+                return task;
+            }
+        }
+        return null;
     }
 
     /******** Filtering ********/
@@ -321,7 +368,7 @@ public class TaskStack {
     /**
      * Temporary: This method will simulate affiliation groups by
      */
-    public void createAffiliatedGroupings() {
+    public void createAffiliatedGroupings(RecentsConfiguration config) {
         if (Constants.DebugFlags.App.EnableSimulatedTaskGroups) {
             HashMap<Task.TaskKey, Task> taskMap = new HashMap<Task.TaskKey, Task>();
             // Sort all tasks by increasing firstActiveTime of the task
@@ -338,7 +385,7 @@ public class TaskStack {
             String prevPackage = "";
             int prevAffiliation = -1;
             Random r = new Random();
-            int groupCountDown = 5;
+            int groupCountDown = Constants.DebugFlags.App.TaskAffiliationsGroupCount;
             for (int i = 0; i < taskCount; i++) {
                 Task t = tasks.get(i);
                 String packageName = t.key.baseIntent.getComponent().getPackageName();
@@ -353,7 +400,7 @@ public class TaskStack {
                     addGroup(group);
                     prevAffiliation = affiliation;
                     prevPackage = packageName;
-                    groupCountDown = 5;
+                    groupCountDown = Constants.DebugFlags.App.TaskAffiliationsGroupCount;
                 }
                 group.addTask(t);
                 taskMap.put(t.key, t);
@@ -388,6 +435,7 @@ public class TaskStack {
             mTaskList.set(tasks);
         } else {
             // Create the task groups
+            HashMap<Task.TaskKey, Task> tasksMap = new HashMap<Task.TaskKey, Task>();
             ArrayList<Task> tasks = mTaskList.getTasks();
             int taskCount = tasks.size();
             for (int i = 0; i < taskCount; i++) {
@@ -402,6 +450,26 @@ public class TaskStack {
                     addGroup(group);
                 }
                 group.addTask(t);
+                tasksMap.put(t.key, t);
+            }
+            // Update the task colors for each of the groups
+            float minAlpha = config.taskBarViewAffiliationColorMinAlpha;
+            int taskGroupCount = mGroups.size();
+            for (int i = 0; i < taskGroupCount; i++) {
+                TaskGrouping group = mGroups.get(i);
+                taskCount = group.getTaskCount();
+                // Ignore the groups that only have one task
+                if (taskCount <= 1) continue;
+                // Calculate the group color distribution
+                int affiliationColor = tasksMap.get(group.mTaskKeys.get(0)).taskAffiliationColor;
+                float alphaStep = (1f - minAlpha) / taskCount;
+                float alpha = 1f;
+                for (int j = 0; j < taskCount; j++) {
+                    Task t = tasksMap.get(group.mTaskKeys.get(j));
+                    t.colorPrimary = Utilities.getColorWithOverlay(affiliationColor, Color.WHITE,
+                            alpha);
+                    alpha -= alphaStep;
+                }
             }
         }
     }

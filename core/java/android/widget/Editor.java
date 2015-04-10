@@ -19,6 +19,7 @@ package android.widget;
 import android.content.UndoManager;
 import android.content.UndoOperation;
 import android.content.UndoOwner;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.InputFilter;
@@ -26,6 +27,7 @@ import android.text.SpannableString;
 
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
+import com.android.internal.view.menu.MenuBuilder;
 import com.android.internal.widget.EditableInputConnection;
 
 import android.R;
@@ -80,7 +82,6 @@ import android.view.RenderNode;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.HardwareCanvas;
-import android.view.HardwareRenderer;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -145,7 +146,7 @@ public class Editor {
         boolean isDirty;
         public TextDisplayList(String name) {
             isDirty = true;
-            displayList = RenderNode.create(name);
+            displayList = RenderNode.create(name, null);
         }
         boolean needsRecord() { return isDirty || !displayList.isValid(); }
     }
@@ -1296,25 +1297,6 @@ public class Editor {
                         reported = reportExtractedText();
                     }
                 }
-
-                if (imm.isWatchingCursor(mTextView) && highlight != null) {
-                    highlight.computeBounds(ims.mTmpRectF, true);
-                    ims.mTmpOffset[0] = ims.mTmpOffset[1] = 0;
-
-                    canvas.getMatrix().mapPoints(ims.mTmpOffset);
-                    ims.mTmpRectF.offset(ims.mTmpOffset[0], ims.mTmpOffset[1]);
-
-                    ims.mTmpRectF.offset(0, cursorOffsetVertical);
-
-                    ims.mCursorRectInWindow.set((int)(ims.mTmpRectF.left + 0.5),
-                            (int)(ims.mTmpRectF.top + 0.5),
-                            (int)(ims.mTmpRectF.right + 0.5),
-                            (int)(ims.mTmpRectF.bottom + 0.5));
-
-                    imm.updateCursor(mTextView,
-                            ims.mCursorRectInWindow.left, ims.mCursorRectInWindow.top,
-                            ims.mCursorRectInWindow.right, ims.mCursorRectInWindow.bottom);
-                }
             }
         }
 
@@ -1877,9 +1859,8 @@ public class Editor {
         }
 
         final int originalLength = mTextView.getText().length();
-        long minMax = mTextView.prepareSpacesAroundPaste(offset, offset, content);
-        int min = TextUtils.unpackRangeStartFromLong(minMax);
-        int max = TextUtils.unpackRangeEndFromLong(minMax);
+        int min = offset;
+        int max = offset;
 
         Selection.setSelection((Spannable) mTextView.getText(), max);
         mTextView.replaceText_internal(min, max, content);
@@ -2810,7 +2791,12 @@ public class Editor {
 
         @Override
         public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-            TypedArray styledAttributes = mTextView.getContext().obtainStyledAttributes(
+            final boolean legacy = mTextView.getContext().getApplicationInfo().targetSdkVersion <
+                    Build.VERSION_CODES.LOLLIPOP;
+            final Context context = !legacy && menu instanceof MenuBuilder ?
+                    ((MenuBuilder) menu).getContext() :
+                    mTextView.getContext();
+            final TypedArray styledAttributes = context.obtainStyledAttributes(
                     com.android.internal.R.styleable.SelectionModeDrawables);
 
             mode.setTitle(mTextView.getContext().getString(
@@ -3072,41 +3058,69 @@ public class Editor {
                     final CharSequence composingText = text.subSequence(composingTextStart,
                             composingTextEnd);
                     builder.setComposingText(composingTextStart, composingText);
-                }
-                for (int offset = composingTextStart; offset < composingTextEnd; offset++) {
-                    if (offset < 0) {
-                        continue;
+
+                    final int minLine = layout.getLineForOffset(composingTextStart);
+                    final int maxLine = layout.getLineForOffset(composingTextEnd - 1);
+                    for (int line = minLine; line <= maxLine; ++line) {
+                        final int lineStart = layout.getLineStart(line);
+                        final int lineEnd = layout.getLineEnd(line);
+                        final int offsetStart = Math.max(lineStart, composingTextStart);
+                        final int offsetEnd = Math.min(lineEnd, composingTextEnd);
+                        final boolean ltrLine =
+                                layout.getParagraphDirection(line) == Layout.DIR_LEFT_TO_RIGHT;
+                        final float[] widths = new float[offsetEnd - offsetStart];
+                        layout.getPaint().getTextWidths(text, offsetStart, offsetEnd, widths);
+                        final float top = layout.getLineTop(line);
+                        final float bottom = layout.getLineBottom(line);
+                        for (int offset = offsetStart; offset < offsetEnd; ++offset) {
+                            final float charWidth = widths[offset - offsetStart];
+                            final boolean isRtl = layout.isRtlCharAt(offset);
+                            final float primary = layout.getPrimaryHorizontal(offset);
+                            final float secondary = layout.getSecondaryHorizontal(offset);
+                            // TODO: This doesn't work perfectly for text with custom styles and
+                            // TAB chars.
+                            final float left;
+                            final float right;
+                            if (ltrLine) {
+                                if (isRtl) {
+                                    left = secondary - charWidth;
+                                    right = secondary;
+                                } else {
+                                    left = primary;
+                                    right = primary + charWidth;
+                                }
+                            } else {
+                                if (!isRtl) {
+                                    left = secondary;
+                                    right = secondary + charWidth;
+                                } else {
+                                    left = primary - charWidth;
+                                    right = primary;
+                                }
+                            }
+                            // TODO: Check top-right and bottom-left as well.
+                            final float localLeft = left + viewportToContentHorizontalOffset;
+                            final float localRight = right + viewportToContentHorizontalOffset;
+                            final float localTop = top + viewportToContentVerticalOffset;
+                            final float localBottom = bottom + viewportToContentVerticalOffset;
+                            final boolean isTopLeftVisible = isPositionVisible(localLeft, localTop);
+                            final boolean isBottomRightVisible =
+                                    isPositionVisible(localRight, localBottom);
+                            int characterBoundsFlags = 0;
+                            if (isTopLeftVisible || isBottomRightVisible) {
+                                characterBoundsFlags |= CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION;
+                            }
+                            if (!isTopLeftVisible || !isTopLeftVisible) {
+                                characterBoundsFlags |= CursorAnchorInfo.FLAG_HAS_INVISIBLE_REGION;
+                            }
+                            if (isRtl) {
+                                characterBoundsFlags |= CursorAnchorInfo.FLAG_IS_RTL;
+                            }
+                            // Here offset is the index in Java chars.
+                            builder.addCharacterBounds(offset, localLeft, localTop, localRight,
+                                    localBottom, characterBoundsFlags);
+                        }
                     }
-                    final int line = layout.getLineForOffset(offset);
-                    final float left = layout.getPrimaryHorizontal(offset)
-                            + viewportToContentHorizontalOffset;
-                    final float top = layout.getLineTop(line) + viewportToContentVerticalOffset;
-                    // Here we are tentatively passing offset + 1 to calculate the other side of
-                    // the primary horizontal to preserve as many positions as possible so that
-                    // the IME can reconstruct the layout entirely. However, we should revisit this
-                    // to have a clear specification about the relationship between the index of
-                    // the character and its bounding box. See also the TODO comment below.
-                    final float right = layout.getPrimaryHorizontal(offset + 1)
-                            + viewportToContentHorizontalOffset;
-                    final float bottom = layout.getLineBottom(line)
-                            + viewportToContentVerticalOffset;
-                    // Take TextView's padding and scroll into account.
-                    // TODO: Check right-top and left-bottom as well.
-                    final boolean leftTopVisible = isPositionVisible(left, top);
-                    final boolean rightBottomVisible = isPositionVisible(right, bottom);
-                    final int characterRectFlags;
-                    if (leftTopVisible && rightBottomVisible) {
-                        characterRectFlags = CursorAnchorInfo.CHARACTER_RECT_TYPE_FULLY_VISIBLE;
-                    } else if (leftTopVisible || rightBottomVisible) {
-                        characterRectFlags = CursorAnchorInfo.CHARACTER_RECT_TYPE_PARTIALLY_VISIBLE;
-                    } else {
-                        characterRectFlags = CursorAnchorInfo.CHARACTER_RECT_TYPE_INVISIBLE;
-                    }
-                    // Here offset is the index in Java chars.
-                    // TODO: We must have a well-defined specification. For example, how
-                    // RTL, surrogate pairs, and composition letters are handled must be
-                    // documented.
-                    builder.addCharacterRect(offset, left, top, right, bottom, characterRectFlags);
                 }
             }
 
@@ -3122,11 +3136,22 @@ public class Editor {
                         + viewportToContentVerticalOffset;
                 final float insertionMarkerBottom = layout.getLineBottom(line)
                         + viewportToContentVerticalOffset;
-                // Take TextView's padding and scroll into account.
-                final boolean isClipped = !isPositionVisible(insertionMarkerX, insertionMarkerTop)
-                        || !isPositionVisible(insertionMarkerX, insertionMarkerBottom);
+                final boolean isTopVisible =
+                        isPositionVisible(insertionMarkerX, insertionMarkerTop);
+                final boolean isBottomVisible =
+                        isPositionVisible(insertionMarkerX, insertionMarkerBottom);
+                int insertionMarkerFlags = 0;
+                if (isTopVisible || isBottomVisible) {
+                    insertionMarkerFlags |= CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION;
+                }
+                if (!isTopVisible || !isBottomVisible) {
+                    insertionMarkerFlags |= CursorAnchorInfo.FLAG_HAS_INVISIBLE_REGION;
+                }
+                if (layout.isRtlCharAt(offset)) {
+                    insertionMarkerFlags |= CursorAnchorInfo.FLAG_IS_RTL;
+                }
                 builder.setInsertionMarkerLocation(insertionMarkerX, insertionMarkerTop,
-                        insertionMarkerBaseline, insertionMarkerBottom, isClipped);
+                        insertionMarkerBaseline, insertionMarkerBottom, insertionMarkerFlags);
             }
 
             imm.updateCursorAnchorInfo(mTextView, builder.build());
@@ -3144,6 +3169,7 @@ public class Editor {
         // Offset from touch position to mPosition
         private float mTouchToWindowOffsetX, mTouchToWindowOffsetY;
         protected int mHotspotX;
+        protected int mHorizontalGravity;
         // Offsets the hotspot point up, so that cursor is not hidden by the finger when moving up
         private float mTouchOffsetY;
         // Where the touch position should be on the handle to ensure a maximum cursor visibility
@@ -3158,6 +3184,8 @@ public class Editor {
         private boolean mPositionHasChanged = true;
         // Used to delay the appearance of the action popup window
         private Runnable mActionPopupShower;
+        // Minimum touch target size for handles
+        private int mMinSize;
 
         public HandleView(Drawable drawableLtr, Drawable drawableRtl) {
             super(mTextView.getContext());
@@ -3170,10 +3198,12 @@ public class Editor {
 
             mDrawableLtr = drawableLtr;
             mDrawableRtl = drawableRtl;
+            mMinSize = mTextView.getContext().getResources().getDimensionPixelSize(
+                    com.android.internal.R.dimen.text_handle_min_size);
 
             updateDrawable();
 
-            final int handleHeight = mDrawable.getIntrinsicHeight();
+            final int handleHeight = getPreferredHeight();
             mTouchOffsetY = -0.3f * handleHeight;
             mIdealVerticalOffset = 0.7f * handleHeight;
         }
@@ -3183,9 +3213,11 @@ public class Editor {
             final boolean isRtlCharAtOffset = mTextView.getLayout().isRtlCharAt(offset);
             mDrawable = isRtlCharAtOffset ? mDrawableRtl : mDrawableLtr;
             mHotspotX = getHotspotX(mDrawable, isRtlCharAtOffset);
+            mHorizontalGravity = getHorizontalGravity(isRtlCharAtOffset);
         }
 
         protected abstract int getHotspotX(Drawable drawable, boolean isRtlRun);
+        protected abstract int getHorizontalGravity(boolean isRtlRun);
 
         // Touch-up filter: number of previous positions remembered
         private static final int HISTORY_SIZE = 5;
@@ -3230,7 +3262,15 @@ public class Editor {
 
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            setMeasuredDimension(mDrawable.getIntrinsicWidth(), mDrawable.getIntrinsicHeight());
+            setMeasuredDimension(getPreferredWidth(), getPreferredHeight());
+        }
+
+        private int getPreferredWidth() {
+            return Math.max(mDrawable.getIntrinsicWidth(), mMinSize);
+        }
+
+        private int getPreferredHeight() {
+            return Math.max(mDrawable.getIntrinsicHeight(), mMinSize);
         }
 
         public void show() {
@@ -3322,7 +3362,8 @@ public class Editor {
                 }
                 final int line = layout.getLineForOffset(offset);
 
-                mPositionX = (int) (layout.getPrimaryHorizontal(offset) - 0.5f - mHotspotX);
+                mPositionX = (int) (layout.getPrimaryHorizontal(offset) - 0.5f - mHotspotX -
+                        getHorizontalOffset() + getCursorOffset());
                 mPositionY = layout.getLineBottom(line);
 
                 // Take TextView's padding and scroll into account.
@@ -3371,8 +3412,34 @@ public class Editor {
 
         @Override
         protected void onDraw(Canvas c) {
-            mDrawable.setBounds(0, 0, mRight - mLeft, mBottom - mTop);
+            final int drawWidth = mDrawable.getIntrinsicWidth();
+            final int left = getHorizontalOffset();
+
+            mDrawable.setBounds(left, 0, left + drawWidth, mDrawable.getIntrinsicHeight());
             mDrawable.draw(c);
+        }
+
+        private int getHorizontalOffset() {
+            final int width = getPreferredWidth();
+            final int drawWidth = mDrawable.getIntrinsicWidth();
+            final int left;
+            switch (mHorizontalGravity) {
+                case Gravity.LEFT:
+                    left = 0;
+                    break;
+                default:
+                case Gravity.CENTER:
+                    left = (width - drawWidth) / 2;
+                    break;
+                case Gravity.RIGHT:
+                    left = width - drawWidth;
+                    break;
+            }
+            return left;
+        }
+
+        protected int getCursorOffset() {
+            return 0;
         }
 
         @Override
@@ -3494,6 +3561,22 @@ public class Editor {
         }
 
         @Override
+        protected int getHorizontalGravity(boolean isRtlRun) {
+            return Gravity.CENTER_HORIZONTAL;
+        }
+
+        @Override
+        protected int getCursorOffset() {
+            int offset = super.getCursorOffset();
+            final Drawable cursor = mCursorCount > 0 ? mCursorDrawable[0] : null;
+            if (cursor != null) {
+                cursor.getPadding(mTempRect);
+                offset += (cursor.getIntrinsicWidth() - mTempRect.left - mTempRect.right) / 2;
+            }
+            return offset;
+        }
+
+        @Override
         public boolean onTouchEvent(MotionEvent ev) {
             final boolean result = super.onTouchEvent(ev);
 
@@ -3580,6 +3663,11 @@ public class Editor {
         }
 
         @Override
+        protected int getHorizontalGravity(boolean isRtlRun) {
+            return isRtlRun ? Gravity.RIGHT : Gravity.LEFT;
+        }
+
+        @Override
         public int getCurrentCursorOffset() {
             return mTextView.getSelectionStart();
         }
@@ -3620,6 +3708,11 @@ public class Editor {
             } else {
                 return drawable.getIntrinsicWidth() / 4;
             }
+        }
+
+        @Override
+        protected int getHorizontalGravity(boolean isRtlRun) {
+            return isRtlRun ? Gravity.LEFT : Gravity.RIGHT;
         }
 
         @Override
@@ -4054,7 +4147,6 @@ public class Editor {
 
     static class InputMethodState {
         Rect mCursorRectInWindow = new Rect();
-        RectF mTmpRectF = new RectF();
         float[] mTmpOffset = new float[2];
         ExtractedTextRequest mExtractedTextRequest;
         final ExtractedText mExtractedText = new ExtractedText();

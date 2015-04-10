@@ -20,6 +20,8 @@
 
 #include "StatefulBaseRenderer.h"
 
+#include "utils/MathUtils.h"
+
 namespace android {
 namespace uirenderer {
 
@@ -33,11 +35,12 @@ StatefulBaseRenderer::StatefulBaseRenderer()
 }
 
 void StatefulBaseRenderer::initializeSaveStack(float clipLeft, float clipTop,
-        float clipRight, float clipBottom) {
+        float clipRight, float clipBottom, const Vector3& lightCenter) {
     mSnapshot = new Snapshot(mFirstSnapshot,
             SkCanvas::kMatrix_SaveFlag | SkCanvas::kClip_SaveFlag);
     mSnapshot->setClip(clipLeft, clipTop, clipRight, clipBottom);
     mSnapshot->fbo = getTargetFbo();
+    mSnapshot->setRelativeLightCenter(lightCenter);
     mSaveCount = 1;
 }
 
@@ -46,6 +49,13 @@ void StatefulBaseRenderer::setViewport(int width, int height) {
     mHeight = height;
     mFirstSnapshot->initializeViewport(width, height);
     onViewportInitialized();
+
+    // create a temporary 1st snapshot, so old snapshots are released,
+    // and viewport can be queried safely.
+    // TODO: remove, combine viewport + save stack initialization
+    mSnapshot = new Snapshot(mFirstSnapshot,
+            SkCanvas::kMatrix_SaveFlag | SkCanvas::kClip_SaveFlag);
+    mSaveCount = 1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -98,10 +108,6 @@ void StatefulBaseRenderer::restoreToCount(int saveCount) {
 ///////////////////////////////////////////////////////////////////////////////
 // Matrix
 ///////////////////////////////////////////////////////////////////////////////
-
-void StatefulBaseRenderer::getMatrix(Matrix4* matrix) const {
-    matrix->load(*(mSnapshot->transform));
-}
 
 void StatefulBaseRenderer::getMatrix(SkMatrix* matrix) const {
     mSnapshot->transform->copyTo(*matrix);
@@ -178,6 +184,7 @@ bool StatefulBaseRenderer::clipPath(const SkPath* path, SkRegion::Op op) {
     SkRegion region;
     region.setPath(transformed, clip);
 
+    // region is the transformed input path, masked by the previous clip
     mDirtyClip |= mSnapshot->clipRegionTransformed(region, op);
     return !mSnapshot->clipRect->isEmpty();
 }
@@ -188,8 +195,25 @@ bool StatefulBaseRenderer::clipRegion(const SkRegion* region, SkRegion::Op op) {
 }
 
 void StatefulBaseRenderer::setClippingOutline(LinearAllocator& allocator, const Outline* outline) {
-    mSnapshot->setClippingOutline(allocator, outline);
+    Rect bounds;
+    float radius;
+    if (!outline->getAsRoundRect(&bounds, &radius)) return; // only RR supported
+
+    bool outlineIsRounded = MathUtils::isPositive(radius);
+    if (!outlineIsRounded || currentTransform()->isSimple()) {
+        // TODO: consider storing this rect separately, so that this can't be replaced with clip ops
+        clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom, SkRegion::kIntersect_Op);
+    }
+    if (outlineIsRounded) {
+        setClippingRoundRect(allocator, bounds, radius, false);
+    }
 }
+
+void StatefulBaseRenderer::setClippingRoundRect(LinearAllocator& allocator,
+        const Rect& rect, float radius, bool highPriority) {
+    mSnapshot->setClippingRoundRect(allocator, rect, radius, highPriority);
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // Quick Rejection

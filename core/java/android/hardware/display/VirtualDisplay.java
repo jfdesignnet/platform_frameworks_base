@@ -35,11 +35,11 @@ import android.view.Surface;
 public final class VirtualDisplay {
     private final DisplayManagerGlobal mGlobal;
     private final Display mDisplay;
-    private IVirtualDisplayCallbacks mToken;
+    private IVirtualDisplayCallback mToken;
     private Surface mSurface;
 
     VirtualDisplay(DisplayManagerGlobal global, Display display,
-            IVirtualDisplayCallbacks token, Surface surface) {
+            IVirtualDisplayCallback token, Surface surface) {
         mGlobal = global;
         mDisplay = display;
         mToken = token;
@@ -80,6 +80,18 @@ public final class VirtualDisplay {
     }
 
     /**
+     * Asks the virtual display to resize.
+     *<p>
+     * This is really just a convenience to allow applications using
+     * virtual displays to adapt to changing conditions without having
+     * to tear down and recreate the display.
+     * </p>
+     */
+    public void resize(int width, int height, int densityDpi) {
+        mGlobal.resizeVirtualDisplay(mToken, width, height, densityDpi);
+    }
+
+    /**
      * Releases the virtual display and destroys its underlying surface.
      * <p>
      * All remaining windows on the virtual display will be forcibly removed
@@ -102,20 +114,20 @@ public final class VirtualDisplay {
     /**
      * Interface for receiving information about a {@link VirtualDisplay}'s state changes.
      */
-    public static abstract class Callbacks {
+    public static abstract class Callback {
         /**
          * Called when the virtual display video projection has been
          * paused by the system or when the surface has been detached
          * by the application by calling setSurface(null).
          * The surface will not receive any more buffers while paused.
          */
-         public void onDisplayPaused() { }
+         public void onPaused() { }
 
         /**
          * Called when the virtual display video projection has been
          * resumed after having been paused.
          */
-         public void onDisplayResumed() { }
+         public void onResumed() { }
 
         /**
          * Called when the virtual display video projection has been
@@ -123,6 +135,6 @@ public final class VirtualDisplay {
          * and it will never be resumed.  It is still the responsibility
          * of the application to release() the virtual display.
          */
-        public void onDisplayStopped() { }
+        public void onStopped() { }
     }
 }

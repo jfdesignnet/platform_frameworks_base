@@ -16,9 +16,6 @@
 
 package com.android.server.hdmi;
 
-import android.os.Parcel;
-import android.os.Parcelable;
-
 import libcore.util.EmptyArray;
 
 import java.util.Arrays;
@@ -28,11 +25,8 @@ import java.util.Arrays;
  * HDMI cable to communicate with one another. A message is defined by its
  * source and destination address, command (or opcode), and optional parameters.
  */
-public final class HdmiCecMessage implements Parcelable {
-
+public final class HdmiCecMessage {
     public static final byte[] EMPTY_PARAM = EmptyArray.BYTE;
-
-    private static final int MAX_MESSAGE_LENGTH = 16;
 
     private final int mSource;
     private final int mDestination;
@@ -91,53 +85,6 @@ public final class HdmiCecMessage implements Parcelable {
         return mParams;
     }
 
-    /**
-     * Describe the kinds of special objects contained in this Parcelable's
-     * marshalled representation.
-     */
-    @Override
-    public int describeContents() {
-        return 0;
-    }
-
-    /**
-     * Flatten this object in to a Parcel.
-     *
-     * @param dest The Parcel in which the object should be written.
-     * @param flags Additional flags about how the object should be written.
-     *        May be 0 or {@link Parcelable#PARCELABLE_WRITE_RETURN_VALUE}.
-     */
-    @Override
-    public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mSource);
-        dest.writeInt(mDestination);
-        dest.writeInt(mOpcode);
-        dest.writeInt(mParams.length);
-        dest.writeByteArray(mParams);
-    }
-
-    public static final Parcelable.Creator<HdmiCecMessage> CREATOR
-            = new Parcelable.Creator<HdmiCecMessage>() {
-        /**
-         * Rebuild a HdmiCecMessage previously stored with writeToParcel().
-         * @param p HdmiCecMessage object to read the Rating from
-         * @return a new HdmiCecMessage created from the data in the parcel
-         */
-        @Override
-        public HdmiCecMessage createFromParcel(Parcel p) {
-            int source = p.readInt();
-            int destination = p.readInt();
-            int opcode = p.readInt();
-            byte[] params = new byte[p.readInt()];
-            p.readByteArray(params);
-            return new HdmiCecMessage(source, destination, opcode, params);
-        }
-        @Override
-        public HdmiCecMessage[] newArray(int size) {
-            return new HdmiCecMessage[size];
-        }
-    };
-
     @Override
     public String toString() {
         StringBuffer s = new StringBuffer();
@@ -156,26 +103,146 @@ public final class HdmiCecMessage implements Parcelable {
         switch (opcode) {
             case Constants.MESSAGE_FEATURE_ABORT:
                 return "Feature Abort";
+            case Constants.MESSAGE_IMAGE_VIEW_ON:
+                return "Image View On";
+            case Constants.MESSAGE_TUNER_STEP_INCREMENT:
+                return "Tuner Step Increment";
+            case Constants.MESSAGE_TUNER_STEP_DECREMENT:
+                return "Tuner Step Decrement";
+            case Constants.MESSAGE_TUNER_DEVICE_STATUS:
+                return "Tuner Device Staus";
+            case Constants.MESSAGE_GIVE_TUNER_DEVICE_STATUS:
+                return "Give Tuner Device Status";
+            case Constants.MESSAGE_RECORD_ON:
+                return "Record On";
+            case Constants.MESSAGE_RECORD_STATUS:
+                return "Record Status";
+            case Constants.MESSAGE_RECORD_OFF:
+                return "Record Off";
+            case Constants.MESSAGE_TEXT_VIEW_ON:
+                return "Text View On";
+            case Constants.MESSAGE_RECORD_TV_SCREEN:
+                return "Record Tv Screen";
+            case Constants.MESSAGE_GIVE_DECK_STATUS:
+                return "Give Deck Status";
+            case Constants.MESSAGE_DECK_STATUS:
+                return "Deck Status";
+            case Constants.MESSAGE_SET_MENU_LANGUAGE:
+                return "Set Menu Language";
+            case Constants.MESSAGE_CLEAR_ANALOG_TIMER:
+                return "Clear Analog Timer";
+            case Constants.MESSAGE_SET_ANALOG_TIMER:
+                return "Set Analog Timer";
+            case Constants.MESSAGE_TIMER_STATUS:
+                return "Timer Status";
+            case Constants.MESSAGE_STANDBY:
+                return "Standby";
+            case Constants.MESSAGE_PLAY:
+                return "Play";
+            case Constants.MESSAGE_DECK_CONTROL:
+                return "Deck Control";
+            case Constants.MESSAGE_TIMER_CLEARED_STATUS:
+                return "Timer Cleared Status";
+            case Constants.MESSAGE_USER_CONTROL_PRESSED:
+                return "User Control Pressed";
+            case Constants.MESSAGE_USER_CONTROL_RELEASED:
+                return "User Control Release";
+            case Constants.MESSAGE_GIVE_OSD_NAME:
+                return "Give Osd Name";
+            case Constants.MESSAGE_SET_OSD_NAME:
+                return "Set Osd Name";
+            case Constants.MESSAGE_SET_OSD_STRING:
+                return "Set Osd String";
+            case Constants.MESSAGE_SET_TIMER_PROGRAM_TITLE:
+                return "Set Timer Program Title";
+            case Constants.MESSAGE_SYSTEM_AUDIO_MODE_REQUEST:
+                return "System Audio Mode Request";
+            case Constants.MESSAGE_GIVE_AUDIO_STATUS:
+                return "Give Audio Status";
+            case Constants.MESSAGE_SET_SYSTEM_AUDIO_MODE:
+                return "Set System Audio Mode";
+            case Constants.MESSAGE_REPORT_AUDIO_STATUS:
+                return "Report Audio Status";
+            case Constants.MESSAGE_GIVE_SYSTEM_AUDIO_MODE_STATUS:
+                return "Give System Audio Mode Status";
+            case Constants.MESSAGE_SYSTEM_AUDIO_MODE_STATUS:
+                return "System Audio Mode Status";
+            case Constants.MESSAGE_ROUTING_CHANGE:
+                return "Routing Change";
+            case Constants.MESSAGE_ROUTING_INFORMATION:
+                return "Routing Information";
+            case Constants.MESSAGE_ACTIVE_SOURCE:
+                return "Active Source";
+            case Constants.MESSAGE_GIVE_PHYSICAL_ADDRESS:
+                return "Give Physical Address";
+            case Constants.MESSAGE_REPORT_PHYSICAL_ADDRESS:
+                return "Report Physical Address";
+            case Constants.MESSAGE_REQUEST_ACTIVE_SOURCE:
+                return "Request Active Source";
+            case Constants.MESSAGE_SET_STREAM_PATH:
+                return "Set Stream Path";
+            case Constants.MESSAGE_DEVICE_VENDOR_ID:
+                return "Device Vendor Id";
+            case Constants.MESSAGE_VENDOR_COMMAND:
+                return "Vendor Commandn";
+            case Constants.MESSAGE_VENDOR_REMOTE_BUTTON_DOWN:
+                return "Vendor Remote Button Down";
+            case Constants.MESSAGE_VENDOR_REMOTE_BUTTON_UP:
+                return "Vendor Remote Button Up";
+            case Constants.MESSAGE_GIVE_DEVICE_VENDOR_ID:
+                return "Give Device Vendor Id";
+            case Constants.MESSAGE_MENU_REQUEST:
+                return "Menu REquest";
+            case Constants.MESSAGE_MENU_STATUS:
+                return "Menu Status";
+            case Constants.MESSAGE_GIVE_DEVICE_POWER_STATUS:
+                return "Give Device Power Status";
+            case Constants.MESSAGE_REPORT_POWER_STATUS:
+                return "Report Power Status";
+            case Constants.MESSAGE_GET_MENU_LANGUAGE:
+                return "Get Menu Language";
+            case Constants.MESSAGE_SELECT_ANALOG_SERVICE:
+                return "Select Analog Service";
+            case Constants.MESSAGE_SELECT_DIGITAL_SERVICE:
+                return "Select Digital Service";
+            case Constants.MESSAGE_SET_DIGITAL_TIMER:
+                return "Set Digital Timer";
+            case Constants.MESSAGE_CLEAR_DIGITAL_TIMER:
+                return "Clear Digital Timer";
+            case Constants.MESSAGE_SET_AUDIO_RATE:
+                return "Set Audio Rate";
+            case Constants.MESSAGE_INACTIVE_SOURCE:
+                return "InActive Source";
             case Constants.MESSAGE_CEC_VERSION:
-                return "CEC Version";
-            case Constants.MESSAGE_REQUEST_ARC_INITIATION:
-                return "Request ARC Initiation";
-            case Constants.MESSAGE_REQUEST_ARC_TERMINATION:
-                return "Request ARC Termination";
+                return "Cec Version";
+            case Constants.MESSAGE_GET_CEC_VERSION:
+                return "Get Cec Version";
+            case Constants.MESSAGE_VENDOR_COMMAND_WITH_ID:
+                return "Vendor Command With Id";
+            case Constants.MESSAGE_CLEAR_EXTERNAL_TIMER:
+                return "Clear External Timer";
+            case Constants.MESSAGE_SET_EXTERNAL_TIMER:
+                return "Set External Timer";
+            case Constants.MESSAGE_REPORT_SHORT_AUDIO_DESCRIPTOR:
+                return "Repot Short Audio Descriptor";
+            case Constants.MESSAGE_REQUEST_SHORT_AUDIO_DESCRIPTOR:
+                return "Request Short Audio Descriptor";
+            case Constants.MESSAGE_INITIATE_ARC:
+                return "Initiate ARC";
             case Constants.MESSAGE_REPORT_ARC_INITIATED:
                 return "Report ARC Initiated";
             case Constants.MESSAGE_REPORT_ARC_TERMINATED:
                 return "Report ARC Terminated";
-            case Constants.MESSAGE_TEXT_VIEW_ON:
-                return "Text View On";
-            case Constants.MESSAGE_ACTIVE_SOURCE:
-                return "Active Source";
-            case Constants.MESSAGE_GIVE_DEVICE_POWER_STATUS:
-                return "Give Device Power Status";
-            case Constants.MESSAGE_VENDOR_COMMAND:
-                return "Vendor Command";
-            case Constants.MESSAGE_VENDOR_COMMAND_WITH_ID:
-                return "Vendor Command With ID";
+            case Constants.MESSAGE_REQUEST_ARC_INITIATION:
+                return "Request ARC Initiation";
+            case Constants.MESSAGE_REQUEST_ARC_TERMINATION:
+                return "Request ARC Termination";
+            case Constants.MESSAGE_TERMINATE_ARC:
+                return "Terminate ARC";
+            case Constants.MESSAGE_CDC_MESSAGE:
+                return "Cdc Message";
+            case Constants.MESSAGE_ABORT:
+                return "Abort";
             default:
                 return String.format("Opcode: %02X", opcode);
         }

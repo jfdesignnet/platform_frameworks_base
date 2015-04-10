@@ -263,7 +263,7 @@ static bool throwExceptionAsNecessary(
 
     String8 vendorMessage;
     if (err >= ERROR_DRM_VENDOR_MIN && err <= ERROR_DRM_VENDOR_MAX) {
-        vendorMessage.format("DRM vendor-defined error: %d", err);
+        vendorMessage = String8::format("DRM vendor-defined error: %d", err);
         drmMessage = vendorMessage.string();
     }
 
@@ -285,7 +285,7 @@ static bool throwExceptionAsNecessary(
             if (msg == NULL) {
                 msg = drmMessage;
             } else {
-                errbuf.format("%s: %s", msg, drmMessage);
+                errbuf = String8::format("%s: %s", msg, drmMessage);
                 msg = errbuf.string();
             }
         }
@@ -966,6 +966,22 @@ static jobject android_media_MediaDrm_provideProvisionResponseNative(
     return certificateObj;
 }
 
+static void android_media_MediaDrm_unprovisionDeviceNative(
+    JNIEnv *env, jobject thiz) {
+    sp<IDrm> drm = GetDrm(env, thiz);
+
+    if (drm == NULL) {
+        jniThrowException(env, "java/lang/IllegalStateException",
+                          "MediaDrm obj is null");
+        return;
+    }
+
+    status_t err = drm->unprovisionDevice();
+
+    throwExceptionAsNecessary(env, err, "Failed to handle provision response");
+    return;
+}
+
 static jobject android_media_MediaDrm_getSecureStops(
     JNIEnv *env, jobject thiz) {
     sp<IDrm> drm = GetDrm(env, thiz);
@@ -987,6 +1003,27 @@ static jobject android_media_MediaDrm_getSecureStops(
     return ListOfVectorsToArrayListOfByteArray(env, secureStops);
 }
 
+static jbyteArray android_media_MediaDrm_getSecureStop(
+    JNIEnv *env, jobject thiz, jbyteArray ssid) {
+    sp<IDrm> drm = GetDrm(env, thiz);
+
+    if (drm == NULL) {
+        jniThrowException(env, "java/lang/IllegalStateException",
+                          "MediaDrm obj is null");
+        return NULL;
+    }
+
+    Vector<uint8_t> secureStop;
+
+    status_t err = drm->getSecureStop(JByteArrayToVector(env, ssid), secureStop);
+
+    if (throwExceptionAsNecessary(env, err, "Failed to get secure stop")) {
+        return NULL;
+    }
+
+    return VectorToJByteArray(env, secureStop);
+}
+
 static void android_media_MediaDrm_releaseSecureStops(
     JNIEnv *env, jobject thiz, jbyteArray jssRelease) {
     sp<IDrm> drm = GetDrm(env, thiz);
@@ -1002,6 +1039,21 @@ static void android_media_MediaDrm_releaseSecureStops(
     status_t err = drm->releaseSecureStops(ssRelease);
 
     throwExceptionAsNecessary(env, err, "Failed to release secure stops");
+}
+
+static void android_media_MediaDrm_releaseAllSecureStops(
+    JNIEnv *env, jobject thiz) {
+    sp<IDrm> drm = GetDrm(env, thiz);
+
+    if (drm == NULL) {
+        jniThrowException(env, "java/lang/IllegalStateException",
+                          "MediaDrm obj is null");
+        return;
+    }
+
+    status_t err = drm->releaseAllSecureStops();
+
+    throwExceptionAsNecessary(env, err, "Failed to release all secure stops");
 }
 
 static jstring android_media_MediaDrm_getPropertyString(
@@ -1362,11 +1414,20 @@ static JNINativeMethod gMethods[] = {
     { "provideProvisionResponseNative", "([B)Landroid/media/MediaDrm$Certificate;",
       (void *)android_media_MediaDrm_provideProvisionResponseNative },
 
+    { "unprovisionDevice", "()V",
+      (void *)android_media_MediaDrm_unprovisionDeviceNative },
+
     { "getSecureStops", "()Ljava/util/List;",
       (void *)android_media_MediaDrm_getSecureStops },
 
+    { "getSecureStop", "([B)[B",
+      (void *)android_media_MediaDrm_getSecureStop },
+
     { "releaseSecureStops", "([B)V",
       (void *)android_media_MediaDrm_releaseSecureStops },
+
+    { "releaseAllSecureStops", "()V",
+      (void *)android_media_MediaDrm_releaseAllSecureStops },
 
     { "getPropertyString", "(Ljava/lang/String;)Ljava/lang/String;",
       (void *)android_media_MediaDrm_getPropertyString },
@@ -1408,4 +1469,3 @@ int register_android_media_Drm(JNIEnv *env) {
     return AndroidRuntime::registerNativeMethods(env,
                 "android/media/MediaDrm", gMethods, NELEM(gMethods));
 }
-

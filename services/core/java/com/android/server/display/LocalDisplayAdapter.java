@@ -21,6 +21,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemProperties;
+import android.os.Trace;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.view.Display;
@@ -29,6 +30,7 @@ import android.view.Surface;
 import android.view.SurfaceControl;
 
 import java.io.PrintWriter;
+import java.util.Arrays;
 
 /**
  * A display adapter for the local displays managed by Surface Flinger.
@@ -38,6 +40,8 @@ import java.io.PrintWriter;
  */
 final class LocalDisplayAdapter extends DisplayAdapter {
     private static final String TAG = "LocalDisplayAdapter";
+
+    private static final String UNIQUE_ID_PREFIX = "local:";
 
     private static final int[] BUILT_IN_DISPLAY_IDS_TO_SCAN = new int[] {
             SurfaceControl.BUILT_IN_DISPLAY_ID_MAIN,
@@ -88,10 +92,10 @@ final class LocalDisplayAdapter extends DisplayAdapter {
             if (device == null) {
                 // Display was added.
                 device = new LocalDisplayDevice(displayToken, builtInDisplayId,
-                        configs[activeConfig]);
+                        configs, activeConfig);
                 mDevices.put(builtInDisplayId, device);
                 sendDisplayDeviceEventLocked(device, DISPLAY_DEVICE_EVENT_ADDED);
-            } else if (device.updatePhysicalDisplayInfoLocked(configs[activeConfig])) {
+            } else if (device.updatePhysicalDisplayInfoLocked(configs, activeConfig)) {
                 // Display properties changed.
                 sendDisplayDeviceEventLocked(device, DISPLAY_DEVICE_EVENT_CHANGED);
             }
@@ -127,21 +131,31 @@ final class LocalDisplayAdapter extends DisplayAdapter {
     private final class LocalDisplayDevice extends DisplayDevice {
         private final int mBuiltInDisplayId;
         private final SurfaceControl.PhysicalDisplayInfo mPhys;
+        private final int mDefaultPhysicalDisplayInfo;
 
         private DisplayDeviceInfo mInfo;
         private boolean mHavePendingChanges;
         private int mState = Display.STATE_UNKNOWN;
+        private float[] mSupportedRefreshRates;
+        private int[] mRefreshRateConfigIndices;
+        private float mLastRequestedRefreshRate;
 
         public LocalDisplayDevice(IBinder displayToken, int builtInDisplayId,
-                SurfaceControl.PhysicalDisplayInfo phys) {
-            super(LocalDisplayAdapter.this, displayToken);
+                SurfaceControl.PhysicalDisplayInfo[] physicalDisplayInfos, int activeDisplayInfo) {
+            super(LocalDisplayAdapter.this, displayToken, UNIQUE_ID_PREFIX + builtInDisplayId);
             mBuiltInDisplayId = builtInDisplayId;
-            mPhys = new SurfaceControl.PhysicalDisplayInfo(phys);
+            mPhys = new SurfaceControl.PhysicalDisplayInfo(
+                    physicalDisplayInfos[activeDisplayInfo]);
+            mDefaultPhysicalDisplayInfo = activeDisplayInfo;
+            updateSupportedRefreshRatesLocked(physicalDisplayInfos, mPhys);
         }
 
-        public boolean updatePhysicalDisplayInfoLocked(SurfaceControl.PhysicalDisplayInfo phys) {
-            if (!mPhys.equals(phys)) {
-                mPhys.copyFrom(phys);
+        public boolean updatePhysicalDisplayInfoLocked(
+                SurfaceControl.PhysicalDisplayInfo[] physicalDisplayInfos, int activeDisplayInfo) {
+            SurfaceControl.PhysicalDisplayInfo newPhys = physicalDisplayInfos[activeDisplayInfo];
+            if (!mPhys.equals(newPhys)) {
+                mPhys.copyFrom(newPhys);
+                updateSupportedRefreshRatesLocked(physicalDisplayInfos, mPhys);
                 mHavePendingChanges = true;
                 return true;
             }
@@ -163,9 +177,11 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                 mInfo.width = mPhys.width;
                 mInfo.height = mPhys.height;
                 mInfo.refreshRate = mPhys.refreshRate;
+                mInfo.supportedRefreshRates = mSupportedRefreshRates;
                 mInfo.appVsyncOffsetNanos = mPhys.appVsyncOffsetNanos;
                 mInfo.presentationDeadlineNanos = mPhys.presentationDeadlineNanos;
                 mInfo.state = mState;
+                mInfo.uniqueId = getUniqueId();
 
                 // Assume that all built-in displays that have secure output (eg. HDCP) also
                 // support compositing from gralloc protected buffers.
@@ -209,13 +225,51 @@ final class LocalDisplayAdapter extends DisplayAdapter {
         }
 
         @Override
-        public void requestDisplayStateLocked(int state) {
+        public Runnable requestDisplayStateLocked(final int state) {
             if (mState != state) {
-                SurfaceControl.setDisplayPowerMode(getDisplayTokenLocked(),
-                        getPowerModeForState(state));
+                final int displayId = mBuiltInDisplayId;
+                final IBinder token = getDisplayTokenLocked();
+                final int mode = getPowerModeForState(state);
                 mState = state;
                 updateDeviceInfoLocked();
+
+                // Defer actually setting the display power mode until we have exited
+                // the critical section since it can take hundreds of milliseconds
+                // to complete.
+                return new Runnable() {
+                    @Override
+                    public void run() {
+                        Trace.traceBegin(Trace.TRACE_TAG_POWER, "requestDisplayState("
+                                + Display.stateToString(state) + ", id=" + displayId + ")");
+                        try {
+                            SurfaceControl.setDisplayPowerMode(token, mode);
+                        } finally {
+                            Trace.traceEnd(Trace.TRACE_TAG_POWER);
+                        }
+                    }
+                };
             }
+            return null;
+        }
+
+        @Override
+        public void requestRefreshRateLocked(float refreshRate) {
+            if (mLastRequestedRefreshRate == refreshRate) {
+                return;
+            }
+            mLastRequestedRefreshRate = refreshRate;
+            if (refreshRate != 0) {
+                final int N = mSupportedRefreshRates.length;
+                for (int i = 0; i < N; i++) {
+                    if (refreshRate == mSupportedRefreshRates[i]) {
+                        final int configIndex = mRefreshRateConfigIndices[i];
+                        SurfaceControl.setActiveConfig(getDisplayTokenLocked(), configIndex);
+                        return;
+                    }
+                }
+                Slog.w(TAG, "Requested refresh rate " + refreshRate + " is unsupported.");
+            }
+            SurfaceControl.setActiveConfig(getDisplayTokenLocked(), mDefaultPhysicalDisplayInfo);
         }
 
         @Override
@@ -229,6 +283,30 @@ final class LocalDisplayAdapter extends DisplayAdapter {
         private void updateDeviceInfoLocked() {
             mInfo = null;
             sendDisplayDeviceEventLocked(this, DISPLAY_DEVICE_EVENT_CHANGED);
+        }
+
+        private void updateSupportedRefreshRatesLocked(
+                SurfaceControl.PhysicalDisplayInfo[] physicalDisplayInfos,
+                SurfaceControl.PhysicalDisplayInfo activePhys) {
+            final int N = physicalDisplayInfos.length;
+            int idx = 0;
+            mSupportedRefreshRates = new float[N];
+            mRefreshRateConfigIndices = new int[N];
+            for (int i = 0; i < N; i++) {
+                final SurfaceControl.PhysicalDisplayInfo phys = physicalDisplayInfos[i];
+                if (activePhys.width == phys.width
+                        && activePhys.height == phys.height
+                        && activePhys.density == phys.density
+                        && activePhys.xDpi == phys.xDpi
+                        && activePhys.yDpi == phys.yDpi) {
+                    mSupportedRefreshRates[idx] = phys.refreshRate;
+                    mRefreshRateConfigIndices[idx++] = i;
+                }
+            }
+            if (idx != N) {
+                mSupportedRefreshRates = Arrays.copyOfRange(mSupportedRefreshRates, 0, idx);
+                mRefreshRateConfigIndices = Arrays.copyOfRange(mRefreshRateConfigIndices, 0, idx);
+            }
         }
     }
 

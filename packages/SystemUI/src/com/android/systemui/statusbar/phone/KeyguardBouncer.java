@@ -17,14 +17,12 @@
 package com.android.systemui.statusbar.phone;
 
 import android.content.Context;
-import android.os.SystemClock;
+import android.view.Choreographer;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.AnimationUtils;
-import android.view.animation.Interpolator;
-import android.view.animation.LinearInterpolator;
+import android.view.accessibility.AccessibilityEvent;
 
 import com.android.internal.widget.LockPatternUtils;
 import com.android.keyguard.KeyguardViewBase;
@@ -33,7 +31,7 @@ import com.android.keyguard.ViewMediatorCallback;
 import com.android.systemui.keyguard.KeyguardViewMediator;
 
 import static com.android.keyguard.KeyguardHostView.OnDismissAction;
-import static com.android.keyguard.KeyguardSecurityModel.*;
+import static com.android.keyguard.KeyguardSecurityModel.SecurityMode;
 
 /**
  * A class which manages the bouncer on the lockscreen.
@@ -47,8 +45,8 @@ public class KeyguardBouncer {
     private StatusBarWindowManager mWindowManager;
     private KeyguardViewBase mKeyguardView;
     private ViewGroup mRoot;
-    private Interpolator mFadeOutInterpolator = new LinearInterpolator();
-    private boolean mFadingOut;
+    private boolean mShowingSoon;
+    private Choreographer mChoreographer = Choreographer.getInstance();
 
     public KeyguardBouncer(Context context, ViewMediatorCallback callback,
             LockPatternUtils lockPatternUtils, StatusBarWindowManager windowManager,
@@ -60,29 +58,54 @@ public class KeyguardBouncer {
         mWindowManager = windowManager;
     }
 
-    public void show() {
+    public void show(boolean resetSecuritySelection) {
         ensureView();
-        if (mRoot.getVisibility() == View.VISIBLE) {
+        if (resetSecuritySelection) {
+            // showPrimarySecurityScreen() updates the current security method. This is needed in
+            // case we are already showing and the current security method changed.
+            mKeyguardView.showPrimarySecurityScreen();
+        }
+        if (mRoot.getVisibility() == View.VISIBLE || mShowingSoon) {
             return;
         }
 
         // Try to dismiss the Keyguard. If no security pattern is set, this will dismiss the whole
         // Keyguard. If we need to authenticate, show the bouncer.
         if (!mKeyguardView.dismiss()) {
+            mShowingSoon = true;
+
+            // Split up the work over multiple frames.
+            mChoreographer.postCallbackDelayed(Choreographer.CALLBACK_ANIMATION, mShowRunnable,
+                    null, 16);
+        }
+    }
+
+    private final Runnable mShowRunnable = new Runnable() {
+        @Override
+        public void run() {
             mRoot.setVisibility(View.VISIBLE);
             mKeyguardView.onResume();
             mKeyguardView.startAppearAnimation();
+            mShowingSoon = false;
+            mKeyguardView.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
         }
+    };
+
+    private void cancelShowRunnable() {
+        mChoreographer.removeCallbacks(Choreographer.CALLBACK_ANIMATION, mShowRunnable, null);
+        mShowingSoon = false;
     }
 
     public void showWithDismissAction(OnDismissAction r) {
         ensureView();
         mKeyguardView.setOnDismissAction(r);
-        show();
+        show(false /* resetSecuritySelection */);
     }
 
     public void hide(boolean destroyView) {
-        if (mKeyguardView != null) {
+        cancelShowRunnable();
+         if (mKeyguardView != null) {
+            mKeyguardView.setOnDismissAction(null);
             mKeyguardView.cleanUp();
         }
         if (destroyView) {
@@ -92,26 +115,14 @@ public class KeyguardBouncer {
         }
     }
 
-    public void animateHide(long delay, long duration) {
-        if (isShowing()) {
-            mFadingOut = true;
-            mKeyguardView.animate()
-                    .alpha(0)
-                    .withLayer()
-
-                    // Make it disappear faster, as the focus should be on the activity behind.
-                    .setDuration(duration / 2)
-                    .setInterpolator(mFadeOutInterpolator)
-                    .setStartDelay(delay)
-                    .withEndAction(new Runnable() {
-                        @Override
-                        public void run() {
-                            mFadingOut = false;
-                            hide(true /* destroyView */);
-                        }
-                    });
-        } else {
-            hide(true /* destroyView */);
+    /**
+     * See {@link StatusBarKeyguardViewManager#startPreHideAnimation}.
+     */
+    public void startPreHideAnimation(Runnable runnable) {
+        if (mKeyguardView != null) {
+            mKeyguardView.startDisappearAnimation(runnable);
+        } else if (runnable != null) {
+            runnable.run();
         }
     }
 
@@ -119,6 +130,7 @@ public class KeyguardBouncer {
      * Reset the state of the view.
      */
     public void reset() {
+        cancelShowRunnable();
         inflateView();
     }
 
@@ -139,11 +151,15 @@ public class KeyguardBouncer {
     }
 
     public boolean isShowing() {
-        return mRoot != null && mRoot.getVisibility() == View.VISIBLE && !mFadingOut;
+        return mShowingSoon || (mRoot != null && mRoot.getVisibility() == View.VISIBLE);
     }
 
     public void prepare() {
+        boolean wasInitialized = mRoot != null;
         ensureView();
+        if (wasInitialized) {
+            mKeyguardView.showPrimarySecurityScreen();
+        }
     }
 
     private void ensureView() {
@@ -175,18 +191,32 @@ public class KeyguardBouncer {
     }
 
     /**
-     * @return True if and only if the current security method should be shown before showing
-     *         the notifications on Keyguard, like SIM PIN/PUK.
+     * @return True if and only if the security method should be shown before showing the
+     * notifications on Keyguard, like SIM PIN/PUK.
      */
     public boolean needsFullscreenBouncer() {
         if (mKeyguardView != null) {
             SecurityMode mode = mKeyguardView.getSecurityMode();
-            return mode == SecurityMode.SimPin
-                    || mode == SecurityMode.SimPuk;
+            return mode == SecurityMode.SimPin || mode == SecurityMode.SimPuk;
         }
         return false;
     }
 
+    /**
+     * Like {@link #needsFullscreenBouncer}, but uses the currently visible security method, which
+     * makes this method much faster.
+     */
+    public boolean isFullscreenBouncer() {
+        if (mKeyguardView != null) {
+            SecurityMode mode = mKeyguardView.getCurrentSecurityMode();
+            return mode == SecurityMode.SimPin || mode == SecurityMode.SimPuk;
+        }
+        return false;
+    }
+
+    /**
+     * WARNING: This method might cause Binder calls.
+     */
     public boolean isSecure() {
         return mKeyguardView == null || mKeyguardView.getSecurityMode() != SecurityMode.None;
     }

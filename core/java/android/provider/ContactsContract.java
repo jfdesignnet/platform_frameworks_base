@@ -36,7 +36,6 @@ import android.database.Cursor;
 import android.database.DatabaseUtils;
 import android.graphics.Rect;
 import android.net.Uri;
-import android.net.Uri.Builder;
 import android.os.RemoteException;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
@@ -1112,54 +1111,53 @@ public final class ContactsContract {
         public static final String SORT_KEY_ALTERNATIVE = "sort_key_alt";
     }
 
-    /**
-     * URI parameter and cursor extras that return counts of rows grouped by the
-     * address book index, which is usually the first letter of the sort key.
-     * When this parameter is supplied, the row counts are returned in the
-     * cursor extras bundle.
-     */
-    public final static class ContactCounts {
+    interface ContactCounts {
 
         /**
-         * Add this query parameter to a URI to get back row counts grouped by
-         * the address book index as cursor extras. For most languages it is the
-         * first letter of the sort key. This parameter does not affect the main
-         * content of the cursor.
+         * Add this query parameter to a URI to get back row counts grouped by the address book
+         * index as cursor extras. For most languages it is the first letter of the sort key. This
+         * parameter does not affect the main content of the cursor.
          *
          * <p>
          * <pre>
          * Example:
+         *
+         * import android.provider.ContactsContract.Contacts;
+         *
          * Uri uri = Contacts.CONTENT_URI.buildUpon()
-         *          .appendQueryParameter(ContactCounts.ADDRESS_BOOK_INDEX_EXTRAS, "true")
+         *          .appendQueryParameter(Contacts.EXTRA_ADDRESS_BOOK_INDEX, "true")
          *          .build();
          * Cursor cursor = getContentResolver().query(uri,
          *          new String[] {Contacts.DISPLAY_NAME},
          *          null, null, null);
          * Bundle bundle = cursor.getExtras();
-         * if (bundle.containsKey(ContactCounts.EXTRA_ADDRESS_BOOK_INDEX_TITLES) &&
-         *         bundle.containsKey(ContactCounts.EXTRA_ADDRESS_BOOK_INDEX_COUNTS)) {
+         * if (bundle.containsKey(Contacts.EXTRA_ADDRESS_BOOK_INDEX_TITLES) &&
+         *         bundle.containsKey(Contacts.EXTRA_ADDRESS_BOOK_INDEX_COUNTS)) {
          *     String sections[] =
-         *             bundle.getStringArray(ContactCounts.EXTRA_ADDRESS_BOOK_INDEX_TITLES);
-         *     int counts[] = bundle.getIntArray(ContactCounts.EXTRA_ADDRESS_BOOK_INDEX_COUNTS);
+         *             bundle.getStringArray(Contacts.EXTRA_ADDRESS_BOOK_INDEX_TITLES);
+         *     int counts[] = bundle.getIntArray(Contacts.EXTRA_ADDRESS_BOOK_INDEX_COUNTS);
          * }
          * </pre>
          * </p>
          */
-        public static final String ADDRESS_BOOK_INDEX_EXTRAS = "address_book_index_extras";
+        public static final String EXTRA_ADDRESS_BOOK_INDEX =
+                "android.provider.extra.ADDRESS_BOOK_INDEX";
 
         /**
          * The array of address book index titles, which are returned in the
          * same order as the data in the cursor.
          * <p>TYPE: String[]</p>
          */
-        public static final String EXTRA_ADDRESS_BOOK_INDEX_TITLES = "address_book_index_titles";
+        public static final String EXTRA_ADDRESS_BOOK_INDEX_TITLES =
+                "android.provider.extra.ADDRESS_BOOK_INDEX_TITLES";
 
         /**
          * The array of group counts for the corresponding group.  Contains the same number
          * of elements as the EXTRA_ADDRESS_BOOK_INDEX_TITLES array.
          * <p>TYPE: int[]</p>
          */
-        public static final String EXTRA_ADDRESS_BOOK_INDEX_COUNTS = "address_book_index_counts";
+        public static final String EXTRA_ADDRESS_BOOK_INDEX_COUNTS =
+                "android.provider.extra.ADDRESS_BOOK_INDEX_COUNTS";
     }
 
     /**
@@ -1375,7 +1373,7 @@ public final class ContactsContract {
      * </table>
      */
     public static class Contacts implements BaseColumns, ContactsColumns,
-            ContactOptionsColumns, ContactNameColumns, ContactStatusColumns {
+            ContactOptionsColumns, ContactNameColumns, ContactStatusColumns, ContactCounts {
         /**
          * This utility class cannot be instantiated
          */
@@ -1626,15 +1624,15 @@ public final class ContactsContract {
          *
          * @hide
          */
-        public static long CORP_CONTACT_ID_BASE = 1000000000; // slightly smaller than 2 ** 30
+        public static long ENTERPRISE_CONTACT_ID_BASE = 1000000000; // slightly smaller than 2 ** 30
 
         /**
-         * Return TRUE if a contact ID is from the contacts provider on the corp profile.
+         * Return TRUE if a contact ID is from the contacts provider on the enterprise profile.
          *
          * {@link PhoneLookup#ENTERPRISE_CONTENT_FILTER_URI} may return such a contact.
          */
-        public static boolean isCorpContactId(long contactId) {
-            return (contactId >= CORP_CONTACT_ID_BASE) && (contactId < Profile.MIN_ID);
+        public static boolean isEnterpriseContactId(long contactId) {
+            return (contactId >= ENTERPRISE_CONTACT_ID_BASE) && (contactId < Profile.MIN_ID);
         }
 
         /**
@@ -2233,6 +2231,11 @@ public final class ContactsContract {
          * type.  For applications that need to be aware of the data set, this can
          * be used instead of account type to distinguish sets of data.  This is
          * never intended to be used for specifying accounts.
+         * <p>
+         * This column does *not* escape forward slashes in the account type or the data set.
+         * If this is an issue, consider using
+         * {@link ContactsContract.RawContacts#ACCOUNT_TYPE} and
+         * {@link ContactsContract.RawContacts#DATA_SET} directly.
          */
         public static final String ACCOUNT_TYPE_AND_DATA_SET = "account_type_and_data_set";
 
@@ -2276,6 +2279,8 @@ public final class ContactsContract {
          * The default value is "0"
          * </p>
          * <p>Type: INTEGER</p>
+         *
+         * @hide
          */
         public static final String NAME_VERIFIED = "name_verified";
 
@@ -4610,7 +4615,7 @@ public final class ContactsContract {
      * </tr>
      * </table>
      */
-    public final static class Data implements DataColumnsWithJoins {
+    public final static class Data implements DataColumnsWithJoins, ContactCounts {
         /**
          * This utility class cannot be instantiated
          */
@@ -5027,7 +5032,8 @@ public final class ContactsContract {
          *     </li>
          *     <li>
          *     Corp contacts will get artificial {@link #_ID}s.  In order to tell whether a contact
-         *     is from the corp profile, use {@link ContactsContract.Contacts#isCorpContactId(long)}.
+         *     is from the corp profile, use
+         *     {@link ContactsContract.Contacts#isEnterpriseContactId(long)}.
          *     </li>
          * </ul>
          * <p>
@@ -5518,7 +5524,7 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class StructuredName implements DataColumnsWithJoins {
+        public static final class StructuredName implements DataColumnsWithJoins, ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -5663,7 +5669,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Nickname implements DataColumnsWithJoins, CommonColumns {
+        public static final class Nickname implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts{
             /**
              * This utility class cannot be instantiated
              */
@@ -5747,7 +5754,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Phone implements DataColumnsWithJoins, CommonColumns {
+        public static final class Phone implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -5939,7 +5947,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Email implements DataColumnsWithJoins, CommonColumns {
+        public static final class Email implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6131,7 +6140,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class StructuredPostal implements DataColumnsWithJoins, CommonColumns {
+        public static final class StructuredPostal implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6325,7 +6335,7 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Im implements DataColumnsWithJoins, CommonColumns {
+        public static final class Im implements DataColumnsWithJoins, CommonColumns, ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6509,7 +6519,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Organization implements DataColumnsWithJoins, CommonColumns {
+        public static final class Organization implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6652,7 +6663,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Relation implements DataColumnsWithJoins, CommonColumns {
+        public static final class Relation implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6767,7 +6779,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Event implements DataColumnsWithJoins, CommonColumns {
+        public static final class Event implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6855,7 +6868,7 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Photo implements DataColumnsWithJoins {
+        public static final class Photo implements DataColumnsWithJoins, ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6903,7 +6916,7 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Note implements DataColumnsWithJoins {
+        public static final class Note implements DataColumnsWithJoins, ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -6958,7 +6971,7 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class GroupMembership implements DataColumnsWithJoins {
+        public static final class GroupMembership implements DataColumnsWithJoins, ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -7030,7 +7043,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class Website implements DataColumnsWithJoins, CommonColumns {
+        public static final class Website implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -7097,7 +7111,8 @@ public final class ContactsContract {
          * </tr>
          * </table>
          */
-        public static final class SipAddress implements DataColumnsWithJoins, CommonColumns {
+        public static final class SipAddress implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -7155,7 +7170,7 @@ public final class ContactsContract {
          * to the same person.
          * </p>
          */
-        public static final class Identity implements DataColumnsWithJoins {
+        public static final class Identity implements DataColumnsWithJoins, ContactCounts {
             /**
              * This utility class cannot be instantiated
              */
@@ -7193,7 +7208,8 @@ public final class ContactsContract {
          * {@link SipAddress}'s.
          * </p>
          */
-        public static final class Callable implements DataColumnsWithJoins, CommonColumns {
+        public static final class Callable implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * Similar to {@link Phone#CONTENT_URI}, but returns callable data instead of only
              * phone numbers.
@@ -7217,7 +7233,8 @@ public final class ContactsContract {
          * can use to initiate communications with another contact. {@link Phone} and {@link Email}
          * are the current data types in this category.
          */
-        public static final class Contactables implements DataColumnsWithJoins, CommonColumns {
+        public static final class Contactables implements DataColumnsWithJoins, CommonColumns,
+                ContactCounts {
             /**
              * The content:// style URI for these data items, which requests a directory of data
              * rows matching the selection criteria.
@@ -8039,25 +8056,42 @@ public final class ContactsContract {
      */
     public static final class PinnedPositions {
         /**
-         * <p>
          * The method to invoke in order to undemote a formerly demoted contact. The contact id of
          * the contact must be provided as an argument. If the contact was not previously demoted,
          * nothing will be done.
-         * </p>
-         *
-         * <p>
-         * Example:
-         * <pre>
-         * final long contactId = 10;
-         * resolver.call(ContactsContract.AUTHORITY_URI, PinnedPositions.UNDEMOTE_METHOD,
-         *         String.valueOf(contactId), null);
-         * </pre>
-         * </p>
+         * @hide
          */
         public static final String UNDEMOTE_METHOD = "undemote";
 
         /**
-         * Default value for the pinned position of an unpinned contact. Also equal to 0.
+         * Undemotes a formerly demoted contact. If the contact was not previously demoted, nothing
+         * will be done.
+         *
+         * @param contentResolver to perform the undemote operation on.
+         * @param contactId the id of the contact to undemote.
+         */
+        public static void undemote(ContentResolver contentResolver, long contactId) {
+            contentResolver.call(ContactsContract.AUTHORITY_URI, PinnedPositions.UNDEMOTE_METHOD,
+                    String.valueOf(contactId), null);
+        }
+
+        /**
+         * Pins a contact at a provided position, or unpins a contact.
+         *
+         * @param contentResolver to perform the pinning operation on.
+         * @param pinnedPosition the position to pin the contact at. To unpin a contact, use
+         *         {@link PinnedPositions#UNPINNED}.
+         */
+        public static void pin(
+                ContentResolver contentResolver, long contactId, int pinnedPosition) {
+            final Uri uri = Uri.withAppendedPath(Contacts.CONTENT_URI, String.valueOf(contactId));
+            final ContentValues values = new ContentValues();
+            values.put(Contacts.PINNED, pinnedPosition);
+            contentResolver.update(uri, values, null, null);
+        }
+
+        /**
+         * Default value for the pinned position of an unpinned contact.
          */
         public static final int UNPINNED = 0;
 
@@ -8080,7 +8114,7 @@ public final class ContactsContract {
          * for the provided {@link Contacts} entry.
          */
         public static final String ACTION_QUICK_CONTACT =
-                "com.android.contacts.action.QUICK_CONTACT";
+                "android.provider.action.QUICK_CONTACT";
 
         /**
          * Extra used to specify pivot dialog location in screen coordinates.
@@ -8088,19 +8122,19 @@ public final class ContactsContract {
          * @hide
          */
         @Deprecated
-        public static final String EXTRA_TARGET_RECT = "target_rect";
+        public static final String EXTRA_TARGET_RECT = "android.provider.extra.TARGET_RECT";
 
         /**
          * Extra used to specify size of pivot dialog.
          * @hide
          */
-        public static final String EXTRA_MODE = "mode";
+        public static final String EXTRA_MODE = "android.provider.extra.MODE";
 
         /**
          * Extra used to indicate a list of specific MIME-types to exclude and not display in the
          * QuickContacts dialog. Stored as a {@link String} array.
          */
-        public static final String EXTRA_EXCLUDE_MIMES = "exclude_mimes";
+        public static final String EXTRA_EXCLUDE_MIMES = "android.provider.extra.EXCLUDE_MIMES";
 
         /**
          * Small QuickContact mode, usually presented with minimal actions.
@@ -8155,8 +8189,10 @@ public final class ContactsContract {
                     && !(actualContext instanceof Activity)) {
                 actualContext = ((ContextWrapper) actualContext).getBaseContext();
             }
-            final int intentFlags = (actualContext instanceof Activity)
-                    ? 0 : Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK;
+            final int intentFlags = ((actualContext instanceof Activity)
+                    ? 0 : Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    // Workaround for b/16898764. Declaring singleTop in manifest doesn't work.
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP;
 
             // Launch pivot dialog through intent for now
             final Intent intent = new Intent(ACTION_QUICK_CONTACT).addFlags(intentFlags);

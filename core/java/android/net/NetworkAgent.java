@@ -45,7 +45,7 @@ public abstract class NetworkAgent extends Handler {
     private volatile AsyncChannel mAsyncChannel;
     private final String LOG_TAG;
     private static final boolean DBG = true;
-    private static final boolean VDBG = true;
+    private static final boolean VDBG = false;
     private final Context mContext;
     private final ArrayList<Message>mPreConnectedQueue = new ArrayList<Message>();
 
@@ -106,6 +106,25 @@ public abstract class NetworkAgent extends Handler {
      */
     public static final int EVENT_UID_RANGES_REMOVED = BASE + 6;
 
+    /**
+     * Sent by ConnectivitySerice to the NetworkAgent to inform the agent of the
+     * networks status - whether we could use the network or could not, due to
+     * either a bad network configuration (no internet link) or captive portal.
+     *
+     * arg1 = either {@code VALID_NETWORK} or {@code INVALID_NETWORK}
+     */
+    public static final int CMD_REPORT_NETWORK_STATUS = BASE + 7;
+
+    public static final int VALID_NETWORK = 1;
+    public static final int INVALID_NETWORK = 2;
+
+     /**
+     * Sent by the NetworkAgent to ConnectivityService to indicate this network was
+     * explicitly selected.  This should be sent before the NetworkInfo is marked
+     * CONNECTED so it can be given special treatment at that time.
+     */
+    public static final int EVENT_SET_EXPLICITLY_SELECTED = BASE + 8;
+
     public NetworkAgent(Looper looper, Context context, String logTag, NetworkInfo ni,
             NetworkCapabilities nc, LinkProperties lp, int score) {
         this(looper, context, logTag, ni, nc, lp, score, null);
@@ -120,7 +139,7 @@ public abstract class NetworkAgent extends Handler {
             throw new IllegalArgumentException();
         }
 
-        if (DBG) log("Registering NetworkAgent");
+        if (VDBG) log("Registering NetworkAgent");
         ConnectivityManager cm = (ConnectivityManager)mContext.getSystemService(
                 Context.CONNECTIVITY_SERVICE);
         cm.registerNetworkAgent(new Messenger(this), new NetworkInfo(ni),
@@ -134,7 +153,7 @@ public abstract class NetworkAgent extends Handler {
                 if (mAsyncChannel != null) {
                     log("Received new connection while already connected!");
                 } else {
-                    if (DBG) log("NetworkAgent fully connected");
+                    if (VDBG) log("NetworkAgent fully connected");
                     AsyncChannel ac = new AsyncChannel();
                     ac.connected(null, this, msg.replyTo);
                     ac.replyToMessage(msg, AsyncChannel.CMD_CHANNEL_FULLY_CONNECTED,
@@ -150,7 +169,7 @@ public abstract class NetworkAgent extends Handler {
                 break;
             }
             case AsyncChannel.CMD_CHANNEL_DISCONNECT: {
-                if (DBG) log("CMD_CHANNEL_DISCONNECT");
+                if (VDBG) log("CMD_CHANNEL_DISCONNECT");
                 if (mAsyncChannel != null) mAsyncChannel.disconnect();
                 break;
             }
@@ -165,6 +184,14 @@ public abstract class NetworkAgent extends Handler {
             }
             case CMD_SUSPECT_BAD: {
                 log("Unhandled Message " + msg);
+                break;
+            }
+            case CMD_REPORT_NETWORK_STATUS: {
+                if (VDBG) {
+                    log("CMD_REPORT_NETWORK_STATUS(" +
+                            (msg.arg1 == VALID_NETWORK ? "VALID)" : "INVALID)"));
+                }
+                networkStatus(msg.arg1);
                 break;
             }
         }
@@ -209,6 +236,9 @@ public abstract class NetworkAgent extends Handler {
      * Called by the bearer code when it has a new score for this network.
      */
     public void sendNetworkScore(int score) {
+        if (score < 0) {
+            throw new IllegalArgumentException("Score must be >= 0");
+        }
         queueOrSendMessage(EVENT_NETWORK_SCORE_CHANGED, new Integer(score));
     }
 
@@ -229,12 +259,39 @@ public abstract class NetworkAgent extends Handler {
     }
 
     /**
+     * Called by the bearer to indicate this network was manually selected by the user.
+     * This should be called before the NetworkInfo is marked CONNECTED so that this
+     * Network can be given special treatment at that time.
+     */
+    public void explicitlySelected() {
+        queueOrSendMessage(EVENT_SET_EXPLICITLY_SELECTED, 0);
+    }
+
+    /**
      * Called when ConnectivityService has indicated they no longer want this network.
      * The parent factory should (previously) have received indication of the change
      * as well, either canceling NetworkRequests or altering their score such that this
      * network won't be immediately requested again.
      */
     abstract protected void unwanted();
+
+    /**
+     * Called when the system determines the usefulness of this network.
+     *
+     * Networks claiming internet connectivity will have their internet
+     * connectivity verified.
+     *
+     * Currently there are two possible values:
+     * {@code VALID_NETWORK} if the system is happy with the connection,
+     * {@code INVALID_NETWORK} if the system is not happy.
+     * TODO - add indications of captive portal-ness and related success/failure,
+     * ie, CAPTIVE_SUCCESS_NETWORK, CAPTIVE_NETWORK for successful login and detection
+     *
+     * This may be called multiple times as the network status changes and may
+     * generate false negatives if we lose ip connectivity before the link is torn down.
+     */
+    protected void networkStatus(int status) {
+    }
 
     protected void log(String s) {
         Log.d(LOG_TAG, "NetworkAgent: " + s);

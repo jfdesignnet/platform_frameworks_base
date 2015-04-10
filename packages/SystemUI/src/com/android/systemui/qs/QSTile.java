@@ -18,11 +18,13 @@ package com.android.systemui.qs;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.drawable.AnimatedVectorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -37,9 +39,8 @@ import com.android.systemui.statusbar.policy.NetworkController;
 import com.android.systemui.statusbar.policy.RotationLockController;
 import com.android.systemui.statusbar.policy.HotspotController;
 import com.android.systemui.statusbar.policy.ZenModeController;
-import com.android.systemui.volume.VolumeComponent;
 
-import java.util.List;
+import java.util.Collection;
 import java.util.Objects;
 
 /**
@@ -61,6 +62,7 @@ public abstract class QSTile<TState extends State> implements Listenable {
     private Callback mCallback;
     protected final TState mState = newTileState();
     private final TState mTmpState = newTileState();
+    private boolean mAnnounceNextStateChange;
 
     abstract protected TState newTileState();
     abstract protected void handleClick();
@@ -110,6 +112,10 @@ public abstract class QSTile<TState extends State> implements Listenable {
         mHandler.sendEmptyMessage(H.SECONDARY_CLICK);
     }
 
+    public void longClick() {
+        mHandler.sendEmptyMessage(H.LONG_CLICK);
+    }
+
     public void showDetail(boolean show) {
         mHandler.obtainMessage(H.SHOW_DETAIL, show ? 1 : 0, 0).sendToTarget();
     }
@@ -123,7 +129,7 @@ public abstract class QSTile<TState extends State> implements Listenable {
     }
 
     public void userSwitch(int newUserId) {
-        mHandler.obtainMessage(H.USER_SWITCH, newUserId).sendToTarget();
+        mHandler.obtainMessage(H.USER_SWITCH, newUserId, 0).sendToTarget();
     }
 
     public void fireToggleStateChanged(boolean state) {
@@ -132,6 +138,14 @@ public abstract class QSTile<TState extends State> implements Listenable {
 
     public void fireScanStateChanged(boolean state) {
         mHandler.obtainMessage(H.SCAN_STATE_CHANGED, state ? 1 : 0, 0).sendToTarget();
+    }
+
+    public void destroy() {
+        mHandler.sendEmptyMessage(H.DESTROY);
+    }
+
+    public TState getState() {
+        return mState;
     }
 
     // call only on tile worker looper
@@ -145,6 +159,10 @@ public abstract class QSTile<TState extends State> implements Listenable {
         // optional
     }
 
+    protected void handleLongClick() {
+        // optional
+    }
+
     protected void handleRefreshState(Object arg) {
         handleUpdateState(mTmpState, arg);
         final boolean changed = mTmpState.copyTo(mState);
@@ -154,9 +172,25 @@ public abstract class QSTile<TState extends State> implements Listenable {
     }
 
     private void handleStateChanged() {
+        boolean delayAnnouncement = shouldAnnouncementBeDelayed();
         if (mCallback != null) {
             mCallback.onStateChanged(mState);
+            if (mAnnounceNextStateChange && !delayAnnouncement) {
+                String announcement = composeChangeAnnouncement();
+                if (announcement != null) {
+                    mCallback.onAnnouncementRequested(announcement);
+                }
+            }
         }
+        mAnnounceNextStateChange = mAnnounceNextStateChange && delayAnnouncement;
+    }
+
+    protected boolean shouldAnnouncementBeDelayed() {
+        return false;
+    }
+
+    protected String composeChangeAnnouncement() {
+        return null;
     }
 
     private void handleShowDetail(boolean show) {
@@ -181,15 +215,22 @@ public abstract class QSTile<TState extends State> implements Listenable {
         handleRefreshState(null);
     }
 
+    protected void handleDestroy() {
+        setListening(false);
+        mCallback = null;
+    }
+
     protected final class H extends Handler {
         private static final int SET_CALLBACK = 1;
         private static final int CLICK = 2;
         private static final int SECONDARY_CLICK = 3;
-        private static final int REFRESH_STATE = 4;
-        private static final int SHOW_DETAIL = 5;
-        private static final int USER_SWITCH = 6;
-        private static final int TOGGLE_STATE_CHANGED = 7;
-        private static final int SCAN_STATE_CHANGED = 8;
+        private static final int LONG_CLICK = 4;
+        private static final int REFRESH_STATE = 5;
+        private static final int SHOW_DETAIL = 6;
+        private static final int USER_SWITCH = 7;
+        private static final int TOGGLE_STATE_CHANGED = 8;
+        private static final int SCAN_STATE_CHANGED = 9;
+        private static final int DESTROY = 10;
 
         private H(Looper looper) {
             super(looper);
@@ -204,10 +245,14 @@ public abstract class QSTile<TState extends State> implements Listenable {
                     handleSetCallback((QSTile.Callback)msg.obj);
                 } else if (msg.what == CLICK) {
                     name = "handleClick";
+                    mAnnounceNextStateChange = true;
                     handleClick();
                 } else if (msg.what == SECONDARY_CLICK) {
                     name = "handleSecondaryClick";
                     handleSecondaryClick();
+                } else if (msg.what == LONG_CLICK) {
+                    name = "handleLongClick";
+                    handleLongClick();
                 } else if (msg.what == REFRESH_STATE) {
                     name = "handleRefreshState";
                     handleRefreshState(msg.obj);
@@ -223,6 +268,11 @@ public abstract class QSTile<TState extends State> implements Listenable {
                 } else if (msg.what == SCAN_STATE_CHANGED) {
                     name = "handleScanStateChanged";
                     handleScanStateChanged(msg.arg1 != 0);
+                } else if (msg.what == DESTROY) {
+                    name = "handleDestroy";
+                    handleDestroy();
+                } else {
+                    throw new IllegalArgumentException("Unknown msg: " + msg.what);
                 }
             } catch (Throwable t) {
                 final String error = "Error in " + name;
@@ -237,6 +287,7 @@ public abstract class QSTile<TState extends State> implements Listenable {
         void onShowDetail(boolean show);
         void onToggleStateChanged(boolean state);
         void onScanStateChanged(boolean state);
+        void onAnnouncementRequested(CharSequence announcement);
     }
 
     public interface Host {
@@ -245,7 +296,8 @@ public abstract class QSTile<TState extends State> implements Listenable {
         void collapsePanels();
         Looper getLooper();
         Context getContext();
-        List<QSTile<?>> getTiles();
+        Collection<QSTile<?>> getTiles();
+        void setCallback(Callback callback);
         BluetoothController getBluetoothController();
         LocationController getLocationController();
         RotationLockController getRotationLockController();
@@ -255,28 +307,118 @@ public abstract class QSTile<TState extends State> implements Listenable {
         CastController getCastController();
         FlashlightController getFlashlightController();
         KeyguardMonitor getKeyguardMonitor();
+
+        public interface Callback {
+            void onTilesChanged();
+        }
+    }
+
+    public static abstract class Icon {
+        abstract public Drawable getDrawable(Context context);
+
+        @Override
+        public int hashCode() {
+            return Icon.class.hashCode();
+        }
+    }
+
+    public static class ResourceIcon extends Icon {
+        private static final SparseArray<Icon> ICONS = new SparseArray<Icon>();
+
+        private final int mResId;
+
+        private ResourceIcon(int resId) {
+            mResId = resId;
+        }
+
+        public static Icon get(int resId) {
+            Icon icon = ICONS.get(resId);
+            if (icon == null) {
+                icon = new ResourceIcon(resId);
+                ICONS.put(resId, icon);
+            }
+            return icon;
+        }
+
+        @Override
+        public Drawable getDrawable(Context context) {
+            return context.getDrawable(mResId);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof ResourceIcon && ((ResourceIcon) o).mResId == mResId;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("ResourceIcon[resId=0x%08x]", mResId);
+        }
+    }
+
+    protected class AnimationIcon extends ResourceIcon {
+        private boolean mAllowAnimation;
+
+        public AnimationIcon(int resId) {
+            super(resId);
+        }
+
+        public void setAllowAnimation(boolean allowAnimation) {
+            mAllowAnimation = allowAnimation;
+        }
+
+        @Override
+        public Drawable getDrawable(Context context) {
+            // workaround: get a clean state for every new AVD
+            final AnimatedVectorDrawable d = (AnimatedVectorDrawable) super.getDrawable(context)
+                    .getConstantState().newDrawable();
+            d.start();
+            if (mAllowAnimation) {
+                mAllowAnimation = false;
+            } else {
+                d.stop(); // skip directly to end state
+            }
+            return d;
+        }
+    }
+
+    protected enum UserBoolean {
+        USER_TRUE(true, true),
+        USER_FALSE(true, false),
+        BACKGROUND_TRUE(false, true),
+        BACKGROUND_FALSE(false, false);
+        public final boolean value;
+        public final boolean userInitiated;
+        private UserBoolean(boolean userInitiated, boolean value) {
+            this.value = value;
+            this.userInitiated = userInitiated;
+        }
     }
 
     public static class State {
         public boolean visible;
-        public int iconId;
-        public Drawable icon;
+        public Icon icon;
         public String label;
         public String contentDescription;
+        public String dualLabelContentDescription;
+        public boolean autoMirrorDrawable = true;
 
         public boolean copyTo(State other) {
             if (other == null) throw new IllegalArgumentException();
             if (!other.getClass().equals(getClass())) throw new IllegalArgumentException();
             final boolean changed = other.visible != visible
-                    || other.iconId != iconId
                     || !Objects.equals(other.icon, icon)
                     || !Objects.equals(other.label, label)
-                    || !Objects.equals(other.contentDescription, contentDescription);
+                    || !Objects.equals(other.contentDescription, contentDescription)
+                    || !Objects.equals(other.autoMirrorDrawable, autoMirrorDrawable)
+                    || !Objects.equals(other.dualLabelContentDescription,
+                    dualLabelContentDescription);
             other.visible = visible;
-            other.iconId = iconId;
             other.icon = icon;
             other.label = label;
             other.contentDescription = contentDescription;
+            other.dualLabelContentDescription = dualLabelContentDescription;
+            other.autoMirrorDrawable = autoMirrorDrawable;
             return changed;
         }
 
@@ -286,12 +428,13 @@ public abstract class QSTile<TState extends State> implements Listenable {
         }
 
         protected StringBuilder toStringBuilder() {
-            final StringBuilder sb = new StringBuilder(  getClass().getSimpleName()).append('[');
+            final StringBuilder sb = new StringBuilder(getClass().getSimpleName()).append('[');
             sb.append("visible=").append(visible);
-            sb.append(",iconId=").append(iconId);
             sb.append(",icon=").append(icon);
             sb.append(",label=").append(label);
             sb.append(",contentDescription=").append(contentDescription);
+            sb.append(",dualLabelContentDescription=").append(dualLabelContentDescription);
+            sb.append(",autoMirrorDrawable=").append(autoMirrorDrawable);
             return sb.append(']');
         }
     }
@@ -322,6 +465,7 @@ public abstract class QSTile<TState extends State> implements Listenable {
         public boolean activityOut;
         public int overlayIconId;
         public boolean filter;
+        public boolean isOverlayIconWide;
 
         @Override
         public boolean copyTo(State other) {
@@ -329,13 +473,15 @@ public abstract class QSTile<TState extends State> implements Listenable {
             final boolean changed = o.enabled != enabled
                     || o.connected != connected || o.activityIn != activityIn
                     || o.activityOut != activityOut
-                    || o.overlayIconId != overlayIconId;
+                    || o.overlayIconId != overlayIconId
+                    || o.isOverlayIconWide != isOverlayIconWide;
             o.enabled = enabled;
             o.connected = connected;
             o.activityIn = activityIn;
             o.activityOut = activityOut;
             o.overlayIconId = overlayIconId;
             o.filter = filter;
+            o.isOverlayIconWide = isOverlayIconWide;
             return super.copyTo(other) || changed;
         }
 
@@ -348,6 +494,7 @@ public abstract class QSTile<TState extends State> implements Listenable {
             rt.insert(rt.length() - 1, ",activityOut=" + activityOut);
             rt.insert(rt.length() - 1, ",overlayIconId=" + overlayIconId);
             rt.insert(rt.length() - 1, ",filter=" + filter);
+            rt.insert(rt.length() - 1, ",wideOverlayIcon=" + isOverlayIconWide);
             return rt;
         }
     }

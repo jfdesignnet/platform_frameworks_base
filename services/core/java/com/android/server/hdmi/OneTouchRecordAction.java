@@ -29,7 +29,7 @@ import com.android.server.hdmi.HdmiControlService.SendMessageCallback;
 /**
  * Feature action that performs one touch record.
  */
-public class OneTouchRecordAction extends FeatureAction {
+public class OneTouchRecordAction extends HdmiCecFeatureAction {
     private static final String TAG = "OneTouchRecordAction";
 
     // Timer out for waiting <Record Status> 120s
@@ -64,27 +64,26 @@ public class OneTouchRecordAction extends FeatureAction {
                         // if failed to send <Record On>, display error message and finish action.
                         if (error != Constants.SEND_RESULT_SUCCESS) {
                             tv().announceOneTouchRecordResult(
+                                    mRecorderAddress,
                                     ONE_TOUCH_RECORD_CHECK_RECORDER_CONNECTION);
                             finish();
                             return;
                         }
-
-                        mState = STATE_WAITING_FOR_RECORD_STATUS;
-                        addTimer(mState, RECORD_STATUS_TIMEOUT_MS);
                     }
                 });
+        mState = STATE_WAITING_FOR_RECORD_STATUS;
+        addTimer(mState, RECORD_STATUS_TIMEOUT_MS);
     }
 
     @Override
     boolean processCommand(HdmiCecMessage cmd) {
-        if (mState != STATE_WAITING_FOR_RECORD_STATUS) {
+        if (mState != STATE_WAITING_FOR_RECORD_STATUS || mRecorderAddress != cmd.getSource()) {
             return false;
         }
 
         switch (cmd.getOpcode()) {
             case Constants.MESSAGE_RECORD_STATUS:
                 return handleRecordStatus(cmd);
-
         }
         return false;
     }
@@ -96,7 +95,7 @@ public class OneTouchRecordAction extends FeatureAction {
         }
 
         int recordStatus = cmd.getParams()[0];
-        tv().announceOneTouchRecordResult(recordStatus);
+        tv().announceOneTouchRecordResult(mRecorderAddress, recordStatus);
         Slog.i(TAG, "Got record status:" + recordStatus + " from " + cmd.getSource());
 
         // If recording started successfully, change state and keep this action until <Record Off>
@@ -123,7 +122,8 @@ public class OneTouchRecordAction extends FeatureAction {
             return;
         }
 
-        tv().announceOneTouchRecordResult(ONE_TOUCH_RECORD_CHECK_RECORDER_CONNECTION);
+        tv().announceOneTouchRecordResult(mRecorderAddress,
+                ONE_TOUCH_RECORD_CHECK_RECORDER_CONNECTION);
         finish();
     }
 

@@ -19,30 +19,36 @@ package com.android.systemui.qs.tiles;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 
 import com.android.systemui.R;
+import com.android.systemui.qs.UsageTracker;
 import com.android.systemui.qs.QSTile;
 import com.android.systemui.statusbar.policy.HotspotController;
 import com.android.systemui.statusbar.policy.KeyguardMonitor;
 
 /** Quick settings tile: Hotspot **/
 public class HotspotTile extends QSTile<QSTile.BooleanState> {
-    private static final String KEY_LAST_USED_DATE = "lastUsedDate";
-    private static final long MILLIS_PER_DAY = 1000 * 60 * 60 * 24;
-
+    private final AnimationIcon mEnable =
+            new AnimationIcon(R.drawable.ic_hotspot_enable_animation);
+    private final AnimationIcon mDisable =
+            new AnimationIcon(R.drawable.ic_hotspot_disable_animation);
     private final HotspotController mController;
-    private final KeyguardMonitor mKeyguard;
     private final Callback mCallback = new Callback();
-    private final long mTimeToShowTile;
+    private final UsageTracker mUsageTracker;
+    private final KeyguardMonitor mKeyguard;
 
     public HotspotTile(Host host) {
         super(host);
         mController = host.getHotspotController();
+        mUsageTracker = newUsageTracker(host.getContext());
+        mUsageTracker.setListening(true);
         mKeyguard = host.getKeyguardMonitor();
+    }
 
-        mTimeToShowTile = MILLIS_PER_DAY
-                * mContext.getResources().getInteger(R.integer.days_to_show_hotspot);
+    @Override
+    protected void handleDestroy() {
+        super.handleDestroy();
+        mUsageTracker.setListening(false);
     }
 
     @Override
@@ -54,10 +60,8 @@ public class HotspotTile extends QSTile<QSTile.BooleanState> {
     public void setListening(boolean listening) {
         if (listening) {
             mController.addCallback(mCallback);
-            mKeyguard.addCallback(mCallback);
         } else {
             mController.removeCallback(mCallback);
-            mKeyguard.removeCallback(mCallback);
         }
     }
 
@@ -65,36 +69,48 @@ public class HotspotTile extends QSTile<QSTile.BooleanState> {
     protected void handleClick() {
         final boolean isEnabled = (Boolean) mState.value;
         mController.setHotspotEnabled(!isEnabled);
+        mEnable.setAllowAnimation(true);
+        mDisable.setAllowAnimation(true);
+    }
+
+    @Override
+    protected void handleLongClick() {
+        if (mState.value) return;  // don't allow usage reset if hotspot is active
+        final String title = mContext.getString(R.string.quick_settings_reset_confirmation_title,
+                mState.label);
+        mUsageTracker.showResetConfirmation(title, new Runnable() {
+            @Override
+            public void run() {
+                refreshState();
+            }
+        });
     }
 
     @Override
     protected void handleUpdateState(BooleanState state, Object arg) {
-        state.visible = !(mKeyguard.isSecure() && mKeyguard.isShowing())
-                && mController.isHotspotSupported() && isHotspotRecentlyUsed();
+        state.visible = mController.isHotspotSupported() && mUsageTracker.isRecentlyUsed();
         state.label = mContext.getString(R.string.quick_settings_hotspot_label);
 
         state.value = mController.isHotspotEnabled();
-        state.iconId = state.visible && state.value ? R.drawable.ic_qs_hotspot_on
-                : R.drawable.ic_qs_hotspot_off;
+        state.icon = state.visible && state.value ? mEnable : mDisable;
     }
 
-    private boolean isHotspotRecentlyUsed() {
-        long lastDay = getSharedPrefs(mContext).getLong(KEY_LAST_USED_DATE, 0);
-        return (System.currentTimeMillis() - lastDay) < mTimeToShowTile;
+    @Override
+    protected String composeChangeAnnouncement() {
+        if (mState.value) {
+            return mContext.getString(R.string.accessibility_quick_settings_hotspot_changed_on);
+        } else {
+            return mContext.getString(R.string.accessibility_quick_settings_hotspot_changed_off);
+        }
     }
 
-    private static SharedPreferences getSharedPrefs(Context context) {
-        return context.getSharedPreferences(context.getPackageName(), 0);
+    private static UsageTracker newUsageTracker(Context context) {
+        return new UsageTracker(context, HotspotTile.class, R.integer.days_to_show_hotspot_tile);
     }
 
-    private final class Callback implements HotspotController.Callback, KeyguardMonitor.Callback {
+    private final class Callback implements HotspotController.Callback {
         @Override
         public void onHotspotChanged(boolean enabled) {
-            refreshState();
-        }
-
-        @Override
-        public void onKeyguardChanged() {
             refreshState();
         }
     };
@@ -104,10 +120,14 @@ public class HotspotTile extends QSTile<QSTile.BooleanState> {
      * the hotspot tile for a number of days after use.
      */
     public static class APChangedReceiver extends BroadcastReceiver {
+        private UsageTracker mUsageTracker;
+
         @Override
         public void onReceive(Context context, Intent intent) {
-            long currentTime = System.currentTimeMillis();
-            getSharedPrefs(context).edit().putLong(KEY_LAST_USED_DATE, currentTime).commit();
+            if (mUsageTracker == null) {
+                mUsageTracker = newUsageTracker(context);
+            }
+            mUsageTracker.trackUsage();
         }
     }
 }

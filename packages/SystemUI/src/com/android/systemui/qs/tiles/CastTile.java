@@ -37,8 +37,8 @@ import java.util.Set;
 
 /** Quick settings tile: Cast **/
 public class CastTile extends QSTile<QSTile.BooleanState> {
-    private static final Intent WIFI_DISPLAY_SETTINGS =
-            new Intent(Settings.ACTION_WIFI_DISPLAY_SETTINGS);
+    private static final Intent CAST_SETTINGS =
+            new Intent(Settings.ACTION_CAST_SETTINGS);
 
     private final CastController mController;
     private final CastDetailAdapter mDetailAdapter;
@@ -93,6 +93,7 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
         state.visible = !(mKeyguard.isSecure() && mKeyguard.isShowing());
         state.label = mContext.getString(R.string.quick_settings_cast_title);
         state.value = false;
+        state.autoMirrorDrawable = false;
         final Set<CastDevice> devices = mController.getCastDevices();
         boolean connecting = false;
         for (CastDevice device : devices) {
@@ -106,8 +107,18 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
         if (!state.value && connecting) {
             state.label = mContext.getString(R.string.quick_settings_connecting);
         }
-        state.iconId = state.value ? R.drawable.ic_qs_cast_on : R.drawable.ic_qs_cast_off;
+        state.icon = ResourceIcon.get(state.value ? R.drawable.ic_qs_cast_on
+                : R.drawable.ic_qs_cast_off);
         mDetailAdapter.updateItems(devices);
+    }
+
+    @Override
+    protected String composeChangeAnnouncement() {
+        if (!mState.value) {
+            // We only announce when it's turned off to avoid vocal overflow.
+            return mContext.getString(R.string.accessibility_casting_turned_off);
+        }
+        return null;
     }
 
     private String getDeviceName(CastDevice device) {
@@ -144,7 +155,7 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
 
         @Override
         public Intent getSettingsIntent() {
-            return WIFI_DISPLAY_SETTINGS;
+            return CAST_SETTINGS;
         }
 
         @Override
@@ -230,7 +241,8 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
         @Override
         public void onDetailItemDisconnect(Item item) {
             if (item == null || item.tag == null) return;
-            mController.stopCasting();
+            final CastDevice device = (CastDevice) item.tag;
+            mController.stopCasting(device);
         }
     }
 }

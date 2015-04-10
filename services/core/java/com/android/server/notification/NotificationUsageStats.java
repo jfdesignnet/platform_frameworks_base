@@ -46,7 +46,12 @@ import java.util.Map;
  * {@hide}
  */
 public class NotificationUsageStats {
-    private static final boolean ENABLE_SQLITE_LOG = true;
+    // WARNING: Aggregated stats can grow unboundedly with pkg+id+tag.
+    // Don't enable on production builds.
+    private static final boolean ENABLE_AGGREGATED_IN_MEMORY_STATS = false;
+    private static final boolean ENABLE_SQLITE_LOG = false;
+
+    private static final AggregatedStats[] EMPTY_AGGREGATED_STATS = new AggregatedStats[0];
 
     // Guarded by synchronized(this).
     private final Map<String, AggregatedStats> mStats = new HashMap<String, AggregatedStats>();
@@ -147,6 +152,10 @@ public class NotificationUsageStats {
 
     // Locked by this.
     private AggregatedStats[] getAggregatedStatsLocked(NotificationRecord record) {
+        if (!ENABLE_AGGREGATED_IN_MEMORY_STATS) {
+            return EMPTY_AGGREGATED_STATS;
+        }
+
         StatusBarNotification n = record.sbn;
 
         String user = String.valueOf(n.getUserId());
@@ -171,9 +180,12 @@ public class NotificationUsageStats {
     }
 
     public synchronized void dump(PrintWriter pw, String indent, DumpFilter filter) {
-        for (AggregatedStats as : mStats.values()) {
-            if (filter != null && !filter.matches(as.key)) continue;
-            as.dump(pw, indent);
+        if (ENABLE_AGGREGATED_IN_MEMORY_STATS) {
+            for (AggregatedStats as : mStats.values()) {
+                if (filter != null && !filter.matches(as.key))
+                    continue;
+                as.dump(pw, indent);
+            }
         }
         if (ENABLE_SQLITE_LOG) {
             mSQLiteLog.dump(pw, indent, filter);
@@ -200,6 +212,9 @@ public class NotificationUsageStats {
         public final Aggregate airtimeCount = new Aggregate();
         public final Aggregate airtimeMs = new Aggregate();
         public final Aggregate posttimeToFirstAirtimeMs = new Aggregate();
+        public final Aggregate userExpansionCount = new Aggregate();
+        public final Aggregate airtimeExpandedMs = new Aggregate();
+        public final Aggregate posttimeToFirstVisibleExpansionMs = new Aggregate();
 
         public AggregatedStats(String key) {
             this.key = key;
@@ -221,6 +236,14 @@ public class NotificationUsageStats {
             if (singleNotificationStats.posttimeToFirstAirtimeMs >= 0) {
                 posttimeToFirstAirtimeMs.addSample(
                         singleNotificationStats.posttimeToFirstAirtimeMs);
+            }
+            if (singleNotificationStats.posttimeToFirstVisibleExpansionMs >= 0) {
+                posttimeToFirstVisibleExpansionMs.addSample(
+                        singleNotificationStats.posttimeToFirstVisibleExpansionMs);
+            }
+            userExpansionCount.addSample(singleNotificationStats.userExpansionCount);
+            if (singleNotificationStats.airtimeExpandedMs >= 0) {
+                airtimeExpandedMs.addSample(singleNotificationStats.airtimeExpandedMs);
             }
         }
 
@@ -247,6 +270,9 @@ public class NotificationUsageStats {
                     indent + "  airtimeCount=" + airtimeCount + ",\n" +
                     indent + "  airtimeMs=" + airtimeMs + ",\n" +
                     indent + "  posttimeToFirstAirtimeMs=" + posttimeToFirstAirtimeMs + ",\n" +
+                    indent + "  userExpansionCount=" + userExpansionCount + ",\n" +
+                    indent + "  airtimeExpandedMs=" + airtimeExpandedMs + ",\n" +
+                    indent + "  posttimeToFVEMs=" + posttimeToFirstVisibleExpansionMs + ",\n" +
                     indent + "}";
         }
     }
@@ -255,6 +281,8 @@ public class NotificationUsageStats {
      * Tracks usage of an individual notification that is currently active.
      */
     public static class SingleNotificationStats {
+        private boolean isVisible = false;
+        private boolean isExpanded = false;
         /** SystemClock.elapsedRealtime() when the notification was posted. */
         public long posttimeElapsedMs = -1;
         /** Elapsed time since the notification was posted until it was first clicked, or -1. */
@@ -272,6 +300,20 @@ public class NotificationUsageStats {
         public long currentAirtimeStartElapsedMs = -1;
         /** Accumulated visible time. */
         public long airtimeMs = 0;
+        /**
+         * Time in ms between the notification being posted and when it first
+         * became visible and expanded; -1 if it was never visibly expanded.
+         */
+        public long posttimeToFirstVisibleExpansionMs = -1;
+        /**
+         * If currently visible, SystemClock.elapsedRealtime() when the notification was made
+         * visible; -1 otherwise.
+         */
+        public long currentAirtimeExpandedStartElapsedMs = -1;
+        /** Accumulated visible expanded time. */
+        public long airtimeExpandedMs = 0;
+        /** Number of times the notification has been expanded by the user. */
+        public long userExpansionCount = 0;
 
         public long getCurrentPosttimeMs() {
             if (posttimeElapsedMs < 0) {
@@ -284,7 +326,16 @@ public class NotificationUsageStats {
             long result = airtimeMs;
             // Add incomplete airtime if currently shown.
             if (currentAirtimeStartElapsedMs >= 0) {
-                result+= (SystemClock.elapsedRealtime() - currentAirtimeStartElapsedMs);
+                result += (SystemClock.elapsedRealtime() - currentAirtimeStartElapsedMs);
+            }
+            return result;
+        }
+
+        public long getCurrentAirtimeExpandedMs() {
+            long result = airtimeExpandedMs;
+            // Add incomplete expanded airtime if currently shown.
+            if (currentAirtimeExpandedStartElapsedMs >= 0) {
+                result += (SystemClock.elapsedRealtime() - currentAirtimeExpandedStartElapsedMs);
             }
             return result;
         }
@@ -318,6 +369,8 @@ public class NotificationUsageStats {
 
         public void onVisibilityChanged(boolean visible) {
             long elapsedNowMs = SystemClock.elapsedRealtime();
+            final boolean wasVisible = isVisible;
+            isVisible = visible;
             if (visible) {
                 if (currentAirtimeStartElapsedMs < 0) {
                     airtimeCount++;
@@ -330,6 +383,37 @@ public class NotificationUsageStats {
                 if (currentAirtimeStartElapsedMs >= 0) {
                     airtimeMs += (elapsedNowMs - currentAirtimeStartElapsedMs);
                     currentAirtimeStartElapsedMs = -1;
+                }
+            }
+
+            if (wasVisible != isVisible) {
+                updateVisiblyExpandedStats();
+            }
+        }
+
+        public void onExpansionChanged(boolean userAction, boolean expanded) {
+            isExpanded = expanded;
+            if (isExpanded && userAction) {
+                userExpansionCount++;
+            }
+            updateVisiblyExpandedStats();
+        }
+
+        private void updateVisiblyExpandedStats() {
+            long elapsedNowMs = SystemClock.elapsedRealtime();
+            if (isExpanded && isVisible) {
+                // expanded and visible
+                if (currentAirtimeExpandedStartElapsedMs < 0) {
+                    currentAirtimeExpandedStartElapsedMs = elapsedNowMs;
+                }
+                if (posttimeToFirstVisibleExpansionMs < 0) {
+                    posttimeToFirstVisibleExpansionMs = elapsedNowMs - posttimeElapsedMs;
+                }
+            } else {
+                // not-expanded or not-visible
+                if (currentAirtimeExpandedStartElapsedMs >= 0) {
+                    airtimeExpandedMs += (elapsedNowMs - currentAirtimeExpandedStartElapsedMs);
+                    currentAirtimeExpandedStartElapsedMs = -1;
                 }
             }
         }
@@ -348,6 +432,9 @@ public class NotificationUsageStats {
                     ", airtimeCount=" + airtimeCount +
                     ", airtimeMs=" + airtimeMs +
                     ", currentAirtimeStartElapsedMs=" + currentAirtimeStartElapsedMs +
+                    ", airtimeExpandedMs=" + airtimeExpandedMs +
+                    ", posttimeToFirstVisibleExpansionMs=" + posttimeToFirstVisibleExpansionMs +
+                    ", currentAirtimeExpandedSEMs=" + currentAirtimeExpandedStartElapsedMs +
                     '}';
         }
     }
@@ -393,7 +480,7 @@ public class NotificationUsageStats {
         private static final int MSG_DISMISS = 4;
 
         private static final String DB_NAME = "notification_log.db";
-        private static final int DB_VERSION = 2;
+        private static final int DB_VERSION = 4;
 
         /** Age in ms after which events are pruned from the DB. */
         private static final long HORIZON_MS = 7 * 24 * 60 * 60 * 1000L;  // 1 week
@@ -419,6 +506,10 @@ public class NotificationUsageStats {
         private static final String COL_ACTION_COUNT = "action_count";
         private static final String COL_POSTTIME_MS = "posttime_ms";
         private static final String COL_AIRTIME_MS = "airtime_ms";
+        private static final String COL_FIRST_EXPANSIONTIME_MS = "first_expansion_time_ms";
+        private static final String COL_AIRTIME_EXPANDED_MS = "expansion_airtime_ms";
+        private static final String COL_EXPAND_COUNT = "expansion_count";
+
 
         private static final int EVENT_TYPE_POST = 1;
         private static final int EVENT_TYPE_CLICK = 2;
@@ -480,19 +571,19 @@ public class NotificationUsageStats {
                             COL_CATEGORY + " TEXT," +
                             COL_ACTION_COUNT + " INT," +
                             COL_POSTTIME_MS + " INT," +
-                            COL_AIRTIME_MS + " INT" +
+                            COL_AIRTIME_MS + " INT," +
+                            COL_FIRST_EXPANSIONTIME_MS + " INT," +
+                            COL_AIRTIME_EXPANDED_MS + " INT," +
+                            COL_EXPAND_COUNT + " INT" +
                             ")");
                 }
 
                 @Override
                 public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-                    switch (oldVersion) {
-                        case 1:
-                            // Add COL_POSTTIME_MS, COL_AIRTIME_MS columns,
-                            db.execSQL("ALTER TABLE " + TAB_LOG + " ADD COLUMN " +
-                                    COL_POSTTIME_MS + " INT");
-                            db.execSQL("ALTER TABLE " + TAB_LOG + " ADD COLUMN " +
-                                    COL_AIRTIME_MS + " INT");
+                    if (oldVersion <= 3) {
+                        // Version 3 creation left 'log' in a weird state. Just reset for now.
+                        db.execSQL("DROP TABLE IF EXISTS " + TAB_LOG);
+                        onCreate(db);
                     }
                 }
             };
@@ -553,7 +644,7 @@ public class NotificationUsageStats {
             if (eventType == EVENT_TYPE_POST) {
                 putNotificationDetails(r, cv);
             } else {
-                putPosttimeAirtime(r, cv);
+                putPosttimeVisibility(r, cv);
             }
             SQLiteDatabase db = mHelper.getWritableDatabase();
             if (db.insert(TAB_LOG, null, cv) < 0) {
@@ -597,9 +688,12 @@ public class NotificationUsageStats {
                     r.getNotification().actions.length : 0);
         }
 
-        private static void putPosttimeAirtime(NotificationRecord r, ContentValues outCv) {
+        private static void putPosttimeVisibility(NotificationRecord r, ContentValues outCv) {
             outCv.put(COL_POSTTIME_MS, r.stats.getCurrentPosttimeMs());
             outCv.put(COL_AIRTIME_MS, r.stats.getCurrentAirtimeMs());
+            outCv.put(COL_EXPAND_COUNT, r.stats.userExpansionCount);
+            outCv.put(COL_AIRTIME_EXPANDED_MS, r.stats.getCurrentAirtimeExpandedMs());
+            outCv.put(COL_FIRST_EXPANSIONTIME_MS, r.stats.posttimeToFirstVisibleExpansionMs);
         }
 
         public void dump(PrintWriter pw, String indent, DumpFilter filter) {

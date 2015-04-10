@@ -76,24 +76,32 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
     private boolean mTitleSet;
     private CharSequence mTitle;
     private CharSequence mSubtitle;
+    private CharSequence mHomeDescription;
 
     private Window.Callback mWindowCallback;
     private boolean mMenuPrepared;
     private ActionMenuPresenter mActionMenuPresenter;
 
     private int mNavigationMode = ActionBar.NAVIGATION_MODE_STANDARD;
+    private int mDefaultNavigationContentDescription = 0;
+    private Drawable mDefaultNavigationIcon;
 
     public ToolbarWidgetWrapper(Toolbar toolbar, boolean style) {
+        this(toolbar, style, R.string.action_bar_up_description);
+    }
+
+    public ToolbarWidgetWrapper(Toolbar toolbar, boolean style,
+            int defaultNavigationContentDescription) {
         mToolbar = toolbar;
 
         mTitle = toolbar.getTitle();
         mSubtitle = toolbar.getSubtitle();
-        mTitleSet = !TextUtils.isEmpty(mTitle);
-
+        mTitleSet = mTitle != null;
+        mNavIcon = mToolbar.getNavigationIcon();
+        final TypedArray a = toolbar.getContext().obtainStyledAttributes(null,
+                R.styleable.ActionBar, R.attr.actionBarStyle, 0);
+        mDefaultNavigationIcon = a.getDrawable(R.styleable.ActionBar_homeAsUpIndicator);
         if (style) {
-            final TypedArray a = toolbar.getContext().obtainStyledAttributes(null,
-                    R.styleable.ActionBar, R.attr.actionBarStyle, 0);
-
             final CharSequence title = a.getText(R.styleable.ActionBar_title);
             if (!TextUtils.isEmpty(title)) {
                 setTitle(title);
@@ -113,12 +121,9 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
             if (icon != null) {
                 setIcon(icon);
             }
-
-            final Drawable navIcon = a.getDrawable(R.styleable.ActionBar_homeAsUpIndicator);
-            if (navIcon != null) {
-                setNavigationIcon(navIcon);
+            if (mNavIcon == null && mDefaultNavigationIcon != null) {
+                setNavigationIcon(mDefaultNavigationIcon);
             }
-
             setDisplayOptions(a.getInt(R.styleable.ActionBar_displayOptions, 0));
 
             final int customNavId = a.getResourceId(
@@ -160,14 +165,13 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
             if (popupTheme != 0) {
                 mToolbar.setPopupTheme(popupTheme);
             }
-
-            a.recycle();
+        } else {
+            mDisplayOpts = detectDisplayOptions();
         }
+        a.recycle();
 
-        if (TextUtils.isEmpty(mToolbar.getNavigationContentDescription())) {
-            mToolbar.setNavigationContentDescription(
-                    getContext().getResources().getText(R.string.action_bar_up_description));
-        }
+        setDefaultNavigationContentDescription(defaultNavigationContentDescription);
+        mHomeDescription = mToolbar.getNavigationContentDescription();
 
         mToolbar.setNavigationOnClickListener(new View.OnClickListener() {
             final ActionMenuItem mNavItem = new ActionMenuItem(mToolbar.getContext(),
@@ -179,6 +183,27 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
                 }
             }
         });
+    }
+
+    @Override
+    public void setDefaultNavigationContentDescription(int defaultNavigationContentDescription) {
+        if (defaultNavigationContentDescription == mDefaultNavigationContentDescription) {
+            return;
+        }
+        mDefaultNavigationContentDescription = defaultNavigationContentDescription;
+        if (TextUtils.isEmpty(mToolbar.getNavigationContentDescription())) {
+            setNavigationContentDescription(mDefaultNavigationContentDescription);
+        }
+    }
+
+    private int detectDisplayOptions() {
+        int opts = ActionBar.DISPLAY_SHOW_TITLE | ActionBar.DISPLAY_SHOW_HOME |
+                ActionBar.DISPLAY_USE_LOGO;
+        if (mToolbar.getNavigationIcon() != null) {
+            opts |= ActionBar.DISPLAY_HOME_AS_UP;
+            mDefaultNavigationIcon = mToolbar.getNavigationIcon();
+        }
+        return opts;
     }
 
     @Override
@@ -383,10 +408,9 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
         if (changed != 0) {
             if ((changed & ActionBar.DISPLAY_HOME_AS_UP) != 0) {
                 if ((newOpts & ActionBar.DISPLAY_HOME_AS_UP) != 0) {
-                    mToolbar.setNavigationIcon(mNavIcon);
-                } else {
-                    mToolbar.setNavigationIcon(null);
+                    updateHomeAccessibility();
                 }
+                updateNavigationIcon();
             }
 
             if ((changed & AFFECTS_LOGO_MASK) != 0) {
@@ -550,7 +574,7 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
     @Override
     public void animateToVisibility(int visibility) {
         if (visibility == View.GONE) {
-            mToolbar.animate().translationY(mToolbar.getHeight()).alpha(0)
+            mToolbar.animate().alpha(0)
                     .setListener(new AnimatorListenerAdapter() {
                         private boolean mCanceled = false;
                         @Override
@@ -566,7 +590,7 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
                         }
                     });
         } else if (visibility == View.VISIBLE) {
-            mToolbar.animate().translationY(0).alpha(1)
+            mToolbar.animate().alpha(1)
                     .setListener(new AnimatorListenerAdapter() {
                         @Override
                         public void onAnimationStart(Animator animation) {
@@ -579,9 +603,7 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
     @Override
     public void setNavigationIcon(Drawable icon) {
         mNavIcon = icon;
-        if ((mDisplayOpts & ActionBar.DISPLAY_HOME_AS_UP) != 0) {
-            mToolbar.setNavigationIcon(icon);
-        }
+        updateNavigationIcon();
     }
 
     @Override
@@ -590,13 +612,40 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
     }
 
     @Override
+    public void setDefaultNavigationIcon(Drawable defaultNavigationIcon) {
+        if (mDefaultNavigationIcon != defaultNavigationIcon) {
+            mDefaultNavigationIcon = defaultNavigationIcon;
+            updateNavigationIcon();
+        }
+    }
+
+    private void updateNavigationIcon() {
+        if ((mDisplayOpts & ActionBar.DISPLAY_HOME_AS_UP) != 0) {
+            mToolbar.setNavigationIcon(mNavIcon != null ? mNavIcon : mDefaultNavigationIcon);
+        } else {
+            mToolbar.setNavigationIcon(null);
+        }
+    }
+
+    @Override
     public void setNavigationContentDescription(CharSequence description) {
-        mToolbar.setNavigationContentDescription(description);
+        mHomeDescription = description;
+        updateHomeAccessibility();
     }
 
     @Override
     public void setNavigationContentDescription(int resId) {
-        mToolbar.setNavigationContentDescription(resId);
+        setNavigationContentDescription(resId == 0 ? null : getContext().getString(resId));
+    }
+
+    private void updateHomeAccessibility() {
+        if ((mDisplayOpts & ActionBar.DISPLAY_HOME_AS_UP) != 0) {
+            if (TextUtils.isEmpty(mHomeDescription)) {
+                mToolbar.setNavigationContentDescription(mDefaultNavigationContentDescription);
+            } else {
+                mToolbar.setNavigationContentDescription(mHomeDescription);
+            }
+        }
     }
 
     @Override
@@ -607,6 +656,38 @@ public class ToolbarWidgetWrapper implements DecorToolbar {
     @Override
     public void restoreHierarchyState(SparseArray<Parcelable> toolbarStates) {
         mToolbar.restoreHierarchyState(toolbarStates);
+    }
+
+    @Override
+    public void setBackgroundDrawable(Drawable d) {
+        //noinspection deprecation
+        mToolbar.setBackgroundDrawable(d);
+    }
+
+    @Override
+    public int getHeight() {
+        return mToolbar.getHeight();
+    }
+
+    @Override
+    public void setVisibility(int visible) {
+        mToolbar.setVisibility(visible);
+    }
+
+    @Override
+    public int getVisibility() {
+        return mToolbar.getVisibility();
+    }
+
+    @Override
+    public void setMenuCallbacks(MenuPresenter.Callback presenterCallback,
+            MenuBuilder.Callback menuBuilderCallback) {
+        mToolbar.setMenuCallbacks(presenterCallback, menuBuilderCallback);
+    }
+
+    @Override
+    public Menu getMenu() {
+        return mToolbar.getMenu();
     }
 
 }

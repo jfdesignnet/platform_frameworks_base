@@ -16,8 +16,8 @@
 
 package android.hardware.camera2.legacy;
 
+import android.hardware.camera2.impl.CameraDeviceImpl;
 import android.hardware.camera2.impl.CameraMetadataNative;
-import android.hardware.camera2.utils.CameraBinderDecorator;
 import android.os.Handler;
 import android.util.Log;
 
@@ -49,14 +49,22 @@ public class CameraDeviceState {
     private static final int STATE_IDLE = 3;
     private static final int STATE_CAPTURING = 4;
 
+    private static final String[] sStateNames = { "ERROR", "UNCONFIGURED", "CONFIGURING", "IDLE",
+            "CAPTURING"};
+
     private int mCurrentState = STATE_UNCONFIGURED;
-    private int mCurrentError = CameraBinderDecorator.NO_ERROR;
+    private int mCurrentError = NO_CAPTURE_ERROR;
 
     private RequestHolder mCurrentRequest = null;
 
     private Handler mCurrentHandler = null;
     private CameraDeviceStateListener mCurrentListener = null;
 
+    /**
+     * Error code used by {@link #setCaptureStart} and {@link #setCaptureResult} to indicate that no
+     * error has occurred.
+     */
+    public static final int NO_CAPTURE_ERROR = -1;
 
     /**
      * CameraDeviceStateListener callbacks to be called after state transitions.
@@ -65,6 +73,7 @@ public class CameraDeviceState {
         void onError(int errorCode, RequestHolder holder);
         void onConfiguring();
         void onIdle();
+        void onBusy();
         void onCaptureStarted(RequestHolder holder, long timestamp);
         void onCaptureResult(CameraMetadataNative result, RequestHolder holder);
     }
@@ -79,7 +88,7 @@ public class CameraDeviceState {
      * </p>
      *
      * @param error the error to set.  Should be one of the error codes defined in
-     *      {@link android.hardware.camera2.utils.CameraBinderDecorator}.
+     *      {@link CameraDeviceImpl.CameraDeviceCallbacks}.
      */
     public synchronized void setError(int error) {
         mCurrentError = error;
@@ -94,11 +103,11 @@ public class CameraDeviceState {
      * {@link CameraDeviceStateListener#onConfiguring()} will be called.
      * </p>
      *
-     * @return {@link CameraBinderDecorator#NO_ERROR}, or an error if one has occurred.
+     * @return {@code false} if an error has occurred.
      */
-    public synchronized int setConfiguring() {
+    public synchronized boolean setConfiguring() {
         doStateTransition(STATE_CONFIGURING);
-        return mCurrentError;
+        return mCurrentError == NO_CAPTURE_ERROR;
     }
 
     /**
@@ -109,11 +118,11 @@ public class CameraDeviceState {
      * {@link CameraDeviceStateListener#onIdle()} will be called.
      * </p>
      *
-     * @return {@link CameraBinderDecorator#NO_ERROR}, or an error if one has occurred.
+     * @return {@code false} if an error has occurred.
      */
-    public synchronized int setIdle() {
+    public synchronized boolean setIdle() {
         doStateTransition(STATE_IDLE);
-        return mCurrentError;
+        return mCurrentError == NO_CAPTURE_ERROR;
     }
 
     /**
@@ -126,12 +135,16 @@ public class CameraDeviceState {
      *
      * @param request A {@link RequestHolder} containing the request for the current capture.
      * @param timestamp The timestamp of the capture start in nanoseconds.
-     * @return {@link CameraBinderDecorator#NO_ERROR}, or an error if one has occurred.
+     * @param captureError Report a recoverable error for a single request using a valid
+     *                     error code for {@code ICameraDeviceCallbacks}, or
+     *                     {@link #NO_CAPTURE_ERROR}
+     * @return {@code false} if an error has occurred.
      */
-    public synchronized int setCaptureStart(final RequestHolder request, long timestamp) {
+    public synchronized boolean setCaptureStart(final RequestHolder request, long timestamp,
+                                            int captureError) {
         mCurrentRequest = request;
-        doStateTransition(STATE_CAPTURING, timestamp);
-        return mCurrentError;
+        doStateTransition(STATE_CAPTURING, timestamp, captureError);
+        return mCurrentError == NO_CAPTURE_ERROR;
     }
 
     /**
@@ -144,28 +157,41 @@ public class CameraDeviceState {
      * the {@code ERROR} state,
      * </p>
      *
-     * @param request the {@link RequestHolder} request that created this result.
-     * @param result the {@link CameraMetadataNative} result to set.
-     * @return {@link CameraBinderDecorator#NO_ERROR}, or an error if one has occurred.
+     * @param request The {@link RequestHolder} request that created this result.
+     * @param result The {@link CameraMetadataNative} result to set.
+     * @param captureError Report a recoverable error for a single buffer or result using a valid
+     *                     error code for {@code ICameraDeviceCallbacks}, or
+     *                     {@link #NO_CAPTURE_ERROR}.
+     * @return {@code false} if an error has occurred.
      */
-    public synchronized int setCaptureResult(final RequestHolder request,
-                                             final CameraMetadataNative result) {
+    public synchronized boolean setCaptureResult(final RequestHolder request,
+                                             final CameraMetadataNative result,
+                                             final int captureError) {
         if (mCurrentState != STATE_CAPTURING) {
             Log.e(TAG, "Cannot receive result while in state: " + mCurrentState);
-            mCurrentError = CameraBinderDecorator.INVALID_OPERATION;
+            mCurrentError = CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE;
             doStateTransition(STATE_ERROR);
-            return mCurrentError;
+            return mCurrentError == NO_CAPTURE_ERROR;
         }
 
         if (mCurrentHandler != null && mCurrentListener != null) {
-            mCurrentHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCurrentListener.onCaptureResult(result, request);
-                }
-            });
+            if (captureError != NO_CAPTURE_ERROR) {
+                mCurrentHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mCurrentListener.onError(captureError, request);
+                    }
+                });
+            } else {
+                mCurrentHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mCurrentListener.onCaptureResult(result, request);
+                    }
+                });
+            }
         }
-        return mCurrentError;
+        return mCurrentError == NO_CAPTURE_ERROR;
     }
 
     /**
@@ -181,15 +207,31 @@ public class CameraDeviceState {
     }
 
     private void doStateTransition(int newState) {
-        doStateTransition(newState, /*timestamp*/0);
+        doStateTransition(newState, /*timestamp*/0, NO_CAPTURE_ERROR);
     }
 
-    private void doStateTransition(int newState, final long timestamp) {
-        if (DEBUG) {
-            if (newState != mCurrentState) {
-                Log.d(TAG, "Transitioning to state " + newState);
+    private void doStateTransition(int newState, final long timestamp, final int error) {
+        if (newState != mCurrentState) {
+            String stateName = "UNKNOWN";
+            if (newState >= 0 && newState < sStateNames.length) {
+                stateName = sStateNames[newState];
+            }
+            Log.i(TAG, "Legacy camera service transitioning to state " + stateName);
+        }
+
+        // If we transitioned into a non-IDLE/non-ERROR state then mark the device as busy
+        if(newState != STATE_ERROR && newState != STATE_IDLE) {
+            if (mCurrentState != newState && mCurrentHandler != null &&
+                    mCurrentListener != null) {
+                mCurrentHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mCurrentListener.onBusy();
+                    }
+                });
             }
         }
+
         switch(newState) {
             case STATE_ERROR:
                 if (mCurrentState != STATE_ERROR && mCurrentHandler != null &&
@@ -206,7 +248,7 @@ public class CameraDeviceState {
             case STATE_CONFIGURING:
                 if (mCurrentState != STATE_UNCONFIGURED && mCurrentState != STATE_IDLE) {
                     Log.e(TAG, "Cannot call configure while in state: " + mCurrentState);
-                    mCurrentError = CameraBinderDecorator.INVALID_OPERATION;
+                    mCurrentError = CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE;
                     doStateTransition(STATE_ERROR);
                     break;
                 }
@@ -228,7 +270,7 @@ public class CameraDeviceState {
 
                 if (mCurrentState != STATE_CONFIGURING && mCurrentState != STATE_CAPTURING) {
                     Log.e(TAG, "Cannot call idle while in state: " + mCurrentState);
-                    mCurrentError = CameraBinderDecorator.INVALID_OPERATION;
+                    mCurrentError = CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE;
                     doStateTransition(STATE_ERROR);
                     break;
                 }
@@ -247,17 +289,27 @@ public class CameraDeviceState {
             case STATE_CAPTURING:
                 if (mCurrentState != STATE_IDLE && mCurrentState != STATE_CAPTURING) {
                     Log.e(TAG, "Cannot call capture while in state: " + mCurrentState);
-                    mCurrentError = CameraBinderDecorator.INVALID_OPERATION;
+                    mCurrentError = CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE;
                     doStateTransition(STATE_ERROR);
                     break;
                 }
+
                 if (mCurrentHandler != null && mCurrentListener != null) {
-                    mCurrentHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            mCurrentListener.onCaptureStarted(mCurrentRequest, timestamp);
-                        }
-                    });
+                    if (error != NO_CAPTURE_ERROR) {
+                        mCurrentHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                mCurrentListener.onError(error, mCurrentRequest);
+                            }
+                        });
+                    } else {
+                        mCurrentHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                mCurrentListener.onCaptureStarted(mCurrentRequest, timestamp);
+                            }
+                        });
+                    }
                 }
                 mCurrentState = STATE_CAPTURING;
                 break;

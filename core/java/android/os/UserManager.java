@@ -15,16 +15,14 @@
  */
 package android.os;
 
+import android.annotation.SystemApi;
 import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.content.Context;
 import android.content.pm.UserInfo;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Bitmap.Config;
 import android.graphics.Rect;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.provider.Settings;
 import android.util.Log;
@@ -45,255 +43,308 @@ public class UserManager {
     private final Context mContext;
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from adding and removing
-     * accounts.
+     * Specifies if a user is disallowed from adding and removing accounts.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_MODIFY_ACCOUNTS = "no_modify_accounts";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from changing Wi-Fi
-     * access points.
-     * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * Specifies if a user is disallowed from changing Wi-Fi
+     * access points. The default value is <code>false</code>.
+     * <p/>This restriction has no effect in a managed profile.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_WIFI = "no_config_wifi";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from installing applications.
+     * Specifies if a user is disallowed from installing applications.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_INSTALL_APPS = "no_install_apps";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from uninstalling applications.
+     * Specifies if a user is disallowed from uninstalling applications.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_UNINSTALL_APPS = "no_uninstall_apps";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from toggling location sharing.
+     * Specifies if a user is disallowed from turning on location sharing.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * <p/>In a managed profile, location sharing always reflects the primary user's setting, but
+     * can be overridden and forced off by setting this restriction to true in the managed profile.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_SHARE_LOCATION = "no_share_location";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from enabling the
+     * Specifies if a user is disallowed from enabling the
      * "Unknown Sources" setting, that allows installation of apps from unknown sources.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_INSTALL_UNKNOWN_SOURCES = "no_install_unknown_sources";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from configuring bluetooth.
+     * Specifies if a user is disallowed from configuring bluetooth.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * <p/>This restriction has no effect in a managed profile.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_BLUETOOTH = "no_config_bluetooth";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from transferring files over
-     * USB. The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * Specifies if a user is disallowed from transferring files over
+     * USB. This can only be set by device owners and profile owners on the primary user.
+     * The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_USB_FILE_TRANSFER = "no_usb_file_transfer";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from configuring user
+     * Specifies if a user is disallowed from configuring user
      * credentials. The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_CREDENTIALS = "no_config_credentials";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from removing itself and other
-     * users.
+     * When set on the primary user this specifies if the user can remove other users.
+     * When set on a secondary user, this specifies if the user can remove itself.
+     * This restriction has no effect on managed profiles.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_REMOVE_USER = "no_remove_user";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from enabling or
+     * Specifies if a user is disallowed from enabling or
      * accessing debugging features. The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_DEBUGGING_FEATURES = "no_debugging_features";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from configuring VPN.
+     * Specifies if a user is disallowed from configuring VPN.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * This restriction has no effect in a managed profile.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_VPN = "no_config_vpn";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from configuring Tethering
-     * & portable hotspots. The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * Specifies if a user is disallowed from configuring Tethering
+     * & portable hotspots. This can only be set by device owners and profile owners on the
+     * primary user. The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_TETHERING = "no_config_tethering";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from factory resetting
-     * from Settings.
+     * Specifies if a user is disallowed from factory resetting
+     * from Settings. This can only be set by device owners and profile owners on the primary user.
      * The default value is <code>false</code>.
-     * <p>
+     * <p/>This restriction has no effect on secondary users and managed profiles since only the
+     * primary user can factory reset the device.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_FACTORY_RESET = "no_factory_reset";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from adding new users and
-     * profiles. The default value is <code>false</code>.
-     * <p>
-     * Type: Boolean
+     * Specifies if a user is disallowed from adding new users and
+     * profiles. This can only be set by device owners and profile owners on the primary user.
+     * The default value is <code>false</code>.
+     * <p/>This restriction has no effect on secondary users and managed profiles since only the
+     * primary user can add other users.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_ADD_USER = "no_add_user";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from disabling application
+     * Specifies if a user is disallowed from disabling application
      * verification. The default value is <code>false</code>.
-     * <p>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String ENSURE_VERIFY_APPS = "ensure_verify_apps";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from configuring cell
-     * broadcasts. The default value is <code>false</code>.
-     * <p>
-     * Type: Boolean
+     * Specifies if a user is disallowed from configuring cell
+     * broadcasts. This can only be set by device owners and profile owners on the primary user.
+     * The default value is <code>false</code>.
+     * <p/>This restriction has no effect on secondary users and managed profiles since only the
+     * primary user can configure cell broadcasts.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_CELL_BROADCASTS = "no_config_cell_broadcasts";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from configuring mobile
-     * networks. The default value is <code>false</code>.
-     * <p>
-     * Type: Boolean
+     * Specifies if a user is disallowed from configuring mobile
+     * networks. This can only be set by device owners and profile owners on the primary user.
+     * The default value is <code>false</code>.
+     * <p/>This restriction has no effect on secondary users and managed profiles since only the
+     * primary user can configure mobile networks.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_MOBILE_NETWORKS = "no_config_mobile_networks";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from controlling
-     * applications in Settings. The default value is <code>false</code>.
+     * Specifies if a user is disallowed from modifying
+     * applications in Settings or launchers. The following actions will not be allowed when this
+     * restriction is enabled:
+     * <li>uninstalling apps</li>
+     * <li>disabling apps</li>
+     * <li>clearing app caches</li>
+     * <li>clearing app data</li>
+     * <li>force stopping apps</li>
+     * <li>clearing app defaults</li>
      * <p>
-     * Type: Boolean
+     * The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_APPS_CONTROL = "no_control_apps";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from mounting
-     * physical external media. The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * Specifies if a user is disallowed from mounting
+     * physical external media. This can only be set by device owners and profile owners on the
+     * primary user. The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_MOUNT_PHYSICAL_MEDIA = "no_physical_media";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from adjusting microphone
-     * volume.
-     * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * Specifies if a user is disallowed from adjusting microphone
+     * volume. If set, the microphone will be muted. This can only be set by device owners
+     * and profile owners on the primary user. The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_UNMUTE_MICROPHONE = "no_unmute_microphone";
 
     /**
-     * Key for user restrictions. Specifies if a user is disallowed from adjusting the master
-     * volume.
-     * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * Specifies if a user is disallowed from adjusting the master
+     * volume. If set, the master volume will be muted. This can only be set by device owners
+     * and profile owners on the primary user. The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_ADJUST_VOLUME = "no_adjust_volume";
 
     /**
-     * Key for user restrictions. Specifies that the user is not allowed to make outgoing
+     * Specifies that the user is not allowed to make outgoing
      * phone calls. Emergency calls are still permitted.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * <p/>This restriction has no effect on managed profiles since call intents are normally
+     * forwarded to the primary user.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_OUTGOING_CALLS = "no_outgoing_calls";
 
     /**
-     * Key for user restrictions. Specifies that the user is not allowed to send or receive
-     * SMS messages.
-     * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * Specifies that the user is not allowed to send or receive
+     * SMS messages. The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_SMS = "no_sms";
 
     /**
-     * Key for user restrictions. Specifies that windows besides app windows should not be
+     * Specifies that windows besides app windows should not be
      * created. This will block the creation of the following types of windows.
      * <li>{@link LayoutParams#TYPE_TOAST}</li>
      * <li>{@link LayoutParams#TYPE_PHONE}</li>
@@ -302,25 +353,59 @@ public class UserManager {
      * <li>{@link LayoutParams#TYPE_SYSTEM_ERROR}</li>
      * <li>{@link LayoutParams#TYPE_SYSTEM_OVERLAY}</li>
      *
-     * <p>The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     * <p>This can only be set by device owners and profile owners on the primary user.
+     * The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CREATE_WINDOWS = "no_create_windows";
 
     /**
-     * Key for user restrictions. Specifies if what is copied in the clipboard of this profile can
+     * Specifies if what is copied in the clipboard of this profile can
      * be pasted in related profiles. Does not restrict if the clipboard of related profiles can be
      * pasted in this profile.
      * The default value is <code>false</code>.
-     * <p/>
-     * Type: Boolean
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
      * @see #setUserRestrictions(Bundle)
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CROSS_PROFILE_COPY_PASTE = "no_cross_profile_copy_paste";
+
+    /**
+     * Specifies if the user is not allowed to use NFC to beam out data from apps.
+     * The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
+     * @see #setUserRestrictions(Bundle)
+     * @see #getUserRestrictions()
+     */
+    public static final String DISALLOW_OUTGOING_BEAM = "no_outgoing_beam";
+
+    /**
+     * Application restriction key that is used to indicate the pending arrival
+     * of real restrictions for the app.
+     *
+     * <p>
+     * Applications that support restrictions should check for the presence of this key.
+     * A <code>true</code> value indicates that restrictions may be applied in the near
+     * future but are not available yet. It is the responsibility of any
+     * management application that sets this flag to update it when the final
+     * restrictions are enforced.
+     *
+     * <p/>Key for application restrictions.
+     * <p/>Type: Boolean
+     * @see android.app.admin.DevicePolicyManager#setApplicationRestrictions(
+     *      android.content.ComponentName, String, Bundle)
+     * @see android.app.admin.DevicePolicyManager#getApplicationRestrictions(
+     *      android.content.ComponentName, String)
+     */
+    public static final String KEY_RESTRICTIONS_PENDING = "restrictions_pending";
 
     /** @hide */
     public static final int PIN_VERIFICATION_FAILED_INCORRECT = -3;
@@ -381,13 +466,18 @@ public class UserManager {
         }
     }
 
-   /**
+    /**
      * Used to determine whether the user making this call is subject to
      * teleportations.
-     * @return whether the user making this call is a goat
+     *
+     * <p>As of {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this method can
+     * now automatically identify goats using advanced goat recognition technology.</p>
+     *
+     * @return Returns true if the user making this call is a goat.
      */
     public boolean isUserAGoat() {
-        return false;
+        return mContext.getPackageManager()
+                .isPackageAvailable("com.coffeestainstudios.goatsimulator");
     }
 
     /**
@@ -413,6 +503,19 @@ public class UserManager {
     public boolean isGuestUser() {
         UserInfo user = getUserInfo(UserHandle.myUserId());
         return user != null ? user.isGuest() : false;
+    }
+
+    /**
+     * Checks if the calling app is running in a managed profile.
+     * Requires {@link android.Manifest.permission#MANAGE_USERS} permission.
+     *
+     * @return whether the caller is in a managed profile.
+     * @hide
+     */
+    @SystemApi
+    public boolean isManagedProfile() {
+        UserInfo user = getUserInfo(UserHandle.myUserId());
+        return user != null ? user.isManagedProfile() : false;
     }
 
     /**
@@ -490,7 +593,12 @@ public class UserManager {
      * Sets all the user-wide restrictions for this user.
      * Requires the MANAGE_USERS permission.
      * @param restrictions the Bundle containing all the restrictions.
+     * @deprecated use {@link android.app.admin.DevicePolicyManager#addUserRestriction(
+     * android.content.ComponentName, String)} or
+     * {@link android.app.admin.DevicePolicyManager#clearUserRestriction(
+     * android.content.ComponentName, String)} instead.
      */
+    @Deprecated
     public void setUserRestrictions(Bundle restrictions) {
         setUserRestrictions(restrictions, Process.myUserHandle());
     }
@@ -500,7 +608,12 @@ public class UserManager {
      * Requires the MANAGE_USERS permission.
      * @param restrictions the Bundle containing all the restrictions.
      * @param userHandle the UserHandle of the user for whom to set the restrictions.
+     * @deprecated use {@link android.app.admin.DevicePolicyManager#addUserRestriction(
+     * android.content.ComponentName, String)} or
+     * {@link android.app.admin.DevicePolicyManager#clearUserRestriction(
+     * android.content.ComponentName, String)} instead.
      */
+    @Deprecated
     public void setUserRestrictions(Bundle restrictions, UserHandle userHandle) {
         try {
             mService.setUserRestrictions(restrictions, userHandle.getIdentifier());
@@ -514,7 +627,12 @@ public class UserManager {
      * Requires the MANAGE_USERS permission.
      * @param key the key of the restriction
      * @param value the value for the restriction
+     * @deprecated use {@link android.app.admin.DevicePolicyManager#addUserRestriction(
+     * android.content.ComponentName, String)} or
+     * {@link android.app.admin.DevicePolicyManager#clearUserRestriction(
+     * android.content.ComponentName, String)} instead.
      */
+    @Deprecated
     public void setUserRestriction(String key, boolean value) {
         Bundle bundle = getUserRestrictions();
         bundle.putBoolean(key, value);
@@ -528,7 +646,12 @@ public class UserManager {
      * @param key the key of the restriction
      * @param value the value for the restriction
      * @param userHandle the user whose restriction is to be changed.
+     * @deprecated use {@link android.app.admin.DevicePolicyManager#addUserRestriction(
+     * android.content.ComponentName, String)} or
+     * {@link android.app.admin.DevicePolicyManager#clearUserRestriction(
+     * android.content.ComponentName, String)} instead.
      */
+    @Deprecated
     public void setUserRestriction(String key, boolean value, UserHandle userHandle) {
         Bundle bundle = getUserRestrictions(userHandle);
         bundle.putBoolean(key, value);
@@ -554,7 +677,13 @@ public class UserManager {
      * @param userHandle the UserHandle of the user for whom to retrieve the restrictions.
      */
     public boolean hasUserRestriction(String restrictionKey, UserHandle userHandle) {
-        return getUserRestrictions(userHandle).getBoolean(restrictionKey, false);
+        try {
+            return mService.hasUserRestriction(restrictionKey,
+                    userHandle.getIdentifier());
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not check user restrictions", re);
+            return false;
+        }
     }
 
     /**
@@ -615,8 +744,49 @@ public class UserManager {
         if (guest != null) {
             Settings.Secure.putStringForUser(context.getContentResolver(),
                     Settings.Secure.SKIP_FIRST_USE_HINTS, "1", guest.id);
+            try {
+                Bundle guestRestrictions = mService.getDefaultGuestRestrictions();
+                guestRestrictions.putBoolean(DISALLOW_SMS, true);
+                guestRestrictions.putBoolean(DISALLOW_INSTALL_UNKNOWN_SOURCES, true);
+                mService.setUserRestrictions(guestRestrictions, guest.id);
+            } catch (RemoteException re) {
+                Log.w(TAG, "Could not update guest restrictions");
+            }
         }
         return guest;
+    }
+
+    /**
+     * Creates a secondary user with the specified name and options and configures it with default
+     * restrictions.
+     * Requires {@link android.Manifest.permission#MANAGE_USERS} permission.
+     *
+     * @param name the user's name
+     * @param flags flags that identify the type of user and other properties.
+     * @see UserInfo
+     *
+     * @return the UserInfo object for the created user, or null if the user could not be created.
+     * @hide
+     */
+    public UserInfo createSecondaryUser(String name, int flags) {
+        try {
+            UserInfo user = mService.createUser(name, flags);
+            if (user == null) {
+                return null;
+            }
+            Bundle userRestrictions = mService.getUserRestrictions(user.id);
+            addDefaultUserRestrictions(userRestrictions);
+            mService.setUserRestrictions(userRestrictions, user.id);
+            return user;
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not create a user", re);
+            return null;
+        }
+    }
+
+    private static void addDefaultUserRestrictions(Bundle restrictions) {
+        restrictions.putBoolean(DISALLOW_OUTGOING_CALLS, true);
+        restrictions.putBoolean(DISALLOW_SMS, true);
     }
 
     /**
@@ -637,6 +807,22 @@ public class UserManager {
         } catch (RemoteException re) {
             Log.w(TAG, "Could not create a user", re);
             return null;
+        }
+    }
+
+    /**
+     * @hide
+     * Marks the guest user for deletion to allow a new guest to be created before deleting
+     * the current user who is a guest.
+     * @param userHandle
+     * @return
+     */
+    public boolean markGuestForDeletion(int userHandle) {
+        try {
+            return mService.markGuestForDeletion(userHandle);
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not mark guest for deletion", re);
+            return false;
         }
     }
 
@@ -680,9 +866,29 @@ public class UserManager {
     }
 
     /**
+     * Checks whether it's possible to add more users. Caller must hold the MANAGE_USERS
+     * permission.
+     *
+     * @return true if more users can be added, false if limit has been reached.
+     * @hide
+     */
+    public boolean canAddMoreUsers() {
+        final List<UserInfo> users = getUsers(true);
+        final int totalUserCount = users.size();
+        int aliveUserCount = 0;
+        for (int i = 0; i < totalUserCount; i++) {
+            UserInfo user = users.get(i);
+            if (!user.isGuest()) {
+                aliveUserCount++;
+            }
+        }
+        return aliveUserCount < getMaxSupportedUsers();
+    }
+
+    /**
      * Returns list of the profiles of userHandle including
      * userHandle itself.
-     * Note that it this returns both enabled and not enabled profiles. See
+     * Note that this returns both enabled and not enabled profiles. See
      * {@link #getUserProfiles()} if you need only the enabled ones.
      *
      * Requires {@link android.Manifest.permission#MANAGE_USERS} permission.
@@ -739,26 +945,54 @@ public class UserManager {
     /**
      * If the target user is a managed profile of the calling user or the caller
      * is itself a managed profile, then this returns a badged copy of the given
-     * icon to be able to distinguish it from the original icon.
-     * <P>
-     * If the original drawable is not a BitmapDrawable, then the original
-     * drawable is returned.
-     * </P>
+     * icon to be able to distinguish it from the original icon. For badging an
+     * arbitrary drawable use {@link #getBadgedDrawableForUser(
+     * android.graphics.drawable.Drawable, UserHandle, android.graphics.Rect, int)}.
+     * <p>
+     * If the original drawable is a BitmapDrawable and the backing bitmap is
+     * mutable as per {@link android.graphics.Bitmap#isMutable()}, the bading
+     * is performed in place and the original drawable is returned.
+     * </p>
      *
      * @param icon The icon to badge.
      * @param user The target user.
      * @return A drawable that combines the original icon and a badge as
      *         determined by the system.
+     * @removed
      */
-    public Drawable getBadgedDrawableForUser(Drawable icon, UserHandle user) {
-        int badgeResId = getBadgeResIdForUser(user.getIdentifier());
-        if (badgeResId == 0) {
-            return icon;
-        } else {
-            Drawable badgeIcon = mContext.getPackageManager()
-                    .getDrawable("system", badgeResId, null);
-            return getMergedDrawable(icon, badgeIcon);
-        }
+    public Drawable getBadgedIconForUser(Drawable icon, UserHandle user) {
+        return mContext.getPackageManager().getUserBadgedIcon(icon, user);
+    }
+
+    /**
+     * If the target user is a managed profile of the calling user or the caller
+     * is itself a managed profile, then this returns a badged copy of the given
+     * drawable allowing the user to distinguish it from the original drawable.
+     * The caller can specify the location in the bounds of the drawable to be
+     * badged where the badge should be applied as well as the density of the
+     * badge to be used.
+     * <p>
+     * If the original drawable is a BitmapDrawable and the backing bitmap is
+     * mutable as per {@link android.graphics.Bitmap#isMutable()}, the bading
+     * is performed in place and the original drawable is returned.
+     * </p>
+     *
+     * @param badgedDrawable The drawable to badge.
+     * @param user The target user.
+     * @param badgeLocation Where in the bounds of the badged drawable to place
+     *         the badge. If not provided, the badge is applied on top of the entire
+     *         drawable being badged.
+     * @param badgeDensity The optional desired density for the badge as per
+     *         {@link android.util.DisplayMetrics#densityDpi}. If not provided,
+     *         the density of the display is used.
+     * @return A drawable that combines the original drawable and a badge as
+     *         determined by the system.
+     * @removed
+     */
+    public Drawable getBadgedDrawableForUser(Drawable badgedDrawable, UserHandle user,
+            Rect badgeLocation, int badgeDensity) {
+        return mContext.getPackageManager().getUserBadgedDrawableForDensity(badgedDrawable, user,
+                badgeLocation, badgeDensity);
     }
 
     /**
@@ -771,80 +1005,10 @@ public class UserManager {
      * @param user The target user.
      * @return A label that combines the original label and a badge as
      *         determined by the system.
+     * @removed
      */
     public CharSequence getBadgedLabelForUser(CharSequence label, UserHandle user) {
-        UserInfo userInfo = getUserIfProfile(user.getIdentifier());
-        if (userInfo != null && userInfo.isManagedProfile()) {
-            return Resources.getSystem().getString(
-                    R.string.managed_profile_label_badge, label);
-        }
-        return label;
-    }
-
-    /**
-     * Kept during L development to simplify updating unbundled apps.
-     * TODO: Remove after 2014-08-04
-     * @hide
-     */
-    public String getBadgedLabelForUser(String label, UserHandle user) {
-        return (String) getBadgedLabelForUser((CharSequence) label, user);
-    }
-
-    /**
-     * If the target user is a managed profile of the calling user or the caller
-     * is itself a managed profile, then this returns a drawable to use as a small
-     * icon to include in a view to distinguish it from the original icon.
-     *
-     * @param user The target user.
-     * @return the drawable or null if no drawable is required.
-     * @hide
-     */
-    public Drawable getBadgeForUser(UserHandle user) {
-        UserInfo userInfo = getUserIfProfile(user.getIdentifier());
-        if (userInfo != null && userInfo.isManagedProfile()) {
-            return Resources.getSystem().getDrawable(
-                    com.android.internal.R.drawable.ic_corp_badge);
-        }
-        return null;
-    }
-
-    private int getBadgeResIdForUser(int userHandle) {
-        // Return the framework-provided badge.
-        UserInfo userInfo = getUserIfProfile(userHandle);
-        if (userInfo != null && userInfo.isManagedProfile()) {
-            return com.android.internal.R.drawable.ic_corp_icon_badge;
-        }
-        return 0;
-    }
-
-    /**
-     * @return UserInfo for userHandle if it exists and is a profile of the current
-     *         user or null.
-     */
-    private UserInfo getUserIfProfile(int userHandle) {
-        List<UserInfo> userProfiles = getProfiles(getUserHandle());
-        for (UserInfo user : userProfiles) {
-            if (user.id == userHandle) {
-                return user;
-            }
-        }
-        return null;
-    }
-
-    private Drawable getMergedDrawable(Drawable icon, Drawable badge) {
-        final int width = icon.getIntrinsicWidth();
-        final int height = icon.getIntrinsicHeight();
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        icon.setBounds(0, 0, width, height);
-        icon.draw(canvas);
-        badge.setBounds(0, 0, width, height);
-        badge.draw(canvas);
-        BitmapDrawable merged = new BitmapDrawable(bitmap);
-        if (icon instanceof BitmapDrawable) {
-            merged.setTargetDensity(((BitmapDrawable) icon).getBitmap().getDensity());
-        }
-        return merged;
+        return mContext.getPackageManager().getUserBadgedLabel(label, user);
     }
 
     /**
@@ -914,6 +1078,7 @@ public class UserManager {
      * Returns a file descriptor for the user's photo. PNG data can be read from this file.
      * @param userHandle the user whose photo we want to read.
      * @return a {@link Bitmap} of the user's photo, or null if there's no photo.
+     * @see com.android.internal.util.UserIcons#getDefaultUserIcon for a default.
      * @hide
      */
     public Bitmap getUserIcon(int userHandle) {

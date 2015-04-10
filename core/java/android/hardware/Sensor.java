@@ -329,7 +329,11 @@ public final class Sensor {
      * A sensor of this type triggers an event each time a step is taken by the user. The only
      * allowed value to return is 1.0 and an event is generated for each step. Like with any other
      * event, the timestamp indicates when the event (here the step) occurred, this corresponds to
-     * when the foot hit the ground, generating a high variation in acceleration.
+     * when the foot hit the ground, generating a high variation in acceleration. This sensor is
+     * only for detecting every individual step as soon as it is taken, for example to perform dead
+     * reckoning. If you only need aggregate number of steps taken over a period of time, register
+     * for {@link #TYPE_STEP_COUNTER} instead. It is defined as a
+     * {@link Sensor#REPORTING_MODE_SPECIAL_TRIGGER} sensor.
      * <p>
      * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
      */
@@ -348,8 +352,13 @@ public final class Sensor {
      * A sensor of this type returns the number of steps taken by the user since the last reboot
      * while activated. The value is returned as a float (with the fractional part set to zero) and
      * is reset to zero only on a system reboot. The timestamp of the event is set to the time when
-     * the first step for that event was taken. This sensor is implemented in hardware and is
-     * expected to be low power.
+     * the last step for that event was taken. This sensor is implemented in hardware and is
+     * expected to be low power. If you want to continuously track the number of steps over a long
+     * period of time, do NOT unregister for this sensor, so that it keeps counting steps in the
+     * background even when the AP is in suspend mode and report the aggregate count when the AP
+     * is awake. Application needs to stay registered for this sensor because step counter does not
+     * count steps if it is not activated. This sensor is ideal for fitness tracking applications.
+     * It is defined as an {@link Sensor#REPORTING_MODE_ON_CHANGE} sensor.
      * <p>
      * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
      */
@@ -406,304 +415,6 @@ public final class Sensor {
     public static final String STRING_TYPE_HEART_RATE = "android.sensor.heart_rate";
 
     /**
-     * A non-wake up variant of proximity sensor.
-     *
-     * @see #TYPE_PROXIMITY
-     */
-    public static final int TYPE_NON_WAKE_UP_PROXIMITY_SENSOR = 22;
-
-    /**
-     * A constant string describing a non-wake up proximity sensor type.
-     *
-     * @see #TYPE_NON_WAKE_UP_PROXIMITY_SENSOR
-     */
-    public static final String SENSOR_STRING_TYPE_NON_WAKE_UP_PROXIMITY_SENSOR =
-            "android.sensor.non_wake_up_proximity_sensor";
-
-    /**
-     * A constant describing a wake up variant of accelerometer sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_ACCELEROMETER
-     */
-    public static final int TYPE_WAKE_UP_ACCELEROMETER = 23;
-
-    /**
-     * A constant string describing a wake up accelerometer.
-     *
-     * @see #TYPE_WAKE_UP_ACCELEROMETER
-     */
-    public static final String STRING_TYPE_WAKE_UP_ACCELEROMETER =
-            "android.sensor.wake_up_accelerometer";
-
-    /**
-     * A constant describing a wake up variant of a magnetic field sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_MAGNETIC_FIELD
-     */
-    public static final int TYPE_WAKE_UP_MAGNETIC_FIELD = 24;
-
-    /**
-     * A constant string describing a wake up magnetic field sensor.
-     *
-     * @see #TYPE_WAKE_UP_MAGNETIC_FIELD
-     */
-    public static final String STRING_TYPE_WAKE_UP_MAGNETIC_FIELD =
-            "android.sensor.wake_up_magnetic_field";
-
-    /**
-     * A constant describing a wake up variant of an orientation sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_ORIENTATION
-     */
-    public static final int TYPE_WAKE_UP_ORIENTATION = 25;
-
-    /**
-     * A constant string describing a wake up orientation sensor.
-     *
-     * @see #TYPE_WAKE_UP_ORIENTATION
-     */
-    public static final String STRING_TYPE_WAKE_UP_ORIENTATION =
-            "android.sensor.wake_up_orientation";
-
-    /**
-     * A constant describing a wake up variant of a gyroscope sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_GYROSCOPE
-     */
-    public static final int TYPE_WAKE_UP_GYROSCOPE = 26;
-
-    /**
-     * A constant string describing a wake up gyroscope sensor type.
-     *
-     * @see #TYPE_WAKE_UP_GYROSCOPE
-     */
-    public static final String STRING_TYPE_WAKE_UP_GYROSCOPE = "android.sensor.wake_up_gyroscope";
-
-    /**
-     * A constant describing a wake up variant of a light sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_LIGHT
-     */
-    public static final int TYPE_WAKE_UP_LIGHT = 27;
-
-    /**
-     * A constant string describing a wake up light sensor type.
-     *
-     * @see #TYPE_WAKE_UP_LIGHT
-     */
-    public static final String STRING_TYPE_WAKE_UP_LIGHT = "android.sensor.wake_up_light";
-
-    /**
-     * A constant describing a wake up variant of a pressure sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_PRESSURE
-     */
-    public static final int TYPE_WAKE_UP_PRESSURE = 28;
-
-    /**
-     * A constant string describing a wake up pressure sensor type.
-     *
-     * @see #TYPE_WAKE_UP_PRESSURE
-     */
-    public static final String STRING_TYPE_WAKE_UP_PRESSURE = "android.sensor.wake_up_pressure";
-
-    /**
-     * A constant describing a wake up variant of a gravity sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_GRAVITY
-     */
-    public static final int TYPE_WAKE_UP_GRAVITY = 29;
-
-    /**
-     * A constant string describing a wake up gravity sensor type.
-     *
-     * @see #TYPE_WAKE_UP_GRAVITY
-     */
-    public static final String STRING_TYPE_WAKE_UP_GRAVITY = "android.sensor.wake_up_gravity";
-
-    /**
-     * A constant describing a wake up variant of a linear acceleration sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_LINEAR_ACCELERATION
-     */
-    public static final int TYPE_WAKE_UP_LINEAR_ACCELERATION = 30;
-
-    /**
-     * A constant string describing a wake up linear acceleration sensor type.
-     *
-     * @see #TYPE_WAKE_UP_LINEAR_ACCELERATION
-     */
-    public static final String STRING_TYPE_WAKE_UP_LINEAR_ACCELERATION =
-            "android.sensor.wake_up_linear_acceleration";
-
-    /**
-     * A constant describing a wake up variant of a rotation vector sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_ROTATION_VECTOR
-     */
-    public static final int TYPE_WAKE_UP_ROTATION_VECTOR = 31;
-
-    /**
-     * A constant string describing a wake up rotation vector sensor type.
-     *
-     * @see #TYPE_WAKE_UP_ROTATION_VECTOR
-     */
-    public static final String STRING_TYPE_WAKE_UP_ROTATION_VECTOR =
-            "android.sensor.wake_up_rotation_vector";
-
-    /**
-     * A constant describing a wake up variant of a relative humidity sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_RELATIVE_HUMIDITY
-     */
-    public static final int TYPE_WAKE_UP_RELATIVE_HUMIDITY = 32;
-
-    /**
-     * A constant string describing a wake up relative humidity sensor type.
-     *
-     * @see #TYPE_WAKE_UP_RELATIVE_HUMIDITY
-     */
-    public static final String STRING_TYPE_WAKE_UP_RELATIVE_HUMIDITY =
-            "android.sensor.wake_up_relative_humidity";
-
-    /**
-     * A constant describing a wake up variant of an ambient temperature sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_AMBIENT_TEMPERATURE
-     */
-    public static final int TYPE_WAKE_UP_AMBIENT_TEMPERATURE = 33;
-
-    /**
-     * A constant string describing a wake up ambient temperature sensor type.
-     *
-     * @see #TYPE_WAKE_UP_AMBIENT_TEMPERATURE
-     */
-    public static final String STRING_TYPE_WAKE_UP_AMBIENT_TEMPERATURE =
-            "android.sensor.wake_up_ambient_temperature";
-
-    /**
-     * A constant describing a wake up variant of an uncalibrated magnetic field sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_MAGNETIC_FIELD_UNCALIBRATED
-     */
-    public static final int TYPE_WAKE_UP_MAGNETIC_FIELD_UNCALIBRATED = 34;
-
-    /**
-     * A constant string describing a wake up uncalibrated magnetic field sensor type.
-     *
-     * @see #TYPE_WAKE_UP_MAGNETIC_FIELD_UNCALIBRATED
-     */
-    public static final String STRING_TYPE_WAKE_UP_MAGNETIC_FIELD_UNCALIBRATED =
-            "android.sensor.wake_up_magnetic_field_uncalibrated";
-
-    /**
-     * A constant describing a wake up variant of a game rotation vector sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_GAME_ROTATION_VECTOR
-     */
-    public static final int TYPE_WAKE_UP_GAME_ROTATION_VECTOR = 35;
-
-    /**
-     * A constant string describing a wake up game rotation vector sensor type.
-     *
-     * @see #TYPE_WAKE_UP_GAME_ROTATION_VECTOR
-     */
-    public static final String STRING_TYPE_WAKE_UP_GAME_ROTATION_VECTOR =
-            "android.sensor.wake_up_game_rotation_vector";
-
-    /**
-     * A constant describing a wake up variant of an uncalibrated gyroscope sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_GYROSCOPE_UNCALIBRATED
-     */
-    public static final int TYPE_WAKE_UP_GYROSCOPE_UNCALIBRATED = 36;
-
-    /**
-     * A constant string describing a wake up uncalibrated gyroscope sensor type.
-     *
-     * @see #TYPE_WAKE_UP_GYROSCOPE_UNCALIBRATED
-     */
-    public static final String STRING_TYPE_WAKE_UP_GYROSCOPE_UNCALIBRATED =
-            "android.sensor.wake_up_gyroscope_uncalibrated";
-
-    /**
-     * A constant describing a wake up variant of a step detector sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_STEP_DETECTOR
-     */
-    public static final int TYPE_WAKE_UP_STEP_DETECTOR = 37;
-
-    /**
-     * A constant string describing a wake up step detector sensor type.
-     *
-     * @see #TYPE_WAKE_UP_STEP_DETECTOR
-     */
-    public static final String STRING_TYPE_WAKE_UP_STEP_DETECTOR =
-            "android.sensor.wake_up_step_detector";
-
-    /**
-     * A constant describing a wake up variant of a step counter sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_STEP_COUNTER
-     */
-    public static final int TYPE_WAKE_UP_STEP_COUNTER = 38;
-
-    /**
-     * A constant string describing a wake up step counter sensor type.
-     *
-     * @see #TYPE_WAKE_UP_STEP_COUNTER
-     */
-    public static final String STRING_TYPE_WAKE_UP_STEP_COUNTER =
-            "android.sensor.wake_up_step_counter";
-
-    /**
-     * A constant describing a wake up variant of a geomagnetic rotation vector sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_GEOMAGNETIC_ROTATION_VECTOR
-     */
-    public static final int TYPE_WAKE_UP_GEOMAGNETIC_ROTATION_VECTOR = 39;
-
-    /**
-     * A constant string describing a wake up geomagnetic rotation vector sensor type.
-     *
-     * @see #TYPE_WAKE_UP_GEOMAGNETIC_ROTATION_VECTOR
-     */
-    public static final String STRING_TYPE_WAKE_UP_GEOMAGNETIC_ROTATION_VECTOR =
-            "android.sensor.wake_up_geomagnetic_rotation_vector";
-
-    /**
-     * A constant describing a wake up variant of a heart rate sensor type.
-     *
-     * @see #isWakeUpSensor()
-     * @see #TYPE_HEART_RATE
-     */
-    public static final int TYPE_WAKE_UP_HEART_RATE = 40;
-
-    /**
-     * A constant string describing a wake up heart rate sensor type.
-     *
-     * @see #TYPE_WAKE_UP_HEART_RATE
-     */
-    public static final String STRING_TYPE_WAKE_UP_HEART_RATE = "android.sensor.wake_up_heart_rate";
-
-    /**
      * A sensor of this type generates an event each time a tilt event is detected. A tilt event
      * is generated if the direction of the 2-seconds window average gravity changed by at
      * least 35 degrees since the activation of the sensor. It is a wake up sensor.
@@ -711,7 +422,7 @@ public final class Sensor {
      * @hide
      * @see #isWakeUpSensor()
      */
-    public static final int TYPE_WAKE_UP_TILT_DETECTOR = 41;
+    public static final int TYPE_TILT_DETECTOR = 22;
 
     /**
      * A constant string describing a wake up tilt detector sensor type.
@@ -719,8 +430,8 @@ public final class Sensor {
      * @hide
      * @see #TYPE_WAKE_UP_TILT_DETECTOR
      */
-    public static final String SENSOR_STRING_TYPE_WAKE_UP_TILT_DETECTOR =
-            "android.sensor.wake_up_tilt_detector";
+    public static final String SENSOR_STRING_TYPE_TILT_DETECTOR =
+            "android.sensor.tilt_detector";
 
     /**
      * A constant describing a wake gesture sensor.
@@ -739,7 +450,7 @@ public final class Sensor {
      * @see #isWakeUpSensor()
      * @hide This sensor is expected to only be used by the system ui
      */
-    public static final int TYPE_WAKE_GESTURE = 42;
+    public static final int TYPE_WAKE_GESTURE = 23;
 
     /**
      * A constant string describing a wake gesture sensor.
@@ -771,7 +482,7 @@ public final class Sensor {
      * @see #isWakeUpSensor()
      * @hide This sensor is expected to only be used by the system ui
      */
-    public static final int TYPE_GLANCE_GESTURE = 43;
+    public static final int TYPE_GLANCE_GESTURE = 24;
 
     /**
      * A constant string describing a wake gesture sensor.
@@ -790,7 +501,7 @@ public final class Sensor {
      *
      * @hide Expected to be used internally for always on display.
      */
-    public static final int TYPE_PICK_UP_GESTURE = 44;
+    public static final int TYPE_PICK_UP_GESTURE = 25;
 
     /**
      * A constant string describing a pick up sensor.
@@ -876,26 +587,6 @@ public final class Sensor {
             1, // SENSOR_TYPE_STEP_COUNTER
             5, // SENSOR_TYPE_GEOMAGNETIC_ROTATION_VECTOR
             1, // SENSOR_TYPE_HEART_RATE_MONITOR
-            3, // SENSOR_TYPE_NON_WAKE_UP_PROXIMITY_SENSOR
-            // wake up variants of base sensors
-            3, // SENSOR_TYPE_WAKE_UP_ACCELEROMETER
-            3, // SENSOR_TYPE_WAKE_UP_MAGNETIC_FIELD
-            3, // SENSOR_TYPE_WAKE_UP_ORIENTATION
-            3, // SENSOR_TYPE_WAKE_UP_GYROSCOPE
-            3, // SENSOR_TYPE_WAKE_UP_LIGHT
-            3, // SENSOR_TYPE_WAKE_UP_PRESSURE
-            3, // SENSOR_TYPE_WAKE_UP_GRAVITY
-            3, // SENSOR_TYPE_WAKE_UP_LINEAR_ACCELERATION
-            5, // SENSOR_TYPE_WAKE_UP_ROTATION_VECTOR
-            3, // SENSOR_TYPE_WAKE_UP_RELATIVE_HUMIDITY
-            3, // SENSOR_TYPE_WAKE_UP_AMBIENT_TEMPERATURE
-            6, // SENSOR_TYPE_WAKE_UP_MAGNETIC_FIELD_UNCALIBRATED
-            4, // SENSOR_TYPE_WAKE_UP_GAME_ROTATION_VECTOR
-            6, // SENSOR_TYPE_WAKE_UP_GYROSCOPE_UNCALIBRATED
-            1, // SENSOR_TYPE_WAKE_UP_STEP_DETECTOR
-            1, // SENSOR_TYPE_WAKE_UP_STEP_COUNTER
-            5, // SENSOR_TYPE_WAKE_UP_GEOMAGNETIC_ROTATION_VECTOR
-            1, // SENSOR_TYPE_WAKE_UP_HEART_RATE_MONITOR
             1, // SENSOR_TYPE_WAKE_UP_TILT_DETECTOR
             1, // SENSOR_TYPE_WAKE_GESTURE
             1, // SENSOR_TYPE_GLANCE_GESTURE
@@ -1055,12 +746,11 @@ public final class Sensor {
     }
 
     /**
-     * This value is defined only for continuous mode sensors. It is the delay between two
-     * sensor events corresponding to the lowest frequency that this sensor supports. When
-     * lower frequencies are requested through registerListener() the events will be generated
-     * at this frequency instead. It can be used to estimate when the batch FIFO may be full.
-     * Older devices may set this value to zero. Ignore this value in case it is negative
-     * or zero.
+     * This value is defined only for continuous and on-change sensors. It is the delay between two
+     * sensor events corresponding to the lowest frequency that this sensor supports. When lower
+     * frequencies are requested through registerListener() the events will be generated at this
+     * frequency instead. It can be used to estimate when the batch FIFO may be full. Older devices
+     * may set this value to zero. Ignore this value in case it is negative or zero.
      *
      * @return The max delay for this sensor in microseconds.
      */
@@ -1069,31 +759,41 @@ public final class Sensor {
     }
 
     /**
-     * Returns whether this sensor is a wake-up sensor.
+     * Returns true if the sensor is a wake-up sensor.
      * <p>
-     * Wake up sensors wake the application processor up when they have events to deliver. When a
-     * wake up sensor is registered to without batching enabled, each event will wake the
-     * application processor up.
+     * <b>Application Processor Power modes</b> <p>
+     * Application Processor(AP), is the processor on which applications run.  When no wake lock is held
+     * and the user is not interacting with the device, this processor can enter a “Suspend” mode,
+     * reducing the power consumption by 10 times or more.
+     * </p>
      * <p>
-     * When a wake up sensor is registered to with batching enabled, it
-     * wakes the application processor up when maxReportingLatency has elapsed or when the hardware
-     * FIFO storing the events from wake up sensors is getting full.
+     * <b>Non-wake-up sensors</b> <p>
+     * Non-wake-up sensors are sensors that do not wake the AP out of suspend to report data. While
+     * the AP is in suspend mode, the sensors continue to function and generate events, which are
+     * put in a hardware FIFO. The events in the FIFO are delivered to the application when the AP
+     * wakes up. If the FIFO was too small to store all events generated while the AP was in
+     * suspend mode, the older events are lost: the oldest data is dropped to accommodate the newer
+     * data. In the extreme case where the FIFO is non-existent {@code maxFifoEventCount() == 0},
+     * all events generated while the AP was in suspend mode are lost. Applications using
+     * non-wake-up sensors should usually:
+     * <ul>
+     * <li>Either unregister from the sensors when they do not need them, usually in the activity’s
+     * {@code onPause} method. This is the most common case.
+     * <li>Or realize that the sensors are consuming some power while the AP is in suspend mode and
+     * that even then, some events might be lost.
+     * </ul>
+     * </p>
      * <p>
-     * Non-wake up sensors never wake the application processor up. Their events are only reported
-     * when the application processor is awake, for example because the application holds a wake
-     * lock, or another source woke the application processor up.
-     * <p>
-     * When a non-wake up sensor is registered to without batching enabled, the measurements made
-     * while the application processor is asleep might be lost and never returned.
-     * <p>
-     * When a non-wake up sensor is registered to with batching enabled, the measurements made while
-     * the application processor is asleep are stored in the hardware FIFO for non-wake up sensors.
-     * When this FIFO gets full, new events start overwriting older events. When the application
-     * then wakes up, the latest events are returned, and some old events might be lost. The number
-     * of events actually returned depends on the hardware FIFO size, as well as on what other
-     * sensors are activated. If losing sensor events is not acceptable during batching, you must
-     * use the wake-up version of the sensor.
-     * @return true if this is a wake up sensor, false otherwise.
+     * <b>Wake-up sensors</b> <p>
+     * In opposition to non-wake-up sensors, wake-up sensors ensure that their data is delivered
+     * independently of the state of the AP. While the AP is awake, the wake-up sensors behave
+     * like non-wake-up-sensors. When the AP is asleep, wake-up sensors wake up the AP to deliver
+     * events. That is, the AP will wake up and the sensor will deliver the events before the
+     * maximum reporting latency is elapsed or the hardware FIFO gets full. See {@link
+     * SensorManager#registerListener(SensorEventListener, Sensor, int, int)} for more details.
+     * </p>
+     *
+     * @return <code>true</code> if this is a wake-up sensor, <code>false</code> otherwise.
      */
     public boolean isWakeUpSensor() {
         return (mFlags & SENSOR_FLAG_WAKE_UP_SENSOR) != 0;

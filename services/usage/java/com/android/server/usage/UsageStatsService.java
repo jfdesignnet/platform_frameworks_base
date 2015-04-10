@@ -18,9 +18,10 @@ package com.android.server.usage;
 
 import android.Manifest;
 import android.app.AppOpsManager;
+import android.app.usage.ConfigurationStats;
 import android.app.usage.IUsageStatsManager;
+import android.app.usage.UsageEvents;
 import android.app.usage.UsageStats;
-import android.app.usage.UsageStatsManager;
 import android.app.usage.UsageStatsManagerInternal;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -28,12 +29,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.pm.ParceledListSlice;
 import android.content.pm.UserInfo;
+import android.content.res.Configuration;
 import android.os.Binder;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Process;
+import android.os.RemoteException;
+import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.ArraySet;
@@ -41,12 +47,19 @@ import android.util.Slog;
 import android.util.SparseArray;
 
 import com.android.internal.os.BackgroundThread;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.SystemService;
 
 import java.io.File;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * A service that collects, aggregates, and persists application usage data.
+ * This data can be queried by apps that have been granted permission by AppOps.
+ */
 public class UsageStatsService extends SystemService implements
         UserUsageStatsService.StatsUpdatedListener {
     static final String TAG = "UsageStatsService";
@@ -55,7 +68,7 @@ public class UsageStatsService extends SystemService implements
     private static final long TEN_SECONDS = 10 * 1000;
     private static final long TWENTY_MINUTES = 20 * 60 * 1000;
     private static final long FLUSH_INTERVAL = DEBUG ? TEN_SECONDS : TWENTY_MINUTES;
-    static final int USAGE_STAT_RESULT_LIMIT = 10;
+    private static final long TIME_CHANGE_THRESHOLD_MILLIS = 2 * 1000; // Two seconds.
 
     // Handler message types.
     static final int MSG_REPORT_EVENT = 0;
@@ -69,6 +82,8 @@ public class UsageStatsService extends SystemService implements
 
     private final SparseArray<UserUsageStatsService> mUserState = new SparseArray<>();
     private File mUsageStatsDir;
+    long mRealTimeSnapshot;
+    long mSystemTimeSnapshot;
 
     public UsageStatsService(Context context) {
         super(context);
@@ -94,6 +109,9 @@ public class UsageStatsService extends SystemService implements
         synchronized (mLock) {
             cleanUpRemovedUsersLocked();
         }
+
+        mRealTimeSnapshot = SystemClock.elapsedRealtime();
+        mSystemTimeSnapshot = System.currentTimeMillis();
 
         publishLocalService(UsageStatsManagerInternal.class, new LocalService());
         publishBinderService(Context.USAGE_STATS_SERVICE, new BinderService());
@@ -157,19 +175,48 @@ public class UsageStatsService extends SystemService implements
         }
     }
 
-    private UserUsageStatsService getUserDataAndInitializeIfNeededLocked(int userId) {
+    private UserUsageStatsService getUserDataAndInitializeIfNeededLocked(int userId,
+            long currentTimeMillis) {
         UserUsageStatsService service = mUserState.get(userId);
         if (service == null) {
-            service = new UserUsageStatsService(userId,
+            service = new UserUsageStatsService(getContext(), userId,
                     new File(mUsageStatsDir, Integer.toString(userId)), this);
-            service.init();
+            service.init(currentTimeMillis);
             mUserState.put(userId, service);
         }
         return service;
     }
 
     /**
-     * Called by the Bunder stub
+     * This should be the only way to get the time from the system.
+     */
+    private long checkAndGetTimeLocked() {
+        final long actualSystemTime = System.currentTimeMillis();
+        final long actualRealtime = SystemClock.elapsedRealtime();
+        final long expectedSystemTime = (actualRealtime - mRealTimeSnapshot) + mSystemTimeSnapshot;
+        if (Math.abs(actualSystemTime - expectedSystemTime) > TIME_CHANGE_THRESHOLD_MILLIS) {
+            // The time has changed.
+            final int userCount = mUserState.size();
+            for (int i = 0; i < userCount; i++) {
+                final UserUsageStatsService service = mUserState.valueAt(i);
+                service.onTimeChanged(expectedSystemTime, actualSystemTime);
+            }
+            mRealTimeSnapshot = actualRealtime;
+            mSystemTimeSnapshot = actualSystemTime;
+        }
+        return actualSystemTime;
+    }
+
+    /**
+     * Assuming the event's timestamp is measured in milliseconds since boot,
+     * convert it to a system wall time.
+     */
+    private void convertToSystemTimeLocked(UsageEvents.Event event) {
+        event.mTimeStamp = Math.max(0, event.mTimeStamp - mRealTimeSnapshot) + mSystemTimeSnapshot;
+    }
+
+    /**
+     * Called by the Binder stub
      */
     void shutdown() {
         synchronized (mLock) {
@@ -181,9 +228,13 @@ public class UsageStatsService extends SystemService implements
     /**
      * Called by the Binder stub.
      */
-    void reportEvent(UsageStats.Event event, int userId) {
+    void reportEvent(UsageEvents.Event event, int userId) {
         synchronized (mLock) {
-            final UserUsageStatsService service = getUserDataAndInitializeIfNeededLocked(userId);
+            final long timeNow = checkAndGetTimeLocked();
+            convertToSystemTimeLocked(event);
+
+            final UserUsageStatsService service =
+                    getUserDataAndInitializeIfNeededLocked(userId, timeNow);
             service.reportEvent(event);
         }
     }
@@ -211,27 +262,54 @@ public class UsageStatsService extends SystemService implements
     /**
      * Called by the Binder stub.
      */
-    UsageStats[] getUsageStats(int userId, int bucketType, long beginTime) {
-        if (bucketType < 0 || bucketType >= UsageStatsManager.BUCKET_COUNT) {
-            return UsageStats.EMPTY_STATS;
-        }
-
-        final long timeNow = System.currentTimeMillis();
-        if (beginTime > timeNow) {
-            return UsageStats.EMPTY_STATS;
-        }
-
+    List<UsageStats> queryUsageStats(int userId, int bucketType, long beginTime, long endTime) {
         synchronized (mLock) {
-            UserUsageStatsService service = getUserDataAndInitializeIfNeededLocked(userId);
-            return service.getUsageStats(bucketType, beginTime);
+            final long timeNow = checkAndGetTimeLocked();
+            if (!validRange(timeNow, beginTime, endTime)) {
+                return null;
+            }
+
+            final UserUsageStatsService service =
+                    getUserDataAndInitializeIfNeededLocked(userId, timeNow);
+            return service.queryUsageStats(bucketType, beginTime, endTime);
         }
     }
 
     /**
      * Called by the Binder stub.
      */
-    UsageStats.Event[] getEvents(int userId, long time) {
-        return UsageStats.Event.EMPTY_EVENTS;
+    List<ConfigurationStats> queryConfigurationStats(int userId, int bucketType, long beginTime,
+            long endTime) {
+        synchronized (mLock) {
+            final long timeNow = checkAndGetTimeLocked();
+            if (!validRange(timeNow, beginTime, endTime)) {
+                return null;
+            }
+
+            final UserUsageStatsService service =
+                    getUserDataAndInitializeIfNeededLocked(userId, timeNow);
+            return service.queryConfigurationStats(bucketType, beginTime, endTime);
+        }
+    }
+
+    /**
+     * Called by the Binder stub.
+     */
+    UsageEvents queryEvents(int userId, long beginTime, long endTime) {
+        synchronized (mLock) {
+            final long timeNow = checkAndGetTimeLocked();
+            if (!validRange(timeNow, beginTime, endTime)) {
+                return null;
+            }
+
+            final UserUsageStatsService service =
+                    getUserDataAndInitializeIfNeededLocked(userId, timeNow);
+            return service.queryEvents(beginTime, endTime);
+        }
+    }
+
+    private static boolean validRange(long currentTime, long beginTime, long endTime) {
+        return beginTime <= currentTime && beginTime < endTime;
     }
 
     private void flushToDiskLocked() {
@@ -244,6 +322,30 @@ public class UsageStatsService extends SystemService implements
         mHandler.removeMessages(MSG_FLUSH_TO_DISK);
     }
 
+    /**
+     * Called by the Binder stub.
+     */
+    void dump(String[] args, PrintWriter pw) {
+        synchronized (mLock) {
+            IndentingPrintWriter idpw = new IndentingPrintWriter(pw, "  ");
+            ArraySet<String> argSet = new ArraySet<>();
+            argSet.addAll(Arrays.asList(args));
+
+            final int userCount = mUserState.size();
+            for (int i = 0; i < userCount; i++) {
+                idpw.printPair("user", mUserState.keyAt(i));
+                idpw.println();
+                idpw.increaseIndent();
+                if (argSet.contains("--checkin")) {
+                    mUserState.valueAt(i).checkin(idpw);
+                } else {
+                    mUserState.valueAt(i).dump(idpw);
+                }
+                idpw.decreaseIndent();
+            }
+        }
+    }
+
     class H extends Handler {
         public H(Looper looper) {
             super(looper);
@@ -253,7 +355,7 @@ public class UsageStatsService extends SystemService implements
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_REPORT_EVENT:
-                    reportEvent((UsageStats.Event) msg.obj, msg.arg1);
+                    reportEvent((UsageEvents.Event) msg.obj, msg.arg1);
                     break;
 
                 case MSG_FLUSH_TO_DISK:
@@ -274,8 +376,12 @@ public class UsageStatsService extends SystemService implements
     private class BinderService extends IUsageStatsManager.Stub {
 
         private boolean hasPermission(String callingPackage) {
+            final int callingUid = Binder.getCallingUid();
+            if (callingUid == Process.SYSTEM_UID) {
+                return true;
+            }
             final int mode = mAppOps.checkOp(AppOpsManager.OP_GET_USAGE_STATS,
-                    Binder.getCallingUid(), callingPackage);
+                    callingUid, callingPackage);
             if (mode == AppOpsManager.MODE_DEFAULT) {
                 // The default behavior here is to check if PackageManager has given the app
                 // permission.
@@ -286,33 +392,73 @@ public class UsageStatsService extends SystemService implements
         }
 
         @Override
-        public UsageStats[] getStatsSince(int bucketType, long time, String callingPackage) {
+        public ParceledListSlice<UsageStats> queryUsageStats(int bucketType, long beginTime,
+                long endTime, String callingPackage) {
             if (!hasPermission(callingPackage)) {
-                return UsageStats.EMPTY_STATS;
+                return null;
             }
 
             final int userId = UserHandle.getCallingUserId();
             final long token = Binder.clearCallingIdentity();
             try {
-                return getUsageStats(userId, bucketType, time);
+                final List<UsageStats> results = UsageStatsService.this.queryUsageStats(
+                        userId, bucketType, beginTime, endTime);
+                if (results != null) {
+                    return new ParceledListSlice<>(results);
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+            return null;
+        }
+
+        @Override
+        public ParceledListSlice<ConfigurationStats> queryConfigurationStats(int bucketType,
+                long beginTime, long endTime, String callingPackage) throws RemoteException {
+            if (!hasPermission(callingPackage)) {
+                return null;
+            }
+
+            final int userId = UserHandle.getCallingUserId();
+            final long token = Binder.clearCallingIdentity();
+            try {
+                final List<ConfigurationStats> results =
+                        UsageStatsService.this.queryConfigurationStats(userId, bucketType,
+                                beginTime, endTime);
+                if (results != null) {
+                    return new ParceledListSlice<>(results);
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+            return null;
+        }
+
+        @Override
+        public UsageEvents queryEvents(long beginTime, long endTime, String callingPackage) {
+            if (!hasPermission(callingPackage)) {
+                return null;
+            }
+
+            final int userId = UserHandle.getCallingUserId();
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return UsageStatsService.this.queryEvents(userId, beginTime, endTime);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
         }
 
         @Override
-        public UsageStats.Event[] getEventsSince(long time, String callingPackage) {
-            if (!hasPermission(callingPackage)) {
-                return UsageStats.Event.EMPTY_EVENTS;
+        protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+            if (getContext().checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
+                    != PackageManager.PERMISSION_GRANTED) {
+                pw.println("Permission Denial: can't dump UsageStats from pid="
+                        + Binder.getCallingPid() + ", uid=" + Binder.getCallingUid()
+                        + " without permission " + android.Manifest.permission.DUMP);
+                return;
             }
-
-            final int userId = UserHandle.getCallingUserId();
-            final long token = Binder.clearCallingIdentity();
-            try {
-                return getEvents(userId, time);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
+            UsageStatsService.this.dump(args, pw);
         }
     }
 
@@ -324,10 +470,38 @@ public class UsageStatsService extends SystemService implements
     private class LocalService extends UsageStatsManagerInternal {
 
         @Override
-        public void reportEvent(ComponentName component, int userId,
-                long timeStamp, int eventType) {
-            UsageStats.Event event = new UsageStats.Event(component.getPackageName(), timeStamp,
-                    eventType);
+        public void reportEvent(ComponentName component, int userId, int eventType) {
+            if (component == null) {
+                Slog.w(TAG, "Event reported without a component name");
+                return;
+            }
+
+            UsageEvents.Event event = new UsageEvents.Event();
+            event.mPackage = component.getPackageName();
+            event.mClass = component.getClassName();
+
+            // This will later be converted to system time.
+            event.mTimeStamp = SystemClock.elapsedRealtime();
+
+            event.mEventType = eventType;
+            mHandler.obtainMessage(MSG_REPORT_EVENT, userId, 0, event).sendToTarget();
+        }
+
+        @Override
+        public void reportConfigurationChange(Configuration config, int userId) {
+            if (config == null) {
+                Slog.w(TAG, "Configuration event reported with a null config");
+                return;
+            }
+
+            UsageEvents.Event event = new UsageEvents.Event();
+            event.mPackage = "android";
+
+            // This will later be converted to system time.
+            event.mTimeStamp = SystemClock.elapsedRealtime();
+
+            event.mEventType = UsageEvents.Event.CONFIGURATION_CHANGE;
+            event.mConfiguration = new Configuration(config);
             mHandler.obtainMessage(MSG_REPORT_EVENT, userId, 0, event).sendToTarget();
         }
 

@@ -18,7 +18,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.android.test.dynamic" >
 
-    <uses-sdk android:minSdkVersion="20" />
+    <uses-sdk android:minSdkVersion="21" />
 
     <application
         android:hardwareAccelerated="true"
@@ -99,6 +99,15 @@
             </intent-filter>
         </activity>
         <activity
+            android:name="AnimatedVectorDrawableDupPerf"
+            android:label="Animated Vector Performance of clones" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="com.android.test.dynamic.TEST" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name="VectorDrawableStaticPerf"
             android:label="System icons" >
             <intent-filter>
@@ -128,6 +137,15 @@
         <activity
             android:name="ScaleDrawableTests"
             android:label="Scale Type Test" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="com.android.test.dynamic.TEST" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="BoundsCheckTest"
+            android:label="SetBound check" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

@@ -20,17 +20,19 @@ namespace uirenderer {
 namespace renderthread {
 
 TimeLord::TimeLord()
-        : mFrameIntervalNanos(0)
+        : mFrameIntervalNanos(milliseconds_to_nanoseconds(16))
         , mFrameTimeNanos(0) {
 }
 
-void TimeLord::vsyncReceived(nsecs_t vsync) {
+bool TimeLord::vsyncReceived(nsecs_t vsync) {
     if (vsync > mFrameTimeNanos) {
         mFrameTimeNanos = vsync;
+        return true;
     }
+    return false;
 }
 
-nsecs_t TimeLord::frameTimeMs() {
+nsecs_t TimeLord::computeFrameTimeMs() {
     // Logic copied from Choreographer.java
     nsecs_t now = systemTime(CLOCK_MONOTONIC);
     nsecs_t jitterNanos = now - mFrameTimeNanos;

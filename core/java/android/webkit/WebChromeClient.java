@@ -16,6 +16,7 @@
 
 package android.webkit;
 
+import android.annotation.SystemApi;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
@@ -416,57 +417,33 @@ public class WebChromeClient {
     }
 
     /**
-     * UploadHelper simplifies file upload operations by providing helper methods that
-     * would handle most common file picker/media capture requests. The application
-     * can use the helper to build an intent to start a file picker, and then parse
-     * the result returned by the activity.
-     *
-     * How to use:
-     * 1. Create a helper using {@link FileChooserParams#getUploadHelper}
-     * 2. Build an intent using {@link UploadHelper#buildIntent}
-     * 3. Fire the intent using {@link android.app.Activity#startActivityForResult}.
-     * 4. Check for ActivityNotFoundException and take a user friendly action if thrown.
-     * 5. Listen the result using {@link android.app.Activity#onActivityResult}
-     * 6. Parse the result using {@link UploadHelper#parseResult}
-     * 7. Send the result using filePathCallback of {@link WebChromeClient#onShowFileChooser}
+     * Parameters used in the {@link #onShowFileChooser} method.
      */
-    public static abstract class UploadHelper {
-        /**
-         * Returns an intent that would start a file picker for file selection/media capture.
-         */
-        public abstract Intent buildIntent();
+    public static abstract class FileChooserParams {
+        /** Open single file. Requires that the file exists before allowing the user to pick it. */
+        public static final int MODE_OPEN = 0;
+        /** Like Open but allows multiple files to be selected. */
+        public static final int MODE_OPEN_MULTIPLE = 1;
+        /** Like Open but allows a folder to be selected. The implementation should enumerate
+            all files selected by this operation.
+            This feature is not supported at the moment.
+            @hide */
+        public static final int MODE_OPEN_FOLDER = 2;
+        /**  Allows picking a nonexistent file and saving it. */
+        public static final int MODE_SAVE = 3;
 
         /**
-         * Parses the result returned by the file picker activity.
+         * Parse the result returned by the file picker activity. This method should be used with
+         * {@link #createIntent}. Refer to {@link #createIntent} for how to use it.
          *
          * @param resultCode the integer result code returned by the file picker activity.
          * @param data the intent returned by the file picker activity.
          * @return the Uris of selected file(s) or null if the resultCode indicates
          *         activity canceled or any other error.
          */
-        public abstract Uri[] parseResult(int resultCode, Intent data);
-    }
-
-    /**
-     * Parameters used in the {@link #onShowFileChooser} method.
-     */
-    public static abstract class FileChooserParams {
-        /** Open single file. Requires that the file exists before allowing the user to pick it. */
-        public static final int OPEN = 0;
-        /** Like Open but allows multiple files to be selected. */
-        public static final int OPEN_MULTIPLE = 1;
-        /** Like Open but allows a folder to be selected. The implementation should enumerate
-            all files selected by this operation. */
-        public static final int OPEN_FOLDER = 2;
-        /**  Allows picking a nonexistent file and saving it. */
-        public static final int SAVE = 3;
-
-        /**
-         * Returns a helper to simplify choosing and uploading files. The helper builds a default
-         * intent that the application can send using startActivityForResult and processes the
-         * results.
-         */
-        public abstract UploadHelper getUploadHelper();
+        public static Uri[] parseResult(int resultCode, Intent data) {
+            return WebViewFactory.getProvider().getStatics().parseFileChooserResult(resultCode, data);
+        }
 
         /**
          * Returns file chooser mode.
@@ -474,7 +451,8 @@ public class WebChromeClient {
         public abstract int getMode();
 
         /**
-         * Returns an array of acceptable MIME types. The array will be empty if no
+         * Returns an array of acceptable MIME types. The returned MIME type
+         * could be partial such as audio/*. The array will be empty if no
          * acceptable types are specified.
          */
         public abstract String[] getAcceptTypes();
@@ -494,10 +472,31 @@ public class WebChromeClient {
         public abstract CharSequence getTitle();
 
         /**
-         * The file path of a default selection if specified, or null.
+         * The file name of a default selection if specified, or null.
          */
-        public abstract String getDefaultFilename();
-    };
+        public abstract String getFilenameHint();
+
+        /**
+         * Creates an intent that would start a file picker for file selection.
+         * The Intent supports choosing files from simple file sources available
+         * on the device. Some advanced sources (for example, live media capture)
+         * may not be supported and applications wishing to support these sources
+         * or more advanced file operations should build their own Intent.
+         *
+         * <pre>
+         * How to use:
+         * 1. Build an intent using {@link #createIntent}
+         * 2. Fire the intent using {@link android.app.Activity#startActivityForResult}.
+         * 3. Check for ActivityNotFoundException and take a user friendly action if thrown.
+         * 4. Listen the result using {@link android.app.Activity#onActivityResult}
+         * 5. Parse the result using {@link #parseResult} only if media capture was not requested.
+         * 6. Send the result using filePathCallback of {@link WebChromeClient#onShowFileChooser}
+         * </pre>
+         *
+         * @return an Intent that supports basic file chooser sources.
+         */
+        public abstract Intent createIntent();
+    }
 
     /**
      * Tell the client to open a file chooser.
@@ -511,6 +510,7 @@ public class WebChromeClient {
      * @deprecated Use {@link #showFileChooser} instead.
      * @hide This method was not published in any SDK version.
      */
+    @SystemApi
     @Deprecated
     public void openFileChooser(ValueCallback<Uri> uploadFile, String acceptType, String capture) {
         uploadFile.onReceiveValue(null);

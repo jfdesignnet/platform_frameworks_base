@@ -17,8 +17,10 @@
 package android.media;
 
 import android.annotation.IntDef;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.TextUtils;
 import android.util.Log;
 
 import java.lang.annotation.Retention;
@@ -26,11 +28,40 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.Set;
 
 /**
  * A class to encapsulate a collection of attributes describing information about an audio
- * player or recorder.
+ * stream.
+ * <p><code>AudioAttributes</code> supersede the notion of stream types (see for instance
+ * {@link AudioManager#STREAM_MUSIC} or {@link AudioManager#STREAM_ALARM}) for defining the
+ * behavior of audio playback. Attributes allow an application to specify more information than is
+ * conveyed in a stream type by allowing the application to define:
+ * <ul>
+ * <li>usage: "why" you are playing a sound, what is this sound used for. This is achieved with
+ *     the "usage" information. Examples of usage are {@link #USAGE_MEDIA} and {@link #USAGE_ALARM}.
+ *     These two examples are the closest to stream types, but more detailed use cases are
+ *     available. Usage information is more expressive than a stream type, and allows certain
+ *     platforms or routing policies to use this information for more refined volume or routing
+ *     decisions. Usage is the most important information to supply in <code>AudioAttributes</code>
+ *     and it is recommended to build any instance with this information supplied, see
+ *     {@link AudioAttributes.Builder} for exceptions.</li>
+ * <li>content type: "what" you are playing. The content type expresses the general category of
+ *     the content. This information is optional. But in case it is known (for instance
+ *     {@link #CONTENT_TYPE_MOVIE} for a movie streaming service or {@link #CONTENT_TYPE_MUSIC} for
+ *     a music playback application) this information might be used by the audio framework to
+ *     selectively configure some audio post-processing blocks.</li>
+ * <li>flags: "how" is playback to be affected, see the flag definitions for the specific playback
+ *     behaviors they control. </li>
+ * </ul>
+ * <p><code>AudioAttributes</code> are used for example in one of the {@link AudioTrack}
+ * constructors (see {@link AudioTrack#AudioTrack(AudioAttributes, AudioFormat, int, int, int)}),
+ * to configure a {@link MediaPlayer}
+ * (see {@link MediaPlayer#setAudioAttributes(AudioAttributes)} or a
+ * {@link android.app.Notification} (see {@link android.app.Notification#audioAttributes}). An
+ * <code>AudioAttributes</code> instance is built through its builder,
+ * {@link AudioAttributes.Builder}.
  */
 public final class AudioAttributes implements Parcelable {
     private final static String TAG = "AudioAttributes";
@@ -130,6 +161,12 @@ public final class AudioAttributes implements Parcelable {
      * Usage value to use when the usage is for game audio.
      */
     public final static int USAGE_GAME = 14;
+    /**
+     * @hide
+     * Usage value to use when feeding audio to the platform and replacing "traditional" audio
+     * source, such as audio capture devices.
+     */
+    public final static int USAGE_VIRTUAL_SOURCE = 15;
 
     /**
      * Flag defining a behavior where the audibility of the sound will be ensured by the system.
@@ -141,7 +178,7 @@ public final class AudioAttributes implements Parcelable {
      * degradation only when going to a secure sink.
      */
     // FIXME not guaranteed yet
-    // TODO  add OR to getFlags() when supported and in public API
+    // TODO  add in FLAG_ALL_PUBLIC when supported and in public API
     public final static int FLAG_SECURE = 0x1 << 1;
     /**
      * @hide
@@ -149,10 +186,36 @@ public final class AudioAttributes implements Parcelable {
      * Internal use only for dealing with legacy STREAM_BLUETOOTH_SCO
      */
     public final static int FLAG_SCO = 0x1 << 2;
+    /**
+     * @hide
+     * Flag defining a behavior where the system ensures that the playback of the sound will
+     * be compatible with its use as a broadcast for surrounding people and/or devices.
+     * Ensures audibility with no or minimal post-processing applied.
+     */
+    @SystemApi
+    public final static int FLAG_BEACON = 0x1 << 3;
 
+    /**
+     * Flag requesting the use of an output stream supporting hardware A/V synchronization.
+     */
+    public final static int FLAG_HW_AV_SYNC = 0x1 << 4;
+
+    /**
+     * @hide
+     * Flag requesting capture from the source used for hardware hotword detection.
+     * To be used with capture preset MediaRecorder.AudioSource.HOTWORD or
+     * MediaRecorder.AudioSource.VOICE_RECOGNITION.
+     */
+    @SystemApi
+    public final static int FLAG_HW_HOTWORD = 0x1 << 5;
+
+    private final static int FLAG_ALL = FLAG_AUDIBILITY_ENFORCED | FLAG_SECURE | FLAG_SCO |
+            FLAG_BEACON | FLAG_HW_AV_SYNC | FLAG_HW_HOTWORD;
+    private final static int FLAG_ALL_PUBLIC = FLAG_AUDIBILITY_ENFORCED | FLAG_HW_AV_SYNC;
 
     private int mUsage = USAGE_UNKNOWN;
     private int mContentType = CONTENT_TYPE_UNKNOWN;
+    private int mSource = MediaRecorder.AudioSource.AUDIO_SOURCE_INVALID;
     private int mFlags = 0x0;
     private HashSet<String> mTags;
     private String mFormattedTags;
@@ -177,12 +240,23 @@ public final class AudioAttributes implements Parcelable {
     }
 
     /**
+     * @hide
+     * Return the capture preset.
+     * @return one of the values that can be set in {@link Builder#setCapturePreset(int)} or a
+     *    negative value if none has been set.
+     */
+    @SystemApi
+    public int getCapturePreset() {
+        return mSource;
+    }
+
+    /**
      * Return the flags.
      * @return a combined mask of all flags
      */
     public int getFlags() {
         // only return the flags that are public
-        return (mFlags & (FLAG_AUDIBILITY_ENFORCED));
+        return (mFlags & (FLAG_ALL_PUBLIC));
     }
 
     /**
@@ -192,7 +266,7 @@ public final class AudioAttributes implements Parcelable {
      * @return a combined mask of all flags
      */
     public int getAllFlags() {
-        return mFlags;
+        return (mFlags & FLAG_ALL);
     }
 
     /**
@@ -206,15 +280,37 @@ public final class AudioAttributes implements Parcelable {
 
     /**
      * Builder class for {@link AudioAttributes} objects.
+     * <p> Here is an example where <code>Builder</code> is used to define the
+     * {@link AudioAttributes} to be used by a new <code>AudioTrack</code> instance:
+     *
+     * <pre class="prettyprint">
+     * AudioTrack myTrack = new AudioTrack(
+     *         new AudioAttributes.Builder()
+     *             .setUsage(AudioAttributes.USAGE_MEDIA)
+     *             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+     *             .build(),
+     *         myFormat, myBuffSize, AudioTrack.MODE_STREAM, mySession);
+     * </pre>
+     *
+     * <p>By default all types of information (usage, content type, flags) conveyed by an
+     * <code>AudioAttributes</code> instance are set to "unknown". Unknown information will be
+     * interpreted as a default value that is dependent on the context of use, for instance a
+     * {@link MediaPlayer} will use a default usage of {@link AudioAttributes#USAGE_MEDIA}.
      */
     public static class Builder {
         private int mUsage = USAGE_UNKNOWN;
         private int mContentType = CONTENT_TYPE_UNKNOWN;
+        private int mSource = MediaRecorder.AudioSource.AUDIO_SOURCE_INVALID;
         private int mFlags = 0x0;
         private HashSet<String> mTags = new HashSet<String>();
 
         /**
          * Constructs a new Builder with the defaults.
+         * By default, usage and content type are respectively {@link AudioAttributes#USAGE_UNKNOWN}
+         * and {@link AudioAttributes#CONTENT_TYPE_UNKNOWN}, and flags are 0. It is recommended to
+         * configure the usage (with {@link #setUsage(int)}) or deriving attributes from a legacy
+         * stream type (with {@link #setLegacyStreamType(int)}) before calling {@link #build()}
+         * to override any default playback behavior in terms of routing and volume management.
          */
         public Builder() {
         }
@@ -241,14 +337,10 @@ public final class AudioAttributes implements Parcelable {
             AudioAttributes aa = new AudioAttributes();
             aa.mContentType = mContentType;
             aa.mUsage = mUsage;
+            aa.mSource = mSource;
             aa.mFlags = mFlags;
             aa.mTags = (HashSet<String>) mTags.clone();
-            final Iterator<String> tagIterator = mTags.iterator();
-            String allTagsInOne = new String();
-            while (tagIterator.hasNext()) {
-                allTagsInOne += tagIterator.next() + ";";
-            }
-            aa.mFormattedTags = allTagsInOne;
+            aa.mFormattedTags = TextUtils.join(";", mTags);
             return aa;
         }
 
@@ -288,6 +380,7 @@ public final class AudioAttributes implements Parcelable {
                 case USAGE_ASSISTANCE_NAVIGATION_GUIDANCE:
                 case USAGE_ASSISTANCE_SONIFICATION:
                 case USAGE_GAME:
+                case USAGE_VIRTUAL_SOURCE:
                      mUsage = usage;
                      break;
                 default:
@@ -328,8 +421,7 @@ public final class AudioAttributes implements Parcelable {
          * @return the same Builder instance.
          */
         public Builder setFlags(int flags) {
-            flags &= (AudioAttributes.FLAG_AUDIBILITY_ENFORCED | AudioAttributes.FLAG_SCO
-                    | AudioAttributes.FLAG_SECURE);
+            flags &= AudioAttributes.FLAG_ALL;
             mFlags |= flags;
             return this;
         }
@@ -346,7 +438,9 @@ public final class AudioAttributes implements Parcelable {
         }
 
         /**
-         * Adds attributes inferred from the legacy stream types.
+         * Sets attributes as inferred from the legacy stream types.
+         * Use this method when building an {@link AudioAttributes} instance to initialize some of
+         * the attributes by information derived from a legacy stream type.
          * @param streamType one of {@link AudioManager#STREAM_VOICE_CALL},
          *   {@link AudioManager#STREAM_SYSTEM}, {@link AudioManager#STREAM_RING},
          *   {@link AudioManager#STREAM_MUSIC}, {@link AudioManager#STREAM_ALARM},
@@ -397,9 +491,54 @@ public final class AudioAttributes implements Parcelable {
                     mContentType = CONTENT_TYPE_SPEECH;
                     break;
                 default:
-                    Log.e(TAG, "Invalid stream type " + streamType + " in for AudioAttributes");
+                    Log.e(TAG, "Invalid stream type " + streamType + " for AudioAttributes");
             }
             mUsage = usageForLegacyStreamType(streamType);
+            return this;
+        }
+
+        /**
+         * @hide
+         * Sets the capture preset.
+         * Use this audio attributes configuration method when building an {@link AudioRecord}
+         * instance with {@link AudioRecord#AudioRecord(AudioAttributes, AudioFormat, int)}.
+         * @param preset one of {@link MediaRecorder.AudioSource#DEFAULT},
+         *     {@link MediaRecorder.AudioSource#MIC}, {@link MediaRecorder.AudioSource#CAMCORDER},
+         *     {@link MediaRecorder.AudioSource#VOICE_RECOGNITION} or
+         *     {@link MediaRecorder.AudioSource#VOICE_COMMUNICATION}.
+         * @return the same Builder instance.
+         */
+        @SystemApi
+        public Builder setCapturePreset(int preset) {
+            switch (preset) {
+                case MediaRecorder.AudioSource.DEFAULT:
+                case MediaRecorder.AudioSource.MIC:
+                case MediaRecorder.AudioSource.CAMCORDER:
+                case MediaRecorder.AudioSource.VOICE_RECOGNITION:
+                case MediaRecorder.AudioSource.VOICE_COMMUNICATION:
+                    mSource = preset;
+                    break;
+                default:
+                    Log.e(TAG, "Invalid capture preset " + preset + " for AudioAttributes");
+            }
+            return this;
+        }
+
+        /**
+         * @hide
+         * Same as {@link #setCapturePreset(int)} but authorizes the use of HOTWORD,
+         * REMOTE_SUBMIX and FM_TUNER.
+         * @param preset
+         * @return the same Builder instance.
+         */
+        public Builder setInternalCapturePreset(int preset) {
+            if ((preset == MediaRecorder.AudioSource.HOTWORD)
+                    || (preset == MediaRecorder.AudioSource.REMOTE_SUBMIX)
+                    || (preset == MediaRecorder.AudioSource.FM_TUNER)) {
+                mSource = preset;
+            } else {
+                setCapturePreset(preset);
+            }
             return this;
         }
     };
@@ -425,6 +564,7 @@ public final class AudioAttributes implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(mUsage);
         dest.writeInt(mContentType);
+        dest.writeInt(mSource);
         dest.writeInt(mFlags);
         dest.writeInt(flags & ALL_PARCEL_FLAGS);
         if ((flags & FLATTEN_TAGS) == 0) {
@@ -439,20 +579,22 @@ public final class AudioAttributes implements Parcelable {
     private AudioAttributes(Parcel in) {
         mUsage = in.readInt();
         mContentType = in.readInt();
+        mSource = in.readInt();
         mFlags = in.readInt();
         boolean hasFlattenedTags = ((in.readInt() & FLATTEN_TAGS) == FLATTEN_TAGS);
         mTags = new HashSet<String>();
         if (hasFlattenedTags) {
-            mTags.add(in.readString());
+            mFormattedTags = new String(in.readString());
+            mTags.add(mFormattedTags);
         } else {
             String[] tagsArray = in.readStringArray();
             for (int i = tagsArray.length - 1 ; i >= 0 ; i--) {
                 mTags.add(tagsArray[i]);
             }
+            mFormattedTags = TextUtils.join(";", mTags);
         }
     }
 
-    /** @hide */
     public static final Parcelable.Creator<AudioAttributes> CREATOR
             = new Parcelable.Creator<AudioAttributes>() {
         /**
@@ -468,14 +610,33 @@ public final class AudioAttributes implements Parcelable {
         }
     };
 
-    /** @hide */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        AudioAttributes that = (AudioAttributes) o;
+
+        return ((mContentType == that.mContentType)
+                && (mFlags == that.mFlags)
+                && (mSource == that.mSource)
+                && (mUsage == that.mUsage)
+                //mFormattedTags is never null due to assignment in Builder or unmarshalling
+                && (mFormattedTags.equals(that.mFormattedTags)));
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mContentType, mFlags, mSource, mUsage, mFormattedTags);
+    }
+
     @Override
     public String toString () {
         return new String("AudioAttributes:"
                 + " usage=" + mUsage
                 + " content=" + mContentType
                 + " flags=0x" + Integer.toHexString(mFlags).toUpperCase()
-                + " tags=" + mTags);
+                + " tags=" + mFormattedTags);
     }
 
     /** @hide */

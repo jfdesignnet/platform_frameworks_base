@@ -56,11 +56,21 @@
     </attr>
     <declare-styleable name="UserAvatarView">
         <attr name="frameWidth" format="dimension" />
+        <attr name="framePadding" format="dimension" />
         <attr name="activeFrameColor" format="color" />
         <attr name="frameColor" />
     </declare-styleable>
+    <declare-styleable name="UserDetailItemView">
+        <attr name="regularFontFamily" format="string" />
+        <attr name="activatedFontFamily" format="string" />
+    </declare-styleable>
     <declare-styleable name="DateView">
         <attr name="datePattern" format="string" />
+    </declare-styleable>
+    <declare-styleable name="PseudoGridView">
+        <attr name="numColumns" format="integer" />
+        <attr name="verticalSpacing" format="dimension" />
+        <attr name="horizontalSpacing" format="dimension" />
     </declare-styleable>
 </resources>
 

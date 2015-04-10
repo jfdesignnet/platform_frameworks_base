@@ -47,14 +47,16 @@ public class CommandQueue extends IStatusBar.Stub {
     private static final int MSG_SET_SYSTEMUI_VISIBILITY    = 6 << MSG_SHIFT;
     private static final int MSG_TOP_APP_WINDOW_CHANGED     = 7 << MSG_SHIFT;
     private static final int MSG_SHOW_IME_BUTTON            = 8 << MSG_SHIFT;
-    private static final int MSG_SET_HARD_KEYBOARD_STATUS   = 9 << MSG_SHIFT;
-    private static final int MSG_TOGGLE_RECENT_APPS         = 10 << MSG_SHIFT;
-    private static final int MSG_PRELOAD_RECENT_APPS        = 11 << MSG_SHIFT;
-    private static final int MSG_CANCEL_PRELOAD_RECENT_APPS = 12 << MSG_SHIFT;
-    private static final int MSG_SET_WINDOW_STATE           = 13 << MSG_SHIFT;
-    private static final int MSG_SHOW_RECENT_APPS           = 14 << MSG_SHIFT;
-    private static final int MSG_HIDE_RECENT_APPS           = 15 << MSG_SHIFT;
-    private static final int MSG_BUZZ_BEEP_BLINKED          = 16 << MSG_SHIFT;
+    private static final int MSG_TOGGLE_RECENT_APPS         = 9 << MSG_SHIFT;
+    private static final int MSG_PRELOAD_RECENT_APPS        = 10 << MSG_SHIFT;
+    private static final int MSG_CANCEL_PRELOAD_RECENT_APPS = 11 << MSG_SHIFT;
+    private static final int MSG_SET_WINDOW_STATE           = 12 << MSG_SHIFT;
+    private static final int MSG_SHOW_RECENT_APPS           = 13 << MSG_SHIFT;
+    private static final int MSG_HIDE_RECENT_APPS           = 14 << MSG_SHIFT;
+    private static final int MSG_BUZZ_BEEP_BLINKED          = 15 << MSG_SHIFT;
+    private static final int MSG_NOTIFICATION_LIGHT_OFF     = 16 << MSG_SHIFT;
+    private static final int MSG_NOTIFICATION_LIGHT_PULSE   = 17 << MSG_SHIFT;
+    private static final int MSG_SHOW_SCREEN_PIN_REQUEST    = 18 << MSG_SHIFT;
 
     public static final int FLAG_EXCLUDE_NONE = 0;
     public static final int FLAG_EXCLUDE_SEARCH_PANEL = 1 << 0;
@@ -85,9 +87,8 @@ public class CommandQueue extends IStatusBar.Stub {
         public void topAppWindowChanged(boolean visible);
         public void setImeWindowStatus(IBinder token, int vis, int backDisposition,
                 boolean showImeSwitcher);
-        public void setHardKeyboardStatus(boolean available, boolean enabled);
         public void showRecentApps(boolean triggeredFromAltTab);
-        public void hideRecentApps(boolean triggeredFromAltTab);
+        public void hideRecentApps(boolean triggeredFromAltTab, boolean triggeredFromHomeKey);
         public void toggleRecentApps();
         public void preloadRecentApps();
         public void cancelPreloadRecentApps();
@@ -95,6 +96,9 @@ public class CommandQueue extends IStatusBar.Stub {
         public void hideSearchPanel();
         public void setWindowState(int window, int state);
         public void buzzBeepBlinked();
+        public void notificationLightOff();
+        public void notificationLightPulse(int argb, int onMillis, int offMillis);
+        public void showScreenPinningRequest();
     }
 
     public CommandQueue(Callbacks callbacks, StatusBarIconList list) {
@@ -171,14 +175,6 @@ public class CommandQueue extends IStatusBar.Stub {
         }
     }
 
-    public void setHardKeyboardStatus(boolean available, boolean enabled) {
-        synchronized (mList) {
-            mHandler.removeMessages(MSG_SET_HARD_KEYBOARD_STATUS);
-            mHandler.obtainMessage(MSG_SET_HARD_KEYBOARD_STATUS,
-                    available ? 1 : 0, enabled ? 1 : 0).sendToTarget();
-        }
-    }
-
     public void showRecentApps(boolean triggeredFromAltTab) {
         synchronized (mList) {
             mHandler.removeMessages(MSG_SHOW_RECENT_APPS);
@@ -187,11 +183,12 @@ public class CommandQueue extends IStatusBar.Stub {
         }
     }
 
-    public void hideRecentApps(boolean triggeredFromAltTab) {
+    public void hideRecentApps(boolean triggeredFromAltTab, boolean triggeredFromHomeKey) {
         synchronized (mList) {
             mHandler.removeMessages(MSG_HIDE_RECENT_APPS);
             mHandler.obtainMessage(MSG_HIDE_RECENT_APPS,
-                    triggeredFromAltTab ? 1 : 0, 0, null).sendToTarget();
+                    triggeredFromAltTab ? 1 : 0, triggeredFromHomeKey ? 1 : 0,
+                    null).sendToTarget();
         }
     }
 
@@ -227,6 +224,25 @@ public class CommandQueue extends IStatusBar.Stub {
         synchronized (mList) {
             mHandler.removeMessages(MSG_BUZZ_BEEP_BLINKED);
             mHandler.sendEmptyMessage(MSG_BUZZ_BEEP_BLINKED);
+        }
+    }
+
+    public void notificationLightOff() {
+        synchronized (mList) {
+            mHandler.sendEmptyMessage(MSG_NOTIFICATION_LIGHT_OFF);
+        }
+    }
+
+    public void notificationLightPulse(int argb, int onMillis, int offMillis) {
+        synchronized (mList) {
+            mHandler.obtainMessage(MSG_NOTIFICATION_LIGHT_PULSE, onMillis, offMillis, argb)
+                    .sendToTarget();
+        }
+    }
+
+    public void showScreenPinningRequest() {
+        synchronized (mList) {
+            mHandler.sendEmptyMessage(MSG_SHOW_SCREEN_PIN_REQUEST);
         }
     }
 
@@ -282,14 +298,11 @@ public class CommandQueue extends IStatusBar.Stub {
                     mCallbacks.setImeWindowStatus((IBinder) msg.obj, msg.arg1, msg.arg2,
                             msg.getData().getBoolean(SHOW_IME_SWITCHER_KEY, false));
                     break;
-                case MSG_SET_HARD_KEYBOARD_STATUS:
-                    mCallbacks.setHardKeyboardStatus(msg.arg1 != 0, msg.arg2 != 0);
-                    break;
                 case MSG_SHOW_RECENT_APPS:
                     mCallbacks.showRecentApps(msg.arg1 != 0);
                     break;
                 case MSG_HIDE_RECENT_APPS:
-                    mCallbacks.hideRecentApps(msg.arg1 != 0);
+                    mCallbacks.hideRecentApps(msg.arg1 != 0, msg.arg2 != 0);
                     break;
                 case MSG_TOGGLE_RECENT_APPS:
                     mCallbacks.toggleRecentApps();
@@ -306,7 +319,15 @@ public class CommandQueue extends IStatusBar.Stub {
                 case MSG_BUZZ_BEEP_BLINKED:
                     mCallbacks.buzzBeepBlinked();
                     break;
-
+                case MSG_NOTIFICATION_LIGHT_OFF:
+                    mCallbacks.notificationLightOff();
+                    break;
+                case MSG_NOTIFICATION_LIGHT_PULSE:
+                    mCallbacks.notificationLightPulse((Integer) msg.obj, msg.arg1, msg.arg2);
+                    break;
+                case MSG_SHOW_SCREEN_PIN_REQUEST:
+                    mCallbacks.showScreenPinningRequest();
+                    break;
             }
         }
     }

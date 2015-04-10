@@ -15,6 +15,7 @@
  */
 
 #define LOG_TAG "OpenGLRenderer"
+#define ATRACE_TAG ATRACE_TAG_VIEW
 
 #include <ui/Rect.h>
 
@@ -26,6 +27,7 @@
 #include "Matrix.h"
 #include "Properties.h"
 #include "Rect.h"
+#include "utils/TraceUtils.h"
 
 namespace android {
 namespace uirenderer {
@@ -184,6 +186,7 @@ void LayerRenderer::generateMesh() {
 ///////////////////////////////////////////////////////////////////////////////
 
 Layer* LayerRenderer::createRenderLayer(RenderState& renderState, uint32_t width, uint32_t height) {
+    ATRACE_FORMAT("Allocate %ux%u HW Layer", width, height);
     LAYER_RENDERER_LOGD("Requesting new render layer %dx%d", width, height);
 
     Caches& caches = Caches::getInstance();
@@ -210,7 +213,7 @@ Layer* LayerRenderer::createRenderLayer(RenderState& renderState, uint32_t width
 
         // Creating a new layer always increment its refcount by 1, this allows
         // us to destroy the layer object if one was created for us
-        Caches::getInstance().resourceCache.decrementRefcount(layer);
+        layer->decStrong(0);
 
         return NULL;
     }
@@ -238,7 +241,7 @@ Layer* LayerRenderer::createRenderLayer(RenderState& renderState, uint32_t width
         if (glGetError() != GL_NO_ERROR) {
             ALOGE("Could not allocate texture for layer (fbo=%d %dx%d)", fbo, width, height);
             renderState.bindFramebuffer(previousFbo);
-            caches.resourceCache.decrementRefcount(layer);
+            layer->decStrong(0);
             return NULL;
         }
     }
@@ -270,9 +273,8 @@ bool LayerRenderer::resizeLayer(Layer* layer, uint32_t width, uint32_t height) {
 Layer* LayerRenderer::createTextureLayer(RenderState& renderState) {
     LAYER_RENDERER_LOGD("Creating new texture layer");
 
-    Layer* layer = new Layer(renderState, 0, 0);
+    Layer* layer = new Layer(Layer::kType_Texture, renderState, 0, 0);
     layer->setCacheable(false);
-    layer->setTextureLayer(true);
     layer->setEmpty(true);
     layer->setFbo(0);
     layer->setAlpha(255, SkXfermode::kSrcOver_Mode);
@@ -309,12 +311,13 @@ void LayerRenderer::updateTextureLayer(Layer* layer, uint32_t width, uint32_t he
 
 void LayerRenderer::destroyLayer(Layer* layer) {
     if (layer) {
+        ATRACE_FORMAT("Destroy %ux%u HW Layer", layer->getWidth(), layer->getHeight());
         LAYER_RENDERER_LOGD("Recycling layer, %dx%d fbo = %d",
                 layer->getWidth(), layer->getHeight(), layer->getFbo());
 
         if (!Caches::getInstance().layerCache.put(layer)) {
             LAYER_RENDERER_LOGD("  Destroyed!");
-            Caches::getInstance().resourceCache.decrementRefcount(layer);
+            layer->decStrong(0);
         } else {
             LAYER_RENDERER_LOGD("  Cached!");
 #if DEBUG_LAYER_RENDERER
@@ -323,14 +326,6 @@ void LayerRenderer::destroyLayer(Layer* layer) {
             layer->removeFbo();
             layer->region.clear();
         }
-    }
-}
-
-void LayerRenderer::destroyLayerDeferred(Layer* layer) {
-    if (layer) {
-        LAYER_RENDERER_LOGD("Deferring layer destruction, fbo = %d", layer->getFbo());
-
-        Caches::getInstance().deleteLayerDeferred(layer);
     }
 }
 

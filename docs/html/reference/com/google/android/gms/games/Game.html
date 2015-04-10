@@ -84,6 +84,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 <html>
 <head>
 
@@ -99,7 +111,7 @@
 href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Roboto:light,regular,medium,thin,italic,mediumitalic,bold"
   title="roboto">
-<link href="/assets/css/default.css?v=2" rel="stylesheet" type="text/css">
+<link href="/assets/css/default.css?v=4" rel="stylesheet" type="text/css">
 
 
 
@@ -111,7 +123,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   var metaTags = [];
   var devsite = false;
 </script>
-<script src="/assets/js/docs.js?v=2" type="text/javascript"></script>
+<script src="/assets/js/docs.js?v=3" type="text/javascript"></script>
+
+
 
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
@@ -128,16 +142,66 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 </head>
 
 <body class="gc-documentation google
-  develop" itemscope itemtype="http://schema.org/Article">
+  develop reference" itemscope itemtype="http://schema.org/Article">
   <div id="doc-api-level" class="" style="display:none"></div>
   <a name="top"></a>
 
 
 <a name="top"></a>
 
+<!-- dialog to prompt lang pref change when loaded from hardcoded URL 
+<div id="langMessage" style="display:none">
+  <div>
+    <div class="lang en">
+      <p>You requested a page in English, would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang es">
+      <p>You requested a page in Spanish (Español), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ja">
+      <p>You requested a page in Japanese (日本語), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ko">
+      <p>You requested a page in Korean (한국어), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ru">
+      <p>You requested a page in Russian (Русский), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-cn">
+      <p>You requested a page in Simplified Chinese (简体中文), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-tw">
+      <p>You requested a page in Traditional Chinese (繁體中文), would you like to proceed with this language setting?</p>
+    </div>
+    <a href="#" class="button yes" onclick="return false;">
+      <span class="lang en">Yes</span>
+      <span class="lang es">Sí</span>
+      <span class="lang ja">Yes</span>
+      <span class="lang ko">Yes</span>
+      <span class="lang ru">Yes</span>
+      <span class="lang zh-cn">是的</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+    <a href="#" class="button" onclick="$('#langMessage').hide();return false;">
+      <span class="lang en">No</span>
+      <span class="lang es">No</span>
+      <span class="lang ja">No</span>
+      <span class="lang ko">No</span>
+      <span class="lang ru">No</span>
+      <span class="lang zh-cn">没有</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+  </div>
+</div> -->
+
+
   <!-- Header -->
   <div id="header-wrapper">
     <div id="header">
+
+    
+
+
       <div class="wrap" id="header-wrap">
         <div class="col-3 logo">
           <a href="/index.html">
@@ -179,8 +243,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         </ul>
 
 
-
-
+        
+        
 <div class="menu-container">
   <div class="moremenu">
     <div id="more-btn"></div>
@@ -211,8 +275,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 <option value="ja">日本語</option>
                 <option value="ko">한국어</option>
                 <option value="ru">Русский</option>
-                <option value="zh-cn">中文 (中国)</option>
-                <option value="zh-tw">中文 (台灣)</option>
+                <option value="zh-cn">中文（简体)</option>
+                <option value="zh-tw">中文（繁體)</option>
             </select>
           </div>
         <script type="text/javascript">
@@ -335,10 +399,10 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 </li>
                 <li><a href="/google/index.html">Google Services</a>
                 </li>
-
+                
                   <li><a href="/samples/index.html">Samples</a>
                   </li>
-
+                
               </ul>
             </li>
             <li class="distribute last">
@@ -360,7 +424,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   
     <!-- Secondary x-nav -->
     <div id="nav-x">
-        <div class="wrap">
+        <div class="wrap" style="position:relative;z-index:1">
+
+        
+        
+        
+
             <ul class="nav-x col-9 develop" style="width:100%">
                 <li class="training"><a href="/training/index.html"
                   zh-tw-lang="訓練課程"
@@ -420,7 +489,7 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <a class="logo" href="#top"></a>
       <a class="top" href="#top"></a>
       <ul class="breadcrumb">
-
+        
         <li class="current">Game</li>
       </ul>
     </div>
@@ -498,11 +567,11 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
     </div>
     <ul>
       <li><a href="/google/play-services/setup.html">
-          <span class="en">Setup</span></a>
+          <span class="en">Setting Up Google Play Services</span></a>
       </li>
       <li class="nav-section">
         <div class="nav-section-header"><a href="/google/auth/api-client.html">
-          <span class="en">Accessing Google Play Services APIs</span></a>
+          <span class="en">Accessing Google APIs</span></a>
         </div>
         <ul>
           <li>
@@ -563,9 +632,6 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/billing/billing_admin.html">
               <span class="en">Administering In-app Billing</span></a>
       </li>
-      <li><a href="/google/play/billing/gp-purchase-status-api.html">
-              <span class="en">Purchase Status API</span></a>
-      </li>
       <li><a href="/google/play/billing/versions.html">
               <span class="en">Version Notes</span></a>
       </li>
@@ -617,6 +683,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   </li>
 
   <li class="nav-section">
+  <div class="nav-section-header empty"><a href="/google/gcs/index.html">
+        <span class="en">Google Cloud Save</span></a>
+      </div>
+  </li>
+
+  <li class="nav-section">
     <div class="nav-section-header"><a href="/google/play/dist.html">
       <span class="en">Google Play Distribution</span></a>
     </div>
@@ -624,7 +696,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/filters.html">
           <span class="en">Filters on Google Play</span></a>
       </li>
-
+      <li><a href="/google/play/billing/gp-purchase-status-api.html">
+              <span class="en">Google Play Developer API</span></a>
+      </li>
       <li><a href="/google/play/publishing/multiple-apks.html">
           <span class="en">Multiple APK Support</span></a>
       </li>
@@ -780,6 +854,9 @@ Summary:
   
 
 
+    
+
+
 </div><!-- end header -->
 
 <div id="naMessage"></div>
@@ -822,12 +899,22 @@ Summary:
       <div id="subclasses-indirect-summary"
               style="display: none;"
               >
+  
   <table class="jd-sumtable-expando">
-        <tr class="alt-color api apilevel-" >
-              <td class="jd-linkcol"><a href="/reference/com/google/android/gms/games/GameEntity.html">GameEntity</a></td>
-              <td class="jd-descrcol" width="100%">Data object representing a set of Game data.&nbsp;</td>
-          </tr>
+    
+      <tr class="alt-color api apilevel-" >
+        <td class="jd-linkcol"><a href="/reference/com/google/android/gms/games/GameEntity.html">GameEntity</a></td>
+        <td class="jd-descrcol" width="100%">
+          Data object representing a set of Game data.&nbsp;
+          
+    
+
+        </td>
+      </tr>
+      
+    
   </table>
+
       </div>
   </div>
 </td></tr></table>
@@ -907,14 +994,24 @@ android.os.Parcelable
     <tr class="alt-color api apilevel-" >
         <td class="jd-typecol">int</td>
         <td class="jd-linkcol">CONTENTS_FILE_DESCRIPTOR</td>
-        <td class="jd-descrcol" width="100%"></td>
+        <td class="jd-descrcol" width="100%">
+          
+          
+    
+
+        </td>
     </tr>
     
     
     <tr class=" api apilevel-" >
         <td class="jd-typecol">int</td>
         <td class="jd-linkcol">PARCELABLE_WRITE_RETURN_VALUE</td>
-        <td class="jd-descrcol" width="100%"></td>
+        <td class="jd-descrcol" width="100%">
+          
+          
+    
+
+        </td>
     </tr>
     
     
@@ -957,26 +1054,36 @@ android.os.Parcelable
         </td>
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#areSnapshotsEnabled()">areSnapshotsEnabled</a></span>()</nobr>
+        
+        <div class="jd-descrdiv">
+          Indicates whether or not this game supports snapshots.
+          
+    
 
-        <div class="jd-descrdiv">Indicates whether or not this game supports snapshots.</div>
-
+        </div>
+  
   </td></tr>
 
 
-
+	 
     <tr class=" api apilevel-" >
         <td class="jd-typecol"><nobr>
             abstract
-
-
-
-
+            
+            
+            
+            
             int</nobr>
         </td>
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getAchievementTotalCount()">getAchievementTotalCount</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves the number of achievements registered for this game.</div>
+        <div class="jd-descrdiv">
+          Retrieves the number of achievements registered for this game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -994,7 +1101,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getApplicationId()">getApplicationId</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves the application ID for this game.</div>
+        <div class="jd-descrdiv">
+          Retrieves the application ID for this game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1012,7 +1124,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getDescription()">getDescription</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves the description of this game.</div>
+        <div class="jd-descrdiv">
+          Retrieves the description of this game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1030,7 +1147,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getDescription(android.database.CharArrayBuffer)">getDescription</a></span>(CharArrayBuffer dataOut)</nobr>
         
-        <div class="jd-descrdiv">Loads the description string into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.</div>
+        <div class="jd-descrdiv">
+          Loads the description string into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1048,7 +1170,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getDeveloperName()">getDeveloperName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves the name of the developer of this game.</div>
+        <div class="jd-descrdiv">
+          Retrieves the name of the developer of this game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1066,7 +1193,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getDeveloperName(android.database.CharArrayBuffer)">getDeveloperName</a></span>(CharArrayBuffer dataOut)</nobr>
         
-        <div class="jd-descrdiv">Loads the developer name into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.</div>
+        <div class="jd-descrdiv">
+          Loads the developer name into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1084,7 +1216,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getDisplayName()">getDisplayName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves the display name for this game.</div>
+        <div class="jd-descrdiv">
+          Retrieves the display name for this game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1102,7 +1239,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getDisplayName(android.database.CharArrayBuffer)">getDisplayName</a></span>(CharArrayBuffer dataOut)</nobr>
         
-        <div class="jd-descrdiv">Loads the display name string into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.</div>
+        <div class="jd-descrdiv">
+          Loads the display name string into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1120,8 +1262,13 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getFeaturedImageUri()">getFeaturedImageUri</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves an image URI that can be used to load the game's featured (banner) image from
- Google Play.</div>
+        <div class="jd-descrdiv">
+          Retrieves an image URI that can be used to load the game's featured (banner) image from
+ Google Play.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1139,7 +1286,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getHiResImageUri()">getHiResImageUri</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves an image URI that can be used to load the game's hi-res image.</div>
+        <div class="jd-descrdiv">
+          Retrieves an image URI that can be used to load the game's hi-res image.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1157,7 +1309,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getIconImageUri()">getIconImageUri</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves an image URI that can be used to load the game's icon.</div>
+        <div class="jd-descrdiv">
+          Retrieves an image URI that can be used to load the game's icon.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1175,7 +1332,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getLeaderboardCount()">getLeaderboardCount</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Gets the number of leaderboards registered for this game.</div>
+        <div class="jd-descrdiv">
+          Gets the number of leaderboards registered for this game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1193,7 +1355,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getPrimaryCategory()">getPrimaryCategory</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves the primary category of the game - this is may be null.</div>
+        <div class="jd-descrdiv">
+          Retrieves the primary category of the game - this is may be null.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1211,7 +1378,12 @@ android.os.Parcelable
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getSecondaryCategory()">getSecondaryCategory</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Retrieves the secondary category of the game - this may be null.</div>
+        <div class="jd-descrdiv">
+          Retrieves the secondary category of the game - this may be null.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1224,12 +1396,17 @@ android.os.Parcelable
             
             
             
-            boolean</nobr>
+            String</nobr>
         </td>
         <td class="jd-linkcol" width="100%"><nobr>
-        <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#isRealTimeMultiplayerEnabled()">isRealTimeMultiplayerEnabled</a></span>()</nobr>
+        <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#getThemeColor()">getThemeColor</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether or not this game supports real-time multiplayer.</div>
+        <div class="jd-descrdiv">
+          Retrieves the theme color for this game.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1245,9 +1422,37 @@ android.os.Parcelable
             boolean</nobr>
         </td>
         <td class="jd-linkcol" width="100%"><nobr>
+        <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#isRealTimeMultiplayerEnabled()">isRealTimeMultiplayerEnabled</a></span>()</nobr>
+        
+        <div class="jd-descrdiv">
+          Indicates whether or not this game supports real-time multiplayer.
+          
+    
+
+        </div>
+  
+  </td></tr>
+
+
+	 
+    <tr class=" api apilevel-" >
+        <td class="jd-typecol"><nobr>
+            abstract
+            
+            
+            
+            
+            boolean</nobr>
+        </td>
+        <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/games/Game.html#isTurnBasedMultiplayerEnabled()">isTurnBasedMultiplayerEnabled</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether or not this game supports turn-based multiplayer.</div>
+        <div class="jd-descrdiv">
+          Indicates whether or not this game supports turn-based multiplayer.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1357,7 +1562,12 @@ From interface
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/common/data/Freezable.html#freeze()">freeze</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Freeze a volatile representation into an immutable representation.</div>
+        <div class="jd-descrdiv">
+          Freeze a volatile representation into an immutable representation.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1375,7 +1585,12 @@ From interface
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/common/data/Freezable.html#isDataValid()">isDataValid</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Check to see if this object is valid for use.</div>
+        <div class="jd-descrdiv">
+          Check to see if this object is valid for use.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1430,14 +1645,14 @@ From interface
 
 <A NAME="areSnapshotsEnabled()"></A>
 
-<div class="jd-details api apilevel-">
+<div class="jd-details api apilevel-"> 
     <h4 class="jd-details-title">
       <span class="normal">
-        public
-
-
-        abstract
-
+        public 
+         
+         
+        abstract 
+         
         boolean
       </span>
       <span class="sympad">areSnapshotsEnabled</span>
@@ -1445,12 +1660,15 @@ From interface
     </h4>
       <div class="api-level">
         <div></div>
-
-
+        
+  
 
       </div>
     <div class="jd-details-descr">
+      
+    
 
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether or not this game supports snapshots.</p></div>
   <div class="jd-tagdata">
       <h5 class="jd-tagtitle">Returns</h5>
@@ -1484,6 +1702,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves the number of achievements registered for this game.</p></div>
   <div class="jd-tagdata">
@@ -1519,6 +1740,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves the application ID for this game.</p></div>
   <div class="jd-tagdata">
       <h5 class="jd-tagtitle">Returns</h5>
@@ -1553,6 +1777,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves the description of this game.</p></div>
   <div class="jd-tagdata">
       <h5 class="jd-tagtitle">Returns</h5>
@@ -1586,6 +1813,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Loads the description string into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.</p></div>
   <div class="jd-tagdata">
@@ -1626,6 +1856,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves the name of the developer of this game.</p></div>
   <div class="jd-tagdata">
       <h5 class="jd-tagtitle">Returns</h5>
@@ -1659,6 +1892,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Loads the developer name into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.</p></div>
   <div class="jd-tagdata">
@@ -1699,6 +1935,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves the display name for this game.</p></div>
   <div class="jd-tagdata">
       <h5 class="jd-tagtitle">Returns</h5>
@@ -1732,6 +1971,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Loads the display name string into the given <code><a href="/reference/android/database/CharArrayBuffer.html">CharArrayBuffer</a></code>.</p></div>
   <div class="jd-tagdata">
@@ -1772,6 +2014,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves an image URI that can be used to load the game's featured (banner) image from
  Google Play. Returns null if game has no featured image.
  <p/>
@@ -1809,6 +2054,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves an image URI that can be used to load the game's hi-res image. Returns null if
  game has no hi-res image.
@@ -1848,6 +2096,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves an image URI that can be used to load the game's icon. Returns null if game has no
  icon.
  <p/>
@@ -1885,6 +2136,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Gets the number of leaderboards registered for this game.</p></div>
   <div class="jd-tagdata">
       <h5 class="jd-tagtitle">Returns</h5>
@@ -1918,6 +2172,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves the primary category of the game - this is may be null.</p></div>
   <div class="jd-tagdata">
@@ -1953,10 +2210,51 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Retrieves the secondary category of the game - this may be null.</p></div>
   <div class="jd-tagdata">
       <h5 class="jd-tagtitle">Returns</h5>
       <ul class="nolist"><li>The secondary category of the game, or null if not provided.
+</li></ul>
+  </div>
+
+    </div>
+</div>
+
+
+<A NAME="getThemeColor()"></A>
+
+<div class="jd-details api apilevel-"> 
+    <h4 class="jd-details-title">
+      <span class="normal">
+        public 
+         
+         
+        abstract 
+         
+        String
+      </span>
+      <span class="sympad">getThemeColor</span>
+      <span class="normal">()</span>
+    </h4>
+      <div class="api-level">
+        <div></div>
+        
+  
+
+      </div>
+    <div class="jd-details-descr">
+      
+    
+
+      
+  <div class="jd-tagdata jd-tagdescr"><p>Retrieves the theme color for this game. The theme color is used to configure the appearance
+ of Play Games UIs.</p></div>
+  <div class="jd-tagdata">
+      <h5 class="jd-tagtitle">Returns</h5>
+      <ul class="nolist"><li>The color to use as an RGB hex triplet, e.g. "E0E0E0"
 </li></ul>
   </div>
 
@@ -1986,6 +2284,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether or not this game supports real-time multiplayer.</p></div>
   <div class="jd-tagdata">
@@ -2020,6 +2321,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether or not this game supports turn-based multiplayer.</p></div>
   <div class="jd-tagdata">

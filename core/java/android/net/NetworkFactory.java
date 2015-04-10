@@ -46,6 +46,7 @@ import com.android.internal.util.Protocol;
  **/
 public class NetworkFactory extends Handler {
     private static final boolean DBG = true;
+    private static final boolean VDBG = false;
 
     private static final int BASE = Protocol.BASE_NETWORK_FACTORY;
     /**
@@ -164,13 +165,14 @@ public class NetworkFactory extends Handler {
     private void handleAddRequest(NetworkRequest request, int score) {
         NetworkRequestInfo n = mNetworkRequests.get(request.requestId);
         if (n == null) {
+            if (DBG) log("got request " + request + " with score " + score);
             n = new NetworkRequestInfo(request, score);
             mNetworkRequests.put(n.request.requestId, n);
         } else {
+            if (VDBG) log("new score " + score + " for exisiting request " + request);
             n.score = score;
         }
-        if (DBG) log("got request " + request + " with score " + score);
-        if (DBG) log("  my score=" + mScore + ", my filter=" + mCapabilityFilter);
+        if (VDBG) log("  my score=" + mScore + ", my filter=" + mCapabilityFilter);
 
         evalRequest(n);
     }
@@ -217,16 +219,21 @@ public class NetworkFactory extends Handler {
     }
 
     private void evalRequest(NetworkRequestInfo n) {
+        if (VDBG) log("evalRequest");
         if (n.requested == false && n.score < mScore &&
                 n.request.networkCapabilities.satisfiedByNetworkCapabilities(
                 mCapabilityFilter) && acceptRequest(n.request, n.score)) {
+            if (VDBG) log("  needNetworkFor");
             needNetworkFor(n.request, n.score);
             n.requested = true;
         } else if (n.requested == true &&
                 (n.score > mScore || n.request.networkCapabilities.satisfiedByNetworkCapabilities(
                 mCapabilityFilter) == false || acceptRequest(n.request, n.score) == false)) {
+            if (VDBG) log("  releaseNetworkFor");
             releaseNetworkFor(n.request);
             n.requested = false;
+        } else {
+            if (VDBG) log("  done");
         }
     }
 
@@ -271,5 +278,13 @@ public class NetworkFactory extends Handler {
 
     protected void log(String s) {
         Log.d(LOG_TAG, s);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("{").append(LOG_TAG).append(" - ScoreFilter=").
+                append(mScore).append(", Filter=").append(mCapabilityFilter).append(", requests=").
+                append(mNetworkRequests.size()).append("}");
+        return sb.toString();
     }
 }

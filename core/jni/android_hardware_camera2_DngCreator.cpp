@@ -35,6 +35,7 @@
 #include <cutils/properties.h>
 
 #include <string.h>
+#include <inttypes.h>
 
 #include "android_runtime/AndroidRuntime.h"
 #include "android_runtime/android_hardware_camera2_CameraMetadata.h"
@@ -360,15 +361,18 @@ ssize_t JniInputByteBuffer::read(uint8_t* buf, size_t offset, size_t count) {
         realCount = count;
     }
 
-    mEnv->CallObjectMethod(mInBuf, gInputByteBufferClassInfo.mGetMethod, mByteArray, 0,
+    jobject chainingBuf = mEnv->CallObjectMethod(mInBuf, gInputByteBufferClassInfo.mGetMethod, mByteArray, 0,
             realCount);
+    mEnv->DeleteLocalRef(chainingBuf);
 
     if (mEnv->ExceptionCheck()) {
+        ALOGE("%s: Exception while reading from input into byte buffer.", __FUNCTION__);
         return BAD_VALUE;
     }
 
     mEnv->GetByteArrayRegion(mByteArray, 0, realCount, reinterpret_cast<jbyte*>(buf + offset));
     if (mEnv->ExceptionCheck()) {
+        ALOGE("%s: Exception while reading from byte buffer.", __FUNCTION__);
         return BAD_VALUE;
     }
     return realCount;
@@ -428,7 +432,7 @@ InputStripSource::~InputStripSource() {}
 
 status_t InputStripSource::writeToStream(Output& stream, uint32_t count) {
     status_t err = OK;
-    uint32_t fullSize = mRowStride * mHeight;
+    uint32_t fullSize = mWidth * mHeight * mBytesPerSample * mSamplesPerPixel;
     jlong offset = mOffset;
 
     if (fullSize != count) {
@@ -469,15 +473,17 @@ status_t InputStripSource::writeToStream(Output& stream, uint32_t count) {
 
     for (uint32_t i = 0; i < mHeight; ++i) {
         size_t rowFillAmt = 0;
-        size_t rowSize = mPixStride;
+        size_t rowSize = mRowStride;
 
         while (rowFillAmt < mRowStride) {
             ssize_t bytesRead = mInput->read(rowBytes, rowFillAmt, rowSize);
             if (bytesRead <= 0) {
                 if (bytesRead == NOT_ENOUGH_DATA || bytesRead == 0) {
+                    ALOGE("%s: Early EOF on row %" PRIu32 ", received bytesRead %zd",
+                            __FUNCTION__, i, bytesRead);
                     jniThrowExceptionFmt(mEnv, "java/io/IOException",
-                            "Early EOF encountered, not enough pixel data for image of size %u",
-                            fullSize);
+                            "Early EOF encountered, not enough pixel data for image of size %"
+                            PRIu32, fullSize);
                     bytesRead = NOT_ENOUGH_DATA;
                 } else {
                     if (!mEnv->ExceptionCheck()) {
@@ -560,7 +566,7 @@ DirectStripSource::DirectStripSource(JNIEnv* env, const uint8_t* pixelBytes, uin
 DirectStripSource::~DirectStripSource() {}
 
 status_t DirectStripSource::writeToStream(Output& stream, uint32_t count) {
-    uint32_t fullSize = mRowStride * mHeight;
+    uint32_t fullSize = mWidth * mHeight * mBytesPerSample * mSamplesPerPixel;
 
     if (fullSize != count) {
         ALOGE("%s: Amount to write %u doesn't match image size %u", __FUNCTION__, count,
@@ -649,6 +655,119 @@ static status_t moveEntries(TiffWriter* writer, uint32_t ifdFrom, uint32_t ifdTo
             return BAD_VALUE;
         }
         writer->removeEntry(tagId, ifdFrom);
+    }
+    return OK;
+}
+
+/**
+ * Write CFA pattern for given CFA enum into cfaOut.  cfaOut must have length >= 4.
+ * Returns OK on success, or a negative error code if the CFA enum was invalid.
+ */
+static status_t convertCFA(uint8_t cfaEnum, /*out*/uint8_t* cfaOut) {
+    camera_metadata_enum_android_sensor_info_color_filter_arrangement_t cfa =
+            static_cast<camera_metadata_enum_android_sensor_info_color_filter_arrangement_t>(
+            cfaEnum);
+    switch(cfa) {
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_RGGB: {
+            cfaOut[0] = 0;
+            cfaOut[1] = 1;
+            cfaOut[2] = 1;
+            cfaOut[3] = 2;
+            break;
+        }
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GRBG: {
+            cfaOut[0] = 1;
+            cfaOut[1] = 0;
+            cfaOut[2] = 2;
+            cfaOut[3] = 1;
+            break;
+        }
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GBRG: {
+            cfaOut[0] = 1;
+            cfaOut[1] = 2;
+            cfaOut[2] = 0;
+            cfaOut[3] = 1;
+            break;
+        }
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_BGGR: {
+            cfaOut[0] = 2;
+            cfaOut[1] = 1;
+            cfaOut[2] = 1;
+            cfaOut[3] = 0;
+            break;
+        }
+        default: {
+            return BAD_VALUE;
+        }
+    }
+    return OK;
+}
+
+/**
+ * Convert the CFA layout enum to an OpcodeListBuilder::CfaLayout enum, defaults to
+ * RGGB for an unknown enum.
+ */
+static OpcodeListBuilder::CfaLayout convertCFAEnumToOpcodeLayout(uint8_t cfaEnum) {
+    camera_metadata_enum_android_sensor_info_color_filter_arrangement_t cfa =
+            static_cast<camera_metadata_enum_android_sensor_info_color_filter_arrangement_t>(
+            cfaEnum);
+    switch(cfa) {
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_RGGB: {
+            return OpcodeListBuilder::CFA_RGGB;
+        }
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GRBG: {
+            return OpcodeListBuilder::CFA_GRBG;
+        }
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GBRG: {
+            return OpcodeListBuilder::CFA_GBRG;
+        }
+        case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_BGGR: {
+            return OpcodeListBuilder::CFA_BGGR;
+        }
+        default: {
+            return OpcodeListBuilder::CFA_RGGB;
+        }
+    }
+}
+
+/**
+ * For each color plane, find the corresponding noise profile coefficients given in the
+ * per-channel noise profile.  If multiple channels in the CFA correspond to a color in the color
+ * plane, this method takes the pair of noise profile coefficients with the higher S coefficient.
+ *
+ * perChannelNoiseProfile - numChannels * 2 noise profile coefficients.
+ * cfa - numChannels color channels corresponding to each of the per-channel noise profile
+ *       coefficients.
+ * numChannels - the number of noise profile coefficient pairs and color channels given in
+ *       the perChannelNoiseProfile and cfa arguments, respectively.
+ * planeColors - the color planes in the noise profile output.
+ * numPlanes - the number of planes in planeColors and pairs of coefficients in noiseProfile.
+ * noiseProfile - 2 * numPlanes doubles containing numPlanes pairs of noise profile coefficients.
+ *
+ * returns OK, or a negative error code on failure.
+ */
+static status_t generateNoiseProfile(const double* perChannelNoiseProfile, uint8_t* cfa,
+        size_t numChannels, const uint8_t* planeColors, size_t numPlanes,
+        /*out*/double* noiseProfile) {
+
+    for (size_t p = 0; p < numPlanes; ++p) {
+        size_t S = p * 2;
+        size_t O = p * 2 + 1;
+
+        noiseProfile[S] = 0;
+        noiseProfile[O] = 0;
+        bool uninitialized = true;
+        for (size_t c = 0; c < numChannels; ++c) {
+            if (cfa[c] == planeColors[p] && perChannelNoiseProfile[c * 2] > noiseProfile[S]) {
+                noiseProfile[S] = perChannelNoiseProfile[c * 2];
+                noiseProfile[O] = perChannelNoiseProfile[c * 2 + 1];
+                uninitialized = false;
+            }
+        }
+        if (uninitialized) {
+            ALOGE("%s: No valid NoiseProfile coefficients for color plane %u", __FUNCTION__, p);
+            return BAD_VALUE;
+        }
     }
     return OK;
 }
@@ -745,6 +864,8 @@ static void DngCreator_init(JNIEnv* env, jobject thiz, jobject characteristicsPt
     uint32_t imageHeight = 0;
 
     OpcodeListBuilder::CfaLayout opcodeCfaLayout = OpcodeListBuilder::CFA_RGGB;
+    uint8_t cfaPlaneColor[3] = {0, 1, 2};
+    uint8_t cfaEnum = -1;
 
     // TODO: Greensplit.
     // TODO: Add remaining non-essential tags
@@ -841,49 +962,23 @@ static void DngCreator_init(JNIEnv* env, jobject thiz, jobject characteristicsPt
         camera_metadata_entry entry =
                         characteristics.find(ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
         BAIL_IF_EMPTY(entry, env, TAG_CFAPATTERN, writer);
-        camera_metadata_enum_android_sensor_info_color_filter_arrangement_t cfa =
-                static_cast<camera_metadata_enum_android_sensor_info_color_filter_arrangement_t>(
-                entry.data.u8[0]);
-        switch(cfa) {
-            case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_RGGB: {
-                uint8_t cfa[4] = {0, 1, 1, 2};
-                BAIL_IF_INVALID(writer->addEntry(TAG_CFAPATTERN, 4, cfa, TIFF_IFD_0),
-                                                env, TAG_CFAPATTERN, writer);
-                opcodeCfaLayout = OpcodeListBuilder::CFA_RGGB;
-                break;
-            }
-            case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GRBG: {
-                uint8_t cfa[4] = {1, 0, 2, 1};
-                BAIL_IF_INVALID(writer->addEntry(TAG_CFAPATTERN, 4, cfa, TIFF_IFD_0),
-                                                env, TAG_CFAPATTERN, writer);
-                opcodeCfaLayout = OpcodeListBuilder::CFA_GRBG;
-                break;
-            }
-            case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GBRG: {
-                uint8_t cfa[4] = {1, 2, 0, 1};
-                BAIL_IF_INVALID(writer->addEntry(TAG_CFAPATTERN, 4, cfa, TIFF_IFD_0),
-                                                env, TAG_CFAPATTERN, writer);
-                opcodeCfaLayout = OpcodeListBuilder::CFA_GBRG;
-                break;
-            }
-            case ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_BGGR: {
-                uint8_t cfa[4] = {2, 1, 1, 0};
-                BAIL_IF_INVALID(writer->addEntry(TAG_CFAPATTERN, 4, cfa, TIFF_IFD_0),
-                                env, TAG_CFAPATTERN, writer);
-                opcodeCfaLayout = OpcodeListBuilder::CFA_BGGR;
-                break;
-            }
-            default: {
-                jniThrowExceptionFmt(env, "java/lang/IllegalStateException",
-                            "Invalid metadata for tag %d", TAG_CFAPATTERN);
-                return;
-            }
+
+        const int cfaLength = 4;
+        cfaEnum = entry.data.u8[0];
+        uint8_t cfa[cfaLength];
+        if ((err = convertCFA(cfaEnum, /*out*/cfa)) != OK) {
+            jniThrowExceptionFmt(env, "java/lang/IllegalStateException",
+                        "Invalid metadata for tag %d", TAG_CFAPATTERN);
         }
+
+        BAIL_IF_INVALID(writer->addEntry(TAG_CFAPATTERN, cfaLength, cfa, TIFF_IFD_0), env,
+                TAG_CFAPATTERN, writer);
+
+        opcodeCfaLayout = convertCFAEnumToOpcodeLayout(cfaEnum);
     }
 
     {
         // Set CFA plane color
-        uint8_t cfaPlaneColor[3] = {0, 1, 2};
         BAIL_IF_INVALID(writer->addEntry(TAG_CFAPLANECOLOR, 3, cfaPlaneColor, TIFF_IFD_0),
                 env, TAG_CFAPLANECOLOR, writer);
     }
@@ -1173,8 +1268,8 @@ static void DngCreator_init(JNIEnv* env, jobject thiz, jobject characteristicsPt
             calibrationTransform1[ctr++] = entry1.data.r[i].denominator;
         }
 
-        BAIL_IF_INVALID(writer->addEntry(TAG_CAMERACALIBRATION1, entry1.count, calibrationTransform1,
-                TIFF_IFD_0), env, TAG_CAMERACALIBRATION1, writer);
+        BAIL_IF_INVALID(writer->addEntry(TAG_CAMERACALIBRATION1, entry1.count,
+                calibrationTransform1, TIFF_IFD_0), env, TAG_CAMERACALIBRATION1, writer);
 
         if (!singleIlluminant) {
             camera_metadata_entry entry2 =
@@ -1188,8 +1283,8 @@ static void DngCreator_init(JNIEnv* env, jobject thiz, jobject characteristicsPt
                 calibrationTransform2[ctr++] = entry2.data.r[i].denominator;
             }
 
-            BAIL_IF_INVALID(writer->addEntry(TAG_CAMERACALIBRATION2, entry2.count, calibrationTransform1,
-                    TIFF_IFD_0),  env, TAG_CAMERACALIBRATION2, writer);
+            BAIL_IF_INVALID(writer->addEntry(TAG_CAMERACALIBRATION2, entry2.count,
+                    calibrationTransform2, TIFF_IFD_0),  env, TAG_CAMERACALIBRATION2, writer);
         }
     }
 
@@ -1291,6 +1386,44 @@ static void DngCreator_init(JNIEnv* env, jobject thiz, jobject characteristicsPt
         BAIL_IF_INVALID(writer->addEntry(TAG_UNIQUECAMERAMODEL, cameraModel.size() + 1,
                 reinterpret_cast<const uint8_t*>(cameraModel.string()), TIFF_IFD_0), env,
                 TAG_UNIQUECAMERAMODEL, writer);
+    }
+
+    {
+        // Setup sensor noise model
+        camera_metadata_entry entry =
+            results.find(ANDROID_SENSOR_NOISE_PROFILE);
+
+        const status_t numPlaneColors = 3;
+        const status_t numCfaChannels = 4;
+
+        uint8_t cfaOut[numCfaChannels];
+        if ((err = convertCFA(cfaEnum, /*out*/cfaOut)) != OK) {
+            jniThrowException(env, "java/lang/IllegalArgumentException",
+                    "Invalid CFA from camera characteristics");
+            return;
+        }
+
+        double noiseProfile[numPlaneColors * 2];
+
+        if (entry.count > 0) {
+            if (entry.count != numCfaChannels * 2) {
+                ALOGW("%s: Invalid entry count %u for noise profile returned in characteristics,"
+                        " no noise profile tag written...", __FUNCTION__, entry.count);
+            } else {
+                if ((err = generateNoiseProfile(entry.data.d, cfaOut, numCfaChannels,
+                        cfaPlaneColor, numPlaneColors, /*out*/ noiseProfile)) == OK) {
+
+                    BAIL_IF_INVALID(writer->addEntry(TAG_NOISEPROFILE, numPlaneColors * 2,
+                            noiseProfile, TIFF_IFD_0), env, TAG_NOISEPROFILE, writer);
+                } else {
+                    ALOGW("%s: Error converting coefficients for noise profile, no noise profile"
+                            " tag written...", __FUNCTION__);
+                }
+            }
+        } else {
+            ALOGW("%s: No noise profile found in result metadata.  Image quality may be reduced.",
+                    __FUNCTION__);
+        }
     }
 
     {

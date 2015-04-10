@@ -25,13 +25,14 @@ import android.content.res.Resources.NotFoundException;
 import android.database.MatrixCursor;
 import android.graphics.Bitmap;
 import android.media.AudioManager;
+import android.media.MediaDescription;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
 import android.media.MediaPlayer.OnPreparedListener;
-import android.media.browse.MediaBrowserItem;
-import android.media.browse.MediaBrowserService;
-import android.media.browse.MediaBrowserService.BrowserRoot;
+import android.media.browse.MediaBrowser;
+import android.service.media.MediaBrowserService;
+import android.service.media.MediaBrowserService.BrowserRoot;
 import android.media.session.MediaSession;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
@@ -117,33 +118,30 @@ public class BrowserService extends MediaBrowserService {
 
     @Override
     public BrowserRoot onGetRoot(String clientPackageName, int clientUid, Bundle rootHints) {
-        return new BrowserRoot(BROWSE_URI, null);
+        return new BrowserRoot(BROWSE_URI.toString(), null);
     }
 
     @Override
-    public void onLoadChildren(final Uri parentUri,
-            final Result<List<MediaBrowserItem>> result) {
+    public void onLoadChildren(final String parentId,
+            final Result<List<MediaBrowser.MediaItem>> result) {
         new Handler().postDelayed(new Runnable() {
                 public void run() {
-                    final ArrayList<MediaBrowserItem> list = new ArrayList();
+                    final ArrayList<MediaBrowser.MediaItem> list = new ArrayList();
 
                     for (int i=0; i<10; i++) {
-                        list.add(new MediaBrowserItem.Builder(
-                                    Uri.withAppendedPath(BASE_URI, Integer.toString(i)),
-                                    MediaBrowserItem.FLAG_BROWSABLE, "Title " + i)
-                                .setSummary("Summary " + i)
-                                .build());
+                        MediaDescription.Builder bob = new MediaDescription.Builder();
+                        bob.setTitle("Title " + i);
+                        bob.setSubtitle("Summary " + i);
+                        bob.setMediaId(Uri.withAppendedPath(BASE_URI,
+                                Integer.toString(i)).toString());
+                        list.add(new MediaBrowser.MediaItem(bob.build(),
+                                MediaBrowser.MediaItem.FLAG_BROWSABLE));
                     }
 
                     result.sendResult(list);
                 }
             }, 2000);
         result.detach();
-    }
-
-    @Override
-    public void onLoadThumbnail(Uri uri, int width, int height, Result<Bitmap> result) {
-        result.sendResult(null);
     }
 
     /*

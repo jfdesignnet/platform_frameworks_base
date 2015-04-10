@@ -15,73 +15,35 @@
 -->
 <com.android.systemui.recents.views.TaskView
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" 
+    android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:focusable="true">
-    <com.android.systemui.recents.views.TaskThumbnailView
-        android:id="@+id/task_view_thumbnail"
+    <FrameLayout
+        android:id="@+id/task_view_content"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-    <com.android.systemui.recents.views.TaskBarView
-        android:id="@+id/task_view_bar"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/recents_task_bar_height"
-        android:layout_gravity="top|center_horizontal"
-        android:background="@color/recents_task_bar_default_background_color">
-        <com.android.systemui.recents.views.FixedSizeImageView
-            android:id="@+id/application_icon"
-            android:layout_width="@dimen/recents_task_view_application_icon_size"
-            android:layout_height="@dimen/recents_task_view_application_icon_size"
-            android:layout_marginStart="8dp"
-            android:layout_gravity="center_vertical|start"
-            android:padding="8dp"
-            android:background="@drawable/recents_button_bg" />
-        <TextView
-            android:id="@+id/activity_description"
+        android:layout_height="match_parent">
+        <com.android.systemui.recents.views.TaskViewThumbnail
+            android:id="@+id/task_view_thumbnail"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical|start"
-            android:layout_marginStart="64dp"
-            android:layout_marginEnd="64dp"
-            android:textSize="16sp"
-            android:textColor="#ffffffff"
-            android:text="@string/recents_empty_message"
-            android:fontFamily="sans-serif-medium"
-            android:singleLine="true"
-            android:maxLines="2"
-            android:ellipsize="marquee"
-            android:fadingEdge="horizontal" />
-        <com.android.systemui.recents.views.FixedSizeImageView
-            android:id="@+id/dismiss_task"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginEnd="4dp"
-            android:layout_gravity="center_vertical|end"
-            android:padding="18dp"
-            android:background="@drawable/recents_button_bg"
-            android:visibility="invisible"
-            android:src="@drawable/recents_dismiss_light" />
-    </com.android.systemui.recents.views.TaskBarView>
-    <com.android.systemui.recents.views.TaskFooterView
-        android:id="@+id/lock_to_app"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/recents_task_view_lock_to_app_button_height"
-        android:layout_gravity="center_horizontal|bottom"
-        android:background="@drawable/recents_lock_to_task_button_bg">
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:layout_gravity="center_horizontal"
-            android:gravity="center"
-            android:drawableLeft="@drawable/ic_lock_to_app_24dp"
-            android:drawablePadding="8dp"
-            android:textSize="16sp"
-            android:textColor="@color/recents_task_view_lock_to_app_button_color"
-            android:text="@string/recents_lock_to_app_button_label"
-            android:fontFamily="sans-serif-medium"
-            android:singleLine="true"
-            android:textAllCaps="true" />
-    </com.android.systemui.recents.views.TaskFooterView>
+            android:layout_height="match_parent" />
+        <include layout="@layout/recents_task_view_header" />
+        <FrameLayout
+            android:id="@+id/lock_to_app_fab"
+            android:layout_width="@dimen/recents_lock_to_app_size"
+            android:layout_height="@dimen/recents_lock_to_app_size"
+            android:layout_gravity="bottom|right"
+            android:layout_marginRight="15dp"
+            android:layout_marginBottom="15dp"
+            android:translationZ="2dp"
+            android:contentDescription="@string/recents_lock_to_app_button_label"
+            android:background="@drawable/recents_lock_to_task_button_bg">
+            <ImageView
+                android:layout_width="@dimen/recents_lock_to_app_icon_size"
+                android:layout_height="@dimen/recents_lock_to_app_icon_size"
+                android:layout_gravity="center"
+                android:src="@drawable/recents_lock_to_app_pin" />
+        </FrameLayout>
+    </FrameLayout>
 </com.android.systemui.recents.views.TaskView>
 
 

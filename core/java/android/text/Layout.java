@@ -273,16 +273,22 @@ public abstract class Layout {
                 // Draw all leading margin spans.  Adjust left or right according
                 // to the paragraph direction of the line.
                 final int length = spans.length;
+                boolean useFirstLineMargin = isFirstParaLine;
+                for (int n = 0; n < length; n++) {
+                    if (spans[n] instanceof LeadingMarginSpan2) {
+                        int count = ((LeadingMarginSpan2) spans[n]).getLeadingMarginLineCount();
+                        int startLine = getLineForOffset(sp.getSpanStart(spans[n]));
+                        // if there is more than one LeadingMarginSpan2, use
+                        // the count that is greatest
+                        if (i < startLine + count) {
+                            useFirstLineMargin = true;
+                            break;
+                        }
+                    }
+                }
                 for (int n = 0; n < length; n++) {
                     if (spans[n] instanceof LeadingMarginSpan) {
                         LeadingMarginSpan margin = (LeadingMarginSpan) spans[n];
-                        boolean useFirstLineMargin = isFirstParaLine;
-                        if (margin instanceof LeadingMarginSpan2) {
-                            int count = ((LeadingMarginSpan2) margin).getLeadingMarginLineCount();
-                            int startLine = getLineForOffset(sp.getSpanStart(margin));
-                            useFirstLineMargin = i < startLine + count;
-                        }
-
                         if (dir == DIR_RIGHT_TO_LEFT) {
                             margin.drawLeadingMargin(canvas, paint, right, dir, ltop,
                                                      lbaseline, lbottom, buf,
@@ -721,10 +727,9 @@ public abstract class Layout {
         int[] runs = dirs.mDirections;
         int lineStart = getLineStart(line);
         for (int i = 0; i < runs.length; i += 2) {
-            int start = lineStart + (runs[i] & RUN_LENGTH_MASK);
-            // No need to test the end as an offset after the last run should return the value
-            // corresponding of the last run
-            if (offset >= start) {
+            int start = lineStart + runs[i];
+            int limit = start + (runs[i+1] & RUN_LENGTH_MASK);
+            if (offset >= start && offset < limit) {
                 int level = (runs[i+1] >>> RUN_LEVEL_SHIFT) & RUN_LEVEL_MASK;
                 return ((level & 1) != 0);
             }
@@ -1535,15 +1540,18 @@ public abstract class Layout {
         boolean isFirstParaLine = lineStart == 0 ||
             spanned.charAt(lineStart - 1) == '\n';
 
+        boolean useFirstLineMargin = isFirstParaLine;
+        for (int i = 0; i < spans.length; i++) {
+            if (spans[i] instanceof LeadingMarginSpan2) {
+                int spStart = spanned.getSpanStart(spans[i]);
+                int spanLine = getLineForOffset(spStart);
+                int count = ((LeadingMarginSpan2) spans[i]).getLeadingMarginLineCount();
+                // if there is more than one LeadingMarginSpan2, use the count that is greatest
+                useFirstLineMargin |= line < spanLine + count;
+            }
+        }
         for (int i = 0; i < spans.length; i++) {
             LeadingMarginSpan span = spans[i];
-            boolean useFirstLineMargin = isFirstParaLine;
-            if (span instanceof LeadingMarginSpan2) {
-                int spStart = spanned.getSpanStart(span);
-                int spanLine = getLineForOffset(spStart);
-                int count = ((LeadingMarginSpan2)span).getLeadingMarginLineCount();
-                useFirstLineMargin = line < spanLine + count;
-            }
             margin += span.getLeadingMargin(useFirstLineMargin);
         }
 
@@ -1746,8 +1754,8 @@ public abstract class Layout {
 
     private char getEllipsisChar(TextUtils.TruncateAt method) {
         return (method == TextUtils.TruncateAt.END_SMALL) ?
-                ELLIPSIS_TWO_DOTS[0] :
-                ELLIPSIS_NORMAL[0];
+                TextUtils.ELLIPSIS_TWO_DOTS[0] :
+                TextUtils.ELLIPSIS_NORMAL[0];
     }
 
     private void ellipsize(int start, int end, int line,
@@ -1944,6 +1952,4 @@ public abstract class Layout {
     /* package */ static final Directions DIRS_ALL_RIGHT_TO_LEFT =
         new Directions(new int[] { 0, RUN_LENGTH_MASK | RUN_RTL_FLAG });
 
-    /* package */ static final char[] ELLIPSIS_NORMAL = { '\u2026' }; // this is "..."
-    /* package */ static final char[] ELLIPSIS_TWO_DOTS = { '\u2025' }; // this is ".."
 }

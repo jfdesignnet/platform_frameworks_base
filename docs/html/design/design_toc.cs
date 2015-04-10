@@ -9,6 +9,10 @@
   </li>
 
   <li class="nav-section">
+    <div class="nav-section-header empty"><a href="<?cs var:toroot ?>design/material/index.html">Material Design</a></div>
+  </li>
+
+  <li class="nav-section">
     <div class="nav-section-header"><a href="<?cs var:toroot ?>design/devices.html">Devices</a></div>
     <ul>
       <li><a href="<?cs var:toroot ?>design/handhelds/index.html">Phones &amp; Tablets</a></li>
@@ -19,11 +23,21 @@
           <li><a href="<?cs var:toroot ?>design/wear/creative-vision.html">Creative Vision</a></li>
           <li><a href="<?cs var:toroot ?>design/wear/principles.html">Design Principles</a></li>
           <li><a href="<?cs var:toroot ?>design/wear/structure.html">App Structure</a></li>
+          <li><a href="<?cs var:toroot ?>design/wear/context.html">Context Awareness</a></li>
           <li><a href="<?cs var:toroot ?>design/wear/patterns.html">UI Patterns</a></li>
           <li><a href="<?cs var:toroot ?>design/wear/style.html">Style</a></li>
+          <li><a href="<?cs var:toroot ?>design/wear/watchfaces.html">Watch Faces</a></li>
         </ul>
       </li>
-      <li><a href="<?cs var:toroot ?>design/tv/index.html">TV</a></li>
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>design/tv/index.html">TV</a></div>
+        <ul>
+          <li><a href="<?cs var:toroot ?>design/tv/principles.html">Creative Vision</a></li>
+          <li><a href="<?cs var:toroot ?>design/tv/patterns.html">UI Patterns</a></li>
+          <li><a href="<?cs var:toroot ?>design/tv/style.html">Style</a></li>
+        </ul>
+      </li>
       <li><a href="<?cs var:toroot ?>design/auto/index.html">Auto</a></li>
     </ul>
   </li>
@@ -39,7 +53,7 @@
       <li><a href="<?cs var:toroot ?>design/style/color.html">Color</a></li>
       <li><a href="<?cs var:toroot ?>design/style/iconography.html">Iconography</a></li>
       <li><a href="<?cs var:toroot ?>design/style/branding.html">Your Branding</a></li>
-      <li><a href="<?cs var:toroot ?>design/style/writing.html">Writing Style</a></li>
+      <li><a href="<?cs var:toroot ?>design/style/writing.html" zh-cn-lang="写作风格">Writing Style</a></li>
     </ul>
   </li>
 

@@ -26,11 +26,17 @@ import android.app.IActivityController;
 import android.app.IActivityManager;
 import android.app.IInstrumentationWatcher;
 import android.app.Instrumentation;
+import android.app.ProfilerInfo;
 import android.app.UiAutomationConnection;
+import android.app.usage.ConfigurationStats;
+import android.app.usage.IUsageStatsManager;
+import android.app.usage.UsageStatsManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.IIntentReceiver;
 import android.content.Intent;
 import android.content.pm.IPackageManager;
+import android.content.pm.ParceledListSlice;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.graphics.Rect;
@@ -41,17 +47,17 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.os.SELinux;
 import android.os.ServiceManager;
+import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.text.TextUtils;
 import android.util.AndroidException;
+import android.util.ArrayMap;
 import android.view.IWindowManager;
-import android.view.View;
 
 import com.android.internal.os.BaseCommand;
-
-import dalvik.system.VMRuntime;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -60,6 +66,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 
@@ -76,6 +85,8 @@ public class Am extends BaseCommand {
     private String mReceiverPermission;
 
     private String mProfileFile;
+    private int mSamplingInterval;
+    private boolean mAutoStop;
 
     /**
      * Command-line entry point.
@@ -91,7 +102,7 @@ public class Am extends BaseCommand {
         out.println(
                 "usage: am [subcommand] [options]\n" +
                 "usage: am start [-D] [-W] [-P <FILE>] [--start-profiler <FILE>]\n" +
-                "               [--R COUNT] [-S] [--opengl-trace]\n" +
+                "               [--sampling INTERVAL] [-R COUNT] [-S] [--opengl-trace]\n" +
                 "               [--user <USER_ID> | current] <INTENT>\n" +
                 "       am startservice [--user <USER_ID> | current] <INTENT>\n" +
                 "       am stopservice [--user <USER_ID> | current] <INTENT>\n" +
@@ -101,11 +112,7 @@ public class Am extends BaseCommand {
                 "       am broadcast [--user <USER_ID> | all | current] <INTENT>\n" +
                 "       am instrument [-r] [-e <NAME> <VALUE>] [-p <FILE>] [-w]\n" +
                 "               [--user <USER_ID> | current]\n" +
-                "               [--no-window-animation]\n" +
-                "               [--abi <ABI>]\n : Launch the instrumented process with the "  +
-                "                   selected ABI. This assumes that the process supports the" +
-                "                   selected ABI." +
-                "               <COMPONENT>\n" +
+                "               [--no-window-animation] [--abi <ABI>] <COMPONENT>\n" +
                 "       am profile start [--user <USER_ID> current] <PROCESS> <FILE>\n" +
                 "       am profile stop [--user <USER_ID> current] [<PROCESS>]\n" +
                 "       am dumpheap [--user <USER_ID> current] [-n] <PROCESS> <FILE>\n" +
@@ -118,7 +125,9 @@ public class Am extends BaseCommand {
                 "       am screen-compat [on|off] <PACKAGE>\n" +
                 "       am to-uri [INTENT]\n" +
                 "       am to-intent-uri [INTENT]\n" +
+                "       am to-app-uri [INTENT]\n" +
                 "       am switch-user <USER_ID>\n" +
+                "       am start-user <USER_ID>\n" +
                 "       am stop-user <USER_ID>\n" +
                 "       am stack start <DISPLAY_ID> <INTENT>\n" +
                 "       am stack movetask <TASK_ID> <STACK_ID> [true|false]\n" +
@@ -133,6 +142,8 @@ public class Am extends BaseCommand {
                 "    -D: enable debugging\n" +
                 "    -W: wait for launch to complete\n" +
                 "    --start-profiler <FILE>: start profiler and send results to <FILE>\n" +
+                "    --sampling INTERVAL: use sample profiling with INTERVAL microseconds\n" +
+                "        between samples (use with --start-profiler)\n" +
                 "    -P <FILE>: like above, but profiling stops when app goes idle\n" +
                 "    -R: repeat the activity launch <COUNT> times.  Prior to each repeat,\n" +
                 "        the top activity will be finished.\n" +
@@ -178,6 +189,8 @@ public class Am extends BaseCommand {
                 "    --user <USER_ID> | current: Specify user instrumentation runs in;\n" +
                 "        current user if not specified.\n" +
                 "    --no-window-animation: turn off window animations while running.\n" +
+                "    --abi <ABI>: Launch the instrumented process with the selected ABI.\n"  +
+                "        This assumes that the process supports the selected ABI.\n" +
                 "\n" +
                 "am profile: start and stop profiler on a process.  The given <PROCESS> argument\n" +
                 "  may be either a process name or pid.  Options are:\n" +
@@ -215,11 +228,16 @@ public class Am extends BaseCommand {
                 "\n" +
                 "am to-intent-uri: print the given Intent specification as an intent: URI.\n" +
                 "\n" +
+                "am to-app-uri: print the given Intent specification as an android-app: URI.\n" +
+                "\n" +
                 "am switch-user: switch to put USER_ID in the foreground, starting\n" +
                 "  execution of that user if it is currently stopped.\n" +
                 "\n" +
+                "am start-user: start USER_ID in background if it is currently stopped,\n" +
+                "  use switch-user if you want to start the user in foreground.\n" +
+                "\n" +
                 "am stop-user: stop execution of USER_ID, not allowing it to run any\n" +
-                "  code until a later explicit switch to it.\n" +
+                "  code until a later explicit start or switch to it.\n" +
                 "\n" +
                 "am stack start: start a new activity on <DISPLAY_ID> using <INTENT>.\n" +
                 "\n" +
@@ -253,7 +271,7 @@ public class Am extends BaseCommand {
                 "    [--efa <EXTRA_KEY> <EXTRA_FLOAT_VALUE>[,<EXTRA_FLOAT_VALUE...]]\n" +
                 "    [--esa <EXTRA_KEY> <EXTRA_STRING_VALUE>[,<EXTRA_STRING_VALUE...]]\n" +
                 "        (to embed a comma into a string escape it using \"\\,\")\n" +
-                "    [-n <COMPONENT>] [-f <FLAGS>]\n" +
+                "    [-n <COMPONENT>] [-p <PACKAGE>] [-f <FLAGS>]\n" +
                 "    [--grant-read-uri-permission] [--grant-write-uri-permission]\n" +
                 "    [--grant-persistable-uri-permission] [--grant-prefix-uri-permission]\n" +
                 "    [--debug-log-resolution] [--exclude-stopped-packages]\n" +
@@ -320,11 +338,15 @@ public class Am extends BaseCommand {
         } else if (op.equals("screen-compat")) {
             runScreenCompat();
         } else if (op.equals("to-uri")) {
-            runToUri(false);
+            runToUri(0);
         } else if (op.equals("to-intent-uri")) {
-            runToUri(true);
+            runToUri(Intent.URI_INTENT_SCHEME);
+        } else if (op.equals("to-app-uri")) {
+            runToUri(Intent.URI_ANDROID_APP_SCHEME);
         } else if (op.equals("switch-user")) {
             runSwitchUser();
+        } else if (op.equals("start-user")) {
+            runStartUserInBackground();
         } else if (op.equals("stop-user")) {
             runStopUser();
         } else if (op.equals("stack")) {
@@ -360,6 +382,8 @@ public class Am extends BaseCommand {
         mStopOption = false;
         mRepeat = 0;
         mProfileFile = null;
+        mSamplingInterval = 0;
+        mAutoStop = false;
         mUserId = defUser;
         Uri data = null;
         String type = null;
@@ -396,7 +420,7 @@ public class Am extends BaseCommand {
             } else if (opt.equals("--ei")) {
                 String key = nextArgRequired();
                 String value = nextArgRequired();
-                intent.putExtra(key, Integer.valueOf(value));
+                intent.putExtra(key, Integer.decode(value));
             } else if (opt.equals("--eu")) {
                 String key = nextArgRequired();
                 String value = nextArgRequired();
@@ -413,7 +437,7 @@ public class Am extends BaseCommand {
                 String[] strings = value.split(",");
                 int[] list = new int[strings.length];
                 for (int i = 0; i < strings.length; i++) {
-                    list[i] = Integer.valueOf(strings[i]);
+                    list[i] = Integer.decode(strings[i]);
                 }
                 intent.putExtra(key, list);
             } else if (opt.equals("--el")) {
@@ -456,13 +480,34 @@ public class Am extends BaseCommand {
                 hasIntentInfo = true;
             } else if (opt.equals("--ez")) {
                 String key = nextArgRequired();
-                String value = nextArgRequired();
-                intent.putExtra(key, Boolean.valueOf(value));
+                String value = nextArgRequired().toLowerCase();
+                // Boolean.valueOf() results in false for anything that is not "true", which is
+                // error-prone in shell commands
+                boolean arg;
+                if ("true".equals(value) || "t".equals(value)) {
+                    arg = true;
+                } else if ("false".equals(value) || "f".equals(value)) {
+                    arg = false;
+                } else {
+                    try {
+                        arg = Integer.decode(value) != 0;
+                    } catch (NumberFormatException ex) {
+                        throw new IllegalArgumentException("Invalid boolean value: " + value);
+                    }
+                }
+
+                intent.putExtra(key, arg);
             } else if (opt.equals("-n")) {
                 String str = nextArgRequired();
                 ComponentName cn = ComponentName.unflattenFromString(str);
                 if (cn == null) throw new IllegalArgumentException("Bad component name: " + str);
                 intent.setComponent(cn);
+                if (intent == baseIntent) {
+                    hasIntentInfo = true;
+                }
+            } else if (opt.equals("-p")) {
+                String str = nextArgRequired();
+                intent.setPackage(str);
                 if (intent == baseIntent) {
                     hasIntentInfo = true;
                 }
@@ -526,10 +571,12 @@ public class Am extends BaseCommand {
                 mWaitOption = true;
             } else if (opt.equals("-P")) {
                 mProfileFile = nextArgRequired();
-                mStartFlags |= ActivityManager.START_FLAG_AUTO_STOP_PROFILER;
+                mAutoStop = true;
             } else if (opt.equals("--start-profiler")) {
                 mProfileFile = nextArgRequired();
-                mStartFlags &= ~ActivityManager.START_FLAG_AUTO_STOP_PROFILER;
+                mAutoStop = false;
+            } else if (opt.equals("--sampling")) {
+                mSamplingInterval = Integer.parseInt(nextArgRequired());
             } else if (opt.equals("-R")) {
                 mRepeat = Integer.parseInt(nextArgRequired());
             } else if (opt.equals("-S")) {
@@ -569,7 +616,8 @@ public class Am extends BaseCommand {
         } else if (arg.indexOf(':') >= 0) {
             // The argument is a URI.  Fully parse it, and use that result
             // to fill in any data not specified so far.
-            baseIntent = Intent.parseUri(arg, Intent.URI_INTENT_SCHEME);
+            baseIntent = Intent.parseUri(arg, Intent.URI_INTENT_SCHEME
+                    | Intent.URI_ANDROID_APP_SCHEME | Intent.URI_ALLOW_UNSAFE);
         } else if (arg.indexOf('/') >= 0) {
             // The argument is a component name.  Build an Intent to launch
             // it.
@@ -685,35 +733,40 @@ public class Am extends BaseCommand {
                 mAm.forceStopPackage(packageName, mUserId);
                 Thread.sleep(250);
             }
-    
+
             System.out.println("Starting: " + intent);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    
+
             ParcelFileDescriptor fd = null;
-    
+            ProfilerInfo profilerInfo = null;
+
             if (mProfileFile != null) {
                 try {
-                    fd = ParcelFileDescriptor.open(
+                    fd = openForSystemServer(
                             new File(mProfileFile),
                             ParcelFileDescriptor.MODE_CREATE |
                             ParcelFileDescriptor.MODE_TRUNCATE |
                             ParcelFileDescriptor.MODE_READ_WRITE);
                 } catch (FileNotFoundException e) {
                     System.err.println("Error: Unable to open file: " + mProfileFile);
+                    System.err.println("Consider using a file under /data/local/tmp/");
                     return;
                 }
+                profilerInfo = new ProfilerInfo(mProfileFile, fd, mSamplingInterval, mAutoStop);
             }
 
             IActivityManager.WaitResult result = null;
             int res;
+            final long startTime = SystemClock.uptimeMillis();
             if (mWaitOption) {
                 result = mAm.startActivityAndWait(null, null, intent, mimeType,
-                            null, null, 0, mStartFlags, mProfileFile, fd, null, mUserId);
+                            null, null, 0, mStartFlags, profilerInfo, null, mUserId);
                 res = result.result;
             } else {
                 res = mAm.startActivityAsUser(null, null, intent, mimeType,
-                        null, null, 0, mStartFlags, mProfileFile, fd, null, mUserId);
+                        null, null, 0, mStartFlags, profilerInfo, null, mUserId);
             }
+            final long endTime = SystemClock.uptimeMillis();
             PrintStream out = mWaitOption ? System.out : System.err;
             boolean launched = false;
             switch (res) {
@@ -791,6 +844,7 @@ public class Am extends BaseCommand {
                 if (result.totalTime >= 0) {
                     System.out.println("TotalTime: " + result.totalTime);
                 }
+                System.out.println("WaitTime: " + (endTime-startTime));
                 System.out.println("Complete");
             }
             mRepeat--;
@@ -835,7 +889,7 @@ public class Am extends BaseCommand {
     }
 
     private void sendBroadcast() throws Exception {
-        Intent intent = makeIntent(UserHandle.USER_ALL);
+        Intent intent = makeIntent(UserHandle.USER_CURRENT);
         IntentReceiver receiver = new IntentReceiver();
         System.out.println("Broadcasting: " + intent);
         mAm.broadcastIntent(null, intent, null, receiver, 0, null, null, mReceiverPermission,
@@ -942,7 +996,7 @@ public class Am extends BaseCommand {
             SystemProperties.set("dalvik.vm.extra-opts", props);
         }
     }
-    
+
     private void runProfile() throws Exception {
         String profileFile = null;
         boolean start = false;
@@ -996,19 +1050,22 @@ public class Am extends BaseCommand {
         }
 
         ParcelFileDescriptor fd = null;
+        ProfilerInfo profilerInfo = null;
 
         if (start) {
             profileFile = nextArgRequired();
             try {
-                fd = ParcelFileDescriptor.open(
+                fd = openForSystemServer(
                         new File(profileFile),
                         ParcelFileDescriptor.MODE_CREATE |
                         ParcelFileDescriptor.MODE_TRUNCATE |
                         ParcelFileDescriptor.MODE_READ_WRITE);
             } catch (FileNotFoundException e) {
                 System.err.println("Error: Unable to open file: " + profileFile);
+                System.err.println("Consider using a file under /data/local/tmp/");
                 return;
             }
+            profilerInfo = new ProfilerInfo(profileFile, fd, 0, false);
         }
 
         try {
@@ -1022,7 +1079,7 @@ public class Am extends BaseCommand {
             } else if (start) {
                 //removeWallOption();
             }
-            if (!mAm.profileControl(process, userId, start, profileFile, fd, profileType)) {
+            if (!mAm.profileControl(process, userId, start, profilerInfo, profileType)) {
                 wall = false;
                 throw new AndroidException("PROFILE FAILED on process " + process);
             }
@@ -1059,12 +1116,13 @@ public class Am extends BaseCommand {
         try {
             File file = new File(heapFile);
             file.delete();
-            fd = ParcelFileDescriptor.open(file,
+            fd = openForSystemServer(file,
                     ParcelFileDescriptor.MODE_CREATE |
                     ParcelFileDescriptor.MODE_TRUNCATE |
                     ParcelFileDescriptor.MODE_READ_WRITE);
         } catch (FileNotFoundException e) {
             System.err.println("Error: Unable to open file: " + heapFile);
+            System.err.println("Consider using a file under /data/local/tmp/");
             return;
         }
 
@@ -1105,6 +1163,16 @@ public class Am extends BaseCommand {
     private void runSwitchUser() throws Exception {
         String user = nextArgRequired();
         mAm.switchUser(Integer.parseInt(user));
+    }
+
+    private void runStartUserInBackground() throws Exception {
+        String user = nextArgRequired();
+        boolean success = mAm.startUserInBackground(Integer.parseInt(user));
+        if (success) {
+            System.out.println("Success: user started");
+        } else {
+            System.err.println("Error: could not start user");
+        }
     }
 
     private void runStopUser() throws Exception {
@@ -1494,9 +1562,9 @@ public class Am extends BaseCommand {
         } while (packageName != null);
     }
 
-    private void runToUri(boolean intentScheme) throws Exception {
+    private void runToUri(int flags) throws Exception {
         Intent intent = makeIntent(UserHandle.USER_CURRENT);
-        System.out.println(intent.toUri(intentScheme ? Intent.URI_INTENT_SCHEME : 0));
+        System.out.println(intent.toUri(flags));
     }
 
     private class IntentReceiver extends IIntentReceiver.Stub {
@@ -1709,7 +1777,64 @@ public class Am extends BaseCommand {
         }
     }
 
+    private List<Configuration> getRecentConfigurations(int days) {
+        IUsageStatsManager usm = IUsageStatsManager.Stub.asInterface(ServiceManager.getService(
+                    Context.USAGE_STATS_SERVICE));
+        final long now = System.currentTimeMillis();
+        final long nDaysAgo = now - (days * 24 * 60 * 60 * 1000);
+        try {
+            @SuppressWarnings("unchecked")
+            ParceledListSlice<ConfigurationStats> configStatsSlice = usm.queryConfigurationStats(
+                    UsageStatsManager.INTERVAL_BEST, nDaysAgo, now, "com.android.shell");
+            if (configStatsSlice == null) {
+                return Collections.emptyList();
+            }
+
+            final ArrayMap<Configuration, Integer> recentConfigs = new ArrayMap<>();
+            final List<ConfigurationStats> configStatsList = configStatsSlice.getList();
+            final int configStatsListSize = configStatsList.size();
+            for (int i = 0; i < configStatsListSize; i++) {
+                final ConfigurationStats stats = configStatsList.get(i);
+                final int indexOfKey = recentConfigs.indexOfKey(stats.getConfiguration());
+                if (indexOfKey < 0) {
+                    recentConfigs.put(stats.getConfiguration(), stats.getActivationCount());
+                } else {
+                    recentConfigs.setValueAt(indexOfKey,
+                            recentConfigs.valueAt(indexOfKey) + stats.getActivationCount());
+                }
+            }
+
+            final Comparator<Configuration> comparator = new Comparator<Configuration>() {
+                @Override
+                public int compare(Configuration a, Configuration b) {
+                    return recentConfigs.get(b).compareTo(recentConfigs.get(a));
+                }
+            };
+
+            ArrayList<Configuration> configs = new ArrayList<>(recentConfigs.size());
+            configs.addAll(recentConfigs.keySet());
+            Collections.sort(configs, comparator);
+            return configs;
+
+        } catch (RemoteException e) {
+            return Collections.emptyList();
+        }
+    }
+
     private void runGetConfig() throws Exception {
+        int days = 14;
+        String option = nextOption();
+        if (option != null) {
+            if (!option.equals("--days")) {
+                throw new IllegalArgumentException("unrecognized option " + option);
+            }
+
+            days = Integer.parseInt(nextArgRequired());
+            if (days <= 0) {
+                throw new IllegalArgumentException("--days must be a positive integer");
+            }
+        }
+
         try {
             Configuration config = mAm.getConfiguration();
             if (config == null) {
@@ -1720,7 +1845,32 @@ public class Am extends BaseCommand {
             System.out.println("config: " + Configuration.resourceQualifierString(config));
             System.out.println("abi: " + TextUtils.join(",", Build.SUPPORTED_ABIS));
 
+            final List<Configuration> recentConfigs = getRecentConfigurations(days);
+            final int recentConfigSize = recentConfigs.size();
+            if (recentConfigSize > 0) {
+                System.out.println("recentConfigs:");
+            }
+
+            for (int i = 0; i < recentConfigSize; i++) {
+                System.out.println("  config: " + Configuration.resourceQualifierString(
+                        recentConfigs.get(i)));
+            }
+
         } catch (RemoteException e) {
         }
+    }
+
+    /**
+     * Open the given file for sending into the system process. This verifies
+     * with SELinux that the system will have access to the file.
+     */
+    private static ParcelFileDescriptor openForSystemServer(File file, int mode)
+            throws FileNotFoundException {
+        final ParcelFileDescriptor fd = ParcelFileDescriptor.open(file, mode);
+        final String tcon = SELinux.getFileContext(file.getAbsolutePath());
+        if (!SELinux.checkSELinuxAccess("u:r:system_server:s0", tcon, "file", "read")) {
+            throw new FileNotFoundException("System server has no access to file context " + tcon);
+        }
+        return fd;
     }
 }

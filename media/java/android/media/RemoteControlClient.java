@@ -389,6 +389,7 @@ import java.lang.IllegalArgumentException;
     public void registerWithSession(MediaSessionLegacyHelper helper) {
         helper.addRccListener(mRcMediaIntent, mTransportListener);
         mSession = helper.getSession(mRcMediaIntent);
+        setTransportControlFlags(mTransportControlFlags);
     }
 
     /**
@@ -473,7 +474,7 @@ import java.lang.IllegalArgumentException;
                 String metadataKey = MediaMetadata.getKeyFromMetadataEditorKey(key);
                 // But just in case, don't add things we don't understand
                 if (metadataKey != null) {
-                    mMetadataBuilder.putString(metadataKey, value);
+                    mMetadataBuilder.putText(metadataKey, value);
                 }
             }
 
@@ -534,6 +535,21 @@ import java.lang.IllegalArgumentException;
             return this;
         }
 
+        @Override
+        public synchronized MetadataEditor putObject(int key, Object object)
+                throws IllegalArgumentException {
+            super.putObject(key, object);
+            if (mMetadataBuilder != null &&
+                    (key == MediaMetadataEditor.RATING_KEY_BY_USER ||
+                    key == MediaMetadataEditor.RATING_KEY_BY_OTHERS)) {
+                String metadataKey = MediaMetadata.getKeyFromMetadataEditorKey(key);
+                if (metadataKey != null) {
+                    mMetadataBuilder.putRating(metadataKey, (Rating) object);
+                }
+            }
+            return this;
+        }
+
         /**
          * Clears all the metadata that has been set since the MetadataEditor instance was created
          * (with {@link RemoteControlClient#editMetadata(boolean)}).
@@ -571,7 +587,8 @@ import java.lang.IllegalArgumentException;
 
                 // USE_SESSIONS
                 if (mSession != null && mMetadataBuilder != null) {
-                    mSession.setMetadata(mMetadataBuilder.build());
+                    mMediaMetadata = mMetadataBuilder.build();
+                    mSession.setMetadata(mMediaMetadata);
                 }
                 mApplied = true;
             }
@@ -970,8 +987,7 @@ import java.lang.IllegalArgumentException;
     public final static int RCSE_ID_UNREGISTERED = -1;
 
     // USE_SESSIONS
-    private MediaSession.TransportControlsCallback mTransportListener
-            = new MediaSession.TransportControlsCallback() {
+    private MediaSession.Callback mTransportListener = new MediaSession.Callback() {
 
         @Override
         public void onSeekTo(long pos) {

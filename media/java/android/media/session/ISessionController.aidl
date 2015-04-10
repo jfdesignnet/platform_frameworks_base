@@ -15,14 +15,12 @@
 
 package android.media.session;
 
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.ParceledListSlice;
 import android.media.MediaMetadata;
 import android.media.Rating;
-import android.media.routing.IMediaRouterDelegate;
-import android.media.routing.IMediaRouterStateCallback;
 import android.media.session.ISessionControllerCallback;
-import android.media.session.MediaSessionInfo;
 import android.media.session.ParcelableVolumeInfo;
 import android.media.session.PlaybackState;
 import android.media.session.MediaSession;
@@ -43,19 +41,19 @@ interface ISessionController {
     void registerCallbackListener(in ISessionControllerCallback cb);
     void unregisterCallbackListener(in ISessionControllerCallback cb);
     boolean isTransportControlEnabled();
-    MediaSessionInfo getSessionInfo();
+    String getPackageName();
+    String getTag();
+    PendingIntent getLaunchPendingIntent();
     long getFlags();
     ParcelableVolumeInfo getVolumeAttributes();
-    void adjustVolume(int direction, int flags);
-    void setVolumeTo(int value, int flags);
-
-    IMediaRouterDelegate createMediaRouterDelegate(IMediaRouterStateCallback callback);
+    void adjustVolume(int direction, int flags, String packageName);
+    void setVolumeTo(int value, int flags, String packageName);
 
     // These commands are for the TransportControls
     void play();
-    void playUri(in Uri uri, in Bundle extras);
+    void playFromMediaId(String uri, in Bundle extras);
     void playFromSearch(String string, in Bundle extras);
-    void skipToTrack(long id);
+    void skipToQueueItem(long id);
     void pause();
     void stop();
     void next();

@@ -201,13 +201,12 @@ public class StaticLayout extends Layout {
                     restWidth -= sp[i].getLeadingMargin(false);
 
                     // LeadingMarginSpan2 is odd.  The count affects all
-                    // leading margin spans, not just this particular one,
-                    // and start from the top of the span, not the top of the
-                    // paragraph.
+                    // leading margin spans, not just this particular one
                     if (lms instanceof LeadingMarginSpan2) {
                         LeadingMarginSpan2 lms2 = (LeadingMarginSpan2) lms;
                         int lmsFirstLine = getLineForOffset(spanned.getSpanStart(lms2));
-                        firstWidthLineLimit = lmsFirstLine + lms2.getLeadingMarginLineCount();
+                        firstWidthLineLimit = Math.max(firstWidthLineLimit,
+                                lmsFirstLine + lms2.getLeadingMarginLineCount());
                     }
                 }
 
@@ -263,6 +262,8 @@ public class StaticLayout extends Layout {
             int fit = paraStart;
             float fitWidth = w;
             int fitAscent = 0, fitDescent = 0, fitTop = 0, fitBottom = 0;
+            // same as fitWidth but not including any trailing whitespace
+            float fitWidthGraphing = w;
 
             boolean hasTabOrEmoji = false;
             boolean hasTab = false;
@@ -347,6 +348,9 @@ public class StaticLayout extends Layout {
 
                     if (w <= width || isSpaceOrTab) {
                         fitWidth = w;
+                        if (!isSpaceOrTab) {
+                            fitWidthGraphing = w;
+                        }
                         fit = j + 1;
 
                         if (fmTop < fitTop)
@@ -366,7 +370,7 @@ public class StaticLayout extends Layout {
                                 breakOpp[breakOppIndex] == j - paraStart + 1;
 
                         if (isLineBreak) {
-                            okWidth = w;
+                            okWidth = fitWidthGraphing;
                             ok = j + 1;
 
                             if (fitTop < okTop)
@@ -379,7 +383,6 @@ public class StaticLayout extends Layout {
                                 okBottom = fitBottom;
                         }
                     } else {
-                        final boolean moreChars;
                         int endPos;
                         int above, below, top, bottom;
                         float currentTextWidth;
@@ -391,7 +394,6 @@ public class StaticLayout extends Layout {
                             top = okTop;
                             bottom = okBottom;
                             currentTextWidth = okWidth;
-                            moreChars = (j + 1 < spanEnd);
                         } else if (fit != here) {
                             endPos = fit;
                             above = fitAscent;
@@ -399,7 +401,6 @@ public class StaticLayout extends Layout {
                             top = fitTop;
                             bottom = fitBottom;
                             currentTextWidth = fitWidth;
-                            moreChars = (j + 1 < spanEnd);
                         } else {
                             // must make progress, so take next character
                             endPos = here + 1;
@@ -413,20 +414,24 @@ public class StaticLayout extends Layout {
                             top = fmTop;
                             bottom = fmBottom;
                             currentTextWidth = widths[here - paraStart];
-                            moreChars = (endPos < spanEnd);
                         }
 
-                        v = out(source, here, endPos,
+                        int ellipseEnd = endPos;
+                        if (mMaximumVisibleLineCount == 1 && ellipsize == TextUtils.TruncateAt.MIDDLE) {
+                            ellipseEnd = paraEnd;
+                        }
+                        v = out(source, here, ellipseEnd,
                                 above, below, top, bottom,
                                 v, spacingmult, spacingadd, chooseHt,chooseHtv, fm, hasTabOrEmoji,
                                 needMultiply, chdirs, dir, easy, bufEnd, includepad, trackpad,
                                 chs, widths, paraStart, ellipsize, ellipsizedWidth,
-                                currentTextWidth, paint, moreChars);
+                                currentTextWidth, paint, true);
 
                         here = endPos;
                         j = here - 1; // restart j-span loop from here, compensating for the j++
                         ok = fit = here;
                         w = 0;
+                        fitWidthGraphing = w;
                         fitAscent = fitDescent = fitTop = fitBottom = 0;
                         okAscent = okDescent = okTop = okBottom = 0;
 
@@ -647,7 +652,7 @@ public class StaticLayout extends Layout {
 
         float ellipsisWidth = paint.measureText(
                 (where == TextUtils.TruncateAt.END_SMALL) ?
-                        ELLIPSIS_TWO_DOTS : ELLIPSIS_NORMAL, 0, 1);
+                        TextUtils.ELLIPSIS_TWO_DOTS : TextUtils.ELLIPSIS_NORMAL, 0, 1);
         int ellipsisStart = 0;
         int ellipsisCount = 0;
         int len = lineEnd - lineStart;
@@ -703,7 +708,7 @@ public class StaticLayout extends Layout {
                 int left = 0, right = len;
 
                 float ravail = (avail - ellipsisWidth) / 2;
-                for (right = len; right >= 0; right--) {
+                for (right = len; right > 0; right--) {
                     float w = widths[right - 1 + lineStart - widthStart];
 
                     if (w + rsum > ravail) {
@@ -843,7 +848,7 @@ public class StaticLayout extends Layout {
     void prepare() {
         mMeasured = MeasuredText.obtain();
     }
-    
+
     void finish() {
         mMeasured = MeasuredText.recycle(mMeasured);
     }

@@ -35,6 +35,8 @@ import android.util.Log;
 
 import com.android.org.bouncycastle.util.encoders.Base64;
 
+import libcore.io.IoUtils;
+
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -63,6 +65,9 @@ public class LocalTransport extends BackupTransport {
 
     private static final String TRANSPORT_DESTINATION_STRING
             = "Backing up to debug-only private cache";
+
+    private static final String TRANSPORT_DATA_MANAGEMENT_LABEL
+            = "";
 
     private static final String INCREMENTAL_DIR = "_delta";
     private static final String FULL_DATA_DIR = "_full";
@@ -121,6 +126,17 @@ public class LocalTransport extends BackupTransport {
     @Override
     public String currentDestinationString() {
         return TRANSPORT_DESTINATION_STRING;
+    }
+
+    public Intent dataManagementIntent() {
+        // The local transport does not present a data-management UI
+        // TODO: consider adding simple UI to wipe the archives entirely,
+        // for cleaning up the cache partition.
+        return null;
+    }
+
+    public String dataManagementLabel() {
+        return TRANSPORT_DATA_MANAGEMENT_LABEL;
     }
 
     @Override
@@ -259,11 +275,15 @@ public class LocalTransport extends BackupTransport {
 
     @Override
     public int finishBackup() {
-        if (DEBUG) Log.v(TAG, "finishBackup()");
+        if (DEBUG) Log.v(TAG, "finishBackup() of " + mFullTargetPackage);
+        return tearDownFullBackup();
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Full backup handling
+
+    private int tearDownFullBackup() {
         if (mSocket != null) {
-            if (DEBUG) {
-                Log.v(TAG, "Concluding full backup of " + mFullTargetPackage);
-            }
             try {
                 mFullBackupOutputStream.flush();
                 mFullBackupOutputStream.close();
@@ -272,7 +292,7 @@ public class LocalTransport extends BackupTransport {
                 mSocket.close();
             } catch (IOException e) {
                 if (DEBUG) {
-                    Log.w(TAG, "Exception caught in finishBackup()", e);
+                    Log.w(TAG, "Exception caught in tearDownFullBackup()", e);
                 }
                 return TRANSPORT_ERROR;
             } finally {
@@ -282,8 +302,9 @@ public class LocalTransport extends BackupTransport {
         return TRANSPORT_OK;
     }
 
-    // ------------------------------------------------------------------------------------
-    // Full backup handling
+    private File tarballFile(String pkgName) {
+        return new File(mCurrentSetFullDir, pkgName);
+    }
 
     @Override
     public long requestFullBackupTime() {
@@ -315,7 +336,7 @@ public class LocalTransport extends BackupTransport {
         mFullTargetPackage = targetPackage.packageName;
         FileOutputStream tarstream;
         try {
-            File tarball = new File(mCurrentSetFullDir, mFullTargetPackage);
+            File tarball = tarballFile(mFullTargetPackage);
             tarstream = new FileOutputStream(tarball);
         } catch (FileNotFoundException e) {
             return TRANSPORT_ERROR;
@@ -352,6 +373,19 @@ public class LocalTransport extends BackupTransport {
             }
         }
         return TRANSPORT_OK;
+    }
+
+    // For now we can't roll back, so just tear everything down.
+    @Override
+    public void cancelFullBackup() {
+        if (DEBUG) {
+            Log.i(TAG, "Canceling full backup of " + mFullTargetPackage);
+        }
+        File archive = tarballFile(mFullTargetPackage);
+        tearDownFullBackup();
+        if (archive.exists()) {
+            archive.delete();
+        }
     }
 
     // ------------------------------------------------------------------------------------
@@ -527,11 +561,7 @@ public class LocalTransport extends BackupTransport {
     // Full restore handling
 
     private void resetFullRestoreState() {
-        try {
-        mCurFullRestoreStream.close();
-        } catch (IOException e) {
-            Log.w(TAG, "Unable to close full restore input stream");
-        }
+        IoUtils.closeQuietly(mCurFullRestoreStream);
         mCurFullRestoreStream = null;
         mFullRestoreSocketStream = null;
         mFullRestoreBuffer = null;

@@ -16,7 +16,7 @@
 
 package com.android.server.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.util.Slog;
 
 import com.android.internal.util.Preconditions;
@@ -38,8 +38,9 @@ import java.util.List;
  *   <li>Gather "OSD (display) name" of all acknowledge devices
  *   <li>Gather "Vendor id" of all acknowledge devices
  * </ol>
+ * We attempt to get OSD name/vendor ID up to 5 times in case the communication fails.
  */
-final class DeviceDiscoveryAction extends FeatureAction {
+final class DeviceDiscoveryAction extends HdmiCecFeatureAction {
     private static final String TAG = "DeviceDiscoveryAction";
 
     // State in which the action is waiting for device polling.
@@ -60,7 +61,7 @@ final class DeviceDiscoveryAction extends FeatureAction {
          *
          * @param deviceInfos a list of all non-local devices. It can be empty list.
          */
-        void onDeviceDiscoveryDone(List<HdmiCecDeviceInfo> deviceInfos);
+        void onDeviceDiscoveryDone(List<HdmiDeviceInfo> deviceInfos);
     }
 
     // An internal container used to keep track of device information during
@@ -72,14 +73,14 @@ final class DeviceDiscoveryAction extends FeatureAction {
         private int mPortId = Constants.INVALID_PORT_ID;
         private int mVendorId = Constants.UNKNOWN_VENDOR_ID;
         private String mDisplayName = "";
-        private int mDeviceType = HdmiCecDeviceInfo.DEVICE_INACTIVE;
+        private int mDeviceType = HdmiDeviceInfo.DEVICE_INACTIVE;
 
         private DeviceInfo(int logicalAddress) {
             mLogicalAddress = logicalAddress;
         }
 
-        private HdmiCecDeviceInfo toHdmiCecDeviceInfo() {
-            return new HdmiCecDeviceInfo(mLogicalAddress, mPhysicalAddress, mPortId, mDeviceType,
+        private HdmiDeviceInfo toHdmiDeviceInfo() {
+            return new HdmiDeviceInfo(mLogicalAddress, mPhysicalAddress, mPortId, mDeviceType,
                     mVendorId, mDisplayName);
         }
     }
@@ -87,6 +88,7 @@ final class DeviceDiscoveryAction extends FeatureAction {
     private final ArrayList<DeviceInfo> mDevices = new ArrayList<>();
     private final DeviceDiscoveryCallback mCallback;
     private int mProcessedDeviceCount = 0;
+    private int mTimeoutRetry = 0;
 
     /**
      * Constructor.
@@ -256,6 +258,9 @@ final class DeviceDiscoveryAction extends FeatureAction {
         current.mPortId = getPortId(current.mPhysicalAddress);
         current.mDeviceType = params[2] & 0xFF;
 
+        tv().updateCecSwitchInfo(current.mLogicalAddress, current.mDeviceType,
+                    current.mPhysicalAddress);
+
         increaseProcessedDeviceCount();
         checkAndProceedStage();
     }
@@ -306,6 +311,7 @@ final class DeviceDiscoveryAction extends FeatureAction {
 
     private void increaseProcessedDeviceCount() {
         mProcessedDeviceCount++;
+        mTimeoutRetry = 0;
     }
 
     private void removeDevice(int index) {
@@ -314,15 +320,17 @@ final class DeviceDiscoveryAction extends FeatureAction {
 
     private void wrapUpAndFinish() {
         Slog.v(TAG, "---------Wrap up Device Discovery:[" + mDevices.size() + "]---------");
-        ArrayList<HdmiCecDeviceInfo> result = new ArrayList<>();
+        ArrayList<HdmiDeviceInfo> result = new ArrayList<>();
         for (DeviceInfo info : mDevices) {
-            HdmiCecDeviceInfo cecDeviceInfo = info.toHdmiCecDeviceInfo();
+            HdmiDeviceInfo cecDeviceInfo = info.toHdmiDeviceInfo();
             Slog.v(TAG, " DeviceInfo: " + cecDeviceInfo);
             result.add(cecDeviceInfo);
         }
         Slog.v(TAG, "--------------------------------------------");
         mCallback.onDeviceDiscoveryDone(result);
         finish();
+        // Process any commands buffered while device discovery action was in progress.
+        tv().processAllDelayedMessages();
     }
 
     private void checkAndProceedStage() {
@@ -348,19 +356,23 @@ final class DeviceDiscoveryAction extends FeatureAction {
                     return;
             }
         } else {
-            int address = mDevices.get(mProcessedDeviceCount).mLogicalAddress;
-            switch (mState) {
-                case STATE_WAITING_FOR_PHYSICAL_ADDRESS:
-                    queryPhysicalAddress(address);
-                    return;
-                case STATE_WAITING_FOR_OSD_NAME:
-                    queryOsdName(address);
-                    return;
-                case STATE_WAITING_FOR_VENDOR_ID:
-                    queryVendorId(address);
-                default:
-                    return;
-            }
+            sendQueryCommand();
+        }
+    }
+
+    private void sendQueryCommand() {
+        int address = mDevices.get(mProcessedDeviceCount).mLogicalAddress;
+        switch (mState) {
+            case STATE_WAITING_FOR_PHYSICAL_ADDRESS:
+                queryPhysicalAddress(address);
+                return;
+            case STATE_WAITING_FOR_OSD_NAME:
+                queryOsdName(address);
+                return;
+            case STATE_WAITING_FOR_VENDOR_ID:
+                queryVendorId(address);
+            default:
+                return;
         }
     }
 
@@ -370,6 +382,11 @@ final class DeviceDiscoveryAction extends FeatureAction {
             return;
         }
 
+        if (++mTimeoutRetry < HdmiConfig.TIMEOUT_RETRY) {
+            sendQueryCommand();
+            return;
+        }
+        mTimeoutRetry = 0;
         Slog.v(TAG, "Timeout[State=" + mState + ", Processed=" + mProcessedDeviceCount);
         removeDevice(mProcessedDeviceCount);
         checkAndProceedStage();

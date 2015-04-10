@@ -22,17 +22,19 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.RemoteException;
 import android.provider.Settings.Global;
+import android.service.notification.Condition;
 import android.service.notification.IConditionProvider;
 import android.service.notification.ZenModeConfig;
+import android.util.ArraySet;
 import android.util.Slog;
 
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.Date;
 
 public class ZenLog {
     private static final String TAG = "ZenLog";
+    private static final boolean DEBUG = Build.IS_DEBUGGABLE;
 
     private static final int SIZE = Build.IS_DEBUGGABLE ? 100 : 20;
 
@@ -44,13 +46,17 @@ public class ZenLog {
 
     private static final int TYPE_INTERCEPTED = 1;
     private static final int TYPE_ALLOW_DISABLE = 2;
-    private static final int TYPE_SET_RINGER_MODE = 3;
-    private static final int TYPE_DOWNTIME = 4;
-    private static final int TYPE_ZEN_MODE = 5;
-    private static final int TYPE_EXIT_CONDITION = 6;
-    private static final int TYPE_SUBSCRIBE = 7;
-    private static final int TYPE_UNSUBSCRIBE = 8;
-    private static final int TYPE_CONFIG = 9;
+    private static final int TYPE_SET_RINGER_MODE_EXTERNAL = 3;
+    private static final int TYPE_SET_RINGER_MODE_INTERNAL = 4;
+    private static final int TYPE_DOWNTIME = 5;
+    private static final int TYPE_SET_ZEN_MODE = 6;
+    private static final int TYPE_UPDATE_ZEN_MODE = 7;
+    private static final int TYPE_EXIT_CONDITION = 8;
+    private static final int TYPE_SUBSCRIBE = 9;
+    private static final int TYPE_UNSUBSCRIBE = 10;
+    private static final int TYPE_CONFIG = 11;
+    private static final int TYPE_NOT_INTERCEPTED = 12;
+    private static final int TYPE_DISABLE_EFFECTS = 13;
 
     private static int sNext;
     private static int sSize;
@@ -60,25 +66,43 @@ public class ZenLog {
         append(TYPE_INTERCEPTED, record.getKey() + "," + reason);
     }
 
-    public static void traceAllowDisable(String pkg, boolean allowDisable, String reason) {
-        append(TYPE_ALLOW_DISABLE, allowDisable + "," + pkg + "," + reason);
+    public static void traceNotIntercepted(NotificationRecord record, String reason) {
+        if (record != null && record.isUpdate) return;  // already logged
+        append(TYPE_NOT_INTERCEPTED, record.getKey() + "," + reason);
     }
 
-    public static void traceSetRingerMode(int ringerMode) {
-        append(TYPE_SET_RINGER_MODE, ringerModeToString(ringerMode));
+    public static void traceSetRingerModeExternal(int ringerModeOld, int ringerModeNew,
+            String caller, int ringerModeInternalIn, int ringerModeInternalOut) {
+        append(TYPE_SET_RINGER_MODE_EXTERNAL, caller + ",e:" +
+                ringerModeToString(ringerModeOld) + "->" +
+                ringerModeToString(ringerModeNew)  + ",i:" +
+                ringerModeToString(ringerModeInternalIn) + "->" +
+                ringerModeToString(ringerModeInternalOut));
     }
 
-    public static void traceDowntime(boolean enter, int day, int[] days) {
-        append(TYPE_DOWNTIME, enter + ",day=" + day + ",days=" + (days != null ? Arrays.asList(days)
-                : null));
+    public static void traceSetRingerModeInternal(int ringerModeOld, int ringerModeNew,
+            String caller, int ringerModeExternalIn, int ringerModeExternalOut) {
+        append(TYPE_SET_RINGER_MODE_INTERNAL, caller + ",i:" +
+                ringerModeToString(ringerModeOld) + "->" +
+                ringerModeToString(ringerModeNew)  + ",e:" +
+                ringerModeToString(ringerModeExternalIn) + "->" +
+                ringerModeToString(ringerModeExternalOut));
+    }
+
+    public static void traceDowntimeAutotrigger(String result) {
+        append(TYPE_DOWNTIME, result);
+    }
+
+    public static void traceSetZenMode(int zenMode, String reason) {
+        append(TYPE_SET_ZEN_MODE, zenModeToString(zenMode) + "," + reason);
     }
 
     public static void traceUpdateZenMode(int fromMode, int toMode) {
-        append(TYPE_ZEN_MODE, zenModeToString(fromMode) + " -> " + zenModeToString(toMode));
+        append(TYPE_UPDATE_ZEN_MODE, zenModeToString(fromMode) + " -> " + zenModeToString(toMode));
     }
 
-    public static void traceExitCondition(Uri id, ComponentName component, String reason) {
-        append(TYPE_EXIT_CONDITION, id + "," + componentToString(component) + "," + reason);
+    public static void traceExitCondition(Condition c, ComponentName component, String reason) {
+        append(TYPE_EXIT_CONDITION, c + "," + componentToString(component) + "," + reason);
     }
 
     public static void traceSubscribe(Uri uri, IConditionProvider provider, RemoteException e) {
@@ -93,6 +117,10 @@ public class ZenLog {
         append(TYPE_CONFIG, newConfig != null ? newConfig.toString() : null);
     }
 
+    public static void traceDisableEffects(NotificationRecord record, String reason) {
+        append(TYPE_DISABLE_EFFECTS, record.getKey() + "," + reason);
+    }
+
     private static String subscribeResult(IConditionProvider provider, RemoteException e) {
         return provider == null ? "no provider" : e != null ? e.getMessage() : "ok";
     }
@@ -101,13 +129,17 @@ public class ZenLog {
         switch (type) {
             case TYPE_INTERCEPTED: return "intercepted";
             case TYPE_ALLOW_DISABLE: return "allow_disable";
-            case TYPE_SET_RINGER_MODE: return "set_ringer_mode";
+            case TYPE_SET_RINGER_MODE_EXTERNAL: return "set_ringer_mode_external";
+            case TYPE_SET_RINGER_MODE_INTERNAL: return "set_ringer_mode_internal";
             case TYPE_DOWNTIME: return "downtime";
-            case TYPE_ZEN_MODE: return "zen_mode";
+            case TYPE_SET_ZEN_MODE: return "set_zen_mode";
+            case TYPE_UPDATE_ZEN_MODE: return "update_zen_mode";
             case TYPE_EXIT_CONDITION: return "exit_condition";
             case TYPE_SUBSCRIBE: return "subscribe";
             case TYPE_UNSUBSCRIBE: return "unsubscribe";
             case TYPE_CONFIG: return "config";
+            case TYPE_NOT_INTERCEPTED: return "not_intercepted";
+            case TYPE_DISABLE_EFFECTS: return "disable_effects";
             default: return "unknown";
         }
     }
@@ -144,7 +176,7 @@ public class ZenLog {
                 sSize++;
             }
         }
-        Slog.d(TAG, typeToString(type) + ": " + msg);
+        if (DEBUG) Slog.d(TAG, typeToString(type) + ": " + msg);
     }
 
     public static void dump(PrintWriter pw, String prefix) {

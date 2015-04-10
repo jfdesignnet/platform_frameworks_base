@@ -45,15 +45,17 @@ import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
+import android.content.pm.UserInfo;
 import android.content.pm.VerificationParams;
 import android.content.pm.VerifierDeviceIdentity;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.os.Bundle;
-import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
@@ -64,6 +66,7 @@ import android.view.Display;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
+import com.android.internal.util.UserIcons;
 
 import dalvik.system.VMRuntime;
 
@@ -76,6 +79,9 @@ final class ApplicationPackageManager extends PackageManager {
     private static final String TAG = "ApplicationPackageManager";
     private final static boolean DEBUG = false;
     private final static boolean DEBUG_ICONS = false;
+
+    // Default flags to use with PackageManager when no flags are given.
+    private final static int sDefaultFlags = PackageManager.GET_SHARED_LIBRARY_FILES;
 
     private final Object mLock = new Object();
 
@@ -727,7 +733,7 @@ final class ApplicationPackageManager extends PackageManager {
         }
         if (appInfo == null) {
             try {
-                appInfo = getApplicationInfo(packageName, 0);
+                appInfo = getApplicationInfo(packageName, sDefaultFlags);
             } catch (NameNotFoundException e) {
                 return null;
             }
@@ -750,10 +756,10 @@ final class ApplicationPackageManager extends PackageManager {
             putCachedIcon(name, dr);
             return dr;
         } catch (NameNotFoundException e) {
-            Log.w("PackageManager", "Failure retrieving resources for"
+            Log.w("PackageManager", "Failure retrieving resources for "
                   + appInfo.packageName);
         } catch (Resources.NotFoundException e) {
-            Log.w("PackageManager", "Failure retrieving resources for"
+            Log.w("PackageManager", "Failure retrieving resources for "
                   + appInfo.packageName + ": " + e.getMessage());
         } catch (RuntimeException e) {
             // If an exception was thrown, fall through to return
@@ -767,7 +773,7 @@ final class ApplicationPackageManager extends PackageManager {
 
     @Override public Drawable getActivityIcon(ComponentName activityName)
             throws NameNotFoundException {
-        return getActivityInfo(activityName, 0).loadIcon(this);
+        return getActivityInfo(activityName, sDefaultFlags).loadIcon(this);
     }
 
     @Override public Drawable getActivityIcon(Intent intent)
@@ -796,13 +802,13 @@ final class ApplicationPackageManager extends PackageManager {
 
     @Override public Drawable getApplicationIcon(String packageName)
             throws NameNotFoundException {
-        return getApplicationIcon(getApplicationInfo(packageName, 0));
+        return getApplicationIcon(getApplicationInfo(packageName, sDefaultFlags));
     }
 
     @Override
     public Drawable getActivityBanner(ComponentName activityName)
             throws NameNotFoundException {
-        return getActivityInfo(activityName, 0).loadBanner(this);
+        return getActivityInfo(activityName, sDefaultFlags).loadBanner(this);
     }
 
     @Override
@@ -829,13 +835,13 @@ final class ApplicationPackageManager extends PackageManager {
     @Override
     public Drawable getApplicationBanner(String packageName)
             throws NameNotFoundException {
-        return getApplicationBanner(getApplicationInfo(packageName, 0));
+        return getApplicationBanner(getApplicationInfo(packageName, sDefaultFlags));
     }
 
     @Override
     public Drawable getActivityLogo(ComponentName activityName)
             throws NameNotFoundException {
-        return getActivityInfo(activityName, 0).loadLogo(this);
+        return getActivityInfo(activityName, sDefaultFlags).loadLogo(this);
     }
 
     @Override
@@ -862,13 +868,56 @@ final class ApplicationPackageManager extends PackageManager {
     @Override
     public Drawable getApplicationLogo(String packageName)
             throws NameNotFoundException {
-        return getApplicationLogo(getApplicationInfo(packageName, 0));
+        return getApplicationLogo(getApplicationInfo(packageName, sDefaultFlags));
+    }
+
+    @Override
+    public Drawable getUserBadgedIcon(Drawable icon, UserHandle user) {
+        final int badgeResId = getBadgeResIdForUser(user.getIdentifier());
+        if (badgeResId == 0) {
+            return icon;
+        }
+        Drawable badgeIcon = getDrawable("system", badgeResId, null);
+        return getBadgedDrawable(icon, badgeIcon, null, true);
+    }
+
+    @Override
+    public Drawable getUserBadgedDrawableForDensity(Drawable drawable, UserHandle user,
+            Rect badgeLocation, int badgeDensity) {
+        Drawable badgeDrawable = getUserBadgeForDensity(user, badgeDensity);
+        if (badgeDrawable == null) {
+            return drawable;
+        }
+        return getBadgedDrawable(drawable, badgeDrawable, badgeLocation, true);
+    }
+
+    @Override
+    public Drawable getUserBadgeForDensity(UserHandle user, int density) {
+        UserInfo userInfo = getUserIfProfile(user.getIdentifier());
+        if (userInfo != null && userInfo.isManagedProfile()) {
+            if (density <= 0) {
+                density = mContext.getResources().getDisplayMetrics().densityDpi;
+            }
+            return Resources.getSystem().getDrawableForDensity(
+                    com.android.internal.R.drawable.ic_corp_badge, density);
+        }
+        return null;
+    }
+
+    @Override
+    public CharSequence getUserBadgedLabel(CharSequence label, UserHandle user) {
+        UserInfo userInfo = getUserIfProfile(user.getIdentifier());
+        if (userInfo != null && userInfo.isManagedProfile()) {
+            return Resources.getSystem().getString(
+                    com.android.internal.R.string.managed_profile_label_badge, label);
+        }
+        return label;
     }
 
     @Override public Resources getResourcesForActivity(
         ComponentName activityName) throws NameNotFoundException {
         return getResourcesForApplication(
-            getActivityInfo(activityName, 0).applicationInfo);
+            getActivityInfo(activityName, sDefaultFlags).applicationInfo);
     }
 
     @Override public Resources getResourcesForApplication(
@@ -880,7 +929,8 @@ final class ApplicationPackageManager extends PackageManager {
         Resources r = mContext.mMainThread.getTopLevelResources(
                 sameUid ? app.sourceDir : app.publicSourceDir,
                 sameUid ? app.splitSourceDirs : app.splitPublicSourceDirs,
-                app.resourceDirs, null, Display.DEFAULT_DISPLAY, null, mContext.mPackageInfo);
+                app.resourceDirs, app.sharedLibraryFiles, Display.DEFAULT_DISPLAY,
+                null, mContext.mPackageInfo);
         if (r != null) {
             return r;
         }
@@ -890,7 +940,7 @@ final class ApplicationPackageManager extends PackageManager {
     @Override public Resources getResourcesForApplication(
         String appPackageName) throws NameNotFoundException {
         return getResourcesForApplication(
-            getApplicationInfo(appPackageName, 0));
+            getApplicationInfo(appPackageName, sDefaultFlags));
     }
 
     /** @hide */
@@ -905,7 +955,7 @@ final class ApplicationPackageManager extends PackageManager {
             return mContext.mMainThread.getSystemContext().getResources();
         }
         try {
-            ApplicationInfo ai = mPM.getApplicationInfo(appPackageName, 0, userId);
+            ApplicationInfo ai = mPM.getApplicationInfo(appPackageName, sDefaultFlags, userId);
             if (ai != null) {
                 return getResourcesForApplication(ai);
             }
@@ -1090,7 +1140,7 @@ final class ApplicationPackageManager extends PackageManager {
         }
         if (appInfo == null) {
             try {
-                appInfo = getApplicationInfo(packageName, 0);
+                appInfo = getApplicationInfo(packageName, sDefaultFlags);
             } catch (NameNotFoundException e) {
                 return null;
             }
@@ -1101,7 +1151,7 @@ final class ApplicationPackageManager extends PackageManager {
             putCachedString(name, text);
             return text;
         } catch (NameNotFoundException e) {
-            Log.w("PackageManager", "Failure retrieving resources for"
+            Log.w("PackageManager", "Failure retrieving resources for "
                   + appInfo.packageName);
         } catch (RuntimeException e) {
             // If an exception was thrown, fall through to return
@@ -1118,7 +1168,7 @@ final class ApplicationPackageManager extends PackageManager {
                                     ApplicationInfo appInfo) {
         if (appInfo == null) {
             try {
-                appInfo = getApplicationInfo(packageName, 0);
+                appInfo = getApplicationInfo(packageName, sDefaultFlags);
             } catch (NameNotFoundException e) {
                 return null;
             }
@@ -1287,6 +1337,7 @@ final class ApplicationPackageManager extends PackageManager {
             // Should never happen!
         }
     }
+
     @Override
     public void clearApplicationUserData(String packageName,
                                          IPackageDataObserver observer) {
@@ -1384,7 +1435,18 @@ final class ApplicationPackageManager extends PackageManager {
     public void replacePreferredActivity(IntentFilter filter,
                                          int match, ComponentName[] set, ComponentName activity) {
         try {
-            mPM.replacePreferredActivity(filter, match, set, activity);
+            mPM.replacePreferredActivity(filter, match, set, activity, UserHandle.myUserId());
+        } catch (RemoteException e) {
+            // Should never happen!
+        }
+    }
+
+    @Override
+    public void replacePreferredActivityAsUser(IntentFilter filter,
+                                         int match, ComponentName[] set, ComponentName activity,
+                                         int userId) {
+        try {
+            mPM.replacePreferredActivity(filter, match, set, activity, userId);
         } catch (RemoteException e) {
             // Should never happen!
         }
@@ -1483,57 +1545,52 @@ final class ApplicationPackageManager extends PackageManager {
         return false;
     }
 
+    /** @hide */
     @Override
     public KeySet getKeySetByAlias(String packageName, String alias) {
         Preconditions.checkNotNull(packageName);
         Preconditions.checkNotNull(alias);
-        IBinder keySetToken;
+        KeySet ks;
         try {
-            keySetToken = mPM.getKeySetByAlias(packageName, alias);
+            ks = mPM.getKeySetByAlias(packageName, alias);
         } catch (RemoteException e) {
             return null;
         }
-        if (keySetToken == null) {
-            return null;
-        }
-        return new KeySet(keySetToken);
+        return ks;
     }
 
+    /** @hide */
     @Override
     public KeySet getSigningKeySet(String packageName) {
         Preconditions.checkNotNull(packageName);
-        IBinder keySetToken;
+        KeySet ks;
         try {
-            keySetToken = mPM.getSigningKeySet(packageName);
+            ks = mPM.getSigningKeySet(packageName);
         } catch (RemoteException e) {
             return null;
         }
-        if (keySetToken == null) {
-            return null;
-        }
-        return new KeySet(keySetToken);
+        return ks;
     }
 
-
+    /** @hide */
     @Override
     public boolean isSignedBy(String packageName, KeySet ks) {
         Preconditions.checkNotNull(packageName);
         Preconditions.checkNotNull(ks);
-        IBinder keySetToken = ks.getToken();
         try {
-            return mPM.isPackageSignedByKeySet(packageName, keySetToken);
+            return mPM.isPackageSignedByKeySet(packageName, ks);
         } catch (RemoteException e) {
             return false;
         }
     }
 
+    /** @hide */
     @Override
     public boolean isSignedByExactly(String packageName, KeySet ks) {
         Preconditions.checkNotNull(packageName);
         Preconditions.checkNotNull(ks);
-        IBinder keySetToken = ks.getToken();
         try {
-            return mPM.isPackageSignedByKeySetExactly(packageName, keySetToken);
+            return mPM.isPackageSignedByKeySetExactly(packageName, ks);
         } catch (RemoteException e) {
             return false;
         }
@@ -1552,12 +1609,24 @@ final class ApplicationPackageManager extends PackageManager {
         return null;
     }
 
+    /**
+     * @hide
+     */
+    @Override
+    public boolean isUpgrade() {
+        try {
+            return mPM.isUpgrade();
+        } catch (RemoteException e) {
+            return false;
+        }
+    }
+
     @Override
     public PackageInstaller getPackageInstaller() {
         synchronized (mLock) {
             if (mInstaller == null) {
                 try {
-                    mInstaller = new PackageInstaller(this, mPM.getPackageInstaller(),
+                    mInstaller = new PackageInstaller(mContext, this, mPM.getPackageInstaller(),
                             mContext.getPackageName(), mContext.getUserId());
                 } catch (RemoteException e) {
                     throw e.rethrowAsRuntimeException();
@@ -1583,19 +1652,8 @@ final class ApplicationPackageManager extends PackageManager {
     public void addCrossProfileIntentFilter(IntentFilter filter, int sourceUserId, int targetUserId,
             int flags) {
         try {
-            mPM.addCrossProfileIntentFilter(filter, sourceUserId, targetUserId, flags);
-        } catch (RemoteException e) {
-            // Should never happen!
-        }
-    }
-
-    /**
-     * @hide
-     */
-    public void addCrossProfileIntentsForPackage(String packageName,
-            int sourceUserId, int targetUserId) {
-        try {
-            mPM.addCrossProfileIntentsForPackage(packageName, sourceUserId, targetUserId);
+            mPM.addCrossProfileIntentFilter(filter, mContext.getOpPackageName(),
+                    mContext.getUserId(), sourceUserId, targetUserId, flags);
         } catch (RemoteException e) {
             // Should never happen!
         }
@@ -1607,7 +1665,8 @@ final class ApplicationPackageManager extends PackageManager {
     @Override
     public void clearCrossProfileIntentFilters(int sourceUserId) {
         try {
-            mPM.clearCrossProfileIntentFilters(sourceUserId);
+            mPM.clearCrossProfileIntentFilters(sourceUserId, mContext.getOpPackageName(),
+                    mContext.getUserId());
         } catch (RemoteException e) {
             // Should never happen!
         }
@@ -1617,31 +1676,104 @@ final class ApplicationPackageManager extends PackageManager {
      * @hide
      */
     public Drawable loadItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo) {
+        Drawable dr = loadUnbadgedItemIcon(itemInfo, appInfo);
         if (itemInfo.showUserIcon != UserHandle.USER_NULL) {
-            return new BitmapDrawable(getUserManager().getUserIcon(itemInfo.showUserIcon));
+            return dr;
         }
-        Drawable dr = getDrawable(itemInfo.packageName, itemInfo.icon, appInfo);
-        if (dr != null) {
-            dr = getUserManager().getBadgedDrawableForUser(dr,
-                    new UserHandle(mContext.getUserId()));
+        return getUserBadgedIcon(dr, new UserHandle(mContext.getUserId()));
+    }
+
+    /**
+     * @hide
+     */
+    public Drawable loadUnbadgedItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo) {
+        if (itemInfo.showUserIcon != UserHandle.USER_NULL) {
+            Bitmap bitmap = getUserManager().getUserIcon(itemInfo.showUserIcon);
+            if (bitmap == null) {
+                return UserIcons.getDefaultUserIcon(itemInfo.showUserIcon, /* light= */ false);
+            }
+            return new BitmapDrawable(bitmap);
+        }
+        Drawable dr = null;
+        if (itemInfo.packageName != null) {
+            dr = getDrawable(itemInfo.packageName, itemInfo.icon, appInfo);
+        }
+        if (dr == null) {
+            dr = itemInfo.loadDefaultIcon(this);
         }
         return dr;
     }
 
-    private static class LegacyPackageInstallObserver extends PackageInstallObserver {
-        private final IPackageInstallObserver mLegacy;
+    private Drawable getBadgedDrawable(Drawable drawable, Drawable badgeDrawable,
+            Rect badgeLocation, boolean tryBadgeInPlace) {
+        final int badgedWidth = drawable.getIntrinsicWidth();
+        final int badgedHeight = drawable.getIntrinsicHeight();
+        final boolean canBadgeInPlace = tryBadgeInPlace
+                && (drawable instanceof BitmapDrawable)
+                && ((BitmapDrawable) drawable).getBitmap().isMutable();
 
-        public LegacyPackageInstallObserver(IPackageInstallObserver legacy) {
-            mLegacy = legacy;
+        final Bitmap bitmap;
+        if (canBadgeInPlace) {
+            bitmap = ((BitmapDrawable) drawable).getBitmap();
+        } else {
+            bitmap = Bitmap.createBitmap(badgedWidth, badgedHeight, Bitmap.Config.ARGB_8888);
+        }
+        Canvas canvas = new Canvas(bitmap);
+
+        if (!canBadgeInPlace) {
+            drawable.setBounds(0, 0, badgedWidth, badgedHeight);
+            drawable.draw(canvas);
         }
 
-        @Override
-        public void packageInstalled(String basePackageName, Bundle extras, int returnCode) {
-            try {
-                mLegacy.packageInstalled(basePackageName, returnCode);
-            } catch (RemoteException ignored) {
+        if (badgeLocation != null) {
+            if (badgeLocation.left < 0 || badgeLocation.top < 0
+                    || badgeLocation.width() > badgedWidth || badgeLocation.height() > badgedHeight) {
+                throw new IllegalArgumentException("Badge location " + badgeLocation
+                        + " not in badged drawable bounds "
+                        + new Rect(0, 0, badgedWidth, badgedHeight));
+            }
+            badgeDrawable.setBounds(0, 0, badgeLocation.width(), badgeLocation.height());
+
+            canvas.save();
+            canvas.translate(badgeLocation.left, badgeLocation.top);
+            badgeDrawable.draw(canvas);
+            canvas.restore();
+        } else {
+            badgeDrawable.setBounds(0, 0, badgedWidth, badgedHeight);
+            badgeDrawable.draw(canvas);
+        }
+
+        if (!canBadgeInPlace) {
+            BitmapDrawable mergedDrawable = new BitmapDrawable(mContext.getResources(), bitmap);
+
+            if (drawable instanceof BitmapDrawable) {
+                BitmapDrawable bitmapDrawable = (BitmapDrawable) drawable;
+                mergedDrawable.setTargetDensity(bitmapDrawable.getBitmap().getDensity());
+            }
+
+            return mergedDrawable;
+        }
+
+        return drawable;
+    }
+
+    private int getBadgeResIdForUser(int userHandle) {
+        // Return the framework-provided badge.
+        UserInfo userInfo = getUserIfProfile(userHandle);
+        if (userInfo != null && userInfo.isManagedProfile()) {
+            return com.android.internal.R.drawable.ic_corp_icon_badge;
+        }
+        return 0;
+    }
+
+    private UserInfo getUserIfProfile(int userHandle) {
+        List<UserInfo> userProfiles = getUserManager().getProfiles(UserHandle.myUserId());
+        for (UserInfo user : userProfiles) {
+            if (user.id == userHandle) {
+                return user;
             }
         }
+        return null;
     }
 
     private final ContextImpl mContext;

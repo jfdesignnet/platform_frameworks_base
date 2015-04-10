@@ -22,6 +22,8 @@ import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 import static android.view.WindowManager.LayoutParams.*;
 
+import android.app.SearchManager;
+import android.os.UserHandle;
 import com.android.internal.R;
 import com.android.internal.view.RootViewSurfaceTaker;
 import com.android.internal.view.StandaloneActionMode;
@@ -33,6 +35,7 @@ import com.android.internal.view.menu.MenuDialogHelper;
 import com.android.internal.view.menu.MenuPresenter;
 import com.android.internal.view.menu.MenuView;
 import com.android.internal.widget.ActionBarContextView;
+import com.android.internal.widget.BackgroundFallback;
 import com.android.internal.widget.DecorContentParent;
 import com.android.internal.widget.SwipeDismissLayout;
 
@@ -50,7 +53,6 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.session.MediaController;
-import android.media.session.MediaSession;
 import android.media.session.MediaSessionLegacyHelper;
 import android.net.Uri;
 import android.os.Bundle;
@@ -63,6 +65,7 @@ import android.transition.Scene;
 import android.transition.Transition;
 import android.transition.TransitionInflater;
 import android.transition.TransitionManager;
+import android.transition.TransitionSet;
 import android.util.AndroidRuntimeException;
 import android.util.DisplayMetrics;
 import android.util.EventLog;
@@ -98,6 +101,7 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
+import android.view.animation.Interpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.PopupWindow;
@@ -124,7 +128,10 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     private static final int CUSTOM_TITLE_COMPATIBLE_FEATURES = DEFAULT_FEATURES |
             (1 << FEATURE_CUSTOM_TITLE) |
             (1 << FEATURE_CONTENT_TRANSITIONS) |
+            (1 << FEATURE_ACTIVITY_TRANSITIONS) |
             (1 << FEATURE_ACTION_MODE_OVERLAY);
+
+    private static final Transition USE_DEFAULT_TRANSITION = new TransitionSet();
 
     /**
      * Simple callback used by the context menu and its submenus. The options
@@ -146,6 +153,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     // This is the view in which the window contents are placed. It is either
     // mDecor itself, or a child of mDecor where the contents go.
     private ViewGroup mContentParent;
+
+    private ViewGroup mContentRoot;
 
     SurfaceHolder.Callback2 mTakeSurfaceCallback;
 
@@ -206,6 +215,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     private ProgressBar mHorizontalProgressBar;
 
     private int mBackgroundResource = 0;
+    private int mBackgroundFallbackResource = 0;
 
     private Drawable mBackgroundDrawable;
 
@@ -254,13 +264,20 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
     };
 
-    private Transition mEnterTransition;
-    private Transition mExitTransition;
-    private Transition mSharedElementEnterTransition;
-    private Transition mSharedElementExitTransition;
-    private Boolean mAllowExitTransitionOverlap;
+    private Transition mEnterTransition = null;
+    private Transition mReturnTransition = USE_DEFAULT_TRANSITION;
+    private Transition mExitTransition = null;
+    private Transition mReenterTransition = USE_DEFAULT_TRANSITION;
+    private Transition mSharedElementEnterTransition = null;
+    private Transition mSharedElementReturnTransition = USE_DEFAULT_TRANSITION;
+    private Transition mSharedElementExitTransition = null;
+    private Transition mSharedElementReenterTransition = USE_DEFAULT_TRANSITION;
+    private Boolean mAllowReturnTransitionOverlap;
     private Boolean mAllowEnterTransitionOverlap;
     private long mBackgroundFadeDurationMillis = -1;
+    private Boolean mSharedElementsUseOverlay;
+
+    private Rect mTempRect;
 
     static class WindowManagerHolder {
         static final IWindowManager sWindowManager = IWindowManager.Stub.asInterface(
@@ -869,8 +886,18 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
     }
 
+    void doPendingInvalidatePanelMenu() {
+        if (mInvalidatePanelMenuPosted) {
+            mDecor.removeCallbacks(mInvalidatePanelMenuRunnable);
+            mInvalidatePanelMenuRunnable.run();
+        }
+    }
+
     void doInvalidatePanelMenu(int featureId) {
-        PanelFeatureState st = getPanelState(featureId, true);
+        PanelFeatureState st = getPanelState(featureId, false);
+        if (st == null) {
+            return;
+        }
         Bundle savedActionViewStates = null;
         if (st.menu != null) {
             savedActionViewStates = new Bundle();
@@ -909,8 +936,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             // The panel key was pushed, so set the chording key
             mPanelChordingKey = keyCode;
 
-            PanelFeatureState st = getPanelState(featureId, true);
-            if (!st.isOpen) {
+            PanelFeatureState st = getPanelState(featureId, false);
+            if (st != null && !st.isOpen) {
                 return preparePanel(st, event);
             }
         }
@@ -928,12 +955,14 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         if (mPanelChordingKey != 0) {
             mPanelChordingKey = 0;
 
-            if (event.isCanceled() || (mDecor != null && mDecor.mActionMode != null)) {
+            final PanelFeatureState st = getPanelState(featureId, false);
+
+            if (event.isCanceled() || (mDecor != null && mDecor.mActionMode != null) ||
+                    (st == null)) {
                 return;
             }
 
             boolean playSoundEffect = false;
-            final PanelFeatureState st = getPanelState(featureId, true);
             if (featureId == FEATURE_OPTIONS_PANEL && mDecorContentParent != null &&
                     mDecorContentParent.canShowOverflowMenu() &&
                     !ViewConfiguration.get(getContext()).hasPermanentMenuKey()) {
@@ -1032,7 +1061,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     @Override
     public boolean performPanelShortcut(int featureId, int keyCode, KeyEvent event, int flags) {
-        return performPanelShortcut(getPanelState(featureId, true), keyCode, event, flags);
+        return performPanelShortcut(getPanelState(featureId, false), keyCode, event, flags);
     }
 
     private boolean performPanelShortcut(PanelFeatureState st, int keyCode, KeyEvent event,
@@ -1125,11 +1154,11 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                         mInvalidatePanelMenuRunnable.run();
                     }
 
-                    final PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, true);
+                    final PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
 
                     // If we don't have a menu or we're waiting for a full content refresh,
                     // forget it. This is a lingering event that no longer matters.
-                    if (st.menu != null && !st.refreshMenuContent &&
+                    if (st != null && st.menu != null && !st.refreshMenuContent &&
                             cb.onPreparePanel(FEATURE_OPTIONS_PANEL, st.createdPanelView, st.menu)) {
                         cb.onMenuOpened(FEATURE_ACTION_BAR, st.menu);
                         mDecorContentParent.showOverflowMenu();
@@ -1137,15 +1166,19 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 }
             } else {
                 mDecorContentParent.hideOverflowMenu();
-                if (cb != null && !isDestroyed()) {
-                    final PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, true);
+                final PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+                if (st != null && cb != null && !isDestroyed()) {
                     cb.onPanelClosed(FEATURE_ACTION_BAR, st.menu);
                 }
             }
             return;
         }
 
-        PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, true);
+        PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+
+        if (st == null) {
+            return;
+        }
 
         // Save the future expanded mode state since closePanel will reset it
         boolean newExpandedMode = toggleMenuMode ? !st.isInExpandedMode : st.isInExpandedMode;
@@ -1222,6 +1255,13 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         st.decorView = new DecorView(getContext(), st.featureId);
         st.gravity = Gravity.CENTER | Gravity.BOTTOM;
         st.setStyle(getContext());
+        TypedArray a = getContext().obtainStyledAttributes(null,
+                R.styleable.Window, 0, st.listPresenterTheme);
+        final float elevation = a.getDimension(R.styleable.Window_windowElevation, 0);
+        if (elevation != 0) {
+            st.decorView.setElevation(elevation);
+        }
+        a.recycle();
 
         return true;
     }
@@ -1302,13 +1342,32 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
+    public final void setElevation(float elevation) {
+        mElevation = elevation;
+        if (mDecor != null) {
+            mDecor.setElevation(elevation);
+        }
+        dispatchWindowAttributesChanged(getAttributes());
+    }
+
+    @Override
+    public final void setClipToOutline(boolean clipToOutline) {
+        mClipToOutline = clipToOutline;
+        if (mDecor != null) {
+            mDecor.setClipToOutline(clipToOutline);
+        }
+    }
+
+    @Override
     public final void setBackgroundDrawable(Drawable drawable) {
         if (drawable != mBackgroundDrawable || mBackgroundResource != 0) {
             mBackgroundResource = 0;
             mBackgroundDrawable = drawable;
             if (mDecor != null) {
                 mDecor.setWindowBackground(drawable);
-                mDecor.setClipToOutline(drawable != null && mClipToOutline);
+            }
+            if (mBackgroundFallbackResource != 0) {
+                mDecor.setBackgroundFallback(drawable != null ? 0 : mBackgroundFallbackResource);
             }
         }
     }
@@ -1973,6 +2032,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             SparseArray<Parcelable> actionBarStates =
                     savedInstanceState.getSparseParcelableArray(ACTION_BAR_TAG);
             if (actionBarStates != null) {
+                doPendingInvalidatePanelMenu();
                 mDecorContentParent.restoreToolbarHierarchyState(actionBarStates);
             } else {
                 Log.w(TAG, "Missing saved instance states for action bar views! " +
@@ -2103,8 +2163,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
     }
 
-    private final class DecorView extends FrameLayout implements RootViewSurfaceTaker,
-            View.OnSystemUiVisibilityChangeListener {
+    private final class DecorView extends FrameLayout implements RootViewSurfaceTaker {
+
         /* package */int mDefaultOpacity = PixelFormat.OPAQUE;
 
         /** The feature ID of the panel, or -1 if this is the application's DecorView */
@@ -2134,17 +2194,56 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // View added at runtime to draw under the navigation bar area
         private View mNavigationGuard;
 
-        private View mStatusColorView;
-        private View mNavigationColorView;
+        private final ColorViewState mStatusColorViewState = new ColorViewState(
+                SYSTEM_UI_FLAG_FULLSCREEN, FLAG_TRANSLUCENT_STATUS,
+                Gravity.TOP,
+                STATUS_BAR_BACKGROUND_TRANSITION_NAME,
+                com.android.internal.R.id.statusBarBackground,
+                FLAG_FULLSCREEN);
+        private final ColorViewState mNavigationColorViewState = new ColorViewState(
+                SYSTEM_UI_FLAG_HIDE_NAVIGATION, FLAG_TRANSLUCENT_NAVIGATION,
+                Gravity.BOTTOM,
+                NAVIGATION_BAR_BACKGROUND_TRANSITION_NAME,
+                com.android.internal.R.id.navigationBarBackground,
+                0 /* hideWindowFlag */);
+
+        private final Interpolator mShowInterpolator;
+        private final Interpolator mHideInterpolator;
+        private final int mBarEnterExitDuration;
+
+        private final BackgroundFallback mBackgroundFallback = new BackgroundFallback();
 
         private int mLastTopInset = 0;
         private int mLastBottomInset = 0;
-        private int mLastSystemUiVisibility = 0;
+        private int mLastRightInset = 0;
+        private boolean mLastHasTopStableInset = false;
+        private boolean mLastHasBottomStableInset = false;
+        private int mLastWindowFlags = 0;
 
+        private int mRootScrollY = 0;
 
         public DecorView(Context context, int featureId) {
             super(context);
             mFeatureId = featureId;
+
+            mShowInterpolator = AnimationUtils.loadInterpolator(context,
+                    android.R.interpolator.linear_out_slow_in);
+            mHideInterpolator = AnimationUtils.loadInterpolator(context,
+                    android.R.interpolator.fast_out_linear_in);
+
+            mBarEnterExitDuration = context.getResources().getInteger(
+                    R.integer.dock_enter_exit_duration);
+        }
+
+        public void setBackgroundFallback(int resId) {
+            mBackgroundFallback.setDrawable(resId != 0 ? getContext().getDrawable(resId) : null);
+            setWillNotDraw(getBackground() == null && !mBackgroundFallback.hasFallback());
+        }
+
+        @Override
+        public void onDraw(Canvas c) {
+            super.onDraw(c);
+            mBackgroundFallback.draw(mContentRoot, c, mContentParent);
         }
 
         @Override
@@ -2212,8 +2311,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             // combination such as Control+C.  Temporarily prepare the panel then mark it
             // unprepared again when finished to ensure that the panel will again be prepared
             // the next time it is shown for real.
-            if (mPreparedPanel == null) {
-                PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, true);
+            PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+            if (st != null && mPreparedPanel == null) {
                 preparePanel(st, ev);
                 handled = performPanelShortcut(st, ev.getKeyCode(), ev,
                         Menu.FLAG_PERFORM_NO_CLOSE);
@@ -2285,8 +2384,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 int bottom = (int) mOutsetBottom.getDimension(metrics);
                 WindowInsets newInsets = insets.replaceSystemWindowInsets(
                         insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
-                        insets.getSystemWindowInsetRight(),
-                        insets.getSystemWindowInsetBottom() + bottom);
+                        insets.getSystemWindowInsetRight(), bottom);
                 return super.dispatchApplyWindowInsets(newInsets);
             } else {
                 return super.dispatchApplyWindowInsets(insets);
@@ -2608,19 +2706,35 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             } else {
                 if (mActionModeView == null) {
                     if (isFloating()) {
-                        mActionModeView = new ActionBarContextView(mContext);
-                        mActionModePopup = new PopupWindow(mContext, null,
+                        // Use the action bar theme.
+                        final TypedValue outValue = new TypedValue();
+                        final Theme baseTheme = mContext.getTheme();
+                        baseTheme.resolveAttribute(R.attr.actionBarTheme, outValue, true);
+
+                        final Context actionBarContext;
+                        if (outValue.resourceId != 0) {
+                            final Theme actionBarTheme = mContext.getResources().newTheme();
+                            actionBarTheme.setTo(baseTheme);
+                            actionBarTheme.applyStyle(outValue.resourceId, true);
+
+                            actionBarContext = new ContextThemeWrapper(mContext, 0);
+                            actionBarContext.getTheme().setTo(actionBarTheme);
+                        } else {
+                            actionBarContext = mContext;
+                        }
+
+                        mActionModeView = new ActionBarContextView(actionBarContext);
+                        mActionModePopup = new PopupWindow(actionBarContext, null,
                                 R.attr.actionModePopupWindowStyle);
                         mActionModePopup.setWindowLayoutType(
                                 WindowManager.LayoutParams.TYPE_APPLICATION);
                         mActionModePopup.setContentView(mActionModeView);
                         mActionModePopup.setWidth(MATCH_PARENT);
 
-                        TypedValue heightValue = new TypedValue();
-                        mContext.getTheme().resolveAttribute(
-                                R.attr.actionBarSize, heightValue, true);
-                        final int height = TypedValue.complexToDimensionPixelSize(heightValue.data,
-                                mContext.getResources().getDisplayMetrics());
+                        actionBarContext.getTheme().resolveAttribute(
+                                R.attr.actionBarSize, outValue, true);
+                        final int height = TypedValue.complexToDimensionPixelSize(outValue.data,
+                                actionBarContext.getResources().getDisplayMetrics());
                         mActionModeView.setContentHeight(height);
                         mActionModePopup.setHeight(WRAP_CONTENT);
                         mShowActionModePopup = new Runnable() {
@@ -2641,8 +2755,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
                 if (mActionModeView != null) {
                     mActionModeView.killMode();
-                    mode = new StandaloneActionMode(getContext(), mActionModeView, wrappedCallback,
-                            mActionModePopup == null);
+                    mode = new StandaloneActionMode(mActionModeView.getContext(), mActionModeView,
+                            wrappedCallback, mActionModePopup == null);
                     if (callback.onCreateActionMode(mode, mode.getMenu())) {
                         mode.invalidate();
                         mActionModeView.initForMode(mode);
@@ -2710,15 +2824,14 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
 
         @Override
-        public void onSystemUiVisibilityChange(int visible) {
-            mLastSystemUiVisibility = visible;
-            updateColorViews(null /* insets */);
+        public void onWindowSystemUiVisibilityChanged(int visible) {
+            updateColorViews(null /* insets */, true /* animate */);
         }
 
         @Override
         public WindowInsets onApplyWindowInsets(WindowInsets insets) {
             mFrameOffsets.set(insets.getSystemWindowInsets());
-            updateColorViews(insets);
+            insets = updateColorViews(insets, true /* animate */);
             insets = updateStatusGuard(insets);
             updateNavigationGuard(insets);
             if (getForeground() != null) {
@@ -2732,45 +2845,112 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             return false;
         }
 
-        private WindowInsets updateColorViews(WindowInsets insets) {
+        private WindowInsets updateColorViews(WindowInsets insets, boolean animate) {
+            WindowManager.LayoutParams attrs = getAttributes();
+            int sysUiVisibility = attrs.systemUiVisibility | getWindowSystemUiVisibility();
+
             if (!mIsFloating && ActivityManager.isHighEndGfx()) {
+                boolean disallowAnimate = !isLaidOut();
+                disallowAnimate |= ((mLastWindowFlags ^ attrs.flags)
+                        & FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0;
+                mLastWindowFlags = attrs.flags;
+
                 if (insets != null) {
-                    mLastTopInset = insets.getStableInsetTop();
-                    mLastBottomInset = insets.getStableInsetBottom();
+                    mLastTopInset = Math.min(insets.getStableInsetTop(),
+                            insets.getSystemWindowInsetTop());
+                    mLastBottomInset = Math.min(insets.getStableInsetBottom(),
+                            insets.getSystemWindowInsetBottom());
+                    mLastRightInset = Math.min(insets.getStableInsetRight(),
+                            insets.getSystemWindowInsetRight());
+
+                    // Don't animate if the presence of stable insets has changed, because that
+                    // indicates that the window was either just added and received them for the
+                    // first time, or the window size or position has changed.
+                    boolean hasTopStableInset = insets.getStableInsetTop() != 0;
+                    disallowAnimate |= (hasTopStableInset != mLastHasTopStableInset);
+                    mLastHasTopStableInset = hasTopStableInset;
+
+                    boolean hasBottomStableInset = insets.getStableInsetBottom() != 0;
+                    disallowAnimate |= (hasBottomStableInset != mLastHasBottomStableInset);
+                    mLastHasBottomStableInset = hasBottomStableInset;
                 }
-                mStatusColorView = updateColorViewInt(mStatusColorView,
-                        SYSTEM_UI_FLAG_FULLSCREEN, FLAG_TRANSLUCENT_STATUS,
-                        mStatusBarColor, mLastTopInset, Gravity.TOP,
-                        STATUS_BAR_BACKGROUND_TRANSITION_NAME);
-                mNavigationColorView = updateColorViewInt(mNavigationColorView,
-                        SYSTEM_UI_FLAG_HIDE_NAVIGATION, FLAG_TRANSLUCENT_NAVIGATION,
-                        mNavigationBarColor, mLastBottomInset, Gravity.BOTTOM,
-                        NAVIGATION_BAR_BACKGROUND_TRANSITION_NAME);
+
+                updateColorViewInt(mStatusColorViewState, sysUiVisibility, mStatusBarColor,
+                        mLastTopInset, animate && !disallowAnimate);
+                updateColorViewInt(mNavigationColorViewState, sysUiVisibility, mNavigationBarColor,
+                        mLastBottomInset, animate && !disallowAnimate);
             }
+
+            // When we expand the window with FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS, we still need
+            // to ensure that the rest of the view hierarchy doesn't notice it, unless they've
+            // explicitly asked for it.
+
+            boolean consumingNavBar =
+                    (attrs.flags & FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0
+                            && (sysUiVisibility & SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION) == 0
+                            && (sysUiVisibility & SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0;
+
+            int consumedRight = consumingNavBar ? mLastRightInset : 0;
+            int consumedBottom = consumingNavBar ? mLastBottomInset : 0;
+
+            if (mContentRoot != null
+                    && mContentRoot.getLayoutParams() instanceof MarginLayoutParams) {
+                MarginLayoutParams lp = (MarginLayoutParams) mContentRoot.getLayoutParams();
+                if (lp.rightMargin != consumedRight || lp.bottomMargin != consumedBottom) {
+                    lp.rightMargin = consumedRight;
+                    lp.bottomMargin = consumedBottom;
+                    mContentRoot.setLayoutParams(lp);
+
+                    if (insets == null) {
+                        // The insets have changed, but we're not currently in the process
+                        // of dispatching them.
+                        requestApplyInsets();
+                    }
+                }
+                if (insets != null) {
+                    insets = insets.replaceSystemWindowInsets(
+                            insets.getSystemWindowInsetLeft(),
+                            insets.getSystemWindowInsetTop(),
+                            insets.getSystemWindowInsetRight() - consumedRight,
+                            insets.getSystemWindowInsetBottom() - consumedBottom);
+                }
+            }
+
             if (insets != null) {
                 insets = insets.consumeStableInsets();
             }
             return insets;
         }
 
-        private View updateColorViewInt(View view, int systemUiHideFlag, int translucentFlag,
-                int color, int height, int verticalGravity, String transitionName) {
-            boolean show = height > 0 && (mLastSystemUiVisibility & systemUiHideFlag) == 0
-                    && (getAttributes().flags & translucentFlag) == 0
+        private void updateColorViewInt(final ColorViewState state, int sysUiVis, int color,
+                int height, boolean animate) {
+            boolean show = height > 0 && (sysUiVis & state.systemUiHideFlag) == 0
+                    && (getAttributes().flags & state.hideWindowFlag) == 0
+                    && (getAttributes().flags & state.translucentFlag) == 0
                     && (color & Color.BLACK) != 0
                     && (getAttributes().flags & FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0;
 
+            boolean visibilityChanged = false;
+            View view = state.view;
+
             if (view == null) {
                 if (show) {
-                    view = new View(mContext);
+                    state.view = view = new View(mContext);
                     view.setBackgroundColor(color);
-                    view.setTransitionName(transitionName);
+                    view.setTransitionName(state.transitionName);
+                    view.setId(state.id);
+                    visibilityChanged = true;
+                    view.setVisibility(INVISIBLE);
+                    state.targetVisibility = VISIBLE;
+
                     addView(view, new LayoutParams(LayoutParams.MATCH_PARENT, height,
-                            Gravity.START | verticalGravity));
+                            Gravity.START | state.verticalGravity));
+                    updateColorViewTranslations();
                 }
             } else {
                 int vis = show ? VISIBLE : INVISIBLE;
-                view.setVisibility(vis);
+                visibilityChanged = state.targetVisibility != vis;
+                state.targetVisibility = vis;
                 if (show) {
                     LayoutParams lp = (LayoutParams) view.getLayoutParams();
                     if (lp.height != height) {
@@ -2780,7 +2960,44 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     view.setBackgroundColor(color);
                 }
             }
-            return view;
+            if (visibilityChanged) {
+                view.animate().cancel();
+                if (animate) {
+                    if (show) {
+                        if (view.getVisibility() != VISIBLE) {
+                            view.setVisibility(VISIBLE);
+                            view.setAlpha(0.0f);
+                        }
+                        view.animate().alpha(1.0f).setInterpolator(mShowInterpolator).
+                                setDuration(mBarEnterExitDuration);
+                    } else {
+                        view.animate().alpha(0.0f).setInterpolator(mHideInterpolator)
+                                .setDuration(mBarEnterExitDuration)
+                                .withEndAction(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        state.view.setAlpha(1.0f);
+                                        state.view.setVisibility(INVISIBLE);
+                                    }
+                                });
+                    }
+                } else {
+                    view.setAlpha(1.0f);
+                    view.setVisibility(show ? VISIBLE : INVISIBLE);
+                }
+            }
+        }
+
+        private void updateColorViewTranslations() {
+            // Put the color views back in place when they get moved off the screen
+            // due to the the ViewRootImpl panning.
+            int rootScrollY = mRootScrollY;
+            if (mStatusColorViewState.view != null) {
+                mStatusColorViewState.view.setTranslationY(rootScrollY > 0 ? rootScrollY : 0);
+            }
+            if (mNavigationColorViewState.view != null) {
+                mNavigationColorViewState.view.setTranslationY(rootScrollY < 0 ? rootScrollY : 0);
+            }
         }
 
         private WindowInsets updateStatusGuard(WindowInsets insets) {
@@ -2788,34 +3005,53 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             // Show the status guard when the non-overlay contextual action bar is showing
             if (mActionModeView != null) {
                 if (mActionModeView.getLayoutParams() instanceof MarginLayoutParams) {
-                    MarginLayoutParams mlp = (MarginLayoutParams) mActionModeView.getLayoutParams();
+                    // Insets are magic!
+                    final MarginLayoutParams mlp = (MarginLayoutParams)
+                            mActionModeView.getLayoutParams();
                     boolean mlpChanged = false;
-                    final boolean nonOverlayShown =
-                            (getLocalFeatures() & (1 << FEATURE_ACTION_MODE_OVERLAY)) == 0
-                            && mActionModeView.isShown();
-                    if (nonOverlayShown) {
-                        // set top margin to top insets, show status guard
-                        if (mlp.topMargin != insets.getSystemWindowInsetTop()) {
+                    if (mActionModeView.isShown()) {
+                        if (mTempRect == null) {
+                            mTempRect = new Rect();
+                        }
+                        final Rect rect = mTempRect;
+
+                        // If the parent doesn't consume the insets, manually
+                        // apply the default system window insets.
+                        mContentParent.computeSystemWindowInsets(insets, rect);
+                        final int newMargin = rect.top == 0 ? insets.getSystemWindowInsetTop() : 0;
+                        if (mlp.topMargin != newMargin) {
                             mlpChanged = true;
                             mlp.topMargin = insets.getSystemWindowInsetTop();
+
                             if (mStatusGuard == null) {
                                 mStatusGuard = new View(mContext);
                                 mStatusGuard.setBackgroundColor(mContext.getResources()
                                         .getColor(R.color.input_method_navigation_guard));
-                                addView(mStatusGuard, indexOfChild(mStatusColorView),
-                                        new LayoutParams(LayoutParams.MATCH_PARENT, mlp.topMargin,
-                                                Gravity.START | Gravity.TOP));
+                                addView(mStatusGuard, indexOfChild(mStatusColorViewState.view),
+                                        new LayoutParams(LayoutParams.MATCH_PARENT,
+                                                mlp.topMargin, Gravity.START | Gravity.TOP));
                             } else {
-                                LayoutParams lp = (LayoutParams) mStatusGuard.getLayoutParams();
+                                final LayoutParams lp = (LayoutParams)
+                                        mStatusGuard.getLayoutParams();
                                 if (lp.height != mlp.topMargin) {
                                     lp.height = mlp.topMargin;
                                     mStatusGuard.setLayoutParams(lp);
                                 }
                             }
                         }
+
+                        // The action mode's theme may differ from the app, so
+                        // always show the status guard above it if we have one.
+                        showStatusGuard = mStatusGuard != null;
+
+                        // We only need to consume the insets if the action
+                        // mode is overlaid on the app content (e.g. it's
+                        // sitting in a FrameLayout, see
+                        // screen_simple_overlay_action_mode.xml).
+                        final boolean nonOverlay = (getLocalFeatures()
+                                & (1 << FEATURE_ACTION_MODE_OVERLAY)) == 0;
                         insets = insets.consumeSystemWindowInsets(
-                                false, true /* top */, false, false);
-                        showStatusGuard = true;
+                                false, nonOverlay && showStatusGuard /* top */, false, false);
                     } else {
                         // reset top margin
                         if (mlp.topMargin != 0) {
@@ -2851,9 +3087,10 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     mNavigationGuard = new View(mContext);
                     mNavigationGuard.setBackgroundColor(mContext.getResources()
                             .getColor(R.color.input_method_navigation_guard));
-                    addView(mNavigationGuard, indexOfChild(mNavigationColorView), new LayoutParams(
-                            LayoutParams.MATCH_PARENT, insets.getSystemWindowInsetBottom(),
-                            Gravity.START | Gravity.BOTTOM));
+                    addView(mNavigationGuard, indexOfChild(mNavigationColorViewState.view),
+                            new LayoutParams(LayoutParams.MATCH_PARENT,
+                                    insets.getSystemWindowInsetBottom(),
+                                    Gravity.START | Gravity.BOTTOM));
                 } else {
                     LayoutParams lp = (LayoutParams) mNavigationGuard.getLayoutParams();
                     lp.height = insets.getSystemWindowInsetBottom();
@@ -2874,7 +3111,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             invalidate();
 
             int opacity = PixelFormat.OPAQUE;
-
             // Note: if there is no background, we will assume opaque. The
             // common case seems to be that an application sets there to be
             // no background so it can draw everything itself. For that,
@@ -2929,7 +3165,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
             // If the user is chording a menu shortcut, release the chord since
             // this window lost focus
-            if (!hasWindowFocus && mPanelChordingKey != 0) {
+            if (hasFeature(FEATURE_OPTIONS_PANEL) && !hasWindowFocus && mPanelChordingKey != 0) {
                 closePanel(FEATURE_OPTIONS_PANEL);
             }
 
@@ -3021,6 +3257,12 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         public void setSurfaceKeepScreenOn(boolean keepOn) {
             if (keepOn) PhoneWindow.this.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             else PhoneWindow.this.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+
+        @Override
+        public void onRootViewScrollYChanged(int rootScrollY) {
+            mRootScrollY = rootScrollY;
+            updateColorViewTranslations();
         }
 
         /**
@@ -3188,13 +3430,18 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         if (a.getBoolean(R.styleable.Window_windowContentTransitions, false)) {
             requestFeature(FEATURE_CONTENT_TRANSITIONS);
         }
+        if (a.getBoolean(R.styleable.Window_windowActivityTransitions, false)) {
+            requestFeature(FEATURE_ACTIVITY_TRANSITIONS);
+        }
 
         final WindowManager windowService = (WindowManager) getContext().getSystemService(
                 Context.WINDOW_SERVICE);
         if (windowService != null) {
             final Display display = windowService.getDefaultDisplay();
-            if (display.getDisplayId() == Display.DEFAULT_DISPLAY &&
-                    a.hasValue(R.styleable.Window_windowOutsetBottom)) {
+            final boolean shouldUseBottomOutset =
+                    display.getDisplayId() == Display.DEFAULT_DISPLAY
+                            || (getForcedWindowFlags() & FLAG_FULLSCREEN) != 0;
+            if (shouldUseBottomOutset && a.hasValue(R.styleable.Window_windowOutsetBottom)) {
                 if (mOutsetBottom == null) mOutsetBottom = new TypedValue();
                 a.getValue(R.styleable.Window_windowOutsetBottom,
                         mOutsetBottom);
@@ -3205,15 +3452,15 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         final int targetSdk = context.getApplicationInfo().targetSdkVersion;
         final boolean targetPreHoneycomb = targetSdk < android.os.Build.VERSION_CODES.HONEYCOMB;
         final boolean targetPreIcs = targetSdk < android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH;
-        final boolean targetPreL = targetSdk < android.os.Build.VERSION_CODES.L;
+        final boolean targetPreL = targetSdk < android.os.Build.VERSION_CODES.LOLLIPOP;
         final boolean targetHcNeedsOptions = context.getResources().getBoolean(
                 R.bool.target_honeycomb_needs_options_menu);
         final boolean noActionBar = !hasFeature(FEATURE_ACTION_BAR) || hasFeature(FEATURE_NO_TITLE);
 
         if (targetPreHoneycomb || (targetPreIcs && targetHcNeedsOptions && noActionBar)) {
-            addFlags(WindowManager.LayoutParams.FLAG_NEEDS_MENU_KEY);
+            setNeedsMenuKey(WindowManager.LayoutParams.NEEDS_MENU_SET_TRUE);
         } else {
-            clearFlags(WindowManager.LayoutParams.FLAG_NEEDS_MENU_KEY);
+            setNeedsMenuKey(WindowManager.LayoutParams.NEEDS_MENU_SET_FALSE);
         }
 
         // Non-floating windows on high end devices must put up decor beneath the system bars and
@@ -3225,7 +3472,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 setFlags(FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                         FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS & ~getForcedWindowFlags());
             }
-            decor.setOnSystemUiVisibilityChangeListener(decor);
         }
         if (!mForcedStatusBarColor) {
             mStatusBarColor = a.getColor(R.styleable.Window_statusBarColor, 0xFF000000);
@@ -3279,6 +3525,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 if (mFrameResource == 0) {
                     mFrameResource = a.getResourceId(R.styleable.Window_windowFrame, 0);
                 }
+                mBackgroundFallbackResource = a.getResourceId(
+                        R.styleable.Window_windowBackgroundFallback, 0);
                 if (false) {
                     System.out.println("Background: "
                             + Integer.toHexString(mBackgroundResource) + " Frame: "
@@ -3356,6 +3604,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
         View in = mLayoutInflater.inflate(layoutResource, null);
         decor.addView(in, new ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        mContentRoot = (ViewGroup) in;
 
         ViewGroup contentParent = (ViewGroup)findViewById(ID_ANDROID_CONTENT);
         if (contentParent == null) {
@@ -3384,10 +3633,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             }
             mDecor.setWindowBackground(background);
 
-            if (background != null) {
-                mDecor.setClipToOutline(mClipToOutline);
-            }
-
             final Drawable frame;
             if (mFrameResource != 0) {
                 frame = getContext().getDrawable(mFrameResource);
@@ -3397,6 +3642,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             mDecor.setWindowFrame(frame);
 
             mDecor.setElevation(mElevation);
+            mDecor.setClipToOutline(mClipToOutline);
 
             if (mTitle != null) {
                 setTitle(mTitle);
@@ -3466,17 +3712,15 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     mDecorContentParent.setLogo(mLogoRes);
                 }
 
-                // Post the panel invalidate for later; avoid application onCreateOptionsMenu
+                // Invalidate if the panel menu hasn't been created before this.
+                // Panel menu invalidation is deferred avoiding application onCreateOptionsMenu
                 // being called in the middle of onCreate or similar.
-                mDecor.post(new Runnable() {
-                    public void run() {
-                        // Invalidate if the panel menu hasn't been created before this.
-                        PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
-                        if (!isDestroyed() && (st == null || st.menu == null)) {
-                            invalidatePanelMenu(FEATURE_ACTION_BAR);
-                        }
-                    }
-                });
+                // A pending invalidation will typically be resolved before the posted message
+                // would run normally in order to satisfy instance state restoration.
+                PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+                if (!isDestroyed() && (st == null || st.menu == null)) {
+                    invalidatePanelMenu(FEATURE_ACTION_BAR);
+                }
             } else {
                 mTitleView = (TextView)findViewById(R.id.title);
                 if (mTitleView != null) {
@@ -3498,9 +3742,13 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 }
             }
 
+            if (mDecor.getBackground() == null && mBackgroundFallbackResource != 0) {
+                mDecor.setBackgroundFallback(mBackgroundFallbackResource);
+            }
+
             // Only inflate or create a new TransitionManager if the caller hasn't
             // already set a custom one.
-            if (hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
+            if (hasFeature(FEATURE_ACTIVITY_TRANSITIONS)) {
                 if (mTransitionManager == null) {
                     final int transitionRes = getWindowStyle().getResourceId(
                             R.styleable.Window_windowContentTransitionManager,
@@ -3514,43 +3762,58 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     }
                 }
 
-                mEnterTransition = getTransition(mEnterTransition,
+                mEnterTransition = getTransition(mEnterTransition, null,
                         R.styleable.Window_windowEnterTransition);
-                mExitTransition = getTransition(mExitTransition,
+                mReturnTransition = getTransition(mReturnTransition, USE_DEFAULT_TRANSITION,
+                        R.styleable.Window_windowReturnTransition);
+                mExitTransition = getTransition(mExitTransition, null,
                         R.styleable.Window_windowExitTransition);
-                mSharedElementEnterTransition = getTransition(mSharedElementEnterTransition,
+                mReenterTransition = getTransition(mReenterTransition, USE_DEFAULT_TRANSITION,
+                        R.styleable.Window_windowReenterTransition);
+                mSharedElementEnterTransition = getTransition(mSharedElementEnterTransition, null,
                         R.styleable.Window_windowSharedElementEnterTransition);
-                mSharedElementExitTransition = getTransition(mSharedElementExitTransition,
+                mSharedElementReturnTransition = getTransition(mSharedElementReturnTransition,
+                        USE_DEFAULT_TRANSITION,
+                        R.styleable.Window_windowSharedElementReturnTransition);
+                mSharedElementExitTransition = getTransition(mSharedElementExitTransition, null,
                         R.styleable.Window_windowSharedElementExitTransition);
+                mSharedElementReenterTransition = getTransition(mSharedElementReenterTransition,
+                        USE_DEFAULT_TRANSITION,
+                        R.styleable.Window_windowSharedElementReenterTransition);
                 if (mAllowEnterTransitionOverlap == null) {
                     mAllowEnterTransitionOverlap = getWindowStyle().getBoolean(
-                            R.styleable.
-                                    Window_windowAllowEnterTransitionOverlap, true);
+                            R.styleable.Window_windowAllowEnterTransitionOverlap, true);
                 }
-                if (mAllowExitTransitionOverlap == null) {
-                    mAllowExitTransitionOverlap = getWindowStyle().getBoolean(
-                            R.styleable.
-                                    Window_windowAllowExitTransitionOverlap, true);
+                if (mAllowReturnTransitionOverlap == null) {
+                    mAllowReturnTransitionOverlap = getWindowStyle().getBoolean(
+                            R.styleable.Window_windowAllowReturnTransitionOverlap, true);
                 }
                 if (mBackgroundFadeDurationMillis < 0) {
                     mBackgroundFadeDurationMillis = getWindowStyle().getInteger(
-                            R.styleable.
-                                    Window_windowTransitionBackgroundFadeDuration,
+                            R.styleable.Window_windowTransitionBackgroundFadeDuration,
                             DEFAULT_BACKGROUND_FADE_DURATION_MS);
+                }
+                if (mSharedElementsUseOverlay == null) {
+                    mSharedElementsUseOverlay = getWindowStyle().getBoolean(
+                            R.styleable.Window_windowSharedElementsUseOverlay, true);
                 }
             }
         }
     }
 
-    private Transition getTransition(Transition currentValue, int id) {
-        if (currentValue != null) {
+    private Transition getTransition(Transition currentValue, Transition defaultValue, int id) {
+        if (currentValue != defaultValue) {
             return currentValue;
         }
         int transitionId = getWindowStyle().getResourceId(id, -1);
-        Transition transition = null;
+        Transition transition = defaultValue;
         if (transitionId != -1 && transitionId != R.transition.no_transition) {
             TransitionInflater inflater = TransitionInflater.from(getContext());
             transition = inflater.inflateTransition(transitionId);
+            if (transition instanceof TransitionSet &&
+                    ((TransitionSet)transition).getTransitionCount() == 0) {
+                transition = null;
+            }
         }
         return transition;
     }
@@ -3652,8 +3915,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     @Override
     public boolean isShortcutKey(int keyCode, KeyEvent event) {
-        PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, true);
-        return st.menu != null && st.menu.isShortcutKey(keyCode, event);
+        PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+        return st != null && st.menu != null && st.menu.isShortcutKey(keyCode, event);
     }
 
     private void updateDrawable(int featureId, DrawableFeatureState st, boolean fromResume) {
@@ -3729,7 +3992,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     protected void dispatchWindowAttributesChanged(WindowManager.LayoutParams attrs) {
         super.dispatchWindowAttributesChanged(attrs);
         if (mDecor != null) {
-            mDecor.updateColorViews(null /* insets */);
+            mDecor.updateColorViews(null /* insets */, true /* animate */);
         }
     }
 
@@ -3859,13 +4122,21 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
      * @return true if search window opened
      */
     private boolean launchDefaultSearch() {
+        boolean result;
         final Callback cb = getCallback();
         if (cb == null || isDestroyed()) {
-            return false;
+            result = false;
         } else {
             sendCloseSystemWindows("search");
-            return cb.onSearchRequested();
+            result = cb.onSearchRequested();
         }
+        if (!result && (getContext().getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION) {
+            // On TVs, if the app doesn't implement search, we want to launch assist.
+            return ((SearchManager)getContext().getSystemService(Context.SEARCH_SERVICE))
+                    .launchAssistAction(0, null, UserHandle.myUserId());
+        }
+        return result;
     }
 
     @Override
@@ -3900,8 +4171,18 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
+    public void setReturnTransition(Transition transition) {
+        mReturnTransition = transition;
+    }
+
+    @Override
     public void setExitTransition(Transition exitTransition) {
         mExitTransition = exitTransition;
+    }
+
+    @Override
+    public void setReenterTransition(Transition transition) {
+        mReenterTransition = transition;
     }
 
     @Override
@@ -3910,8 +4191,18 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
+    public void setSharedElementReturnTransition(Transition transition) {
+        mSharedElementReturnTransition = transition;
+    }
+
+    @Override
     public void setSharedElementExitTransition(Transition sharedElementExitTransition) {
         mSharedElementExitTransition = sharedElementExitTransition;
+    }
+
+    @Override
+    public void setSharedElementReenterTransition(Transition transition) {
+        mSharedElementReenterTransition = transition;
     }
 
     @Override
@@ -3920,8 +4211,20 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
+    public Transition getReturnTransition() {
+        return mReturnTransition == USE_DEFAULT_TRANSITION ? getEnterTransition()
+                : mReturnTransition;
+    }
+
+    @Override
     public Transition getExitTransition() {
         return mExitTransition;
+    }
+
+    @Override
+    public Transition getReenterTransition() {
+        return mReenterTransition == USE_DEFAULT_TRANSITION ? getExitTransition()
+                : mReenterTransition;
     }
 
     @Override
@@ -3930,8 +4233,20 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
+    public Transition getSharedElementReturnTransition() {
+        return mSharedElementReturnTransition == USE_DEFAULT_TRANSITION
+                ? getSharedElementEnterTransition() : mSharedElementReturnTransition;
+    }
+
+    @Override
     public Transition getSharedElementExitTransition() {
         return mSharedElementExitTransition;
+    }
+
+    @Override
+    public Transition getSharedElementReenterTransition() {
+        return mSharedElementReenterTransition == USE_DEFAULT_TRANSITION
+                ? getSharedElementExitTransition() : mSharedElementReenterTransition;
     }
 
     @Override
@@ -3945,13 +4260,13 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
-    public void setAllowExitTransitionOverlap(boolean allowExitTransitionOverlap) {
-        mAllowExitTransitionOverlap = allowExitTransitionOverlap;
+    public void setAllowReturnTransitionOverlap(boolean allowExitTransitionOverlap) {
+        mAllowReturnTransitionOverlap = allowExitTransitionOverlap;
     }
 
     @Override
-    public boolean getAllowExitTransitionOverlap() {
-        return (mAllowExitTransitionOverlap == null) ? true : mAllowExitTransitionOverlap;
+    public boolean getAllowReturnTransitionOverlap() {
+        return (mAllowReturnTransitionOverlap == null) ? true : mAllowReturnTransitionOverlap;
     }
 
     @Override
@@ -3966,6 +4281,16 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             throw new IllegalArgumentException("negative durations are not allowed");
         }
         mBackgroundFadeDurationMillis = fadeDurationMillis;
+    }
+
+    @Override
+    public void setSharedElementsUseOverlay(boolean sharedElementsUseOverlay) {
+        mSharedElementsUseOverlay = sharedElementsUseOverlay;
+    }
+
+    @Override
+    public boolean getSharedElementsUseOverlay() {
+        return (mSharedElementsUseOverlay == null) ? true : mSharedElementsUseOverlay;
     }
 
     private static final class DrawableFeatureState {
@@ -4394,6 +4719,29 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
     }
 
+    private static class ColorViewState {
+        View view = null;
+        int targetVisibility = View.INVISIBLE;
+
+        final int id;
+        final int systemUiHideFlag;
+        final int translucentFlag;
+        final int verticalGravity;
+        final String transitionName;
+        final int hideWindowFlag;
+
+        ColorViewState(int systemUiHideFlag,
+                int translucentFlag, int verticalGravity,
+                String transitionName, int id, int hideWindowFlag) {
+            this.id = id;
+            this.systemUiHideFlag = systemUiHideFlag;
+            this.translucentFlag = translucentFlag;
+            this.verticalGravity = verticalGravity;
+            this.transitionName = transitionName;
+            this.hideWindowFlag = hideWindowFlag;
+        }
+    }
+
     void sendCloseSystemWindows() {
         PhoneWindowManager.sendCloseSystemWindows(getContext(), null);
     }
@@ -4412,7 +4760,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         mStatusBarColor = color;
         mForcedStatusBarColor = true;
         if (mDecor != null) {
-            mDecor.updateColorViews(null);
+            mDecor.updateColorViews(null, false /* animate */);
         }
     }
 
@@ -4426,7 +4774,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         mNavigationBarColor = color;
         mForcedNavigationBarColor = true;
         if (mDecor != null) {
-            mDecor.updateColorViews(null);
+            mDecor.updateColorViews(null, false /* animate */);
         }
     }
 }

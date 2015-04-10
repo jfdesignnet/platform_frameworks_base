@@ -16,6 +16,8 @@
 
 package android.net;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.net.ProxyInfo;
 import android.os.Parcelable;
 import android.os.Parcel;
@@ -24,7 +26,6 @@ import android.text.TextUtils;
 import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
-
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -54,6 +55,12 @@ public final class LinkProperties implements Parcelable {
     private ArrayList<RouteInfo> mRoutes = new ArrayList<RouteInfo>();
     private ProxyInfo mHttpProxy;
     private int mMtu;
+    // in the format "rmem_min,rmem_def,rmem_max,wmem_min,wmem_def,wmem_max"
+    private String mTcpBufferSizes;
+
+    private static final int MIN_MTU    = 68;
+    private static final int MIN_MTU_V6 = 1280;
+    private static final int MAX_MTU    = 10000;
 
     // Stores the properties of links that are "stacked" above this link.
     // Indexed by interface name to allow modification and to prevent duplicates being added.
@@ -100,6 +107,7 @@ public final class LinkProperties implements Parcelable {
                 addStackedLink(l);
             }
             setMtu(source.getMtu());
+            mTcpBufferSizes = source.mTcpBufferSizes;
         }
     }
 
@@ -124,7 +132,7 @@ public final class LinkProperties implements Parcelable {
      *
      * @return The interface name set for this link or {@code null}.
      */
-    public String getInterfaceName() {
+    public @Nullable String getInterfaceName() {
         return mIfaceName;
     }
 
@@ -346,11 +354,35 @@ public final class LinkProperties implements Parcelable {
         return mMtu;
     }
 
+    /**
+     * Sets the tcp buffers sizes to be used when this link is the system default.
+     * Should be of the form "rmem_min,rmem_def,rmem_max,wmem_min,wmem_def,wmem_max".
+     *
+     * @param tcpBufferSizes The tcp buffers sizes to use.
+     *
+     * @hide
+     */
+    public void setTcpBufferSizes(String tcpBufferSizes) {
+        mTcpBufferSizes = tcpBufferSizes;
+    }
+
+    /**
+     * Gets the tcp buffer sizes.
+     *
+     * @return the tcp buffer sizes to use when this link is the system default.
+     *
+     * @hide
+     */
+    public String getTcpBufferSizes() {
+        return mTcpBufferSizes;
+    }
+
     private RouteInfo routeWithInterface(RouteInfo route) {
         return new RouteInfo(
             route.getDestination(),
             route.getGateway(),
-            mIfaceName);
+            mIfaceName,
+            route.getType());
     }
 
     /**
@@ -461,16 +493,16 @@ public final class LinkProperties implements Parcelable {
     /**
      * Removes a stacked link.
      *
-     * If there a stacked link with the same interfacename as link, it is
+     * If there is a stacked link with the given interface name, it is
      * removed. Otherwise, nothing changes.
      *
-     * @param link The link to remove.
+     * @param iface The interface name of the link to remove.
      * @return true if the link was removed, false otherwise.
      * @hide
      */
-    public boolean removeStackedLink(LinkProperties link) {
-        if (link != null && link.getInterfaceName() != null) {
-            LinkProperties removed = mStackedLinks.remove(link.getInterfaceName());
+    public boolean removeStackedLink(String iface) {
+        if (iface != null) {
+            LinkProperties removed = mStackedLinks.remove(iface);
             return removed != null;
         }
         return false;
@@ -480,10 +512,13 @@ public final class LinkProperties implements Parcelable {
      * Returns all the links stacked on top of this link.
      * @hide
      */
-    public List<LinkProperties> getStackedLinks() {
+    public @NonNull List<LinkProperties> getStackedLinks() {
+        if (mStackedLinks.isEmpty()) {
+            return Collections.EMPTY_LIST;
+        }
         List<LinkProperties> stacked = new ArrayList<LinkProperties>();
         for (LinkProperties link : mStackedLinks.values()) {
-          stacked.add(new LinkProperties(link));
+            stacked.add(new LinkProperties(link));
         }
         return Collections.unmodifiableList(stacked);
     }
@@ -501,6 +536,7 @@ public final class LinkProperties implements Parcelable {
         mHttpProxy = null;
         mStackedLinks.clear();
         mMtu = 0;
+        mTcpBufferSizes = null;
     }
 
     /**
@@ -526,6 +562,11 @@ public final class LinkProperties implements Parcelable {
 
         String mtu = " MTU: " + mMtu;
 
+        String tcpBuffSizes = "";
+        if (mTcpBufferSizes != null) {
+            tcpBuffSizes = " TcpBufferSizes: " + mTcpBufferSizes;
+        }
+
         String routes = " Routes: [";
         for (RouteInfo route : mRoutes) routes += route.toString() + ",";
         routes += "] ";
@@ -540,7 +581,7 @@ public final class LinkProperties implements Parcelable {
             stacked += "] ";
         }
         return "{" + ifaceName + linkAddresses + routes + dns + domainName + mtu
-            + proxy + stacked + "}";
+            + tcpBuffSizes + proxy + stacked + "}";
     }
 
     /**
@@ -634,17 +675,38 @@ public final class LinkProperties implements Parcelable {
     }
 
     /**
-     * Returns true if this link is provisioned for global connectivity. For IPv6, this requires an
-     * IP address, default route, and DNS server. For IPv4, this requires only an IPv4 address,
-     * because WifiStateMachine accepts static configurations that only specify an address but not
-     * DNS servers or a default route.
+     * Returns true if this link is provisioned for global IPv4 connectivity.
+     * This requires an IP address, default route, and DNS server.
+     *
+     * @return {@code true} if the link is provisioned, {@code false} otherwise.
+     */
+    private boolean hasIPv4() {
+        return (hasIPv4Address() &&
+                hasIPv4DefaultRoute() &&
+                hasIPv4DnsServer());
+    }
+
+    /**
+     * Returns true if this link is provisioned for global IPv6 connectivity.
+     * This requires an IP address, default route, and DNS server.
+     *
+     * @return {@code true} if the link is provisioned, {@code false} otherwise.
+     */
+    private boolean hasIPv6() {
+        return (hasGlobalIPv6Address() &&
+                hasIPv6DefaultRoute() &&
+                hasIPv6DnsServer());
+    }
+
+    /**
+     * Returns true if this link is provisioned for global connectivity,
+     * for at least one Internet Protocol family.
      *
      * @return {@code true} if the link is provisioned, {@code false} otherwise.
      * @hide
      */
     public boolean isProvisioned() {
-        return (hasIPv4Address() ||
-                (hasGlobalIPv6Address() && hasIPv6DefaultRoute() && hasIPv6DnsServer()));
+        return (hasIPv4() || hasIPv6());
     }
 
     /**
@@ -748,6 +810,17 @@ public final class LinkProperties implements Parcelable {
         return getMtu() == target.getMtu();
     }
 
+    /**
+     * Compares this {@code LinkProperties} Tcp buffer sizes against the target.
+     *
+     * @param target LinkProperties to compare.
+     * @return {@code true} if both are identical, {@code false} otherwise.
+     * @hide
+     */
+    public boolean isIdenticalTcpBufferSizes(LinkProperties target) {
+        return Objects.equals(mTcpBufferSizes, target.mTcpBufferSizes);
+    }
+
     @Override
     /**
      * Compares this {@code LinkProperties} instance against the target
@@ -780,7 +853,8 @@ public final class LinkProperties implements Parcelable {
                 isIdenticalRoutes(target) &&
                 isIdenticalHttpProxy(target) &&
                 isIdenticalStackedLinks(target) &&
-                isIdenticalMtu(target);
+                isIdenticalMtu(target) &&
+                isIdenticalTcpBufferSizes(target);
     }
 
     /**
@@ -915,7 +989,8 @@ public final class LinkProperties implements Parcelable {
                 + mRoutes.size() * 41
                 + ((null == mHttpProxy) ? 0 : mHttpProxy.hashCode())
                 + mStackedLinks.hashCode() * 47)
-                + mMtu * 51;
+                + mMtu * 51
+                + ((null == mTcpBufferSizes) ? 0 : mTcpBufferSizes.hashCode());
     }
 
     /**
@@ -934,6 +1009,7 @@ public final class LinkProperties implements Parcelable {
         }
         dest.writeString(mDomains);
         dest.writeInt(mMtu);
+        dest.writeString(mTcpBufferSizes);
         dest.writeInt(mRoutes.size());
         for(RouteInfo route : mRoutes) {
             dest.writeParcelable(route, flags);
@@ -973,6 +1049,7 @@ public final class LinkProperties implements Parcelable {
                 }
                 netProp.setDomains(in.readString());
                 netProp.setMtu(in.readInt());
+                netProp.setTcpBufferSizes(in.readString());
                 addressCount = in.readInt();
                 for (int i=0; i<addressCount; i++) {
                     netProp.addRoute((RouteInfo)in.readParcelable(null));
@@ -992,4 +1069,17 @@ public final class LinkProperties implements Parcelable {
                 return new LinkProperties[size];
             }
         };
+
+        /**
+         * Check the valid MTU range based on IPv4 or IPv6.
+         * @hide
+         */
+        public static boolean isValidMtu(int mtu, boolean ipv6) {
+            if (ipv6) {
+                if ((mtu >= MIN_MTU_V6 && mtu <= MAX_MTU)) return true;
+            } else {
+                if ((mtu >= MIN_MTU && mtu <= MAX_MTU)) return true;
+            }
+            return false;
+        }
 }

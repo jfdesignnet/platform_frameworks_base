@@ -15,14 +15,18 @@
  */
 package android.service.trust;
 
-import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.service.trust.ITrustAgentServiceCallback;
 
 /**
  * Communication channel from TrustManagerService to the TrustAgent.
  * @hide
  */
-oneway interface ITrustAgentService {
-    void onUnlockAttempt(boolean successful);
-    void setCallback(ITrustAgentServiceCallback callback);
+interface ITrustAgentService {
+    oneway void onUnlockAttempt(boolean successful);
+    oneway void onTrustTimeout();
+    oneway void onDeviceLocked();
+    oneway void onDeviceUnlocked();
+    oneway void onConfigure(in List<PersistableBundle> options, IBinder token);
+    oneway void setCallback(ITrustAgentServiceCallback callback);
 }

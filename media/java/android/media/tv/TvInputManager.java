@@ -33,6 +33,7 @@ import android.util.SparseArray;
 import android.view.InputChannel;
 import android.view.InputEvent;
 import android.view.InputEventSender;
+import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.View;
 
@@ -57,9 +58,9 @@ public final class TvInputManager {
      */
     public static final int VIDEO_UNAVAILABLE_REASON_UNKNOWN = VIDEO_UNAVAILABLE_REASON_START;
     /**
-     * Video is not available because the TV input is tuning to another channel.
+     * Video is not available because the TV input is in the middle of tuning to a new channel.
      */
-    public static final int VIDEO_UNAVAILABLE_REASON_TUNE = 1;
+    public static final int VIDEO_UNAVAILABLE_REASON_TUNING = 1;
     /**
      * Video is not available due to the weak TV signal.
      */
@@ -71,10 +72,21 @@ public final class TvInputManager {
     public static final int VIDEO_UNAVAILABLE_REASON_BUFFERING = VIDEO_UNAVAILABLE_REASON_END;
 
     /**
+     * The TV input is in unknown state.
+     * <p>
+     * State for denoting unknown TV input state. The typical use case is when a requested TV
+     * input is removed from the device or it is not registered. Used in
+     * {@code ITvInputManager.getTvInputState()}.
+     * </p>
+     * @hide
+     */
+    public static final int INPUT_STATE_UNKNOWN = -1;
+
+    /**
      * The TV input is connected.
      * <p>
      * State for {@link #getInputState} and {@link
-     * TvInputManager.TvInputListener#onInputStateChanged}.
+     * TvInputManager.TvInputCallback#onInputStateChanged}.
      * </p>
      */
     public static final int INPUT_STATE_CONNECTED = 0;
@@ -83,7 +95,7 @@ public final class TvInputManager {
      * fully ready.
      * <p>
      * State for {@link #getInputState} and {@link
-     * TvInputManager.TvInputListener#onInputStateChanged}.
+     * TvInputManager.TvInputCallback#onInputStateChanged}.
      * </p>
      */
     public static final int INPUT_STATE_CONNECTED_STANDBY = 1;
@@ -91,21 +103,79 @@ public final class TvInputManager {
      * The TV input is disconnected.
      * <p>
      * State for {@link #getInputState} and {@link
-     * TvInputManager.TvInputListener#onInputStateChanged}.
+     * TvInputManager.TvInputCallback#onInputStateChanged}.
      * </p>
      */
     public static final int INPUT_STATE_DISCONNECTED = 2;
+
+    /**
+     * Broadcast intent action when the user blocked content ratings change. For use with the
+     * {@link #isRatingBlocked}.
+     */
+    public static final String ACTION_BLOCKED_RATINGS_CHANGED =
+            "android.media.tv.action.BLOCKED_RATINGS_CHANGED";
+
+    /**
+     * Broadcast intent action when the parental controls enabled state changes. For use with the
+     * {@link #isParentalControlsEnabled}.
+     */
+    public static final String ACTION_PARENTAL_CONTROLS_ENABLED_CHANGED =
+            "android.media.tv.action.PARENTAL_CONTROLS_ENABLED_CHANGED";
+
+    /**
+     * Broadcast intent action used to query available content rating systems.
+     * <p>
+     * The TV input manager service locates available content rating systems by querying broadcast
+     * receivers that are registered for this action. An application can offer additional content
+     * rating systems to the user by declaring a suitable broadcast receiver in its manifest.
+     * </p><p>
+     * Here is an example broadcast receiver declaration that an application might include in its
+     * AndroidManifest.xml to advertise custom content rating systems. The meta-data specifies a
+     * resource that contains a description of each content rating system that is provided by the
+     * application.
+     * <p><pre class="prettyprint">
+     * {@literal
+     * <receiver android:name=".TvInputReceiver">
+     *     <intent-filter>
+     *         <action android:name=
+     *                 "android.media.tv.action.QUERY_CONTENT_RATING_SYSTEMS" />
+     *     </intent-filter>
+     *     <meta-data
+     *             android:name="android.media.tv.metadata.CONTENT_RATING_SYSTEMS"
+     *             android:resource="@xml/tv_content_rating_systems" />
+     * </receiver>}</pre></p>
+     * In the above example, the <code>@xml/tv_content_rating_systems</code> resource refers to an
+     * XML resource whose root element is <code>&lt;rating-system-definitions&gt;</code> that
+     * contains zero or more <code>&lt;rating-system-definition&gt;</code> elements. Each <code>
+     * &lt;rating-system-definition&gt;</code> element specifies the ratings, sub-ratings and rating
+     * orders of a particular content rating system.
+     * </p>
+     *
+     * @see TvContentRating
+     */
+    public static final String ACTION_QUERY_CONTENT_RATING_SYSTEMS =
+            "android.media.tv.action.QUERY_CONTENT_RATING_SYSTEMS";
+
+    /**
+     * Content rating systems metadata associated with {@link #ACTION_QUERY_CONTENT_RATING_SYSTEMS}.
+     * <p>
+     * Specifies the resource ID of an XML resource that describes the content rating systems that
+     * are provided by the application.
+     * </p>
+     */
+    public static final String META_DATA_CONTENT_RATING_SYSTEMS =
+            "android.media.tv.metadata.CONTENT_RATING_SYSTEMS";
 
     private final ITvInputManager mService;
 
     private final Object mLock = new Object();
 
-    // @GuardedBy(mLock)
-    private final List<TvInputListenerRecord> mTvInputListenerRecordsList =
-            new LinkedList<TvInputListenerRecord>();
+    // @GuardedBy("mLock")
+    private final List<TvInputCallbackRecord> mCallbackRecords =
+            new LinkedList<TvInputCallbackRecord>();
 
     // A mapping from TV input ID to the state of corresponding input.
-    // @GuardedBy(mLock)
+    // @GuardedBy("mLock")
     private final Map<String, Integer> mStateMap = new ArrayMap<String, Integer>();
 
     // A mapping from the sequence number of a session to its SessionCallbackRecord.
@@ -118,7 +188,7 @@ public final class TvInputManager {
 
     private final ITvInputClient mClient;
 
-    private final ITvInputManagerCallback mCallback;
+    private final ITvInputManagerCallback mManagerCallback;
 
     private final int mUserId;
 
@@ -148,9 +218,9 @@ public final class TvInputManager {
 
         /**
          * This is called when the channel of this session is changed by the underlying TV input
-         * with out any {@link TvInputManager.Session#tune(Uri)} request.
+         * without any {@link TvInputManager.Session#tune(Uri)} request.
          *
-         * @param session A {@link TvInputManager.Session} associated with this callback
+         * @param session A {@link TvInputManager.Session} associated with this callback.
          * @param channelUri The URI of a channel.
          */
         public void onChannelRetuned(Session session, Uri channelUri) {
@@ -159,16 +229,41 @@ public final class TvInputManager {
         /**
          * This is called when the track information of the session has been changed.
          *
-         * @param session A {@link TvInputManager.Session} associated with this callback
+         * @param session A {@link TvInputManager.Session} associated with this callback.
          * @param tracks A list which includes track information.
          */
-        public void onTrackInfoChanged(Session session, List<TvTrackInfo> tracks) {
+        public void onTracksChanged(Session session, List<TvTrackInfo> tracks) {
+        }
+
+        /**
+         * This is called when a track for a given type is selected.
+         *
+         * @param session A {@link TvInputManager.Session} associated with this callback.
+         * @param type The type of the selected track. The type can be
+         *            {@link TvTrackInfo#TYPE_AUDIO}, {@link TvTrackInfo#TYPE_VIDEO} or
+         *            {@link TvTrackInfo#TYPE_SUBTITLE}.
+         * @param trackId The ID of the selected track. When {@code null} the currently selected
+         *            track for a given type should be unselected.
+         */
+        public void onTrackSelected(Session session, int type, String trackId) {
+        }
+
+        /**
+         * This is invoked when the video size has been changed. It is also called when the first
+         * time video size information becomes available after the session is tuned to a specific
+         * channel.
+         *
+         * @param session A {@link TvInputManager.Session} associated with this callback.
+         * @param width The width of the video.
+         * @param height The height of the video.
+         */
+        public void onVideoSizeChanged(Session session, int width, int height) {
         }
 
         /**
          * This is called when the video is available, so the TV input starts the playback.
          *
-         * @param session A {@link TvInputManager.Session} associated with this callback
+         * @param session A {@link TvInputManager.Session} associated with this callback.
          */
         public void onVideoAvailable(Session session) {
         }
@@ -180,7 +275,7 @@ public final class TvInputManager {
          * @param reason The reason why the TV input stopped the playback:
          * <ul>
          * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_UNKNOWN}
-         * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_TUNE}
+         * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_TUNING}
          * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_WEAK_SIGNAL}
          * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_BUFFERING}
          * </ul>
@@ -208,6 +303,21 @@ public final class TvInputManager {
         }
 
         /**
+         * This is called when {@link TvInputService.Session#layoutSurface} is called to change the
+         * layout of surface.
+         *
+         * @param session A {@link TvInputManager.Session} associated with this callback
+         * @param left Left position.
+         * @param top Top position.
+         * @param right Right position.
+         * @param bottom Bottom position.
+         * @hide
+         */
+        @SystemApi
+        public void onLayoutSurface(Session session, int left, int top, int right, int bottom) {
+        }
+
+        /**
          * This is called when a custom event has been sent from this session.
          *
          * @param session A {@link TvInputManager.Session} associated with this callback
@@ -225,13 +335,13 @@ public final class TvInputManager {
         private final Handler mHandler;
         private Session mSession;
 
-        public SessionCallbackRecord(SessionCallback sessionCallback,
+        SessionCallbackRecord(SessionCallback sessionCallback,
                 Handler handler) {
             mSessionCallback = sessionCallback;
             mHandler = handler;
         }
 
-        public void postSessionCreated(final Session session) {
+        void postSessionCreated(final Session session) {
             mSession = session;
             mHandler.post(new Runnable() {
                 @Override
@@ -241,7 +351,7 @@ public final class TvInputManager {
             });
         }
 
-        public void postSessionReleased() {
+        void postSessionReleased() {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -250,7 +360,7 @@ public final class TvInputManager {
             });
         }
 
-        public void postChannelRetuned(final Uri channelUri) {
+        void postChannelRetuned(final Uri channelUri) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -259,17 +369,34 @@ public final class TvInputManager {
             });
         }
 
-        public void postTrackInfoChanged(final List<TvTrackInfo> tracks) {
+        void postTracksChanged(final List<TvTrackInfo> tracks) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    mSession.setTracks(tracks);
-                    mSessionCallback.onTrackInfoChanged(mSession, tracks);
+                    mSessionCallback.onTracksChanged(mSession, tracks);
                 }
             });
         }
 
-        public void postVideoAvailable() {
+        void postTrackSelected(final int type, final String trackId) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mSessionCallback.onTrackSelected(mSession, type, trackId);
+                }
+            });
+        }
+
+        void postVideoSizeChanged(final int width, final int height) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mSessionCallback.onVideoSizeChanged(mSession, width, height);
+                }
+            });
+        }
+
+        void postVideoAvailable() {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -278,7 +405,7 @@ public final class TvInputManager {
             });
         }
 
-        public void postVideoUnavailable(final int reason) {
+        void postVideoUnavailable(final int reason) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -287,7 +414,7 @@ public final class TvInputManager {
             });
         }
 
-        public void postContentAllowed() {
+        void postContentAllowed() {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -296,7 +423,7 @@ public final class TvInputManager {
             });
         }
 
-        public void postContentBlocked(final TvContentRating rating) {
+        void postContentBlocked(final TvContentRating rating) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -305,7 +432,17 @@ public final class TvInputManager {
             });
         }
 
-        public void postSessionEvent(final String eventType, final Bundle eventArgs) {
+        void postLayoutSurface(final int left, final int top, final int right,
+                final int bottom) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mSessionCallback.onLayoutSurface(mSession, left, top, right, bottom);
+                }
+            });
+        }
+
+        void postSessionEvent(final String eventType, final Bundle eventArgs) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -316,9 +453,9 @@ public final class TvInputManager {
     }
 
     /**
-     * Interface used to monitor status of the TV input.
+     * Callback used to monitor status of the TV input.
      */
-    public abstract static class TvInputListener {
+    public abstract static class TvInputCallback {
         /**
          * This is called when the state of a given TV input is changed.
          *
@@ -348,26 +485,38 @@ public final class TvInputManager {
          */
         public void onInputRemoved(String inputId) {
         }
+
+        /**
+         * This is called when a TV input is updated. The update of TV input happens when it is
+         * reinstalled or the media on which the newer version of TV input exists is
+         * available/unavailable.
+         *
+         * @param inputId The id of the TV input.
+         * @hide
+         */
+        @SystemApi
+        public void onInputUpdated(String inputId) {
+        }
     }
 
-    private static final class TvInputListenerRecord {
-        private final TvInputListener mListener;
+    private static final class TvInputCallbackRecord {
+        private final TvInputCallback mCallback;
         private final Handler mHandler;
 
-        public TvInputListenerRecord(TvInputListener listener, Handler handler) {
-            mListener = listener;
+        public TvInputCallbackRecord(TvInputCallback callback, Handler handler) {
+            mCallback = callback;
             mHandler = handler;
         }
 
-        public TvInputListener getListener() {
-            return mListener;
+        public TvInputCallback getCallback() {
+            return mCallback;
         }
 
         public void postInputStateChanged(final String inputId, final int state) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    mListener.onInputStateChanged(inputId, state);
+                    mCallback.onInputStateChanged(inputId, state);
                 }
             });
         }
@@ -376,7 +525,7 @@ public final class TvInputManager {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    mListener.onInputAdded(inputId);
+                    mCallback.onInputAdded(inputId);
                 }
             });
         }
@@ -385,10 +534,29 @@ public final class TvInputManager {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    mListener.onInputRemoved(inputId);
+                    mCallback.onInputRemoved(inputId);
                 }
             });
         }
+
+        public void postInputUpdated(final String inputId) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mCallback.onInputUpdated(inputId);
+                }
+            });
+        }
+    }
+
+    /**
+     * Interface used to receive events from Hardware objects.
+     * @hide
+     */
+    @SystemApi
+    public abstract static class HardwareCallback {
+        public abstract void onReleased();
+        public abstract void onStreamConfigChanged(TvStreamConfig[] configs);
     }
 
     /**
@@ -443,14 +611,39 @@ public final class TvInputManager {
             }
 
             @Override
-            public void onTrackInfoChanged(List<TvTrackInfo> tracks, int seq) {
+            public void onTracksChanged(List<TvTrackInfo> tracks, int seq) {
                 synchronized (mSessionCallbackRecordMap) {
                     SessionCallbackRecord record = mSessionCallbackRecordMap.get(seq);
                     if (record == null) {
                         Log.e(TAG, "Callback not found for seq " + seq);
                         return;
                     }
-                    record.postTrackInfoChanged(tracks);
+                    if (record.mSession.updateTracks(tracks)) {
+                        record.postTracksChanged(tracks);
+                        postVideoSizeChangedIfNeededLocked(record);
+                    }
+                }
+            }
+
+            @Override
+            public void onTrackSelected(int type, String trackId, int seq) {
+                synchronized (mSessionCallbackRecordMap) {
+                    SessionCallbackRecord record = mSessionCallbackRecordMap.get(seq);
+                    if (record == null) {
+                        Log.e(TAG, "Callback not found for seq " + seq);
+                        return;
+                    }
+                    if (record.mSession.updateTrackSelection(type, trackId)) {
+                        record.postTrackSelected(type, trackId);
+                        postVideoSizeChangedIfNeededLocked(record);
+                    }
+                }
+            }
+
+            private void postVideoSizeChangedIfNeededLocked(SessionCallbackRecord record) {
+                TvTrackInfo track = record.mSession.getVideoTrackToNotify();
+                if (track != null) {
+                    record.postVideoSizeChanged(track.getVideoWidth(), track.getVideoHeight());
                 }
             }
 
@@ -503,6 +696,18 @@ public final class TvInputManager {
             }
 
             @Override
+            public void onLayoutSurface(int left, int top, int right, int bottom, int seq) {
+                synchronized (mSessionCallbackRecordMap) {
+                    SessionCallbackRecord record = mSessionCallbackRecordMap.get(seq);
+                    if (record == null) {
+                        Log.e(TAG, "Callback not found for seq " + seq);
+                        return;
+                    }
+                    record.postLayoutSurface(left, top, right, bottom);
+                }
+            }
+
+            @Override
             public void onSessionEvent(String eventType, Bundle eventArgs, int seq) {
                 synchronized (mSessionCallbackRecordMap) {
                     SessionCallbackRecord record = mSessionCallbackRecordMap.get(seq);
@@ -514,12 +719,12 @@ public final class TvInputManager {
                 }
             }
         };
-        mCallback = new ITvInputManagerCallback.Stub() {
+        mManagerCallback = new ITvInputManagerCallback.Stub() {
             @Override
             public void onInputStateChanged(String inputId, int state) {
                 synchronized (mLock) {
                     mStateMap.put(inputId, state);
-                    for (TvInputListenerRecord record : mTvInputListenerRecordsList) {
+                    for (TvInputCallbackRecord record : mCallbackRecords) {
                         record.postInputStateChanged(inputId, state);
                     }
                 }
@@ -529,7 +734,7 @@ public final class TvInputManager {
             public void onInputAdded(String inputId) {
                 synchronized (mLock) {
                     mStateMap.put(inputId, INPUT_STATE_CONNECTED);
-                    for (TvInputListenerRecord record : mTvInputListenerRecordsList) {
+                    for (TvInputCallbackRecord record : mCallbackRecords) {
                         record.postInputAdded(inputId);
                     }
                 }
@@ -539,16 +744,37 @@ public final class TvInputManager {
             public void onInputRemoved(String inputId) {
                 synchronized (mLock) {
                     mStateMap.remove(inputId);
-                    for (TvInputListenerRecord record : mTvInputListenerRecordsList) {
+                    for (TvInputCallbackRecord record : mCallbackRecords) {
                         record.postInputRemoved(inputId);
+                    }
+                }
+            }
+
+            @Override
+            public void onInputUpdated(String inputId) {
+                synchronized (mLock) {
+                    for (TvInputCallbackRecord record : mCallbackRecords) {
+                        record.postInputUpdated(inputId);
                     }
                 }
             }
         };
         try {
-            mService.registerCallback(mCallback, mUserId);
+            if (mService != null) {
+                mService.registerCallback(mManagerCallback, mUserId);
+                List<TvInputInfo> infos = mService.getTvInputList(mUserId);
+                synchronized (mLock) {
+                    for (TvInputInfo info : infos) {
+                        String inputId = info.getId();
+                        int state = mService.getTvInputState(inputId, mUserId);
+                        if (state != INPUT_STATE_UNKNOWN) {
+                            mStateMap.put(inputId, state);
+                        }
+                    }
+                }
+            }
         } catch (RemoteException e) {
-            Log.e(TAG, "mService.registerCallback failed: " + e);
+            Log.e(TAG, "TvInputManager initialization failed: " + e);
         }
     }
 
@@ -572,6 +798,9 @@ public final class TvInputManager {
      * @return the {@link TvInputInfo} for a given TV input. {@code null} if not found.
      */
     public TvInputInfo getTvInputInfo(String inputId) {
+        if (inputId == null) {
+            throw new IllegalArgumentException("inputId cannot be null");
+        }
         try {
             return mService.getTvInputInfo(inputId, mUserId);
         } catch (RemoteException e) {
@@ -580,7 +809,7 @@ public final class TvInputManager {
     }
 
     /**
-     * Returns the state of a given TV input. It retuns one of the following:
+     * Returns the state of a given TV input. It returns one of the following:
      * <ul>
      * <li>{@link #INPUT_STATE_CONNECTED}
      * <li>{@link #INPUT_STATE_CONNECTED_STANDBY}
@@ -593,7 +822,7 @@ public final class TvInputManager {
      */
     public int getInputState(String inputId) {
         if (inputId == null) {
-            throw new IllegalArgumentException("id cannot be null");
+            throw new IllegalArgumentException("inputId cannot be null");
         }
         synchronized (mLock) {
             Integer state = mStateMap.get(inputId);
@@ -605,43 +834,162 @@ public final class TvInputManager {
     }
 
     /**
-     * Registers a {@link TvInputListener}.
+     * Registers a {@link TvInputCallback}.
      *
-     * @param listener A listener used to monitor status of the TV inputs.
+     * @param callback A callback used to monitor status of the TV inputs.
      * @param handler A {@link Handler} that the status change will be delivered to.
      * @throws IllegalArgumentException if any of the arguments is {@code null}.
      */
-    public void registerListener(TvInputListener listener, Handler handler) {
-        if (listener == null) {
+    public void registerCallback(TvInputCallback callback, Handler handler) {
+        if (callback == null) {
             throw new IllegalArgumentException("callback cannot be null");
         }
         if (handler == null) {
             throw new IllegalArgumentException("handler cannot be null");
         }
         synchronized (mLock) {
-            mTvInputListenerRecordsList.add(new TvInputListenerRecord(listener, handler));
+            mCallbackRecords.add(new TvInputCallbackRecord(callback, handler));
         }
     }
 
     /**
-     * Unregisters the existing {@link TvInputListener}.
+     * Unregisters the existing {@link TvInputCallback}.
      *
-     * @param listener The existing listener to remove.
+     * @param callback The existing callback to remove.
      * @throws IllegalArgumentException if any of the arguments is {@code null}.
      */
-    public void unregisterListener(final TvInputListener listener) {
-        if (listener == null) {
+    public void unregisterCallback(final TvInputCallback callback) {
+        if (callback == null) {
             throw new IllegalArgumentException("callback cannot be null");
         }
         synchronized (mLock) {
-            for (Iterator<TvInputListenerRecord> it = mTvInputListenerRecordsList.iterator();
+            for (Iterator<TvInputCallbackRecord> it = mCallbackRecords.iterator();
                     it.hasNext(); ) {
-                TvInputListenerRecord record = it.next();
-                if (record.getListener() == listener) {
+                TvInputCallbackRecord record = it.next();
+                if (record.getCallback() == callback) {
                     it.remove();
                     break;
                 }
             }
+        }
+    }
+
+    /**
+     * Returns the user's parental controls enabled state.
+     *
+     * @return {@code true} if the user enabled the parental controls, {@code false} otherwise.
+     */
+    public boolean isParentalControlsEnabled() {
+        try {
+            return mService.isParentalControlsEnabled(mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Sets the user's parental controls enabled state.
+     *
+     * @param enabled The user's parental controls enabled state. {@code true} if the user enabled
+     *            the parental controls, {@code false} otherwise.
+     * @see #isParentalControlsEnabled
+     * @hide
+     */
+    @SystemApi
+    public void setParentalControlsEnabled(boolean enabled) {
+        try {
+            mService.setParentalControlsEnabled(enabled, mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Checks whether a given TV content rating is blocked by the user.
+     *
+     * @param rating The TV content rating to check.
+     * @return {@code true} if the given TV content rating is blocked, {@code false} otherwise.
+     */
+    public boolean isRatingBlocked(TvContentRating rating) {
+        if (rating == null) {
+            throw new IllegalArgumentException("rating cannot be null");
+        }
+        try {
+            return mService.isRatingBlocked(rating.flattenToString(), mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Returns the list of blocked content ratings.
+     *
+     * @return the list of content ratings blocked by the user.
+     * @hide
+     */
+    @SystemApi
+    public List<TvContentRating> getBlockedRatings() {
+        try {
+            List<TvContentRating> ratings = new ArrayList<TvContentRating>();
+            for (String rating : mService.getBlockedRatings(mUserId)) {
+                ratings.add(TvContentRating.unflattenFromString(rating));
+            }
+            return ratings;
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Adds a user blocked content rating.
+     *
+     * @param rating The content rating to block.
+     * @see #isRatingBlocked
+     * @see #removeBlockedRating
+     * @hide
+     */
+    @SystemApi
+    public void addBlockedRating(TvContentRating rating) {
+        if (rating == null) {
+            throw new IllegalArgumentException("rating cannot be null");
+        }
+        try {
+            mService.addBlockedRating(rating.flattenToString(), mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Removes a user blocked content rating.
+     *
+     * @param rating The content rating to unblock.
+     * @see #isRatingBlocked
+     * @see #addBlockedRating
+     * @hide
+     */
+    @SystemApi
+    public void removeBlockedRating(TvContentRating rating) {
+        if (rating == null) {
+            throw new IllegalArgumentException("rating cannot be null");
+        }
+        try {
+            mService.removeBlockedRating(rating.flattenToString(), mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Returns the list of all TV content rating systems defined.
+     * @hide
+     */
+    @SystemApi
+    public List<TvContentRatingSystemInfo> getTvContentRatingSystemList() {
+        try {
+            return mService.getTvContentRatingSystemList(mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -685,6 +1033,12 @@ public final class TvInputManager {
     /**
      * Returns the TvStreamConfig list of the given TV input.
      *
+     * If you are using {@link Hardware} object from {@link
+     * #acquireTvInputHardware}, you should get the list of available streams
+     * from {@link HardwareCallback#onStreamConfigChanged} method, not from
+     * here. This method is designed to be used with {@link #captureFrame} in
+     * capture scenarios specifically and not suitable for any other use.
+     *
      * @param inputId the id of the TV input.
      * @return List of {@link TvStreamConfig} which is available for capturing
      *   of the given TV input.
@@ -718,6 +1072,78 @@ public final class TvInputManager {
     }
 
     /**
+     * Returns true if there is only a single TV input session.
+     *
+     * @hide
+     */
+    @SystemApi
+    public boolean isSingleSessionActive() {
+        try {
+            return mService.isSingleSessionActive(mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Returns a list of TvInputHardwareInfo objects representing available hardware.
+     *
+     * @hide
+     */
+    @SystemApi
+    public List<TvInputHardwareInfo> getHardwareList() {
+        try {
+            return mService.getHardwareList();
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Returns acquired TvInputManager.Hardware object for given deviceId.
+     *
+     * If there are other Hardware object acquired for the same deviceId, calling this method will
+     * preempt the previously acquired object and report {@link HardwareCallback#onReleased} to the
+     * old object.
+     *
+     * @hide
+     */
+    @SystemApi
+    public Hardware acquireTvInputHardware(int deviceId, final HardwareCallback callback,
+            TvInputInfo info) {
+        try {
+            return new Hardware(
+                    mService.acquireTvInputHardware(deviceId, new ITvInputHardwareCallback.Stub() {
+                @Override
+                public void onReleased() {
+                    callback.onReleased();
+                }
+
+                @Override
+                public void onStreamConfigChanged(TvStreamConfig[] configs) {
+                    callback.onStreamConfigChanged(configs);
+                }
+            }, info, mUserId));
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Releases previously acquired hardware object.
+     *
+     * @hide
+     */
+    @SystemApi
+    public void releaseTvInputHardware(int deviceId, Hardware hardware) {
+        try {
+            mService.releaseTvInputHardware(deviceId, hardware.getInterface(), mUserId);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * The Session provides the per-session functionality of TV inputs.
      * @hide
      */
@@ -744,7 +1170,24 @@ public final class TvInputManager {
         private IBinder mToken;
         private TvInputEventSender mSender;
         private InputChannel mChannel;
-        private List<TvTrackInfo> mTracks;
+
+        private final Object mTrackLock = new Object();
+        // @GuardedBy("mTrackLock")
+        private final List<TvTrackInfo> mAudioTracks = new ArrayList<TvTrackInfo>();
+        // @GuardedBy("mTrackLock")
+        private final List<TvTrackInfo> mVideoTracks = new ArrayList<TvTrackInfo>();
+        // @GuardedBy("mTrackLock")
+        private final List<TvTrackInfo> mSubtitleTracks = new ArrayList<TvTrackInfo>();
+        // @GuardedBy("mTrackLock")
+        private String mSelectedAudioTrackId;
+        // @GuardedBy("mTrackLock")
+        private String mSelectedVideoTrackId;
+        // @GuardedBy("mTrackLock")
+        private String mSelectedSubtitleTrackId;
+        // @GuardedBy("mTrackLock")
+        private int mVideoWidth;
+        // @GuardedBy("mTrackLock")
+        private int mVideoHeight;
 
         private Session(IBinder token, InputChannel channel, ITvInputManager service, int userId,
                 int seq, SparseArray<SessionCallbackRecord> sessionCallbackRecordMap) {
@@ -774,10 +1217,12 @@ public final class TvInputManager {
         }
 
         /**
-         * Set this as main session. See {@link TvView#setMainTvView} for about meaning of "main".
-         * @hide
+         * Sets this as the main session. The main session is a session whose corresponding TV
+         * input determines the HDMI-CEC active source device.
+         *
+         * @see TvView#setMain
          */
-        public void setMainSession() {
+        void setMain() {
             if (mToken == null) {
                 Log.w(TAG, "The session has been already released");
                 return;
@@ -857,6 +1302,19 @@ public final class TvInputManager {
          * @throws IllegalArgumentException if the argument is {@code null}.
          */
         public void tune(Uri channelUri) {
+            tune(channelUri, null);
+        }
+
+        /**
+         * Tunes to a given channel.
+         *
+         * @param channelUri The URI of a channel.
+         * @param params A set of extra parameters which might be handled with this tune event.
+         * @throws IllegalArgumentException if {@code channelUri} is {@code null}.
+         * @hide
+         */
+        @SystemApi
+        public void tune(Uri channelUri, Bundle params) {
             if (channelUri == null) {
                 throw new IllegalArgumentException("channelUri cannot be null");
             }
@@ -864,9 +1322,18 @@ public final class TvInputManager {
                 Log.w(TAG, "The session has been already released");
                 return;
             }
-            mTracks = null;
+            synchronized (mTrackLock) {
+                mAudioTracks.clear();
+                mVideoTracks.clear();
+                mSubtitleTracks.clear();
+                mSelectedAudioTrackId = null;
+                mSelectedVideoTrackId = null;
+                mSelectedSubtitleTrackId = null;
+                mVideoWidth = 0;
+                mVideoHeight = 0;
+            }
             try {
-                mService.tune(mToken, channelUri, mUserId);
+                mService.tune(mToken, channelUri, params, mUserId);
             } catch (RemoteException e) {
                 throw new RuntimeException(e);
             }
@@ -890,66 +1357,178 @@ public final class TvInputManager {
         }
 
         /**
-         * Select a track.
+         * Selects a track.
          *
-         * @param track The track to be selected.
-         * @see #getTracks()
+         * @param type The type of the track to select. The type can be
+         *            {@link TvTrackInfo#TYPE_AUDIO}, {@link TvTrackInfo#TYPE_VIDEO} or
+         *            {@link TvTrackInfo#TYPE_SUBTITLE}.
+         * @param trackId The ID of the track to select. When {@code null}, the currently selected
+         *            track of the given type will be unselected.
+         * @see #getTracks
          */
-        public void selectTrack(TvTrackInfo track) {
-            if (track == null) {
-                throw new IllegalArgumentException("track cannot be null");
+        public void selectTrack(int type, String trackId) {
+            synchronized (mTrackLock) {
+                if (type == TvTrackInfo.TYPE_AUDIO) {
+                    if (trackId != null && !containsTrack(mAudioTracks, trackId)) {
+                        Log.w(TAG, "Invalid audio trackId: " + trackId);
+                        return;
+                    }
+                } else if (type == TvTrackInfo.TYPE_VIDEO) {
+                    if (trackId != null && !containsTrack(mVideoTracks, trackId)) {
+                        Log.w(TAG, "Invalid video trackId: " + trackId);
+                        return;
+                    }
+                } else if (type == TvTrackInfo.TYPE_SUBTITLE) {
+                    if (trackId != null && !containsTrack(mSubtitleTracks, trackId)) {
+                        Log.w(TAG, "Invalid subtitle trackId: " + trackId);
+                        return;
+                    }
+                } else {
+                    throw new IllegalArgumentException("invalid type: " + type);
+                }
             }
             if (mToken == null) {
                 Log.w(TAG, "The session has been already released");
                 return;
             }
             try {
-                mService.selectTrack(mToken, track, mUserId);
+                mService.selectTrack(mToken, type, trackId, mUserId);
             } catch (RemoteException e) {
                 throw new RuntimeException(e);
             }
         }
 
+        private boolean containsTrack(List<TvTrackInfo> tracks, String trackId) {
+            for (TvTrackInfo track : tracks) {
+                if (track.getId().equals(trackId)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /**
-         * Unselect a track.
+         * Returns the list of tracks for a given type. Returns {@code null} if the information is
+         * not available.
          *
-         * @param track The track to be selected.
-         * @see #getTracks()
+         * @param type The type of the tracks. The type can be {@link TvTrackInfo#TYPE_AUDIO},
+         *            {@link TvTrackInfo#TYPE_VIDEO} or {@link TvTrackInfo#TYPE_SUBTITLE}.
+         * @return the list of tracks for the given type.
          */
-        public void unselectTrack(TvTrackInfo track) {
-            if (track == null) {
-                throw new IllegalArgumentException("track cannot be null");
+        public List<TvTrackInfo> getTracks(int type) {
+            synchronized (mTrackLock) {
+                if (type == TvTrackInfo.TYPE_AUDIO) {
+                    if (mAudioTracks == null) {
+                        return null;
+                    }
+                    return new ArrayList<TvTrackInfo>(mAudioTracks);
+                } else if (type == TvTrackInfo.TYPE_VIDEO) {
+                    if (mVideoTracks == null) {
+                        return null;
+                    }
+                    return new ArrayList<TvTrackInfo>(mVideoTracks);
+                } else if (type == TvTrackInfo.TYPE_SUBTITLE) {
+                    if (mSubtitleTracks == null) {
+                        return null;
+                    }
+                    return new ArrayList<TvTrackInfo>(mSubtitleTracks);
+                }
             }
-            if (mToken == null) {
-                Log.w(TAG, "The session has been already released");
-                return;
+            throw new IllegalArgumentException("invalid type: " + type);
+        }
+
+        /**
+         * Returns the selected track for a given type. Returns {@code null} if the information is
+         * not available or any of the tracks for the given type is not selected.
+         *
+         * @return the ID of the selected track.
+         * @see #selectTrack
+         */
+        public String getSelectedTrack(int type) {
+            synchronized (mTrackLock) {
+                if (type == TvTrackInfo.TYPE_AUDIO) {
+                    return mSelectedAudioTrackId;
+                } else if (type == TvTrackInfo.TYPE_VIDEO) {
+                    return mSelectedVideoTrackId;
+                } else if (type == TvTrackInfo.TYPE_SUBTITLE) {
+                    return mSelectedSubtitleTrackId;
+                }
             }
-            try {
-                mService.unselectTrack(mToken, track, mUserId);
-            } catch (RemoteException e) {
-                throw new RuntimeException(e);
+            throw new IllegalArgumentException("invalid type: " + type);
+        }
+
+        /**
+         * Responds to onTracksChanged() and updates the internal track information. Returns true if
+         * there is an update.
+         */
+        boolean updateTracks(List<TvTrackInfo> tracks) {
+            synchronized (mTrackLock) {
+                mAudioTracks.clear();
+                mVideoTracks.clear();
+                mSubtitleTracks.clear();
+                for (TvTrackInfo track : tracks) {
+                    if (track.getType() == TvTrackInfo.TYPE_AUDIO) {
+                        mAudioTracks.add(track);
+                    } else if (track.getType() == TvTrackInfo.TYPE_VIDEO) {
+                        mVideoTracks.add(track);
+                    } else if (track.getType() == TvTrackInfo.TYPE_SUBTITLE) {
+                        mSubtitleTracks.add(track);
+                    }
+                }
+                return !mAudioTracks.isEmpty() || !mVideoTracks.isEmpty()
+                        || !mSubtitleTracks.isEmpty();
             }
         }
 
         /**
-         * Returns a list which includes track information. May return {@code null} if the
-         * information is not available.
-         * @see #selectTrack(TvTrackInfo)
-         * @see #unselectTrack(TvTrackInfo)
+         * Responds to onTrackSelected() and updates the internal track selection information.
+         * Returns true if there is an update.
          */
-        public List<TvTrackInfo> getTracks() {
-            if (mTracks == null) {
-                return null;
+        boolean updateTrackSelection(int type, String trackId) {
+            synchronized (mTrackLock) {
+                if (type == TvTrackInfo.TYPE_AUDIO && trackId != mSelectedAudioTrackId) {
+                    mSelectedAudioTrackId = trackId;
+                    return true;
+                } else if (type == TvTrackInfo.TYPE_VIDEO && trackId != mSelectedVideoTrackId) {
+                    mSelectedVideoTrackId = trackId;
+                    return true;
+                } else if (type == TvTrackInfo.TYPE_SUBTITLE
+                        && trackId != mSelectedSubtitleTrackId) {
+                    mSelectedSubtitleTrackId = trackId;
+                    return true;
+                }
             }
-            return new ArrayList<TvTrackInfo>(mTracks);
-        }
-
-        private void setTracks(List<TvTrackInfo> tracks) {
-            mTracks = tracks;
+            return false;
         }
 
         /**
-         * Call {@link TvInputService.Session#appPrivateCommand(String, Bundle)
+         * Returns the new/updated video track that contains new video size information. Returns
+         * null if there is no video track to notify. Subsequent calls of this method results in a
+         * non-null video track returned only by the first call and null returned by following
+         * calls. The caller should immediately notify of the video size change upon receiving the
+         * track.
+         */
+        TvTrackInfo getVideoTrackToNotify() {
+            synchronized (mTrackLock) {
+                if (!mVideoTracks.isEmpty() && mSelectedVideoTrackId != null) {
+                    for (TvTrackInfo track : mVideoTracks) {
+                        if (track.getId().equals(mSelectedVideoTrackId)) {
+                            int videoWidth = track.getVideoWidth();
+                            int videoHeight = track.getVideoHeight();
+                            if (mVideoWidth != videoWidth || mVideoHeight != videoHeight) {
+                                mVideoWidth = videoWidth;
+                                mVideoHeight = videoHeight;
+                                return track;
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Calls {@link TvInputService.Session#appPrivateCommand(String, Bundle)
          * TvInputService.Session.appPrivateCommand()} on the current TvView.
          *
          * @param action Name of the command to be performed. This <em>must</em> be a scoped name,
@@ -1047,6 +1626,9 @@ public final class TvInputManager {
             if (mToken == null) {
                 Log.w(TAG, "The session has been already released");
                 return;
+            }
+            if (unblockedRating == null) {
+                throw new IllegalArgumentException("unblockedRating cannot be null");
             }
             try {
                 mService.requestUnblockContent(mToken, unblockedRating.flattenToString(), mUserId);
@@ -1171,14 +1753,14 @@ public final class TvInputManager {
         // Assumes the event has already been removed from the queue.
         void invokeFinishedInputEventCallback(PendingEvent p, boolean handled) {
             p.mHandled = handled;
-            if (p.mHandler.getLooper().isCurrentThread()) {
+            if (p.mEventHandler.getLooper().isCurrentThread()) {
                 // Already running on the callback handler thread so we can send the callback
                 // immediately.
                 p.run();
             } else {
                 // Post the event to the callback handler thread.
                 // In this case, the callback will be responsible for recycling the event.
-                Message msg = Message.obtain(p.mHandler, p);
+                Message msg = Message.obtain(p.mEventHandler, p);
                 msg.setAsynchronous(true);
                 msg.sendToTarget();
             }
@@ -1203,15 +1785,19 @@ public final class TvInputManager {
                 p = new PendingEvent();
             }
             p.mEvent = event;
-            p.mToken = token;
+            p.mEventToken = token;
             p.mCallback = callback;
-            p.mHandler = handler;
+            p.mEventHandler = handler;
             return p;
         }
 
         private void recyclePendingEventLocked(PendingEvent p) {
             p.recycle();
             mPendingEventPool.release(p);
+        }
+
+        IBinder getToken() {
+            return mToken;
         }
 
         private void releaseInternal() {
@@ -1273,26 +1859,82 @@ public final class TvInputManager {
 
         private final class PendingEvent implements Runnable {
             public InputEvent mEvent;
-            public Object mToken;
+            public Object mEventToken;
             public FinishedInputEventCallback mCallback;
-            public Handler mHandler;
+            public Handler mEventHandler;
             public boolean mHandled;
 
             public void recycle() {
                 mEvent = null;
-                mToken = null;
+                mEventToken = null;
                 mCallback = null;
-                mHandler = null;
+                mEventHandler = null;
                 mHandled = false;
             }
 
             @Override
             public void run() {
-                mCallback.onFinishedInputEvent(mToken, mHandled);
+                mCallback.onFinishedInputEvent(mEventToken, mHandled);
 
-                synchronized (mHandler) {
+                synchronized (mEventHandler) {
                     recyclePendingEventLocked(this);
                 }
+            }
+        }
+    }
+
+    /**
+     * The Hardware provides the per-hardware functionality of TV hardware.
+     *
+     * TV hardware is physical hardware attached to the Android device; for example, HDMI ports,
+     * Component/Composite ports, etc. Specifically, logical devices such as HDMI CEC logical
+     * devices don't fall into this category.
+     *
+     * @hide
+     */
+    @SystemApi
+    public final static class Hardware {
+        private final ITvInputHardware mInterface;
+
+        private Hardware(ITvInputHardware hardwareInterface) {
+            mInterface = hardwareInterface;
+        }
+
+        private ITvInputHardware getInterface() {
+            return mInterface;
+        }
+
+        public boolean setSurface(Surface surface, TvStreamConfig config) {
+            try {
+                return mInterface.setSurface(surface, config);
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        public void setStreamVolume(float volume) {
+            try {
+                mInterface.setStreamVolume(volume);
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        public boolean dispatchKeyEventToHdmi(KeyEvent event) {
+            try {
+                return mInterface.dispatchKeyEventToHdmi(event);
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        public void overrideAudioSink(int audioType, String audioAddress, int samplingRate,
+                int channelMask, int format) {
+            try {
+                mInterface.overrideAudioSink(audioType, audioAddress, samplingRate, channelMask,
+                        format);
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
             }
         }
     }

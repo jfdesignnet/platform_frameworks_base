@@ -16,6 +16,7 @@
 
 package android.graphics.drawable;
 
+import android.annotation.NonNull;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
@@ -27,6 +28,7 @@ import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Insets;
 import android.graphics.Matrix;
+import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
@@ -46,6 +48,7 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
+import java.util.Collection;
 
 /**
  * A Drawable that wraps a bitmap and can be tiled, stretched, or aligned. You can create a
@@ -79,14 +82,14 @@ public class BitmapDrawable extends Drawable {
     private static final int TILE_MODE_REPEAT = 1;
     private static final int TILE_MODE_MIRROR = 2;
 
-    private final Rect mDstRect = new Rect();   // Gravity.apply() sets this
+    private final Rect mDstRect = new Rect();   // #updateDstRectAndInsetsIfDirty() sets this
 
     private BitmapState mBitmapState;
     private PorterDuffColorFilter mTintFilter;
 
     private int mTargetDensity = DisplayMetrics.DENSITY_DEFAULT;
 
-    private boolean mApplyGravity;
+    private boolean mDstRectAndInsetsDirty = true;
     private boolean mMutated;
 
      // These are scaled to match the target density.
@@ -94,7 +97,7 @@ public class BitmapDrawable extends Drawable {
     private int mBitmapHeight;
 
     /** Optical insets due to gravity. */
-    private Insets mOpticalInsets = null;
+    private Insets mOpticalInsets = Insets.NONE;
 
     // Mirroring matrix for using with Shaders
     private Matrix mMirrorMatrix;
@@ -130,7 +133,7 @@ public class BitmapDrawable extends Drawable {
      */
     @Deprecated
     public BitmapDrawable(Bitmap bitmap) {
-        this(new BitmapState(bitmap), null, null);
+        this(new BitmapState(bitmap), null);
     }
 
     /**
@@ -138,7 +141,7 @@ public class BitmapDrawable extends Drawable {
      * the display metrics of the resources.
      */
     public BitmapDrawable(Resources res, Bitmap bitmap) {
-        this(new BitmapState(bitmap), res, null);
+        this(new BitmapState(bitmap), res);
         mBitmapState.mTargetDensity = mTargetDensity;
     }
 
@@ -149,7 +152,7 @@ public class BitmapDrawable extends Drawable {
      */
     @Deprecated
     public BitmapDrawable(String filepath) {
-        this(new BitmapState(BitmapFactory.decodeFile(filepath)), null, null);
+        this(new BitmapState(BitmapFactory.decodeFile(filepath)), null);
         if (mBitmapState.mBitmap == null) {
             android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + filepath);
         }
@@ -160,7 +163,7 @@ public class BitmapDrawable extends Drawable {
      */
     @SuppressWarnings("unused")
     public BitmapDrawable(Resources res, String filepath) {
-        this(new BitmapState(BitmapFactory.decodeFile(filepath)), null, null);
+        this(new BitmapState(BitmapFactory.decodeFile(filepath)), null);
         mBitmapState.mTargetDensity = mTargetDensity;
         if (mBitmapState.mBitmap == null) {
             android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + filepath);
@@ -174,7 +177,7 @@ public class BitmapDrawable extends Drawable {
      */
     @Deprecated
     public BitmapDrawable(java.io.InputStream is) {
-        this(new BitmapState(BitmapFactory.decodeStream(is)), null, null);
+        this(new BitmapState(BitmapFactory.decodeStream(is)), null);
         if (mBitmapState.mBitmap == null) {
             android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + is);
         }
@@ -185,7 +188,7 @@ public class BitmapDrawable extends Drawable {
      */
     @SuppressWarnings("unused")
     public BitmapDrawable(Resources res, java.io.InputStream is) {
-        this(new BitmapState(BitmapFactory.decodeStream(is)), null, null);
+        this(new BitmapState(BitmapFactory.decodeStream(is)), null);
         mBitmapState.mTargetDensity = mTargetDensity;
         if (mBitmapState.mBitmap == null) {
             android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + is);
@@ -283,7 +286,7 @@ public class BitmapDrawable extends Drawable {
     public void setGravity(int gravity) {
         if (mBitmapState.mGravity != gravity) {
             mBitmapState.mGravity = gravity;
-            mApplyGravity = true;
+            mDstRectAndInsetsDirty = true;
             invalidateSelf();
         }
     }
@@ -426,6 +429,7 @@ public class BitmapDrawable extends Drawable {
             state.mTileModeX = xmode;
             state.mTileModeY = ymode;
             state.mRebuildShader = true;
+            mDstRectAndInsetsDirty = true;
             invalidateSelf();
         }
     }
@@ -462,7 +466,7 @@ public class BitmapDrawable extends Drawable {
 
     @Override
     protected void onBoundsChange(Rect bounds) {
-        mApplyGravity = true;
+        mDstRectAndInsetsDirty = true;
 
         final Shader shader = mBitmapState.mPaint.getShader();
         if (shader != null) {
@@ -501,7 +505,6 @@ public class BitmapDrawable extends Drawable {
             }
 
             state.mRebuildShader = false;
-            copyBounds(mDstRect);
         }
 
         final int restoreAlpha;
@@ -521,14 +524,10 @@ public class BitmapDrawable extends Drawable {
             clearColorFilter = false;
         }
 
+        updateDstRectAndInsetsIfDirty();
         final Shader shader = paint.getShader();
         final boolean needMirroring = needMirroring();
         if (shader == null) {
-            if (mApplyGravity) {
-                applyGravity();
-                mApplyGravity = false;
-            }
-
             if (needMirroring) {
                 canvas.save();
                 // Mirror the bitmap
@@ -542,11 +541,6 @@ public class BitmapDrawable extends Drawable {
                 canvas.restore();
             }
         } else {
-            if (mApplyGravity) {
-                copyBounds(mDstRect);
-                mApplyGravity = false;
-            }
-
             if (needMirroring) {
                 // Mirror the bitmap
                 updateMirrorMatrix(mDstRect.right - mDstRect.left);
@@ -572,29 +566,46 @@ public class BitmapDrawable extends Drawable {
         }
     }
 
+    private void updateDstRectAndInsetsIfDirty() {
+        if (mDstRectAndInsetsDirty) {
+            if (mBitmapState.mTileModeX == null && mBitmapState.mTileModeY == null) {
+                final Rect bounds = getBounds();
+                final int layoutDirection = getLayoutDirection();
+                Gravity.apply(mBitmapState.mGravity, mBitmapWidth, mBitmapHeight,
+                        bounds, mDstRect, layoutDirection);
+
+                final int left = mDstRect.left - bounds.left;
+                final int top = mDstRect.top - bounds.top;
+                final int right = bounds.right - mDstRect.right;
+                final int bottom = bounds.bottom - mDstRect.bottom;
+                mOpticalInsets = Insets.of(left, top, right, bottom);
+            } else {
+                copyBounds(mDstRect);
+                mOpticalInsets = Insets.NONE;
+            }
+        }
+        mDstRectAndInsetsDirty = false;
+    }
+
     /**
      * @hide
      */
     @Override
     public Insets getOpticalInsets() {
-        if (mApplyGravity && mBitmapState.mPaint.getShader() == null) {
-            applyGravity();
-            mApplyGravity = false;
-        }
-        return mOpticalInsets == null ? Insets.NONE : mOpticalInsets;
+        updateDstRectAndInsetsIfDirty();
+        return mOpticalInsets;
     }
 
-    private void applyGravity() {
-        final Rect bounds = getBounds();
-        final int layoutDirection = getLayoutDirection();
-        Gravity.apply(mBitmapState.mGravity, mBitmapWidth, mBitmapHeight,
-                bounds, mDstRect, layoutDirection);
+    @Override
+    public void getOutline(@NonNull Outline outline) {
+        updateDstRectAndInsetsIfDirty();
+        outline.setRect(mDstRect);
 
-        final int left = mDstRect.left - bounds.left;
-        final int top = mDstRect.top - bounds.top;
-        final int right = bounds.right - mDstRect.right;
-        final int bottom = bounds.bottom - mDstRect.bottom;
-        mOpticalInsets = Insets.of(left, top, right, bottom);
+        // Only opaque Bitmaps can report a non-0 alpha,
+        // since only they are guaranteed to fill their bounds
+        boolean opaqueOverShape = mBitmapState.mBitmap != null
+                && !mBitmapState.mBitmap.hasAlpha();
+        outline.setAlpha(opaqueOverShape ? getAlpha() / 255.0f : 0.0f);
     }
 
     @Override
@@ -623,12 +634,16 @@ public class BitmapDrawable extends Drawable {
     }
 
     @Override
-    public void setTint(ColorStateList tint, PorterDuff.Mode tintMode) {
-        final BitmapState state = mBitmapState;
-        state.mTint = tint;
-        state.mTintMode = tintMode;
+    public void setTintList(ColorStateList tint) {
+        mBitmapState.mTint = tint;
+        mTintFilter = updateTintFilter(mTintFilter, tint, mBitmapState.mTintMode);
+        invalidateSelf();
+    }
 
-        mTintFilter = updateTintFilter(mTintFilter, tint, tintMode);
+    @Override
+    public void setTintMode(PorterDuff.Mode tintMode) {
+        mBitmapState.mTintMode = tintMode;
+        mTintFilter = updateTintFilter(mTintFilter, mBitmapState.mTint, tintMode);
         invalidateSelf();
     }
 
@@ -668,6 +683,14 @@ public class BitmapDrawable extends Drawable {
             mMutated = true;
         }
         return this;
+    }
+
+    /**
+     * @hide
+     */
+    public void clearMutated() {
+        super.clearMutated();
+        mMutated = false;
     }
 
     @Override
@@ -853,7 +876,7 @@ public class BitmapDrawable extends Drawable {
         int[] mThemeAttrs = null;
         Bitmap mBitmap = null;
         ColorStateList mTint = null;
-        Mode mTintMode = Mode.SRC_IN;
+        Mode mTintMode = DEFAULT_TINT_MODE;
         int mGravity = Gravity.FILL;
         float mBaseAlpha = 1.0f;
         Shader.TileMode mTileModeX = null;
@@ -891,23 +914,21 @@ public class BitmapDrawable extends Drawable {
         }
 
         @Override
-        public Bitmap getBitmap() {
-            return mBitmap;
+        public int addAtlasableBitmaps(Collection<Bitmap> atlasList) {
+            if (isAtlasable(mBitmap) && atlasList.add(mBitmap)) {
+                return mBitmap.getWidth() * mBitmap.getHeight();
+            }
+            return 0;
         }
 
         @Override
         public Drawable newDrawable() {
-            return new BitmapDrawable(this, null, null);
+            return new BitmapDrawable(this, null);
         }
 
         @Override
         public Drawable newDrawable(Resources res) {
-            return new BitmapDrawable(this, res, null);
-        }
-
-        @Override
-        public Drawable newDrawable(Resources res, Theme theme) {
-            return new BitmapDrawable(this, res, theme);
+            return new BitmapDrawable(this, res);
         }
 
         @Override
@@ -920,16 +941,10 @@ public class BitmapDrawable extends Drawable {
      * The one constructor to rule them all. This is called by all public
      * constructors to set the state and initialize local properties.
      */
-    private BitmapDrawable(BitmapState state, Resources res, Theme theme) {
-        if (theme != null && state.canApplyTheme()) {
-            // If we need to apply a theme, implicitly mutate.
-            mBitmapState = new BitmapState(state);
-            applyTheme(theme);
-        } else {
-            mBitmapState = state;
-        }
+    private BitmapDrawable(BitmapState state, Resources res) {
+        mBitmapState = state;
 
-        initializeWithState(state, res);
+        initializeWithState(mBitmapState, res);
     }
 
     /**

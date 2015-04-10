@@ -16,8 +16,7 @@
 
 package com.android.server.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
-import android.util.Slog;
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.util.SparseArray;
 
 /**
@@ -26,10 +25,20 @@ import android.util.SparseArray;
 public final class HdmiCecMessageValidator {
     private static final String TAG = "HdmiCecMessageValidator";
 
+    static final int OK = 0;
+    static final int ERROR_SOURCE = 1;
+    static final int ERROR_DESTINATION = 2;
+    static final int ERROR_PARAMETER = 3;
+    static final int ERROR_PARAMETER_SHORT = 4;
+
     private final HdmiControlService mService;
 
     interface ParameterValidator {
-        boolean isValid(byte[] params);
+        /**
+         * @return errorCode errorCode can be {@link #OK}, {@link #ERROR_PARAMETER} or
+         *         {@link #ERROR_PARAMETER_SHORT}.
+         */
+        int isValid(byte[] params);
     }
 
     // Only the direct addressing is allowed.
@@ -70,7 +79,7 @@ public final class HdmiCecMessageValidator {
         addValidationInfo(Constants.MESSAGE_SET_STREAM_PATH,
                 physicalAddressValidator, DEST_BROADCAST);
         addValidationInfo(Constants.MESSAGE_SYSTEM_AUDIO_MODE_REQUEST,
-                physicalAddressValidator, DEST_DIRECT);
+                new SystemAudioModeRequestValidator(), DEST_DIRECT);
 
         // Messages have no parameter.
         FixedLengthValidator noneValidator = new FixedLengthValidator(0);
@@ -133,7 +142,7 @@ public final class HdmiCecMessageValidator {
         addValidationInfo(Constants.MESSAGE_VENDOR_COMMAND,
                 maxLengthValidator, DEST_DIRECT | SRC_UNREGISTERED);
         addValidationInfo(Constants.MESSAGE_VENDOR_COMMAND_WITH_ID,
-                maxLengthValidator, DEST_ALL | SRC_UNREGISTERED);
+                new VariableLengthValidator(4, 14), DEST_ALL | SRC_UNREGISTERED);
         addValidationInfo(Constants.MESSAGE_VENDOR_REMOTE_BUTTON_DOWN,
                 maxLengthValidator, DEST_ALL | SRC_UNREGISTERED);
 
@@ -141,7 +150,9 @@ public final class HdmiCecMessageValidator {
         addValidationInfo(Constants.MESSAGE_SET_OSD_STRING, maxLengthValidator, DEST_DIRECT);
         addValidationInfo(Constants.MESSAGE_SET_OSD_NAME, maxLengthValidator, DEST_DIRECT);
 
-        // TODO: Handle messages for the Device Menu Control.
+        // Messages for the Device Menu Control.
+        addValidationInfo(Constants.MESSAGE_MENU_REQUEST, oneByteValidator, DEST_DIRECT);
+        addValidationInfo(Constants.MESSAGE_MENU_STATUS, oneByteValidator, DEST_DIRECT);
 
         // Messages for the Remote Control Passthrough.
         // TODO: Parse the first parameter and determine if it can have the next parameter.
@@ -179,39 +190,40 @@ public final class HdmiCecMessageValidator {
         mValidationInfo.append(opcode, new ValidationInfo(validator, addrType));
     }
 
-    boolean isValid(HdmiCecMessage message) {
+    int isValid(HdmiCecMessage message) {
         int opcode = message.getOpcode();
         ValidationInfo info = mValidationInfo.get(opcode);
         if (info == null) {
-            Slog.w(TAG, "No validation information for the message: " + message);
-            return true;
+            HdmiLogger.warning("No validation information for the message: " + message);
+            return OK;
         }
 
         // Check the source field.
         if (message.getSource() == Constants.ADDR_UNREGISTERED &&
                 (info.addressType & SRC_UNREGISTERED) == 0) {
-            Slog.w(TAG, "Unexpected source: " + message);
-            return false;
+            HdmiLogger.warning("Unexpected source: " + message);
+            return ERROR_SOURCE;
         }
         // Check the destination field.
         if (message.getDestination() == Constants.ADDR_BROADCAST) {
             if ((info.addressType & DEST_BROADCAST) == 0) {
-                Slog.w(TAG, "Unexpected broadcast message: " + message);
-                return false;
+                HdmiLogger.warning("Unexpected broadcast message: " + message);
+                return ERROR_DESTINATION;
             }
         } else {  // Direct addressing.
             if ((info.addressType & DEST_DIRECT) == 0) {
-                Slog.w(TAG, "Unexpected direct message: " + message);
-                return false;
+                HdmiLogger.warning("Unexpected direct message: " + message);
+                return ERROR_DESTINATION;
             }
         }
 
         // Check the parameter type.
-        if (!info.parameterValidator.isValid(message.getParams())) {
-            Slog.w(TAG, "Unexpected parameters: " + message);
-            return false;
+        int errorCode = info.parameterValidator.isValid(message.getParams());
+        if (errorCode != OK) {
+            HdmiLogger.warning("Unexpected parameters: " + message);
+            return errorCode;
         }
-        return true;
+        return OK;
     }
 
     private static class FixedLengthValidator implements ParameterValidator {
@@ -222,8 +234,10 @@ public final class HdmiCecMessageValidator {
         }
 
         @Override
-        public boolean isValid(byte[] params) {
-            return params.length == mLength;
+        public int isValid(byte[] params) {
+            // If the length is longer than expected, we assume it's OK since the parameter can be
+            // extended in the future version.
+            return params.length < mLength ? ERROR_PARAMETER_SHORT : OK;
         }
     }
 
@@ -237,8 +251,8 @@ public final class HdmiCecMessageValidator {
         }
 
         @Override
-        public boolean isValid(byte[] params) {
-            return params.length >= mMinLength && params.length <= mMaxLength;
+        public int isValid(byte[] params) {
+            return params.length < mMinLength ? ERROR_PARAMETER_SHORT : OK;
         }
     }
 
@@ -250,6 +264,9 @@ public final class HdmiCecMessageValidator {
             return true;
         }
         int path = HdmiUtils.twoBytesToInt(params, offset);
+        if (path != Constants.INVALID_PHYSICAL_ADDRESS && path == mService.getPhysicalAddress()) {
+            return true;
+        }
         int portId = mService.pathToPortId(path);
         if (portId == Constants.INVALID_PORT_ID) {
             return false;
@@ -258,47 +275,63 @@ public final class HdmiCecMessageValidator {
     }
 
     /**
-     * Check if the given type is valid. A valid type is one of the actual
-     * logical device types defined in the standard ({@link #DEVICE_TV},
-     * {@link #DEVICE_PLAYBACK}, {@link #DEVICE_TUNER}, {@link #DEVICE_RECORDER},
-     * and {@link #DEVICE_AUDIO_SYSTEM}).
+     * Check if the given type is valid. A valid type is one of the actual logical device types
+     * defined in the standard ({@link HdmiDeviceInfo#DEVICE_TV},
+     * {@link HdmiDeviceInfo#DEVICE_PLAYBACK}, {@link HdmiDeviceInfo#DEVICE_TUNER},
+     * {@link HdmiDeviceInfo#DEVICE_RECORDER}, and {@link HdmiDeviceInfo#DEVICE_AUDIO_SYSTEM}).
      *
      * @param type device type
      * @return true if the given type is valid
      */
     static boolean isValidType(int type) {
-        return (HdmiCecDeviceInfo.DEVICE_TV <= type
-                && type <= HdmiCecDeviceInfo.DEVICE_VIDEO_PROCESSOR)
-                && type != HdmiCecDeviceInfo.DEVICE_RESERVED;
+        return (HdmiDeviceInfo.DEVICE_TV <= type
+                && type <= HdmiDeviceInfo.DEVICE_VIDEO_PROCESSOR)
+                && type != HdmiDeviceInfo.DEVICE_RESERVED;
+    }
+
+    private static int toErrorCode(boolean success) {
+        return success ? OK : ERROR_PARAMETER;
     }
 
     private class PhysicalAddressValidator implements ParameterValidator {
         @Override
-        public boolean isValid(byte[] params) {
-            if (params.length != 2) {
-                return false;
+        public int isValid(byte[] params) {
+            if (params.length < 2) {
+                return ERROR_PARAMETER_SHORT;
             }
-            return isValidPhysicalAddress(params, 0);
+            return toErrorCode(isValidPhysicalAddress(params, 0));
+        }
+    }
+
+    private class SystemAudioModeRequestValidator extends PhysicalAddressValidator {
+        @Override
+        public int isValid(byte[] params) {
+            // TV can send <System Audio Mode Request> with no parameters to terminate system audio.
+            if (params.length == 0) {
+                return OK;
+            }
+            return super.isValid(params);
         }
     }
 
     private class ReportPhysicalAddressValidator implements ParameterValidator {
         @Override
-        public boolean isValid(byte[] params) {
-            if (params.length != 3) {
-                return false;
+        public int isValid(byte[] params) {
+            if (params.length < 3) {
+                return ERROR_PARAMETER_SHORT;
             }
-            return isValidPhysicalAddress(params, 0) && isValidType(params[2]);
+            return toErrorCode(isValidPhysicalAddress(params, 0) && isValidType(params[2]));
         }
     }
 
     private class RoutingChangeValidator implements ParameterValidator {
         @Override
-        public boolean isValid(byte[] params) {
-            if (params.length != 4) {
-                return false;
+        public int isValid(byte[] params) {
+            if (params.length < 4) {
+                return ERROR_PARAMETER_SHORT;
             }
-            return isValidPhysicalAddress(params, 0) && isValidPhysicalAddress(params, 2);
+            return toErrorCode(
+                    isValidPhysicalAddress(params, 0) && isValidPhysicalAddress(params, 2));
         }
     }
 }

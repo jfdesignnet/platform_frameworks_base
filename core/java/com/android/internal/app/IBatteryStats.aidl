@@ -18,6 +18,7 @@ package com.android.internal.app;
 
 import com.android.internal.os.BatteryStatsImpl;
 
+import android.os.ParcelFileDescriptor;
 import android.os.WorkSource;
 import android.telephony.DataConnectionRealTimeInfo;
 import android.telephony.SignalStrength;
@@ -37,6 +38,8 @@ interface IBatteryStats {
     // Remaining methods are only used in Java.
     byte[] getStatistics();
 
+    ParcelFileDescriptor getStatisticsStream();
+
     // Return the computed amount of time remaining on battery, in milliseconds.
     // Returns -1 if nothing could be computed.
     long computeBatteryTimeRemaining();
@@ -45,14 +48,8 @@ interface IBatteryStats {
     // Returns -1 if nothing could be computed.
     long computeChargeTimeRemaining();
 
-    void addIsolatedUid(int isolatedUid, int appUid);
-    void removeIsolatedUid(int isolatedUid, int appUid);
-
     void noteEvent(int code, String name, int uid);
 
-    void noteProcessStart(String name, int uid);
-    void noteProcessState(String name, int uid, int state);
-    void noteProcessFinish(String name, int uid);
     void noteSyncStart(String name, int uid);
     void noteSyncFinish(String name, int uid);
     void noteJobStart(String name, int uid);
@@ -80,6 +77,7 @@ interface IBatteryStats {
     void noteScreenBrightness(int brightness);
     void noteUserActivity(int uid, int event);
     void noteInteractive(boolean interactive);
+    void noteConnectivityChanged(int type, String extra);
     void noteMobileRadioPowerState(int powerState, long timestampNs);
     void notePhoneOn();
     void notePhoneOff();

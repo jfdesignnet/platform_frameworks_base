@@ -43,9 +43,8 @@
 #include <RenderNode.h>
 #include <CanvasProperty.h>
 #include <Paint.h>
+#include <renderthread/RenderProxy.h>
 
-#include <minikin/Layout.h>
-#include "MinikinSkia.h"
 #include "MinikinUtils.h"
 
 namespace android {
@@ -104,6 +103,12 @@ static void android_view_GLES20Canvas_setHighContrastText(JNIEnv* env, jobject c
         jlong rendererPtr, jboolean highContrastText) {
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
     renderer->setHighContrastText(highContrastText);
+}
+
+static void android_view_GLES20Canvas_insertReorderBarrier(JNIEnv* env, jobject clazz,
+        jlong rendererPtr, jboolean reorderEnable) {
+    DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
+    renderer->insertReorderBarrier(reorderEnable);
 }
 
 static int android_view_GLES20Canvas_prepare(JNIEnv* env, jobject clazz,
@@ -342,24 +347,24 @@ static void android_view_GLES20Canvas_concatMatrix(JNIEnv* env, jobject clazz,
 // ----------------------------------------------------------------------------
 
 static void android_view_GLES20Canvas_drawBitmap(JNIEnv* env, jobject clazz,
-        jlong rendererPtr, jlong bitmapPtr, jbyteArray buffer,
-        jfloat left, jfloat top, jlong paintPtr) {
+        jlong rendererPtr, jlong bitmapPtr, jfloat left, jfloat top, jlong paintPtr) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapPtr);
-    // This object allows the renderer to allocate a global JNI ref to the buffer object.
-    JavaHeapBitmapRef bitmapRef(env, bitmap, buffer);
 
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
     Paint* paint = reinterpret_cast<Paint*>(paintPtr);
-    renderer->drawBitmap(bitmap, left, top, paint);
+
+    // apply transform directly to canvas, so it affects shaders correctly
+    renderer->save(SkCanvas::kMatrix_SaveFlag);
+    renderer->translate(left, top);
+    renderer->drawBitmap(bitmap, paint);
+    renderer->restore();
 }
 
 static void android_view_GLES20Canvas_drawBitmapRect(JNIEnv* env, jobject clazz,
-        jlong rendererPtr, jlong bitmapPtr, jbyteArray buffer,
+        jlong rendererPtr, jlong bitmapPtr,
         float srcLeft, float srcTop, float srcRight, float srcBottom,
         float dstLeft, float dstTop, float dstRight, float dstBottom, jlong paintPtr) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapPtr);
-    // This object allows the renderer to allocate a global JNI ref to the buffer object.
-    JavaHeapBitmapRef bitmapRef(env, bitmap, buffer);
 
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
     Paint* paint = reinterpret_cast<Paint*>(paintPtr);
@@ -368,16 +373,18 @@ static void android_view_GLES20Canvas_drawBitmapRect(JNIEnv* env, jobject clazz,
 }
 
 static void android_view_GLES20Canvas_drawBitmapMatrix(JNIEnv* env, jobject clazz,
-        jlong rendererPtr, jlong bitmapPtr, jbyteArray buffer,
-        jlong matrixPtr, jlong paintPtr) {
+        jlong rendererPtr, jlong bitmapPtr, jlong matrixPtr, jlong paintPtr) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapPtr);
-    // This object allows the renderer to allocate a global JNI ref to the buffer object.
-    JavaHeapBitmapRef bitmapRef(env, bitmap, buffer);
 
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
     SkMatrix* matrix = reinterpret_cast<SkMatrix*>(matrixPtr);
     Paint* paint = reinterpret_cast<Paint*>(paintPtr);
-    renderer->drawBitmap(bitmap, *matrix, paint);
+
+    // apply transform directly to canvas, so it affects shaders correctly
+    renderer->save(SkCanvas::kMatrix_SaveFlag);
+    renderer->concatMatrix(*matrix);
+    renderer->drawBitmap(bitmap, paint);
+    renderer->restore();
 }
 
 static void android_view_GLES20Canvas_drawBitmapData(JNIEnv* env, jobject clazz,
@@ -401,18 +408,20 @@ static void android_view_GLES20Canvas_drawBitmapData(JNIEnv* env, jobject clazz,
 
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
     Paint* paint = reinterpret_cast<Paint*>(paintPtr);
-    renderer->drawBitmapData(bitmap, left, top, paint);
+
+    // apply transform directly to canvas, so it affects shaders correctly
+    renderer->save(SkCanvas::kMatrix_SaveFlag);
+    renderer->translate(left, top);
+    renderer->drawBitmapData(bitmap, paint);
+    renderer->restore();
 
     // Note - bitmap isn't deleted as DisplayListRenderer owns it now
 }
 
 static void android_view_GLES20Canvas_drawBitmapMesh(JNIEnv* env, jobject clazz,
-        jlong rendererPtr, jlong bitmapPtr, jbyteArray buffer,
-        jint meshWidth, jint meshHeight, jfloatArray vertices, jint offset, jintArray colors,
-        jint colorOffset, jlong paintPtr) {
+        jlong rendererPtr, jlong bitmapPtr, jint meshWidth, jint meshHeight,
+        jfloatArray vertices, jint offset, jintArray colors, jint colorOffset, jlong paintPtr) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapPtr);
-    // This object allows the renderer to allocate a global JNI ref to the buffer object.
-    JavaHeapBitmapRef bitmapRef(env, bitmap, buffer);
 
     jfloat* verticesArray = vertices ? env->GetFloatArrayElements(vertices, NULL) + offset : NULL;
     jint* colorsArray = colors ? env->GetIntArrayElements(colors, NULL) + colorOffset : NULL;
@@ -426,11 +435,9 @@ static void android_view_GLES20Canvas_drawBitmapMesh(JNIEnv* env, jobject clazz,
 }
 
 static void android_view_GLES20Canvas_drawPatch(JNIEnv* env, jobject clazz,
-        jlong rendererPtr, jlong bitmapPtr, jbyteArray buffer, jlong patchPtr,
+        jlong rendererPtr, jlong bitmapPtr, jlong patchPtr,
         float left, float top, float right, float bottom, jlong paintPtr) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapPtr);
-    // This object allows the renderer to allocate a global JNI ref to the buffer object.
-    JavaHeapBitmapRef bitmapRef(env, bitmap, buffer);
 
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
     Res_png_9patch* patch = reinterpret_cast<Res_png_9patch*>(patchPtr);
@@ -459,6 +466,20 @@ static void android_view_GLES20Canvas_drawRoundRect(JNIEnv* env, jobject clazz,
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
     Paint* paint = reinterpret_cast<Paint*>(paintPtr);
     renderer->drawRoundRect(left, top, right, bottom, rx, ry, paint);
+}
+
+static void android_view_GLES20Canvas_drawRoundRectProps(JNIEnv* env, jobject clazz,
+        jlong rendererPtr, jlong leftPropPtr, jlong topPropPtr, jlong rightPropPtr,
+        jlong bottomPropPtr, jlong rxPropPtr, jlong ryPropPtr, jlong paintPropPtr) {
+    DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
+    CanvasPropertyPrimitive* leftProp = reinterpret_cast<CanvasPropertyPrimitive*>(leftPropPtr);
+    CanvasPropertyPrimitive* topProp = reinterpret_cast<CanvasPropertyPrimitive*>(topPropPtr);
+    CanvasPropertyPrimitive* rightProp = reinterpret_cast<CanvasPropertyPrimitive*>(rightPropPtr);
+    CanvasPropertyPrimitive* bottomProp = reinterpret_cast<CanvasPropertyPrimitive*>(bottomPropPtr);
+    CanvasPropertyPrimitive* rxProp = reinterpret_cast<CanvasPropertyPrimitive*>(rxPropPtr);
+    CanvasPropertyPrimitive* ryProp = reinterpret_cast<CanvasPropertyPrimitive*>(ryPropPtr);
+    CanvasPropertyPaint* paintProp = reinterpret_cast<CanvasPropertyPaint*>(paintPropPtr);
+    renderer->drawRoundRect(leftProp, topProp, rightProp, bottomProp, rxProp, ryProp, paintProp);
 }
 
 static void android_view_GLES20Canvas_drawCircle(JNIEnv* env, jobject clazz,
@@ -794,7 +815,7 @@ static jint android_view_GLES20Canvas_drawRenderNode(JNIEnv* env,
 static void android_view_GLES20Canvas_drawLayer(JNIEnv* env, jobject clazz,
         jlong rendererPtr, jlong layerPtr, jfloat x, jfloat y) {
     DisplayListRenderer* renderer = reinterpret_cast<DisplayListRenderer*>(rendererPtr);
-    Layer* layer = reinterpret_cast<Layer*>(layerPtr);
+    DeferredLayerUpdater* layer = reinterpret_cast<DeferredLayerUpdater*>(layerPtr);
     renderer->drawLayer(layer, x, y);
 }
 
@@ -828,7 +849,7 @@ static void
 android_app_ActivityThread_dumpGraphics(JNIEnv* env, jobject clazz, jobject javaFileDescriptor) {
 #ifdef USE_OPENGL_RENDERER
     int fd = jniGetFDFromFileDescriptor(env, javaFileDescriptor);
-    android::uirenderer::RenderNode::outputLogBuffer(fd);
+    android::uirenderer::renderthread::RenderProxy::outputLogBuffer(fd);
 #endif // USE_OPENGL_RENDERER
 }
 
@@ -846,6 +867,7 @@ static JNINativeMethod gMethods[] = {
     { "nDestroyRenderer",   "(J)V",            (void*) android_view_GLES20Canvas_destroyRenderer },
     { "nSetViewport",       "(JII)V",          (void*) android_view_GLES20Canvas_setViewport },
     { "nSetHighContrastText","(JZ)V",          (void*) android_view_GLES20Canvas_setHighContrastText },
+    { "nInsertReorderBarrier","(JZ)V",         (void*) android_view_GLES20Canvas_insertReorderBarrier },
     { "nPrepare",           "(JZ)I",           (void*) android_view_GLES20Canvas_prepare },
     { "nPrepareDirty",      "(JIIIIZ)I",       (void*) android_view_GLES20Canvas_prepareDirty },
     { "nFinish",            "(J)V",            (void*) android_view_GLES20Canvas_finish },
@@ -879,19 +901,20 @@ static JNINativeMethod gMethods[] = {
     { "nGetMatrix",         "(JJ)V",           (void*) android_view_GLES20Canvas_getMatrix },
     { "nConcatMatrix",      "(JJ)V",           (void*) android_view_GLES20Canvas_concatMatrix },
 
-    { "nDrawBitmap",        "(JJ[BFFJ)V",      (void*) android_view_GLES20Canvas_drawBitmap },
-    { "nDrawBitmap",        "(JJ[BFFFFFFFFJ)V",(void*) android_view_GLES20Canvas_drawBitmapRect },
-    { "nDrawBitmap",        "(JJ[BJJ)V",       (void*) android_view_GLES20Canvas_drawBitmapMatrix },
+    { "nDrawBitmap",        "(JJFFJ)V",      (void*) android_view_GLES20Canvas_drawBitmap },
+    { "nDrawBitmap",        "(JJFFFFFFFFJ)V",(void*) android_view_GLES20Canvas_drawBitmapRect },
+    { "nDrawBitmap",        "(JJJJ)V",       (void*) android_view_GLES20Canvas_drawBitmapMatrix },
     { "nDrawBitmap",        "(J[IIIFFIIZJ)V",  (void*) android_view_GLES20Canvas_drawBitmapData },
 
-    { "nDrawBitmapMesh",    "(JJ[BII[FI[IIJ)V",(void*) android_view_GLES20Canvas_drawBitmapMesh },
+    { "nDrawBitmapMesh",    "(JJII[FI[IIJ)V",(void*) android_view_GLES20Canvas_drawBitmapMesh },
 
-    { "nDrawPatch",         "(JJ[BJFFFFJ)V",   (void*) android_view_GLES20Canvas_drawPatch },
+    { "nDrawPatch",         "(JJJFFFFJ)V",   (void*) android_view_GLES20Canvas_drawPatch },
 
     { "nDrawColor",         "(JII)V",          (void*) android_view_GLES20Canvas_drawColor },
     { "nDrawRect",          "(JFFFFJ)V",       (void*) android_view_GLES20Canvas_drawRect },
     { "nDrawRects",         "(JJJ)V",          (void*) android_view_GLES20Canvas_drawRegionAsRects },
     { "nDrawRoundRect",     "(JFFFFFFJ)V",     (void*) android_view_GLES20Canvas_drawRoundRect },
+    { "nDrawRoundRect",     "(JJJJJJJJ)V",     (void*) android_view_GLES20Canvas_drawRoundRectProps },
     { "nDrawCircle",        "(JFFFJ)V",        (void*) android_view_GLES20Canvas_drawCircle },
     { "nDrawCircle",        "(JJJJJ)V",        (void*) android_view_GLES20Canvas_drawCircleProps },
     { "nDrawOval",          "(JFFFFJ)V",       (void*) android_view_GLES20Canvas_drawOval },

@@ -50,9 +50,13 @@ public class ConditionProviders extends ManagedServices {
     private final ArrayMap<IBinder, IConditionListener> mListeners
             = new ArrayMap<IBinder, IConditionListener>();
     private final ArrayList<ConditionRecord> mRecords = new ArrayList<ConditionRecord>();
-    private final CountdownConditionProvider mCountdown = new CountdownConditionProvider();
+    private final ArraySet<String> mSystemConditionProviders;
+    private final CountdownConditionProvider mCountdown;
+    private final DowntimeConditionProvider mDowntime;
+    private final NextAlarmConditionProvider mNextAlarm;
+    private final NextAlarmTracker mNextAlarmTracker;
 
-    private Uri mExitConditionId;
+    private Condition mExitCondition;
     private ComponentName mExitConditionComponent;
 
     public ConditionProviders(Context context, Handler handler,
@@ -60,7 +64,22 @@ public class ConditionProviders extends ManagedServices {
         super(context, handler, new Object(), userProfiles);
         mZenModeHelper = zenModeHelper;
         mZenModeHelper.addCallback(new ZenModeHelperCallback());
+        mSystemConditionProviders = safeSet(PropConfig.getStringArray(mContext,
+                "system.condition.providers",
+                R.array.config_system_condition_providers));
+        final boolean countdown = mSystemConditionProviders.contains(ZenModeConfig.COUNTDOWN_PATH);
+        final boolean downtime = mSystemConditionProviders.contains(ZenModeConfig.DOWNTIME_PATH);
+        final boolean nextAlarm = mSystemConditionProviders.contains(ZenModeConfig.NEXT_ALARM_PATH);
+        mNextAlarmTracker = (downtime || nextAlarm) ? new NextAlarmTracker(mContext) : null;
+        mCountdown = countdown ? new CountdownConditionProvider() : null;
+        mDowntime = downtime ? new DowntimeConditionProvider(this, mNextAlarmTracker,
+                mZenModeHelper) : null;
+        mNextAlarm = nextAlarm ? new NextAlarmConditionProvider(mNextAlarmTracker) : null;
         loadZenConfig();
+    }
+
+    public boolean isSystemConditionProviderEnabled(String path) {
+        return mSystemConditionProviders.contains(path);
     }
 
     @Override
@@ -96,7 +115,19 @@ public class ConditionProviders extends ManagedServices {
                 }
             }
         }
-        mCountdown.dump(pw, filter);
+        pw.print("    mSystemConditionProviders: "); pw.println(mSystemConditionProviders);
+        if (mCountdown != null) {
+            mCountdown.dump(pw, filter);
+        }
+        if (mDowntime != null) {
+            mDowntime.dump(pw, filter);
+        }
+        if (mNextAlarm != null) {
+            mNextAlarm.dump(pw, filter);
+        }
+        if (mNextAlarmTracker != null) {
+            mNextAlarmTracker.dump(pw, filter);
+        }
     }
 
     @Override
@@ -107,14 +138,36 @@ public class ConditionProviders extends ManagedServices {
     @Override
     public void onBootPhaseAppsCanStart() {
         super.onBootPhaseAppsCanStart();
-        mCountdown.attachBase(mContext);
-        registerService(mCountdown.asInterface(), CountdownConditionProvider.COMPONENT,
-                UserHandle.USER_OWNER);
+        if (mNextAlarmTracker != null) {
+            mNextAlarmTracker.init();
+        }
+        if (mCountdown != null) {
+            mCountdown.attachBase(mContext);
+            registerService(mCountdown.asInterface(), CountdownConditionProvider.COMPONENT,
+                    UserHandle.USER_OWNER);
+        }
+        if (mDowntime != null) {
+            mDowntime.attachBase(mContext);
+            registerService(mDowntime.asInterface(), DowntimeConditionProvider.COMPONENT,
+                    UserHandle.USER_OWNER);
+        }
+        if (mNextAlarm != null) {
+            mNextAlarm.attachBase(mContext);
+            registerService(mNextAlarm.asInterface(), NextAlarmConditionProvider.COMPONENT,
+                    UserHandle.USER_OWNER);
+        }
+    }
+
+    @Override
+    public void onUserSwitched() {
+        super.onUserSwitched();
+        if (mNextAlarmTracker != null) {
+            mNextAlarmTracker.onUserSwitched();
+        }
     }
 
     @Override
     protected void onServiceAdded(ManagedServiceInfo info) {
-        Slog.d(TAG, "onServiceAdded " + info);
         final IConditionProvider provider = provider(info);
         try {
             provider.onConnected();
@@ -125,7 +178,7 @@ public class ConditionProviders extends ManagedServices {
             if (info.component.equals(mExitConditionComponent)) {
                 // ensure record exists, we'll wire it up and subscribe below
                 final ConditionRecord manualRecord =
-                        getRecordLocked(mExitConditionId, mExitConditionComponent);
+                        getRecordLocked(mExitCondition.id, mExitConditionComponent);
                 manualRecord.isManual = true;
             }
             final int N = mRecords.size();
@@ -149,11 +202,12 @@ public class ConditionProviders extends ManagedServices {
             if (!r.component.equals(removed.component)) continue;
             if (r.isManual) {
                 // removing the current manual condition, exit zen
-                mZenModeHelper.setZenMode(Global.ZEN_MODE_OFF);
+                onManualConditionClearing();
+                mZenModeHelper.setZenMode(Global.ZEN_MODE_OFF, "manualServiceRemoved");
             }
             if (r.isAutomatic) {
                 // removing an automatic condition, exit zen
-                mZenModeHelper.setZenMode(Global.ZEN_MODE_OFF);
+                mZenModeHelper.setZenMode(Global.ZEN_MODE_OFF, "automaticServiceRemoved");
             }
             mRecords.remove(i);
         }
@@ -238,9 +292,11 @@ public class ConditionProviders extends ManagedServices {
             for (int i = 0; i < N; i++) {
                 final Condition c = conditions[i];
                 final ConditionRecord r = getRecordLocked(c.id, info.component);
+                final Condition oldCondition = r.condition;
+                final boolean conditionUpdate = oldCondition != null && !oldCondition.equals(c);
                 r.info = info;
                 r.condition = c;
-                // if manual, exit zen if false (or failed)
+                // if manual, exit zen if false (or failed), update if true (and changed)
                 if (r.isManual) {
                     if (c.state == Condition.STATE_FALSE || c.state == Condition.STATE_ERROR) {
                         final boolean failed = c.state == Condition.STATE_ERROR;
@@ -249,9 +305,15 @@ public class ConditionProviders extends ManagedServices {
                         } else if (DEBUG) {
                             Slog.d(TAG, "Exit zen: manual condition false: " + c);
                         }
-                        mZenModeHelper.setZenMode(Settings.Global.ZEN_MODE_OFF);
+                        onManualConditionClearing();
+                        mZenModeHelper.setZenMode(Settings.Global.ZEN_MODE_OFF,
+                                "manualConditionExit");
                         unsubscribeLocked(r);
                         r.isManual = false;
+                    } else if (c.state == Condition.STATE_TRUE && conditionUpdate) {
+                        if (DEBUG) Slog.d(TAG, "Current condition updated, still true. old="
+                                + oldCondition + " new=" + c);
+                        setZenModeCondition(c, "conditionUpdate");
                     }
                 }
                 // if automatic, exit zen if false (or failed), enter zen if true
@@ -263,33 +325,46 @@ public class ConditionProviders extends ManagedServices {
                         } else if (DEBUG) {
                             Slog.d(TAG, "Exit zen: automatic condition false: " + c);
                         }
-                        mZenModeHelper.setZenMode(Settings.Global.ZEN_MODE_OFF);
+                        mZenModeHelper.setZenMode(Settings.Global.ZEN_MODE_OFF,
+                                "automaticConditionExit");
                     } else if (c.state == Condition.STATE_TRUE) {
                         Slog.d(TAG, "Enter zen: automatic condition true: " + c);
-                        mZenModeHelper.setZenMode(Settings.Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS);
+                        mZenModeHelper.setZenMode(Settings.Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS,
+                                "automaticConditionEnter");
                     }
                 }
             }
         }
     }
 
-    public void setZenModeCondition(Uri conditionId, String reason) {
-        if (DEBUG) Slog.d(TAG, "setZenModeCondition " + conditionId);
+    private void ensureRecordExists(Condition condition, IConditionProvider provider,
+            ComponentName component) {
+        // constructed by convention, make sure the record exists...
+        final ConditionRecord r = getRecordLocked(condition.id, component);
+        if (r.info == null) {
+            // ... and is associated with the in-process service
+            r.info = checkServiceTokenLocked(provider);
+        }
+    }
+
+    public void setZenModeCondition(Condition condition, String reason) {
+        if (DEBUG) Slog.d(TAG, "setZenModeCondition " + condition + " reason=" + reason);
         synchronized(mMutex) {
             ComponentName conditionComponent = null;
-            if (ZenModeConfig.isValidCountdownConditionId(conditionId)) {
-                // constructed by the client, make sure the record exists...
-                final ConditionRecord r = getRecordLocked(conditionId,
-                        CountdownConditionProvider.COMPONENT);
-                if (r.info == null) {
-                    // ... and is associated with the in-process service
-                    r.info = checkServiceTokenLocked(mCountdown.asInterface());
+            if (condition != null) {
+                if (mCountdown != null && ZenModeConfig.isValidCountdownConditionId(condition.id)) {
+                    ensureRecordExists(condition, mCountdown.asInterface(),
+                            CountdownConditionProvider.COMPONENT);
+                }
+                if (mDowntime != null && ZenModeConfig.isValidDowntimeConditionId(condition.id)) {
+                    ensureRecordExists(condition, mDowntime.asInterface(),
+                            DowntimeConditionProvider.COMPONENT);
                 }
             }
             final int N = mRecords.size();
             for (int i = 0; i < N; i++) {
                 final ConditionRecord r = mRecords.get(i);
-                final boolean idEqual = r.id.equals(conditionId);
+                final boolean idEqual = condition != null && r.id.equals(condition.id);
                 if (r.isManual && !idEqual) {
                     // was previous manual condition, unsubscribe
                     unsubscribeLocked(r);
@@ -303,10 +378,10 @@ public class ConditionProviders extends ManagedServices {
                     conditionComponent = r.component;
                 }
             }
-            if (!Objects.equals(mExitConditionId, conditionId)) {
-                mExitConditionId = conditionId;
+            if (!Objects.equals(mExitCondition, condition)) {
+                mExitCondition = condition;
                 mExitConditionComponent = conditionComponent;
-                ZenLog.traceExitCondition(mExitConditionId, mExitConditionComponent, reason);
+                ZenLog.traceExitCondition(mExitCondition, mExitConditionComponent, reason);
                 saveZenConfigLocked();
             }
         }
@@ -318,6 +393,7 @@ public class ConditionProviders extends ManagedServices {
         RemoteException re = null;
         if (provider != null) {
             try {
+                Slog.d(TAG, "Subscribing to " + r.id + " with " + provider);
                 provider.onSubscribe(r.id);
             } catch (RemoteException e) {
                 Slog.w(TAG, "Error subscribing to " + r, e);
@@ -327,6 +403,7 @@ public class ConditionProviders extends ManagedServices {
         ZenLog.traceSubscribe(r != null ? r.id : null, provider, re);
     }
 
+    @SafeVarargs
     private static <T> ArraySet<T> safeSet(T... items) {
         final ArraySet<T> rt = new ArraySet<T>();
         if (items == null || items.length == 0) return rt;
@@ -436,11 +513,14 @@ public class ConditionProviders extends ManagedServices {
             return;
         }
         synchronized (mMutex) {
-            final boolean changingExit = !Objects.equals(mExitConditionId, config.exitConditionId);
-            mExitConditionId = config.exitConditionId;
+            final boolean changingExit = !Objects.equals(mExitCondition, config.exitCondition);
+            mExitCondition = config.exitCondition;
             mExitConditionComponent = config.exitConditionComponent;
             if (changingExit) {
-                ZenLog.traceExitCondition(mExitConditionId, mExitConditionComponent, "config");
+                ZenLog.traceExitCondition(mExitCondition, mExitConditionComponent, "config");
+            }
+            if (mDowntime != null) {
+                mDowntime.setConfig(config);
             }
             if (config.conditionComponents == null || config.conditionIds == null
                     || config.conditionComponents.length != config.conditionIds.length) {
@@ -488,10 +568,16 @@ public class ConditionProviders extends ManagedServices {
                 config.conditionIds[i] = r.id;
             }
         }
-        config.exitConditionId = mExitConditionId;
+        config.exitCondition = mExitCondition;
         config.exitConditionComponent = mExitConditionComponent;
         if (DEBUG) Slog.d(TAG, "Setting zen config to: " + config);
         mZenModeHelper.setConfig(config);
+    }
+
+    private void onManualConditionClearing() {
+        if (mDowntime != null) {
+            mDowntime.onManualConditionClearing();
+        }
     }
 
     private class ZenModeHelperCallback extends ZenModeHelper.Callback {

@@ -29,7 +29,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.RemoteException;
-import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.util.Slog;
 import android.view.ActionMode;
@@ -968,6 +967,9 @@ public class DreamService extends Service implements Window.Callback {
                         | (mScreenBright ? WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON : 0)
                         );
             mWindow.setAttributes(lp);
+            // Workaround: Currently low-profile and in-window system bar backgrounds don't go
+            // along well. Dreams usually don't need such bars anyways, so disable them by default.
+            mWindow.clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             mWindow.setWindowManager(null, windowToken, "dream", true);
 
             applySystemUiVisibilityFlags(

@@ -21,6 +21,9 @@ import android.util.DisplayMetrics;
 import android.view.Display;
 import android.view.Surface;
 
+import java.util.Arrays;
+
+import libcore.util.EmptyArray;
 import libcore.util.Objects;
 
 /**
@@ -101,10 +104,15 @@ final class DisplayDeviceInfo {
     public static final int TOUCH_EXTERNAL = 2;
 
     /**
-     * Gets the name of the display device, which may be derived from
-     * EDID or other sources.  The name may be displayed to the user.
+     * Gets the name of the display device, which may be derived from EDID or
+     * other sources. The name may be localized and displayed to the user.
      */
     public String name;
+
+    /**
+     * Unique Id of display device.
+     */
+    public String uniqueId;
 
     /**
      * The width of the display in its natural orientation, in pixels.
@@ -122,6 +130,11 @@ final class DisplayDeviceInfo {
      * The refresh rate of the display, in frames per second.
      */
     public float refreshRate;
+
+    /**
+     * The supported refresh rates of the display at the current resolution in frames per second.
+     */
+    public float[] supportedRefreshRates = EmptyArray.FLOAT;
 
     /**
      * The nominal apparent density of the display in DPI used for layout calculations.
@@ -227,9 +240,11 @@ final class DisplayDeviceInfo {
     public boolean equals(DisplayDeviceInfo other) {
         return other != null
                 && Objects.equal(name, other.name)
+                && Objects.equal(uniqueId, other.uniqueId)
                 && width == other.width
                 && height == other.height
                 && refreshRate == other.refreshRate
+                && Arrays.equals(supportedRefreshRates, other.supportedRefreshRates)
                 && densityDpi == other.densityDpi
                 && xDpi == other.xDpi
                 && yDpi == other.yDpi
@@ -252,9 +267,11 @@ final class DisplayDeviceInfo {
 
     public void copyFrom(DisplayDeviceInfo other) {
         name = other.name;
+        uniqueId = other.uniqueId;
         width = other.width;
         height = other.height;
         refreshRate = other.refreshRate;
+        supportedRefreshRates = other.supportedRefreshRates;
         densityDpi = other.densityDpi;
         xDpi = other.xDpi;
         yDpi = other.yDpi;
@@ -275,9 +292,11 @@ final class DisplayDeviceInfo {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("DisplayDeviceInfo{\"");
-        sb.append(name).append("\": ").append(width).append(" x ").append(height);
-        sb.append(", ").append(refreshRate).append(" fps, ");
-        sb.append("density ").append(densityDpi);
+        sb.append(name).append("\": uniqueId=\"").append(uniqueId).append("\", ");
+        sb.append(width).append(" x ").append(height);
+        sb.append(", ").append(refreshRate).append(" fps");
+        sb.append(", supportedRefreshRates ").append(Arrays.toString(supportedRefreshRates));
+        sb.append(", density ").append(densityDpi);
         sb.append(", ").append(xDpi).append(" x ").append(yDpi).append(" dpi");
         sb.append(", appVsyncOff ").append(appVsyncOffsetNanos);
         sb.append(", presDeadline ").append(presentationDeadlineNanos);

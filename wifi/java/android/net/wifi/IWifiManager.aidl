@@ -18,12 +18,14 @@ package android.net.wifi;
 
 import android.net.wifi.BatchedScanResult;
 import android.net.wifi.BatchedScanSettings;
-import android.net.wifi.WifiAdapter;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.ScanSettings;
 import android.net.wifi.WifiChannel;
 import android.net.wifi.ScanResult;
+import android.net.wifi.WifiConnectionStatistics;
+import android.net.wifi.WifiActivityEnergyInfo;
+
 import android.net.DhcpInfo;
 
 
@@ -37,7 +39,9 @@ import android.os.WorkSource;
  */
 interface IWifiManager
 {
-    List<WifiAdapter> getAdaptors();
+    int getSupportedFeatures();
+
+    WifiActivityEnergyInfo reportActivityInfo();
 
     List<WifiConfiguration> getConfiguredNetworks();
 
@@ -56,6 +60,8 @@ interface IWifiManager
     List<WifiChannel> getChannelList();
 
     void startScan(in ScanSettings requested, in WorkSource ws);
+
+    void startLocationRestrictedScan(in WorkSource ws);
 
     List<ScanResult> getScanResults(String callingPackage);
 
@@ -146,5 +152,9 @@ interface IWifiManager
     int getAllowScansWithTraffic();
 
     void setAllowScansWithTraffic(int enabled);
+
+    WifiConnectionStatistics getConnectionStatistics();
+
+    void disableEphemeralNetwork(String SSID);
 }
 

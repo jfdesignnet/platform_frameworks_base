@@ -21,7 +21,6 @@ import static android.text.format.DateUtils.MINUTE_IN_MILLIS;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
-import android.app.ActivityThread;
 import android.app.IStopUserCallback;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -34,6 +33,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.Debug;
 import android.os.Environment;
 import android.os.FileUtils;
 import android.os.Handler;
@@ -92,6 +92,7 @@ public class UserManagerService extends IUserManager.Stub {
     private static final String ATTR_SERIAL_NO = "serialNumber";
     private static final String ATTR_NEXT_SERIAL_NO = "nextSerialNumber";
     private static final String ATTR_PARTIAL = "partial";
+    private static final String ATTR_GUEST_TO_REMOVE = "guestToRemove";
     private static final String ATTR_USER_VERSION = "version";
     private static final String ATTR_PROFILE_GROUP_ID = "profileGroupId";
     private static final String TAG_GUEST_RESTRICTIONS = "guestRestrictions";
@@ -118,12 +119,16 @@ public class UserManagerService extends IUserManager.Stub {
 
     private static final int MIN_USER_ID = 10;
 
-    private static final int USER_VERSION = 4;
+    private static final int USER_VERSION = 5;
 
     private static final long EPOCH_PLUS_30_YEARS = 30L * 365 * 24 * 60 * 60 * 1000L; // ms
 
     // Number of attempts before jumping to the next BACKOFF_TIMES slot
     private static final int BACKOFF_INC_INTERVAL = 5;
+
+    // Maximum number of managed profiles permitted is 1. This cannot be increased
+    // without first making sure that the rest of the framework is prepared for it.
+    private static final int MAX_MANAGED_PROFILES = 1;
 
     // Amount of time to force the user to wait before entering the PIN again, after failing
     // BACKOFF_INC_INTERVAL times.
@@ -219,12 +224,13 @@ public class UserManagerService extends IUserManager.Stub {
                         |FileUtils.S_IROTH|FileUtils.S_IXOTH,
                         -1, -1);
                 mUserListFile = new File(mUsersDir, USER_LIST_FILENAME);
+                initDefaultGuestRestrictions();
                 readUserListLocked();
                 // Prune out any partially created/partially removed users.
                 ArrayList<UserInfo> partials = new ArrayList<UserInfo>();
                 for (int i = 0; i < mUsers.size(); i++) {
                     UserInfo ui = mUsers.valueAt(i);
-                    if (ui.partial && i != 0) {
+                    if ((ui.partial || ui.guestToRemove) && i != 0) {
                         partials.add(ui);
                     }
                 }
@@ -289,6 +295,10 @@ public class UserManagerService extends IUserManager.Stub {
     private List<UserInfo> getProfilesLocked(int userId, boolean enabledOnly) {
         UserInfo user = getUserInfoLocked(userId);
         ArrayList<UserInfo> users = new ArrayList<UserInfo>(mUsers.size());
+        if (user == null) {
+            // Probably a dying user
+            return users;
+        }
         for (int i = 0; i < mUsers.size(); i++) {
             UserInfo profile = mUsers.valueAt(i);
             if (!isProfileOf(user, profile)) {
@@ -310,6 +320,9 @@ public class UserManagerService extends IUserManager.Stub {
         checkManageUsersPermission("get the profile parent");
         synchronized (mPackagesLock) {
             UserInfo profile = getUserInfoLocked(userHandle);
+            if (profile == null) {
+                return null;
+            }
             int parentUserId = profile.profileGroupId;
             if (parentUserId == UserInfo.NO_PROFILE_GROUP_ID) {
                 return null;
@@ -453,6 +466,17 @@ public class UserManagerService extends IUserManager.Stub {
         }
     }
 
+    /**
+     * If default guest restrictions haven't been initialized yet, add the basic
+     * restrictions.
+     */
+    private void initDefaultGuestRestrictions() {
+        if (mGuestRestrictions.isEmpty()) {
+            mGuestRestrictions.putBoolean(UserManager.DISALLOW_OUTGOING_CALLS, true);
+            mGuestRestrictions.putBoolean(UserManager.DISALLOW_SMS, true);
+        }
+    }
+
     @Override
     public Bundle getDefaultGuestRestrictions() {
         checkManageUsersPermission("getDefaultGuestRestrictions");
@@ -468,6 +492,14 @@ public class UserManagerService extends IUserManager.Stub {
             mGuestRestrictions.clear();
             mGuestRestrictions.putAll(restrictions);
             writeUserListLocked();
+        }
+    }
+
+    @Override
+    public boolean hasUserRestriction(String restrictionKey, int userId) {
+        synchronized (mPackagesLock) {
+            Bundle restrictions = mUserRestrictions.get(userId);
+            return restrictions != null ? restrictions.getBoolean(restrictionKey) : false;
         }
     }
 
@@ -510,7 +542,8 @@ public class UserManagerService extends IUserManager.Stub {
         // Skip over users being removed
         for (int i = 0; i < totalUserCount; i++) {
             UserInfo user = mUsers.valueAt(i);
-            if (!mRemovingUserIds.get(user.id)) {
+            if (!mRemovingUserIds.get(user.id)
+                    && !user.isGuest() && !user.partial) {
                 aliveUserCount++;
             }
         }
@@ -624,8 +657,15 @@ public class UserManagerService extends IUserManager.Stub {
                             }
                         }
                     } else if (name.equals(TAG_GUEST_RESTRICTIONS)) {
-                        mGuestRestrictions.clear();
-                        readRestrictionsLocked(parser, mGuestRestrictions);
+                        while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
+                                && type != XmlPullParser.END_TAG) {
+                            if (type == XmlPullParser.START_TAG) {
+                                if (parser.getName().equals(TAG_RESTRICTIONS)) {
+                                    readRestrictionsLocked(parser, mGuestRestrictions);
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -675,6 +715,11 @@ public class UserManagerService extends IUserManager.Stub {
             userVersion = 4;
         }
 
+        if (userVersion < 5) {
+            initDefaultGuestRestrictions();
+            userVersion = 5;
+        }
+
         if (userVersion < USER_VERSION) {
             Slog.w(LOG_TAG, "User version " + mUserVersion + " didn't upgrade as expected to "
                     + USER_VERSION);
@@ -697,6 +742,7 @@ public class UserManagerService extends IUserManager.Stub {
         mUserRestrictions.append(UserHandle.USER_OWNER, restrictions);
 
         updateUserIdsLocked();
+        initDefaultGuestRestrictions();
 
         writeUserListLocked();
         writeUserLocked(primary);
@@ -750,6 +796,9 @@ public class UserManagerService extends IUserManager.Stub {
             if (userInfo.partial) {
                 serializer.attribute(null, ATTR_PARTIAL, "true");
             }
+            if (userInfo.guestToRemove) {
+                serializer.attribute(null, ATTR_GUEST_TO_REMOVE, "true");
+            }
             if (userInfo.profileGroupId != UserInfo.NO_PROFILE_GROUP_ID) {
                 serializer.attribute(null, ATTR_PROFILE_GROUP_ID,
                         Integer.toString(userInfo.profileGroupId));
@@ -797,7 +846,7 @@ public class UserManagerService extends IUserManager.Stub {
             serializer.attribute(null, ATTR_NEXT_SERIAL_NO, Integer.toString(mNextSerialNumber));
             serializer.attribute(null, ATTR_USER_VERSION, Integer.toString(mUserVersion));
 
-            serializer.startTag(null,  TAG_GUEST_RESTRICTIONS);
+            serializer.startTag(null, TAG_GUEST_RESTRICTIONS);
             writeRestrictionsLocked(serializer, mGuestRestrictions);
             serializer.endTag(null, TAG_GUEST_RESTRICTIONS);
             for (int i = 0; i < mUsers.size(); i++) {
@@ -846,6 +895,8 @@ public class UserManagerService extends IUserManager.Stub {
         writeBoolean(serializer, restrictions, UserManager.DISALLOW_OUTGOING_CALLS);
         writeBoolean(serializer, restrictions, UserManager.DISALLOW_SMS);
         writeBoolean(serializer, restrictions, UserManager.DISALLOW_CREATE_WINDOWS);
+        writeBoolean(serializer, restrictions, UserManager.DISALLOW_CROSS_PROFILE_COPY_PASTE);
+        writeBoolean(serializer, restrictions, UserManager.DISALLOW_OUTGOING_BEAM);
         serializer.endTag(null, TAG_RESTRICTIONS);
     }
 
@@ -862,6 +913,7 @@ public class UserManagerService extends IUserManager.Stub {
         int profileGroupId = UserInfo.NO_PROFILE_GROUP_ID;
         long lastAttemptTime = 0L;
         boolean partial = false;
+        boolean guestToRemove = false;
         Bundle restrictions = new Bundle();
 
         FileInputStream fis = null;
@@ -909,6 +961,10 @@ public class UserManagerService extends IUserManager.Stub {
                 if ("true".equals(valueString)) {
                     partial = true;
                 }
+                valueString = parser.getAttributeValue(null, ATTR_GUEST_TO_REMOVE);
+                if ("true".equals(valueString)) {
+                    guestToRemove = true;
+                }
 
                 int outerDepth = parser.getDepth();
                 while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
@@ -933,6 +989,7 @@ public class UserManagerService extends IUserManager.Stub {
             userInfo.creationTime = creationTime;
             userInfo.lastLoggedInTime = lastLoggedInTime;
             userInfo.partial = partial;
+            userInfo.guestToRemove = guestToRemove;
             userInfo.profileGroupId = profileGroupId;
             mUserRestrictions.append(id, restrictions);
             if (salt != 0L) {
@@ -990,6 +1047,8 @@ public class UserManagerService extends IUserManager.Stub {
         readBoolean(parser, restrictions, UserManager.DISALLOW_OUTGOING_CALLS);
         readBoolean(parser, restrictions, UserManager.DISALLOW_SMS);
         readBoolean(parser, restrictions, UserManager.DISALLOW_CREATE_WINDOWS);
+        readBoolean(parser, restrictions, UserManager.DISALLOW_CROSS_PROFILE_COPY_PASTE);
+        readBoolean(parser, restrictions, UserManager.DISALLOW_OUTGOING_BEAM);
     }
 
     private void readBoolean(XmlPullParser parser, Bundle restrictions,
@@ -1093,6 +1152,7 @@ public class UserManagerService extends IUserManager.Stub {
             Log.w(LOG_TAG, "Cannot add user. DISALLOW_ADD_USER is enabled.");
             return null;
         }
+        final boolean isGuest = (flags & UserInfo.FLAG_GUEST) != 0;
         final long ident = Binder.clearCallingIdentity();
         UserInfo userInfo = null;
         try {
@@ -1103,7 +1163,21 @@ public class UserManagerService extends IUserManager.Stub {
                         parent = getUserInfoLocked(parentId);
                         if (parent == null) return null;
                     }
-                    if (isUserLimitReachedLocked()) return null;
+                    // If we're not adding a guest user and the limit has been reached,
+                    // cannot add a user.
+                    if (!isGuest && isUserLimitReachedLocked()) {
+                        return null;
+                    }
+                    // If we're adding a guest and there already exists one, bail.
+                    if (isGuest && findCurrentGuestUserLocked() != null) {
+                        return null;
+                    }
+                    // Limit number of managed profiles that can be created
+                    if ((flags & UserInfo.FLAG_MANAGED_PROFILE) != 0
+                            && numberOfUsersOfTypeLocked(UserInfo.FLAG_MANAGED_PROFILE, true)
+                                >= MAX_MANAGED_PROFILES) {
+                        return null;
+                    }
                     int userId = getNextAvailableIdLocked();
                     userInfo = new UserInfo(userId, name, null, flags);
                     File userPath = new File(mBaseUserPath, Integer.toString(userId));
@@ -1142,6 +1216,78 @@ public class UserManagerService extends IUserManager.Stub {
         return userInfo;
     }
 
+    private int numberOfUsersOfTypeLocked(int flags, boolean excludeDying) {
+        int count = 0;
+        for (int i = mUsers.size() - 1; i >= 0; i--) {
+            UserInfo user = mUsers.valueAt(i);
+            if (!excludeDying || !mRemovingUserIds.get(user.id)) {
+                if ((user.flags & flags) != 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Find the current guest user. If the Guest user is partial,
+     * then do not include it in the results as it is about to die.
+     * This is different than {@link #numberOfUsersOfTypeLocked(int, boolean)} due to
+     * the special handling of Guests being removed.
+     */
+    private UserInfo findCurrentGuestUserLocked() {
+        final int size = mUsers.size();
+        for (int i = 0; i < size; i++) {
+            final UserInfo user = mUsers.valueAt(i);
+            if (user.isGuest() && !user.guestToRemove && !mRemovingUserIds.get(user.id)) {
+                return user;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Mark this guest user for deletion to allow us to create another guest
+     * and switch to that user before actually removing this guest.
+     * @param userHandle the userid of the current guest
+     * @return whether the user could be marked for deletion
+     */
+    public boolean markGuestForDeletion(int userHandle) {
+        checkManageUsersPermission("Only the system can remove users");
+        if (getUserRestrictions(UserHandle.getCallingUserId()).getBoolean(
+                UserManager.DISALLOW_REMOVE_USER, false)) {
+            Log.w(LOG_TAG, "Cannot remove user. DISALLOW_REMOVE_USER is enabled.");
+            return false;
+        }
+
+        long ident = Binder.clearCallingIdentity();
+        try {
+            final UserInfo user;
+            synchronized (mPackagesLock) {
+                user = mUsers.get(userHandle);
+                if (userHandle == 0 || user == null || mRemovingUserIds.get(userHandle)) {
+                    return false;
+                }
+                if (!user.isGuest()) {
+                    return false;
+                }
+                // We set this to a guest user that is to be removed. This is a temporary state
+                // where we are allowed to add new Guest users, even if this one is still not
+                // removed. This user will still show up in getUserInfo() calls.
+                // If we don't get around to removing this Guest user, it will be purged on next
+                // startup.
+                user.guestToRemove = true;
+                // Mark it as disabled, so that it isn't returned any more when
+                // profiles are queried.
+                user.flags |= UserInfo.FLAG_DISABLED;
+                writeUserLocked(user);
+            }
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+        return true;
+    }
+
     /**
      * Removes a user and all data directories created for that user. This method should be called
      * after the user's processes have been terminated.
@@ -1163,7 +1309,12 @@ public class UserManagerService extends IUserManager.Stub {
                 if (userHandle == 0 || user == null || mRemovingUserIds.get(userHandle)) {
                     return false;
                 }
+
+                // We remember deleted user IDs to prevent them from being
+                // reused during the current boot; they can still be reused
+                // after a reboot.
                 mRemovingUserIds.put(userHandle, true);
+
                 try {
                     mAppOpsService.removeUser(userHandle);
                 } catch (RemoteException e) {
@@ -1247,22 +1398,10 @@ public class UserManagerService extends IUserManager.Stub {
 
     private void removeUserStateLocked(final int userHandle) {
         // Cleanup package manager settings
-        mPm.cleanUpUserLILPw(userHandle);
+        mPm.cleanUpUserLILPw(this, userHandle);
 
         // Remove this user from the list
         mUsers.remove(userHandle);
-
-        // Have user ID linger for several seconds to let external storage VFS
-        // cache entries expire. This must be greater than the 'entry_valid'
-        // timeout used by the FUSE daemon.
-        mHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                synchronized (mPackagesLock) {
-                    mRemovingUserIds.delete(userHandle);
-                }
-            }
-        }, MINUTE_IN_MILLIS);
 
         mRestrictionsPinStates.remove(userHandle);
         // Remove user file
@@ -1543,6 +1682,7 @@ public class UserManagerService extends IUserManager.Stub {
                     String valType = parser.getAttributeValue(null, ATTR_VALUE_TYPE);
                     String multiple = parser.getAttributeValue(null, ATTR_MULTIPLE);
                     if (multiple != null) {
+                        values.clear();
                         int count = Integer.parseInt(multiple);
                         while (count > 0 && (type = parser.next()) != XmlPullParser.END_DOCUMENT) {
                             if (type == XmlPullParser.START_TAG

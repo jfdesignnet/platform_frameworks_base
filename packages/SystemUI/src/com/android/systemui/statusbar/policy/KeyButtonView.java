@@ -18,10 +18,12 @@ package com.android.systemui.statusbar.policy;
 
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.res.TypedArray;
-import android.graphics.drawable.Drawable;
 import android.hardware.input.InputManager;
+import android.media.AudioManager;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -31,17 +33,23 @@ import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SoundEffectConstants;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ImageView;
 
 import com.android.systemui.R;
+
+import static android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK;
+import static android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK;
 
 public class KeyButtonView extends ImageView {
     private static final String TAG = "StatusBar.KeyButtonView";
     private static final boolean DEBUG = false;
 
-    public static final float DEFAULT_QUIESCENT_ALPHA = 0.70f;
+    // TODO: Get rid of this
+    public static final float DEFAULT_QUIESCENT_ALPHA = 1f;
 
     private long mDownTime;
     private int mCode;
@@ -49,21 +57,20 @@ public class KeyButtonView extends ImageView {
     private float mDrawingAlpha = 1f;
     private float mQuiescentAlpha = DEFAULT_QUIESCENT_ALPHA;
     private boolean mSupportsLongpress = true;
+    private AudioManager mAudioManager;
     private Animator mAnimateToQuiescent = new ObjectAnimator();
-    private Drawable mBackground;
 
     private final Runnable mCheckLongPress = new Runnable() {
         public void run() {
             if (isPressed()) {
                 // Log.d("KeyButtonView", "longpressed: " + this);
-                if (mCode != 0) {
-                    sendEvent(KeyEvent.ACTION_DOWN, KeyEvent.FLAG_LONG_PRESS);
-                    sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_LONG_CLICKED);
-                } else {
+                if (isLongClickable()) {
                     // Just an old-fashioned ImageView
                     performLongClick();
+                } else {
+                    sendEvent(KeyEvent.ACTION_DOWN, KeyEvent.FLAG_LONG_PRESS);
+                    sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_LONG_CLICKED);
                 }
-                setPressed(false);
             }
         }
     };
@@ -82,11 +89,6 @@ public class KeyButtonView extends ImageView {
 
         mSupportsLongpress = a.getBoolean(R.styleable.KeyButtonView_keyRepeat, true);
 
-        Drawable d = getBackground();
-        if (d != null) {
-            mBackground = d.mutate();
-            setBackground(mBackground);
-        }
 
         setDrawingAlpha(mQuiescentAlpha);
 
@@ -94,6 +96,45 @@ public class KeyButtonView extends ImageView {
 
         setClickable(true);
         mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        setBackground(new KeyButtonRipple(context, this));
+    }
+
+    @Override
+    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (mCode != 0) {
+            info.addAction(new AccessibilityNodeInfo.AccessibilityAction(ACTION_CLICK, null));
+            if (mSupportsLongpress) {
+                info.addAction(
+                        new AccessibilityNodeInfo.AccessibilityAction(ACTION_LONG_CLICK, null));
+            }
+        }
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility != View.VISIBLE) {
+            jumpDrawablesToCurrentState();
+        }
+    }
+
+    @Override
+    public boolean performAccessibilityAction(int action, Bundle arguments) {
+        if (action == ACTION_CLICK && mCode != 0) {
+            sendEvent(KeyEvent.ACTION_DOWN, 0, SystemClock.uptimeMillis());
+            sendEvent(KeyEvent.ACTION_UP, 0);
+            sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);
+            playSoundEffect(SoundEffectConstants.CLICK);
+            return true;
+        } else if (action == ACTION_LONG_CLICK && mCode != 0 && mSupportsLongpress) {
+            sendEvent(KeyEvent.ACTION_DOWN, KeyEvent.FLAG_LONG_PRESS);
+            sendEvent(KeyEvent.ACTION_UP, 0);
+            sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_LONG_CLICKED);
+            return true;
+        }
+        return super.performAccessibilityAction(action, arguments);
     }
 
     public void setQuiescentAlpha(float alpha, boolean animate) {
@@ -102,7 +143,7 @@ public class KeyButtonView extends ImageView {
         if (alpha == mQuiescentAlpha && alpha == mDrawingAlpha) return;
         mQuiescentAlpha = alpha;
         if (DEBUG) Log.d(TAG, "New quiescent alpha = " + mQuiescentAlpha);
-        if (mBackground != null && animate) {
+        if (animate) {
             mAnimateToQuiescent = animateToQuiescent();
             mAnimateToQuiescent.start();
         } else {
@@ -124,32 +165,7 @@ public class KeyButtonView extends ImageView {
 
     public void setDrawingAlpha(float x) {
         setImageAlpha((int) (x * 255));
-        if (mBackground != null) {
-            mBackground.setAlpha((int)(x * 255));
-        }
         mDrawingAlpha = x;
-    }
-
-    public void setPressed(boolean pressed) {
-        if (mBackground != null) {
-            if (pressed != isPressed()) {
-                if (pressed) {
-                    setDrawingAlpha(1f);
-                } else {
-                    mAnimateToQuiescent.cancel();
-                    mAnimateToQuiescent = animateToQuiescent();
-                    mAnimateToQuiescent.setDuration(500);
-                    mAnimateToQuiescent.start();
-                }
-            }
-        }
-        super.setPressed(pressed);
-    }
-
-    private void setHotspot(float x, float y) {
-        if (mBackground != null) {
-            mBackground.setHotspot(x, y);
-        }
     }
 
     public boolean onTouchEvent(MotionEvent ev) {
@@ -171,7 +187,6 @@ public class KeyButtonView extends ImageView {
                     removeCallbacks(mCheckLongPress);
                     postDelayed(mCheckLongPress, ViewConfiguration.getLongPressTimeout());
                 }
-                setHotspot(ev.getX(), ev.getY());
                 break;
             case MotionEvent.ACTION_MOVE:
                 x = (int)ev.getX();
@@ -180,7 +195,6 @@ public class KeyButtonView extends ImageView {
                         && x < getWidth() + mTouchSlop
                         && y >= -mTouchSlop
                         && y < getHeight() + mTouchSlop);
-                setHotspot(ev.getX(), ev.getY());
                 break;
             case MotionEvent.ACTION_CANCEL:
                 setPressed(false);
@@ -217,7 +231,11 @@ public class KeyButtonView extends ImageView {
         return true;
     }
 
-    void sendEvent(int action, int flags) {
+    public void playSoundEffect(int soundConstant) {
+        mAudioManager.playSoundEffect(soundConstant, ActivityManager.getCurrentUser());
+    };
+
+    public void sendEvent(int action, int flags) {
         sendEvent(action, flags, SystemClock.uptimeMillis());
     }
 

@@ -31,7 +31,6 @@ namespace uirenderer {
 
 DisplayListData::DisplayListData()
         : projectionReceiveIndex(-1)
-        , functorCount(0)
         , hasDrawOps(false) {
 }
 
@@ -40,33 +39,28 @@ DisplayListData::~DisplayListData() {
 }
 
 void DisplayListData::cleanupResources() {
-    Caches& caches = Caches::getInstance();
-    caches.unregisterFunctors(functorCount);
-    caches.resourceCache.lock();
+    ResourceCache& resourceCache = ResourceCache::getInstance();
+    resourceCache.lock();
 
     for (size_t i = 0; i < bitmapResources.size(); i++) {
-        caches.resourceCache.decrementRefcountLocked(bitmapResources.itemAt(i));
+        resourceCache.decrementRefcountLocked(bitmapResources.itemAt(i));
     }
 
     for (size_t i = 0; i < ownedBitmapResources.size(); i++) {
         const SkBitmap* bitmap = ownedBitmapResources.itemAt(i);
-        caches.resourceCache.decrementRefcountLocked(bitmap);
-        caches.resourceCache.destructorLocked(bitmap);
+        resourceCache.decrementRefcountLocked(bitmap);
+        resourceCache.destructorLocked(bitmap);
     }
 
     for (size_t i = 0; i < patchResources.size(); i++) {
-        caches.resourceCache.decrementRefcountLocked(patchResources.itemAt(i));
+        resourceCache.decrementRefcountLocked(patchResources.itemAt(i));
     }
 
     for (size_t i = 0; i < sourcePaths.size(); i++) {
-        caches.resourceCache.decrementRefcountLocked(sourcePaths.itemAt(i));
+        resourceCache.decrementRefcountLocked(sourcePaths.itemAt(i));
     }
 
-    for (size_t i = 0; i < layers.size(); i++) {
-        caches.resourceCache.decrementRefcountLocked(layers.itemAt(i));
-    }
-
-    caches.resourceCache.unlock();
+    resourceCache.unlock();
 
     for (size_t i = 0; i < paints.size(); i++) {
         delete paints.itemAt(i);
@@ -87,14 +81,11 @@ void DisplayListData::cleanupResources() {
     paints.clear();
     regions.clear();
     paths.clear();
-    layers.clear();
 }
 
-void DisplayListData::addChild(DrawRenderNodeOp* op) {
-    LOG_ALWAYS_FATAL_IF(!op->renderNode(), "DrawRenderNodeOp with no render node!");
-
-    mChildren.push(op);
+size_t DisplayListData::addChild(DrawRenderNodeOp* op) {
     mReferenceHolders.push(op->renderNode());
+    return mChildren.add(op);
 }
 
 }; // namespace uirenderer

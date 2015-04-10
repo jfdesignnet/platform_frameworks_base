@@ -29,7 +29,7 @@ import android.hardware.display.DisplayViewport;
 import android.hardware.display.DisplayManagerInternal.DisplayTransactionListener;
 import android.hardware.display.IDisplayManager;
 import android.hardware.display.IDisplayManagerCallback;
-import android.hardware.display.IVirtualDisplayCallbacks;
+import android.hardware.display.IVirtualDisplayCallback;
 import android.hardware.display.WifiDisplayStatus;
 import android.hardware.input.InputManagerInternal;
 import android.media.projection.IMediaProjection;
@@ -63,6 +63,7 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -214,6 +215,11 @@ public final class DisplayManagerService extends SystemService {
     private final DisplayViewport mTempDefaultViewport = new DisplayViewport();
     private final DisplayViewport mTempExternalTouchViewport = new DisplayViewport();
 
+    // Temporary list of deferred work to perform when setting the display state.
+    // Only used by requestDisplayState.  The field is self-synchronized and only
+    // intended for use inside of the requestGlobalDisplayStateInternal function.
+    private final ArrayList<Runnable> mTempDisplayStateWorkQueue = new ArrayList<Runnable>();
+
     public DisplayManagerService(Context context) {
         super(context);
         mContext = context;
@@ -318,11 +324,26 @@ public final class DisplayManagerService extends SystemService {
     }
 
     private void requestGlobalDisplayStateInternal(int state) {
-        synchronized (mSyncRoot) {
-            if (mGlobalDisplayState != state) {
-                mGlobalDisplayState = state;
-                updateGlobalDisplayStateLocked();
-                scheduleTraversalLocked(false);
+        synchronized (mTempDisplayStateWorkQueue) {
+            try {
+                // Update the display state within the lock.
+                synchronized (mSyncRoot) {
+                    if (mGlobalDisplayState != state) {
+                        mGlobalDisplayState = state;
+                        updateGlobalDisplayStateLocked(mTempDisplayStateWorkQueue);
+                        scheduleTraversalLocked(false);
+                    }
+                }
+
+                // Setting the display power state can take hundreds of milliseconds
+                // to complete so we defer the most expensive part of the work until
+                // after we have exited the critical section to avoid blocking other
+                // threads for a long time.
+                for (int i = 0; i < mTempDisplayStateWorkQueue.size(); i++) {
+                    mTempDisplayStateWorkQueue.get(i).run();
+                }
+            } finally {
+                mTempDisplayStateWorkQueue.clear();
             }
         }
     }
@@ -427,7 +448,7 @@ public final class DisplayManagerService extends SystemService {
                     mWifiDisplayAdapter.requestStopScanLocked();
                 }
             } else if (mWifiDisplayScanRequestCount < 0) {
-                Log.wtf(TAG, "mWifiDisplayScanRequestCount became negative: "
+                Slog.wtf(TAG, "mWifiDisplayScanRequestCount became negative: "
                         + mWifiDisplayScanRequestCount);
                 mWifiDisplayScanRequestCount = 0;
             }
@@ -491,7 +512,7 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
-    private int createVirtualDisplayInternal(IVirtualDisplayCallbacks callbacks,
+    private int createVirtualDisplayInternal(IVirtualDisplayCallback callback,
             IMediaProjection projection, int callingUid, String packageName,
             String name, int width, int height, int densityDpi, Surface surface, int flags) {
         synchronized (mSyncRoot) {
@@ -502,7 +523,7 @@ public final class DisplayManagerService extends SystemService {
             }
 
             DisplayDevice device = mVirtualDisplayAdapter.createVirtualDisplayLocked(
-                    callbacks, projection, callingUid, packageName,
+                    callback, projection, callingUid, packageName,
                     name, width, height, densityDpi, surface, flags);
             if (device == null) {
                 return -1;
@@ -517,10 +538,21 @@ public final class DisplayManagerService extends SystemService {
             // Something weird happened and the logical display was not created.
             Slog.w(TAG, "Rejecting request to create virtual display "
                     + "because the logical display was not created.");
-            mVirtualDisplayAdapter.releaseVirtualDisplayLocked(callbacks.asBinder());
+            mVirtualDisplayAdapter.releaseVirtualDisplayLocked(callback.asBinder());
             handleDisplayDeviceRemovedLocked(device);
         }
         return -1;
+    }
+
+    private void resizeVirtualDisplayInternal(IBinder appToken,
+            int width, int height, int densityDpi) {
+        synchronized (mSyncRoot) {
+            if (mVirtualDisplayAdapter == null) {
+                return;
+            }
+
+            mVirtualDisplayAdapter.resizeVirtualDisplayLocked(appToken, width, height, densityDpi);
+        }
     }
 
     private void setVirtualDisplaySurfaceInternal(IBinder appToken, Surface surface) {
@@ -619,7 +651,10 @@ public final class DisplayManagerService extends SystemService {
 
         mDisplayDevices.add(device);
         addLogicalDisplayLocked(device);
-        updateDisplayStateLocked(device);
+        Runnable work = updateDisplayStateLocked(device);
+        if (work != null) {
+            work.run();
+        }
         scheduleTraversalLocked(false);
     }
 
@@ -658,21 +693,25 @@ public final class DisplayManagerService extends SystemService {
         scheduleTraversalLocked(false);
     }
 
-    private void updateGlobalDisplayStateLocked() {
+    private void updateGlobalDisplayStateLocked(List<Runnable> workQueue) {
         final int count = mDisplayDevices.size();
         for (int i = 0; i < count; i++) {
             DisplayDevice device = mDisplayDevices.get(i);
-            updateDisplayStateLocked(device);
+            Runnable runnable = updateDisplayStateLocked(device);
+            if (runnable != null) {
+                workQueue.add(runnable);
+            }
         }
     }
 
-    private void updateDisplayStateLocked(DisplayDevice device) {
+    private Runnable updateDisplayStateLocked(DisplayDevice device) {
         // Blank or unblank the display immediately to match the state requested
         // by the display power controller (if known).
         DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
         if ((info.flags & DisplayDeviceInfo.FLAG_NEVER_BLANK) == 0) {
-            device.requestDisplayStateLocked(mGlobalDisplayState);
+            return device.requestDisplayStateLocked(mGlobalDisplayState);
         }
+        return null;
     }
 
     // Adds a new logical display based on the given display device.
@@ -766,17 +805,28 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
-    private void setDisplayHasContentInternal(int displayId, boolean hasContent,
-            boolean inTraversal) {
+    private void setDisplayPropertiesInternal(int displayId, boolean hasContent,
+            float requestedRefreshRate, boolean inTraversal) {
         synchronized (mSyncRoot) {
             LogicalDisplay display = mLogicalDisplays.get(displayId);
-            if (display != null && display.hasContentLocked() != hasContent) {
+            if (display == null) {
+                return;
+            }
+            if (display.hasContentLocked() != hasContent) {
                 if (DEBUG) {
                     Slog.d(TAG, "Display " + displayId + " hasContent flag changed: "
                             + "hasContent=" + hasContent + ", inTraversal=" + inTraversal);
                 }
 
                 display.setHasContentLocked(hasContent);
+                scheduleTraversalLocked(inTraversal);
+            }
+            if (display.getRequestedRefreshRateLocked() != requestedRefreshRate) {
+                if (DEBUG) {
+                    Slog.d(TAG, "Display " + displayId + " has requested a new refresh rate: "
+                            + requestedRefreshRate + "fps");
+                }
+                display.setRequestedRefreshRateLocked(requestedRefreshRate);
                 scheduleTraversalLocked(inTraversal);
             }
         }
@@ -1229,14 +1279,14 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override // Binder call
-        public int createVirtualDisplay(IVirtualDisplayCallbacks callbacks,
+        public int createVirtualDisplay(IVirtualDisplayCallback callback,
                 IMediaProjection projection, String packageName, String name,
                 int width, int height, int densityDpi, Surface surface, int flags) {
             final int callingUid = Binder.getCallingUid();
             if (!validatePackageName(callingUid, packageName)) {
                 throw new SecurityException("packageName must match the calling uid");
             }
-            if (callbacks == null) {
+            if (callback == null) {
                 throw new IllegalArgumentException("appToken must not be null");
             }
             if (TextUtils.isEmpty(name)) {
@@ -1247,43 +1297,31 @@ public final class DisplayManagerService extends SystemService {
                         + "greater than 0");
             }
 
+            if ((flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC) != 0) {
+                flags |= DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
+            }
+            if ((flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY) != 0) {
+                flags &= ~DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
+            }
+
             if (projection != null) {
                 try {
                     if (!getProjectionService().isValidMediaProjection(projection)) {
                         throw new SecurityException("Invalid media projection");
                     }
+                    flags = projection.applyVirtualDisplayFlags(flags);
                 } catch (RemoteException e) {
-                    throw new SecurityException("unable to validate media projection");
-                }
-                flags &= DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE;
-                try {
-                    flags |= projection.getVirtualDisplayFlags();
-                } catch (RemoteException e) {
-                    throw new RuntimeException("unable to retrieve media projection flags");
+                    throw new SecurityException("unable to validate media projection or flags");
                 }
             }
 
-            if ((flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_SCREEN_SHARE) != 0) {
-                if ((flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC) != 0 ||
-                        (flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION) != 0) {
-                    throw new IllegalArgumentException("screen sharing virtual displays must not "
-                            + "be public or presentation displays");
-                }
+            if (callingUid != Process.SYSTEM_UID &&
+                    (flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR) != 0) {
                 if (!canProjectVideo(projection)) {
                     throw new SecurityException("Requires CAPTURE_VIDEO_OUTPUT or "
                             + "CAPTURE_SECURE_VIDEO_OUTPUT permission, or an appropriate "
                             + "MediaProjection token in order to create a screen sharing virtual "
                             + "display.");
-                }
-            }
-
-
-            if (callingUid != Process.SYSTEM_UID &&
-                    (flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC) != 0) {
-                if (!canProjectVideo(projection)) {
-                    throw new SecurityException("Requires CAPTURE_VIDEO_OUTPUT or "
-                            + "CAPTURE_SECURE_VIDEO_OUTPUT permission, or an appropriate "
-                            + "MediaProjection token to create a public virtual display.");
                 }
             }
             if ((flags & DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE) != 0) {
@@ -1296,7 +1334,7 @@ public final class DisplayManagerService extends SystemService {
 
             final long token = Binder.clearCallingIdentity();
             try {
-                return createVirtualDisplayInternal(callbacks, projection, callingUid,
+                return createVirtualDisplayInternal(callback, projection, callingUid,
                         packageName, name, width, height, densityDpi, surface, flags);
             } finally {
                 Binder.restoreCallingIdentity(token);
@@ -1304,20 +1342,31 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override // Binder call
-        public void setVirtualDisplaySurface(IVirtualDisplayCallbacks callbacks, Surface surface) {
+        public void resizeVirtualDisplay(IVirtualDisplayCallback callback,
+                int width, int height, int densityDpi) {
             final long token = Binder.clearCallingIdentity();
             try {
-                setVirtualDisplaySurfaceInternal(callbacks.asBinder(), surface);
+                resizeVirtualDisplayInternal(callback.asBinder(), width, height, densityDpi);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
         }
 
         @Override // Binder call
-        public void releaseVirtualDisplay(IVirtualDisplayCallbacks callbacks) {
+        public void setVirtualDisplaySurface(IVirtualDisplayCallback callback, Surface surface) {
             final long token = Binder.clearCallingIdentity();
             try {
-                releaseVirtualDisplayInternal(callbacks.asBinder());
+                setVirtualDisplaySurfaceInternal(callback.asBinder(), surface);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public void releaseVirtualDisplay(IVirtualDisplayCallback callback) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                releaseVirtualDisplayInternal(callback.asBinder());
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -1460,8 +1509,9 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override
-        public void setDisplayHasContent(int displayId, boolean hasContent, boolean inTraversal) {
-            setDisplayHasContentInternal(displayId, hasContent, inTraversal);
+        public void setDisplayProperties(int displayId, boolean hasContent,
+                float requestedRefreshRate, boolean inTraversal) {
+            setDisplayPropertiesInternal(displayId, hasContent, requestedRefreshRate, inTraversal);
         }
     }
 }

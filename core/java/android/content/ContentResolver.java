@@ -27,6 +27,7 @@ import android.database.ContentObserver;
 import android.database.CrossProcessCursorWrapper;
 import android.database.Cursor;
 import android.database.IContentObserver;
+import android.graphics.Point;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.CancellationSignal;
@@ -159,6 +160,17 @@ public abstract class ContentResolver {
     public static final String SCHEME_CONTENT = "content";
     public static final String SCHEME_ANDROID_RESOURCE = "android.resource";
     public static final String SCHEME_FILE = "file";
+
+    /**
+     * An extra {@link Point} describing the optimal size for a requested image
+     * resource, in pixels. If a provider has multiple sizes of the image, it
+     * should return the image closest to this size.
+     *
+     * @see #openTypedAssetFileDescriptor(Uri, String, Bundle)
+     * @see #openTypedAssetFileDescriptor(Uri, String, Bundle,
+     *      CancellationSignal)
+     */
+    public static final String EXTRA_SIZE = "android.content.extra.SIZE";
 
     /**
      * This is the Android platform's base MIME type for a content: URI
@@ -329,7 +341,7 @@ public abstract class ContentResolver {
 
         try {
             String type = ActivityManagerNative.getDefault().getProviderMimeType(
-                    url, UserHandle.myUserId());
+                    ContentProvider.getUriWithoutUserId(url), resolveUserId(url));
             return type;
         } catch (RemoteException e) {
             // Arbitrary and not worth documenting, as Activity
@@ -1612,7 +1624,7 @@ public abstract class ContentResolver {
      * @see #requestSync(android.accounts.Account, String, android.os.Bundle)
      */
     public void notifyChange(Uri uri, ContentObserver observer, boolean syncToNetwork) {
-        notifyChange(uri, observer, syncToNetwork, UserHandle.getCallingUserId());
+        notifyChange(uri, observer, syncToNetwork, UserHandle.myUserId());
     }
 
     /**
@@ -1751,7 +1763,7 @@ public abstract class ContentResolver {
      * @param extras any extras to pass to the SyncAdapter.
      */
     public static void requestSync(Account account, String authority, Bundle extras) {
-        requestSyncAsUser(account, authority, UserHandle.getCallingUserId(), extras);
+        requestSyncAsUser(account, authority, UserHandle.myUserId(), extras);
     }
 
     /**
@@ -1926,7 +1938,7 @@ public abstract class ContentResolver {
      * @param sync true if the provider should be synced when tickles are received for it
      */
     public static void setSyncAutomatically(Account account, String authority, boolean sync) {
-        setSyncAutomaticallyAsUser(account, authority, sync, UserHandle.getCallingUserId());
+        setSyncAutomaticallyAsUser(account, authority, sync, UserHandle.myUserId());
     }
 
     /**
@@ -2153,7 +2165,7 @@ public abstract class ContentResolver {
      * @param sync the master auto-sync setting that applies to all the providers and accounts
      */
     public static void setMasterSyncAutomatically(boolean sync) {
-        setMasterSyncAutomaticallyAsUser(sync, UserHandle.getCallingUserId());
+        setMasterSyncAutomaticallyAsUser(sync, UserHandle.myUserId());
     }
 
     /**
@@ -2285,7 +2297,7 @@ public abstract class ContentResolver {
      * @return true if there is a pending sync with the matching account and authority
      */
     public static boolean isSyncPending(Account account, String authority) {
-        return isSyncPendingAsUser(account, authority, UserHandle.getCallingUserId());
+        return isSyncPendingAsUser(account, authority, UserHandle.myUserId());
     }
 
     /**

@@ -107,7 +107,7 @@ public class ArrayUtils
             return (T[]) EmptyArray.OBJECT;
         }
 
-        int bucket = ((System.identityHashCode(kind) / 8) & 0x7FFFFFFF) % CACHE_SIZE;
+        int bucket = (kind.hashCode() & 0x7FFFFFFF) % CACHE_SIZE;
         Object cache = sCache[bucket];
 
         if (cache == null || cache.getClass().getComponentType() != kind) {
@@ -124,6 +124,20 @@ public class ArrayUtils
      * Checks if given array is null or has zero elements.
      */
     public static <T> boolean isEmpty(T[] array) {
+        return array == null || array.length == 0;
+    }
+
+    /**
+     * Checks if given array is null or has zero elements.
+     */
+    public static boolean isEmpty(int[] array) {
+        return array == null || array.length == 0;
+    }
+
+    /**
+     * Checks if given array is null or has zero elements.
+     */
+    public static boolean isEmpty(long[] array) {
         return array == null || array.length == 0;
     }
 
@@ -157,6 +171,7 @@ public class ArrayUtils
      * Test if all {@code check} items are contained in {@code array}.
      */
     public static <T> boolean containsAll(T[] array, T[] check) {
+        if (check == null) return true;
         for (T checkItem : check) {
             if (!contains(array, checkItem)) {
                 return false;

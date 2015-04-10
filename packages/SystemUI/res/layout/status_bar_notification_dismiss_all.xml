@@ -20,21 +20,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:visibility="gone"
-        >
-    <Button
+        android:clipChildren="false"
+        android:clipToPadding="false">
+    <com.android.systemui.statusbar.DismissViewButton
             android:id="@+id/dismiss_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minHeight="0dp"
-            android:textColor="#ffffffff"
-            android:text="@string/clear_all_notifications_text"
-            android:textSize="18sp"
-            android:textAllCaps="true"
-            android:paddingTop="@dimen/clear_all_padding_top"
-            android:paddingEnd="8dp"
-            android:layout_gravity="end|center_vertical"
-            android:drawableEnd="@drawable/ic_clear_all"
-            android:drawablePadding="4dp"
-            android:fontFamily="sans-serif-light"
-            android:background="@drawable/ripple_drawable" />
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="end"
+            android:background="@drawable/ripple_drawable"
+            android:contentDescription="@string/accessibility_clear_all"/>
 </com.android.systemui.statusbar.DismissView>

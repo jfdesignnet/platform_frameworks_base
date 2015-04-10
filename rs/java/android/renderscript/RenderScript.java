@@ -1156,7 +1156,12 @@ public class RenderScript {
                 }
 
                 if (msg == RS_MESSAGE_TO_CLIENT_NEW_BUFFER) {
-                    Allocation.sendBufferNotification(subID);
+                    if (mRS.nContextGetUserMessage(mRS.mContext, rbuf) !=
+                        RS_MESSAGE_TO_CLIENT_NEW_BUFFER) {
+                        throw new RSDriverException("Error processing message from RenderScript.");
+                    }
+                    long bufferID = ((long)rbuf[1] << 32L) + ((long)rbuf[0] & 0xffffffffL);
+                    Allocation.sendBufferNotification(bufferID);
                     continue;
                 }
 
@@ -1179,6 +1184,13 @@ public class RenderScript {
             mApplicationContext = ctx.getApplicationContext();
         }
         mRWLock = new ReentrantReadWriteLock();
+        try {
+            registerNativeAllocation.invoke(sRuntime, 4 * 1024 * 1024); // 4MB for GC sake
+        } catch (Exception e) {
+            Log.e(RenderScript.LOG_TAG, "Couldn't invoke registerNativeAllocation:" + e);
+            throw new RSRuntimeException("Couldn't invoke registerNativeAllocation:" + e);
+        }
+
     }
 
     /**

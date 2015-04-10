@@ -19,6 +19,8 @@ package android.os;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.util.Size;
+import android.util.SizeF;
 import android.util.SparseArray;
 import android.util.SparseBooleanArray;
 
@@ -224,6 +226,8 @@ public final class Parcel {
     private static final int VAL_BOOLEANARRAY = 23;
     private static final int VAL_CHARSEQUENCEARRAY = 24;
     private static final int VAL_PERSISTABLEBUNDLE = 25;
+    private static final int VAL_SIZE = 26;
+    private static final int VAL_SIZEF = 27;
 
     // The initial int32 in a Binder call's reply Parcel header:
     private static final int EX_SECURITY = -1;
@@ -232,6 +236,7 @@ public final class Parcel {
     private static final int EX_NULL_POINTER = -4;
     private static final int EX_ILLEGAL_STATE = -5;
     private static final int EX_NETWORK_MAIN_THREAD = -6;
+    private static final int EX_UNSUPPORTED_OPERATION = -7;
     private static final int EX_HAS_REPLY_HEADER = -128;  // special; see below
 
     private static native int nativeDataSize(long nativePtr);
@@ -271,7 +276,7 @@ public final class Parcel {
 
     private static native byte[] nativeMarshall(long nativePtr);
     private static native void nativeUnmarshall(
-            long nativePtr, byte[] data, int offest, int length);
+            long nativePtr, byte[] data, int offset, int length);
     private static native void nativeAppendFrom(
             long thisNativePtr, long otherNativePtr, int offset, int length);
     private static native boolean nativeHasFileDescriptors(long nativePtr);
@@ -334,6 +339,12 @@ public final class Parcel {
             }
         }
     }
+
+    /** @hide */
+    public static native long getGlobalAllocSize();
+
+    /** @hide */
+    public static native long getGlobalAllocCount();
 
     /**
      * Returns the total amount of data contained in the parcel.
@@ -427,8 +438,8 @@ public final class Parcel {
     /**
      * Set the bytes in data to be the raw bytes of this Parcel.
      */
-    public final void unmarshall(byte[] data, int offest, int length) {
-        nativeUnmarshall(mNativePtr, data, offest, length);
+    public final void unmarshall(byte[] data, int offset, int length) {
+        nativeUnmarshall(mNativePtr, data, offset, length);
     }
 
     public final void appendFrom(Parcel parcel, int offset, int length) {
@@ -485,6 +496,7 @@ public final class Parcel {
      * growing {@link #dataCapacity} if needed.
      * @param b Bytes to place into the parcel.
      * {@hide}
+     * {@SystemApi}
      */
     public final void writeBlob(byte[] b) {
         nativeWriteBlob(mNativePtr, b, 0, (b != null) ? b.length : 0);
@@ -613,7 +625,7 @@ public final class Parcel {
      * Flatten an ArrayMap into the parcel at the current dataPosition(),
      * growing dataCapacity() if needed.  The Map keys must be String objects.
      */
-    /* package */ void writeArrayMapInternal(ArrayMap<String,Object> val) {
+    /* package */ void writeArrayMapInternal(ArrayMap<String, Object> val) {
         if (val == null) {
             writeInt(-1);
             return;
@@ -628,13 +640,20 @@ public final class Parcel {
         int startPos;
         for (int i=0; i<N; i++) {
             if (DEBUG_ARRAY_MAP) startPos = dataPosition();
-            writeValue(val.keyAt(i));
+            writeString(val.keyAt(i));
             writeValue(val.valueAt(i));
             if (DEBUG_ARRAY_MAP) Log.d(TAG, "  Write #" + i + " "
                     + (dataPosition()-startPos) + " bytes: key=0x"
                     + Integer.toHexString(val.keyAt(i) != null ? val.keyAt(i).hashCode() : 0)
                     + " " + val.keyAt(i));
         }
+    }
+
+    /**
+     * @hide For testing only.
+     */
+    public void writeArrayMap(ArrayMap<String, Object> val) {
+        writeArrayMapInternal(val);
     }
 
     /**
@@ -661,6 +680,24 @@ public final class Parcel {
         }
 
         val.writeToParcel(this, 0);
+    }
+
+    /**
+     * Flatten a Size into the parcel at the current dataPosition(),
+     * growing dataCapacity() if needed.
+     */
+    public final void writeSize(Size val) {
+        writeInt(val.getWidth());
+        writeInt(val.getHeight());
+    }
+
+    /**
+     * Flatten a SizeF into the parcel at the current dataPosition(),
+     * growing dataCapacity() if needed.
+     */
+    public final void writeSizeF(SizeF val) {
+        writeFloat(val.getWidth());
+        writeFloat(val.getHeight());
     }
 
     /**
@@ -1285,6 +1322,12 @@ public final class Parcel {
         } else if (v instanceof PersistableBundle) {
             writeInt(VAL_PERSISTABLEBUNDLE);
             writePersistableBundle((PersistableBundle) v);
+        } else if (v instanceof Size) {
+            writeInt(VAL_SIZE);
+            writeSize((Size) v);
+        } else if (v instanceof SizeF) {
+            writeInt(VAL_SIZEF);
+            writeSizeF((SizeF) v);
         } else {
             Class<?> clazz = v.getClass();
             if (clazz.isArray() && clazz.getComponentType() == Object.class) {
@@ -1391,6 +1434,8 @@ public final class Parcel {
             code = EX_ILLEGAL_STATE;
         } else if (e instanceof NetworkOnMainThreadException) {
             code = EX_NETWORK_MAIN_THREAD;
+        } else if (e instanceof UnsupportedOperationException) {
+            code = EX_UNSUPPORTED_OPERATION;
         }
         writeInt(code);
         StrictMode.clearGatheredViolations();
@@ -1509,6 +1554,8 @@ public final class Parcel {
                 throw new IllegalStateException(msg);
             case EX_NETWORK_MAIN_THREAD:
                 throw new NetworkOnMainThreadException();
+            case EX_UNSUPPORTED_OPERATION:
+                throw new UnsupportedOperationException(msg);
         }
         throw new RuntimeException("Unknown exception code: " + code
                 + " msg " + msg);
@@ -1691,6 +1738,24 @@ public final class Parcel {
     }
 
     /**
+     * Read a Size from the parcel at the current dataPosition().
+     */
+    public final Size readSize() {
+        final int width = readInt();
+        final int height = readInt();
+        return new Size(width, height);
+    }
+
+    /**
+     * Read a SizeF from the parcel at the current dataPosition().
+     */
+    public final SizeF readSizeF() {
+        final float width = readFloat();
+        final float height = readFloat();
+        return new SizeF(width, height);
+    }
+
+    /**
      * Read and return a byte[] object from the parcel.
      */
     public final byte[] createByteArray() {
@@ -1714,6 +1779,7 @@ public final class Parcel {
     /**
      * Read a blob of data from the parcel and return it as a byte array.
      * {@hide}
+     * {@SystemApi}
      */
     public final byte[] readBlob() {
         return nativeReadBlob(mNativePtr);
@@ -2151,6 +2217,12 @@ public final class Parcel {
         case VAL_PERSISTABLEBUNDLE:
             return readPersistableBundle(loader);
 
+        case VAL_SIZE:
+            return readSize();
+
+        case VAL_SIZEF:
+            return readSizeF();
+
         default:
             int off = dataPosition() - 4;
             throw new RuntimeException(
@@ -2409,7 +2481,7 @@ public final class Parcel {
         int startPos;
         while (N > 0) {
             if (DEBUG_ARRAY_MAP) startPos = dataPosition();
-            Object key = readValue(loader);
+            String key = readString();
             Object value = readValue(loader);
             if (DEBUG_ARRAY_MAP) Log.d(TAG, "  Read #" + (N-1) + " "
                     + (dataPosition()-startPos) + " bytes: key=0x"
@@ -2417,6 +2489,7 @@ public final class Parcel {
             outVal.append(key, value);
             N--;
         }
+        outVal.validate();
     }
 
     /* package */ void readArrayMapSafelyInternal(ArrayMap outVal, int N,
@@ -2427,13 +2500,24 @@ public final class Parcel {
             Log.d(TAG, "Reading safely " + N + " ArrayMap entries", here);
         }
         while (N > 0) {
-            Object key = readValue(loader);
+            String key = readString();
             if (DEBUG_ARRAY_MAP) Log.d(TAG, "  Read safe #" + (N-1) + ": key=0x"
                     + (key != null ? key.hashCode() : 0) + " " + key);
             Object value = readValue(loader);
             outVal.put(key, value);
             N--;
         }
+    }
+
+    /**
+     * @hide For testing only.
+     */
+    public void readArrayMap(ArrayMap outVal, ClassLoader loader) {
+        final int N = readInt();
+        if (N < 0) {
+            return;
+        }
+        readArrayMapInternal(outVal, N, loader);
     }
 
     private void readListInternal(List outVal, int N,

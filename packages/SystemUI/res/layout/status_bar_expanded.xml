@@ -51,15 +51,18 @@
         />
 
     <com.android.systemui.statusbar.phone.NotificationsQuickSettingsContainer
-        style="@style/NotificationsQuickSettings"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="@integer/notification_panel_layout_gravity"
         android:id="@+id/notification_container_parent"
         android:clipToPadding="false"
         android:clipChildren="false">
 
         <com.android.systemui.statusbar.phone.ObservableScrollView
             android:id="@+id/scroll_view"
-            android:layout_width="match_parent"
+            android:layout_width="@dimen/notification_panel_width"
             android:layout_height="match_parent"
+            android:layout_gravity="@integer/notification_panel_layout_gravity"
             android:scrollbars="none"
             android:overScrollMode="never"
             android:fillViewport="true">
@@ -91,24 +94,36 @@
 
         <com.android.systemui.statusbar.stack.NotificationStackScrollLayout
             android:id="@+id/notification_stack_scroller"
-            android:layout_width="match_parent"
+            android:layout_width="@dimen/notification_panel_width"
             android:layout_height="match_parent"
-            android:layout_marginBottom="@dimen/close_handle_underlap"/>
+            android:layout_gravity="@integer/notification_panel_layout_gravity"
+            android:layout_marginBottom="@dimen/close_handle_underlap"
+            android:importantForAccessibility="no" />
 
         <ViewStub
             android:id="@+id/keyguard_user_switcher"
-            android:layout_height="wrap_content"
-            android:layout_width="wrap_content"
-            android:layout_marginTop="@dimen/status_bar_header_height_keyguard"
-            android:layout_gravity="end"
-            android:layout="@layout/keyguard_user_switcher" />
+            android:layout="@layout/keyguard_user_switcher"
+            android:layout_height="match_parent"
+            android:layout_width="match_parent" />
+
+        <include
+            layout="@layout/keyguard_status_bar"
+            android:visibility="invisible" />
 
     </com.android.systemui.statusbar.phone.NotificationsQuickSettingsContainer>
 
+    <include
+            layout="@layout/keyguard_bottom_area"
+            android:visibility="gone" />
+
     <include layout="@layout/status_bar_expanded_header" />
 
-    <include
-        layout="@layout/keyguard_bottom_area"
-        android:visibility="gone" />
+    <com.android.systemui.statusbar.AlphaOptimizedView
+        android:id="@+id/qs_navbar_scrim"
+        android:layout_height="96dp"
+        android:layout_width="match_parent"
+        android:layout_gravity="bottom"
+        android:visibility="invisible"
+        android:background="@drawable/qs_navbar_scrim" />
 
 </com.android.systemui.statusbar.phone.NotificationPanelView><!-- end of sliding panel -->

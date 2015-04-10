@@ -38,6 +38,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.PowerManager;
+import android.os.PowerManagerInternal;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -70,9 +71,9 @@ final class Notifier {
 
     private static final boolean DEBUG = false;
 
-    private static final int POWER_STATE_UNKNOWN = 0;
-    private static final int POWER_STATE_AWAKE = 1;
-    private static final int POWER_STATE_ASLEEP = 2;
+    private static final int INTERACTIVE_STATE_UNKNOWN = 0;
+    private static final int INTERACTIVE_STATE_AWAKE = 1;
+    private static final int INTERACTIVE_STATE_ASLEEP = 2;
 
     private static final int MSG_USER_ACTIVITY = 1;
     private static final int MSG_BROADCAST = 2;
@@ -84,7 +85,6 @@ final class Notifier {
     private final IBatteryStats mBatteryStats;
     private final IAppOpsService mAppOps;
     private final SuspendBlocker mSuspendBlocker;
-    private final ScreenOnBlocker mScreenOnBlocker;
     private final WindowManagerPolicy mPolicy;
     private final ActivityManagerInternal mActivityManagerInternal;
     private final InputManagerInternal mInputManagerInternal;
@@ -93,35 +93,30 @@ final class Notifier {
     private final Intent mScreenOnIntent;
     private final Intent mScreenOffIntent;
 
-    // The current power state.
-    private int mActualPowerState;
-    private int mLastGoToSleepReason;
+    // The current interactive state.
+    private int mActualInteractiveState;
+    private int mLastReason;
 
     // True if there is a pending transition that needs to be reported.
     private boolean mPendingWakeUpBroadcast;
     private boolean mPendingGoToSleepBroadcast;
 
-    // The currently broadcasted power state.  This reflects what other parts of the
+    // The currently broadcasted interactive state.  This reflects what other parts of the
     // system have observed.
-    private int mBroadcastedPowerState;
+    private int mBroadcastedInteractiveState;
     private boolean mBroadcastInProgress;
     private long mBroadcastStartTime;
 
     // True if a user activity message should be sent.
     private boolean mUserActivityPending;
 
-    // The currently active screen on listener. This field is non-null whenever the
-    // ScreenOnBlocker has been acquired and we are awaiting a callback to release it.
-    private ScreenOnUnblocker mPendingScreenOnUnblocker;
-
     public Notifier(Looper looper, Context context, IBatteryStats batteryStats,
-            IAppOpsService appOps, SuspendBlocker suspendBlocker, ScreenOnBlocker screenOnBlocker,
+            IAppOpsService appOps, SuspendBlocker suspendBlocker,
             WindowManagerPolicy policy) {
         mContext = context;
         mBatteryStats = batteryStats;
         mAppOps = appOps;
         mSuspendBlocker = suspendBlocker;
-        mScreenOnBlocker = screenOnBlocker;
         mPolicy = policy;
         mActivityManagerInternal = LocalServices.getService(ActivityManagerInternal.class);
         mInputManagerInternal = LocalServices.getService(InputManagerInternal.class);
@@ -242,67 +237,83 @@ final class Notifier {
     }
 
     /**
-     * Notifies that the device is changing interactive state.
+     * Notifies that the device is changing wakefulness.
      */
-    public void onInteractiveStateChangeStarted(boolean interactive, final int reason) {
+    public void onWakefulnessChangeStarted(int wakefulness, int reason) {
         if (DEBUG) {
-            Slog.d(TAG, "onInteractiveChangeStarted: interactive=" + interactive
+            Slog.d(TAG, "onWakefulnessChangeStarted: wakefulness=" + wakefulness
                     + ", reason=" + reason);
         }
 
+        // We handle interactive state changes once they start so that the system can
+        // set everything up or the user to begin interacting with applications.
+        final boolean interactive = PowerManagerInternal.isInteractive(wakefulness);
+        if (interactive) {
+            handleWakefulnessChange(wakefulness, interactive, reason);
+        } else {
+            mLastReason = reason;
+        }
+
+        // Start input as soon as we start waking up or going to sleep.
+        mInputManagerInternal.setInteractive(interactive);
+    }
+
+    /**
+     * Notifies that the device has finished changing wakefulness.
+     */
+    public void onWakefulnessChangeFinished(int wakefulness) {
+        if (DEBUG) {
+            Slog.d(TAG, "onWakefulnessChangeFinished: wakefulness=" + wakefulness);
+        }
+
+        // Handle interactive state changes once they are finished so that the system can
+        // finish pending transitions (such as turning the screen off) before causing
+        // applications to change state visibly.
+        final boolean interactive = PowerManagerInternal.isInteractive(wakefulness);
+        if (!interactive) {
+            handleWakefulnessChange(wakefulness, interactive, mLastReason);
+        }
+    }
+
+    private void handleWakefulnessChange(final int wakefulness, boolean interactive,
+            final int reason) {
+        // Tell the activity manager about changes in wakefulness, not just interactivity.
+        // It needs more granularity than other components.
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                mActivityManagerInternal.onWakefulnessChanged(wakefulness);
+            }
+        });
+
+        // Handle changes in the overall interactive state.
+        boolean interactiveChanged = false;
         synchronized (mLock) {
+            // Broadcast interactive state changes.
             if (interactive) {
                 // Waking up...
-                if (mActualPowerState != POWER_STATE_AWAKE) {
-                    mActualPowerState = POWER_STATE_AWAKE;
+                interactiveChanged = (mActualInteractiveState != INTERACTIVE_STATE_AWAKE);
+                if (interactiveChanged) {
+                    mActualInteractiveState = INTERACTIVE_STATE_AWAKE;
                     mPendingWakeUpBroadcast = true;
-                    if (mPendingScreenOnUnblocker == null) {
-                        mScreenOnBlocker.acquire();
-                    }
-                    final ScreenOnUnblocker unblocker = new ScreenOnUnblocker();
-                    mPendingScreenOnUnblocker = unblocker;
                     mHandler.post(new Runnable() {
                         @Override
                         public void run() {
                             EventLog.writeEvent(EventLogTags.POWER_SCREEN_STATE, 1, 0, 0, 0);
-                            mPolicy.wakingUp(unblocker);
-                            mActivityManagerInternal.wakingUp();
+                            mPolicy.wakingUp();
                         }
                     });
                     updatePendingBroadcastLocked();
                 }
             } else {
                 // Going to sleep...
-                mLastGoToSleepReason = reason;
-            }
-        }
-
-        mInputManagerInternal.setInteractive(interactive);
-
-        if (interactive) {
-            try {
-                mBatteryStats.noteInteractive(true);
-            } catch (RemoteException ex) { }
-        }
-    }
-
-    /**
-     * Notifies that the device has finished changing interactive state.
-     */
-    public void onInteractiveStateChangeFinished(boolean interactive) {
-        if (DEBUG) {
-            Slog.d(TAG, "onInteractiveChangeFinished");
-        }
-
-        synchronized (mLock) {
-            if (!interactive) {
-                // Finished going to sleep...
                 // This is a good time to make transitions that we don't want the user to see,
                 // such as bringing the key guard to focus.  There's no guarantee for this,
                 // however because the user could turn the device on again at any time.
                 // Some things may need to be protected by other mechanisms that defer screen on.
-                if (mActualPowerState != POWER_STATE_ASLEEP) {
-                    mActualPowerState = POWER_STATE_ASLEEP;
+                interactiveChanged = (mActualInteractiveState != INTERACTIVE_STATE_ASLEEP);
+                if (interactiveChanged) {
+                    mActualInteractiveState = INTERACTIVE_STATE_ASLEEP;
                     mPendingGoToSleepBroadcast = true;
                     if (mUserActivityPending) {
                         mUserActivityPending = false;
@@ -312,7 +323,7 @@ final class Notifier {
                         @Override
                         public void run() {
                             int why = WindowManagerPolicy.OFF_BECAUSE_OF_USER;
-                            switch (mLastGoToSleepReason) {
+                            switch (reason) {
                                 case PowerManager.GO_TO_SLEEP_REASON_DEVICE_ADMIN:
                                     why = WindowManagerPolicy.OFF_BECAUSE_OF_ADMIN;
                                     break;
@@ -322,7 +333,6 @@ final class Notifier {
                             }
                             EventLog.writeEvent(EventLogTags.POWER_SCREEN_STATE, 0, why, 0, 0);
                             mPolicy.goingToSleep(why);
-                            mActivityManagerInternal.goingToSleep();
                         }
                     });
                     updatePendingBroadcastLocked();
@@ -330,9 +340,10 @@ final class Notifier {
             }
         }
 
-        if (!interactive) {
+        // Notify battery stats.
+        if (interactiveChanged) {
             try {
-                mBatteryStats.noteInteractive(false);
+                mBatteryStats.noteInteractive(interactive);
             } catch (RemoteException ex) { }
         }
     }
@@ -377,9 +388,9 @@ final class Notifier {
 
     private void updatePendingBroadcastLocked() {
         if (!mBroadcastInProgress
-                && mActualPowerState != POWER_STATE_UNKNOWN
+                && mActualInteractiveState != INTERACTIVE_STATE_UNKNOWN
                 && (mPendingWakeUpBroadcast || mPendingGoToSleepBroadcast
-                        || mActualPowerState != mBroadcastedPowerState)) {
+                        || mActualInteractiveState != mBroadcastedInteractiveState)) {
             mBroadcastInProgress = true;
             mSuspendBlocker.acquire();
             Message msg = mHandler.obtainMessage(MSG_BROADCAST);
@@ -406,18 +417,17 @@ final class Notifier {
 
     private void sendNextBroadcast() {
         final int powerState;
-        final int goToSleepReason;
         synchronized (mLock) {
-            if (mBroadcastedPowerState == POWER_STATE_UNKNOWN) {
+            if (mBroadcastedInteractiveState == INTERACTIVE_STATE_UNKNOWN) {
                 // Broadcasted power state is unknown.  Send wake up.
                 mPendingWakeUpBroadcast = false;
-                mBroadcastedPowerState = POWER_STATE_AWAKE;
-            } else if (mBroadcastedPowerState == POWER_STATE_AWAKE) {
+                mBroadcastedInteractiveState = INTERACTIVE_STATE_AWAKE;
+            } else if (mBroadcastedInteractiveState == INTERACTIVE_STATE_AWAKE) {
                 // Broadcasted power state is awake.  Send asleep if needed.
                 if (mPendingWakeUpBroadcast || mPendingGoToSleepBroadcast
-                        || mActualPowerState == POWER_STATE_ASLEEP) {
+                        || mActualInteractiveState == INTERACTIVE_STATE_ASLEEP) {
                     mPendingGoToSleepBroadcast = false;
-                    mBroadcastedPowerState = POWER_STATE_ASLEEP;
+                    mBroadcastedInteractiveState = INTERACTIVE_STATE_ASLEEP;
                 } else {
                     finishPendingBroadcastLocked();
                     return;
@@ -425,9 +435,9 @@ final class Notifier {
             } else {
                 // Broadcasted power state is asleep.  Send awake if needed.
                 if (mPendingWakeUpBroadcast || mPendingGoToSleepBroadcast
-                        || mActualPowerState == POWER_STATE_AWAKE) {
+                        || mActualInteractiveState == INTERACTIVE_STATE_AWAKE) {
                     mPendingWakeUpBroadcast = false;
-                    mBroadcastedPowerState = POWER_STATE_AWAKE;
+                    mBroadcastedInteractiveState = INTERACTIVE_STATE_AWAKE;
                 } else {
                     finishPendingBroadcastLocked();
                     return;
@@ -435,12 +445,12 @@ final class Notifier {
             }
 
             mBroadcastStartTime = SystemClock.uptimeMillis();
-            powerState = mBroadcastedPowerState;
+            powerState = mBroadcastedInteractiveState;
         }
 
         EventLog.writeEvent(EventLogTags.POWER_SCREEN_BROADCAST_SEND, 1);
 
-        if (powerState == POWER_STATE_AWAKE) {
+        if (powerState == INTERACTIVE_STATE_AWAKE) {
             sendWakeUpBroadcast();
         } else {
             sendGoToSleepBroadcast();
@@ -458,18 +468,6 @@ final class Notifier {
         } else {
             EventLog.writeEvent(EventLogTags.POWER_SCREEN_BROADCAST_STOP, 2, 1);
             sendNextBroadcast();
-        }
-    }
-
-    private final class ScreenOnUnblocker implements WindowManagerPolicy.ScreenOnListener {
-        @Override
-        public void onScreenOn() {
-            synchronized (mLock) {
-                if (mPendingScreenOnUnblocker == this) {
-                    mPendingScreenOnUnblocker = null;
-                    mScreenOnBlocker.release();
-                }
-            }
         }
     }
 

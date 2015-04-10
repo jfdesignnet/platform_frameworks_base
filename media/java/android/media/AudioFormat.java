@@ -128,6 +128,38 @@ public class AudioFormat {
 
     /**
      * @hide
+     * Return the input channel mask corresponding to an output channel mask.
+     * This can be used for submix rerouting for the mask of the recorder to map to that of the mix.
+     * @param outMask a combination of the CHANNEL_OUT_* definitions, but not CHANNEL_OUT_DEFAULT
+     * @return a combination of CHANNEL_IN_* definitions matching an output channel mask
+     * @throws IllegalArgumentException
+     */
+    public static int inChannelMaskFromOutChannelMask(int outMask) throws IllegalArgumentException {
+        if (outMask == CHANNEL_OUT_DEFAULT) {
+            throw new IllegalArgumentException(
+                    "Illegal CHANNEL_OUT_DEFAULT channel mask for input.");
+        }
+        switch (channelCountFromOutChannelMask(outMask)) {
+            case 1:
+                return CHANNEL_IN_MONO;
+            case 2:
+                return CHANNEL_IN_STEREO;
+            default:
+                throw new IllegalArgumentException("Unsupported channel configuration for input.");
+        }
+    }
+
+    /**
+     * @hide
+     * Return the number of channels from an input channel mask
+     * @param mask a combination of the CHANNEL_IN_* definitions, even CHANNEL_IN_DEFAULT
+     * @return number of channels for the mask
+     */
+    public static int channelCountFromInChannelMask(int mask) {
+        return Integer.bitCount(mask);
+    }
+    /**
+     * @hide
      * Return the number of channels from an output channel mask
      * @param mask a combination of the CHANNEL_OUT_* definitions, but not CHANNEL_OUT_DEFAULT
      * @return number of channels for the mask
@@ -240,6 +272,20 @@ public class AudioFormat {
     private AudioFormat(int ignoredArgument) {
     }
 
+    /**
+     * Constructor used by the JNI
+     */
+    // Update sound trigger JNI in core/jni/android_hardware_SoundTrigger.cpp when modifying this
+    // constructor
+    private AudioFormat(int encoding, int sampleRate, int channelMask) {
+        mEncoding = encoding;
+        mSampleRate = sampleRate;
+        mChannelMask = channelMask;
+        mPropertySetMask = AUDIO_FORMAT_HAS_PROPERTY_ENCODING |
+                AUDIO_FORMAT_HAS_PROPERTY_SAMPLE_RATE |
+                AUDIO_FORMAT_HAS_PROPERTY_CHANNEL_MASK;
+    }
+
     /** @hide */
     public final static int AUDIO_FORMAT_HAS_PROPERTY_NONE = 0x0;
     /** @hide */
@@ -254,18 +300,39 @@ public class AudioFormat {
     private int mChannelMask;
     private int mPropertySetMask;
 
-    /** @hide */
+    /**
+     * Return the encoding.
+     * @return one of the values that can be set in {@link Builder#setEncoding(int)} or
+     * {@link AudioFormat#ENCODING_INVALID} if not set.
+     */
     public int getEncoding() {
+        if ((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_ENCODING) == 0) {
+            return ENCODING_INVALID;
+        }
         return mEncoding;
     }
 
-    /** @hide */
+    /**
+     * Return the sample rate.
+     * @return one of the values that can be set in {@link Builder#setSampleRate(int)} or
+     * 0 if not set.
+     */
     public int getSampleRate() {
+        if ((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_SAMPLE_RATE) == 0) {
+            return 0;
+        }
         return mSampleRate;
     }
 
-    /** @hide */
+    /**
+     * Return the channel mask.
+     * @return one of the values that can be set in {@link Builder#setChannelMask(int)} or
+     * {@link AudioFormat#CHANNEL_INVALID} if not set.
+     */
     public int getChannelMask() {
+        if ((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_CHANNEL_MASK) == 0) {
+            return CHANNEL_INVALID;
+        }
         return mChannelMask;
     }
 
@@ -276,15 +343,26 @@ public class AudioFormat {
 
     /**
      * Builder class for {@link AudioFormat} objects.
+     * Use this class to configure and create an AudioFormat instance. By setting format
+     * characteristics such as audio encoding, channel mask or sample rate, you indicate which
+     * of those are to vary from the default behavior on this device wherever this audio format
+     * is used.
+     * <p>{@link AudioFormat} is for instance used in
+     * {@link AudioTrack#AudioTrack(AudioAttributes, AudioFormat, int, int, int)}. In this
+     * constructor, every format characteristic set on the <code>Builder</code> (e.g. with
+     * {@link #setSampleRate(int)}) will alter the default values used by an
+     * <code>AudioTrack</code>. In this case for audio playback with <code>AudioTrack</code>, the
+     * sample rate set in the <code>Builder</code> would override the platform output sample rate
+     * which would otherwise be selected by default.
      */
     public static class Builder {
-        private int mEncoding = ENCODING_PCM_16BIT;
+        private int mEncoding = ENCODING_INVALID;
         private int mSampleRate = 0;
         private int mChannelMask = CHANNEL_INVALID;
         private int mPropertySetMask = AUDIO_FORMAT_HAS_PROPERTY_NONE;
 
         /**
-         * Constructs a new Builder with the defaults format values.
+         * Constructs a new Builder with none of the format characteristics set.
          */
         public Builder() {
         }

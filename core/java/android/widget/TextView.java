@@ -17,6 +17,8 @@
 package android.widget;
 
 import android.R;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -40,6 +42,7 @@ import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.BoringLayout;
 import android.text.DynamicLayout;
@@ -222,6 +225,8 @@ import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
  * @attr ref android.R.styleable#TextView_imeActionId
  * @attr ref android.R.styleable#TextView_editorExtras
  * @attr ref android.R.styleable#TextView_elegantTextHeight
+ * @attr ref android.R.styleable#TextView_letterSpacing
+ * @attr ref android.R.styleable#TextView_fontFeatureSettings
  */
 @RemoteView
 public class TextView extends View implements ViewTreeObserver.OnPreDrawListener {
@@ -283,8 +288,10 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     private int mCurTextColor;
     private int mCurHintTextColor;
     private boolean mFreezesText;
-    private boolean mTemporaryDetach;
     private boolean mDispatchTemporaryDetach;
+
+    /** Whether this view is temporarily detached from the parent view. */
+    boolean mTemporaryDetach;
 
     private Editable.Factory mEditableFactory = Editable.Factory.getInstance();
     private Spannable.Factory mSpannableFactory = Spannable.Factory.getInstance();
@@ -651,6 +658,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         ColorStateList textColorLink = null;
         int textSize = 15;
         String fontFamily = null;
+        boolean fontFamilyExplicit = false;
         int typefaceIndex = -1;
         int styleIndex = -1;
         boolean allCaps = false;
@@ -658,6 +666,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         float dx = 0, dy = 0, r = 0;
         boolean elegant = false;
         float letterSpacing = 0;
+        String fontFeatureSettings = null;
 
         final Resources.Theme theme = context.getTheme();
 
@@ -741,6 +750,10 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
                 case com.android.internal.R.styleable.TextAppearance_letterSpacing:
                     letterSpacing = appearance.getFloat(attr, 0);
+                    break;
+
+                case com.android.internal.R.styleable.TextAppearance_fontFeatureSettings:
+                    fontFeatureSettings = appearance.getString(attr);
                     break;
                 }
             }
@@ -1000,6 +1013,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
             case com.android.internal.R.styleable.TextView_fontFamily:
                 fontFamily = a.getString(attr);
+                fontFamilyExplicit = true;
                 break;
 
             case com.android.internal.R.styleable.TextView_password:
@@ -1086,6 +1100,10 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
             case com.android.internal.R.styleable.TextView_letterSpacing:
                 letterSpacing = a.getFloat(attr, 0);
+                break;
+
+            case com.android.internal.R.styleable.TextView_fontFeatureSettings:
+                fontFeatureSettings = a.getString(attr);
                 break;
             }
         }
@@ -1269,6 +1287,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         setRawTextSize(textSize);
         setElegantTextHeight(elegant);
         setLetterSpacing(letterSpacing);
+        setFontFeatureSettings(fontFeatureSettings);
 
         if (allCaps) {
             setTransformationMethod(new AllCapsTransformationMethod(getContext()));
@@ -1283,6 +1302,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             typefaceIndex = MONOSPACE;
         }
 
+        if (typefaceIndex != -1 && !fontFamilyExplicit) {
+            fontFamily = null;
+        }
         setTypefaceFromAttrs(fontFamily, typefaceIndex, styleIndex);
 
         if (shadowcolor != 0) {
@@ -1307,8 +1329,8 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 attrs, com.android.internal.R.styleable.View, defStyleAttr, defStyleRes);
 
         boolean focusable = mMovement != null || getKeyListener() != null;
-        boolean clickable = focusable;
-        boolean longClickable = focusable;
+        boolean clickable = focusable || isClickable();
+        boolean longClickable = focusable || isLongClickable();
 
         n = a.getIndexCount();
         for (int i = 0; i < n; i++) {
@@ -1848,6 +1870,10 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             return getCompoundPaddingTop();
         }
 
+        if (mLayout == null) {
+            assumeLayout();
+        }
+
         if (mLayout.getLineCount() <= mMaximum) {
             return getCompoundPaddingTop();
         }
@@ -1879,6 +1905,10 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     public int getExtendedPaddingBottom() {
         if (mMaxMode != LINES) {
             return getCompoundPaddingBottom();
+        }
+
+        if (mLayout == null) {
+            assumeLayout();
         }
 
         if (mLayout.getLineCount() <= mMaximum) {
@@ -1955,23 +1985,34 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Sets the Drawables (if any) to appear to the left of, above,
-     * to the right of, and below the text.  Use null if you do not
-     * want a Drawable there.  The Drawables must already have had
+     * Sets the Drawables (if any) to appear to the left of, above, to the
+     * right of, and below the text. Use {@code null} if you do not want a
+     * Drawable there. The Drawables must already have had
      * {@link Drawable#setBounds} called.
+     * <p>
+     * Calling this method will overwrite any Drawables previously set using
+     * {@link #setCompoundDrawablesRelative} or related methods.
      *
      * @attr ref android.R.styleable#TextView_drawableLeft
      * @attr ref android.R.styleable#TextView_drawableTop
      * @attr ref android.R.styleable#TextView_drawableRight
      * @attr ref android.R.styleable#TextView_drawableBottom
      */
-    public void setCompoundDrawables(Drawable left, Drawable top,
-                                     Drawable right, Drawable bottom) {
+    public void setCompoundDrawables(@Nullable Drawable left, @Nullable Drawable top,
+            @Nullable Drawable right, @Nullable Drawable bottom) {
         Drawables dr = mDrawables;
 
-        final boolean drawables = left != null || top != null
-                || right != null || bottom != null;
+        // We're switching to absolute, discard relative.
+        if (dr != null) {
+            if (dr.mDrawableStart != null) dr.mDrawableStart.setCallback(null);
+            dr.mDrawableStart = null;
+            if (dr.mDrawableEnd != null) dr.mDrawableEnd.setCallback(null);
+            dr.mDrawableEnd = null;
+            dr.mDrawableSizeStart = dr.mDrawableHeightStart = 0;
+            dr.mDrawableSizeEnd = dr.mDrawableHeightEnd = 0;
+        }
 
+        final boolean drawables = left != null || top != null || right != null || bottom != null;
         if (!drawables) {
             // Clearing drawables...  can we free the data structure?
             if (dr != null) {
@@ -2080,10 +2121,12 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Sets the Drawables (if any) to appear to the left of, above,
-     * to the right of, and below the text.  Use 0 if you do not
-     * want a Drawable there. The Drawables' bounds will be set to
-     * their intrinsic bounds.
+     * Sets the Drawables (if any) to appear to the left of, above, to the
+     * right of, and below the text. Use 0 if you do not want a Drawable there.
+     * The Drawables' bounds will be set to their intrinsic bounds.
+     * <p>
+     * Calling this method will overwrite any Drawables previously set using
+     * {@link #setCompoundDrawablesRelative} or related methods.
      *
      * @param left Resource identifier of the left Drawable.
      * @param top Resource identifier of the top Drawable.
@@ -2105,18 +2148,21 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Sets the Drawables (if any) to appear to the left of, above,
-     * to the right of, and below the text.  Use null if you do not
-     * want a Drawable there. The Drawables' bounds will be set to
-     * their intrinsic bounds.
+     * Sets the Drawables (if any) to appear to the left of, above, to the
+     * right of, and below the text. Use {@code null} if you do not want a
+     * Drawable there. The Drawables' bounds will be set to their intrinsic
+     * bounds.
+     * <p>
+     * Calling this method will overwrite any Drawables previously set using
+     * {@link #setCompoundDrawablesRelative} or related methods.
      *
      * @attr ref android.R.styleable#TextView_drawableLeft
      * @attr ref android.R.styleable#TextView_drawableTop
      * @attr ref android.R.styleable#TextView_drawableRight
      * @attr ref android.R.styleable#TextView_drawableBottom
      */
-    public void setCompoundDrawablesWithIntrinsicBounds(Drawable left, Drawable top,
-            Drawable right, Drawable bottom) {
+    public void setCompoundDrawablesWithIntrinsicBounds(@Nullable Drawable left,
+            @Nullable Drawable top, @Nullable Drawable right, @Nullable Drawable bottom) {
 
         if (left != null) {
             left.setBounds(0, 0, left.getIntrinsicWidth(), left.getIntrinsicHeight());
@@ -2134,19 +2180,32 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Sets the Drawables (if any) to appear to the start of, above,
-     * to the end of, and below the text.  Use null if you do not
-     * want a Drawable there.  The Drawables must already have had
-     * {@link Drawable#setBounds} called.
+     * Sets the Drawables (if any) to appear to the start of, above, to the end
+     * of, and below the text. Use {@code null} if you do not want a Drawable
+     * there. The Drawables must already have had {@link Drawable#setBounds}
+     * called.
+     * <p>
+     * Calling this method will overwrite any Drawables previously set using
+     * {@link #setCompoundDrawables} or related methods.
      *
      * @attr ref android.R.styleable#TextView_drawableStart
      * @attr ref android.R.styleable#TextView_drawableTop
      * @attr ref android.R.styleable#TextView_drawableEnd
      * @attr ref android.R.styleable#TextView_drawableBottom
      */
-    public void setCompoundDrawablesRelative(Drawable start, Drawable top,
-                                     Drawable end, Drawable bottom) {
+    public void setCompoundDrawablesRelative(@Nullable Drawable start, @Nullable Drawable top,
+            @Nullable Drawable end, @Nullable Drawable bottom) {
         Drawables dr = mDrawables;
+
+        // We're switching to relative, discard absolute.
+        if (dr != null) {
+            if (dr.mDrawableLeft != null) dr.mDrawableLeft.setCallback(null);
+            dr.mDrawableLeft = dr.mDrawableLeftInitial = null;
+            if (dr.mDrawableRight != null) dr.mDrawableRight.setCallback(null);
+            dr.mDrawableRight = dr.mDrawableRightInitial = null;
+            dr.mDrawableSizeLeft = dr.mDrawableHeightLeft = 0;
+            dr.mDrawableSizeRight = dr.mDrawableHeightRight = 0;
+        }
 
         final boolean drawables = start != null || top != null
                 || end != null || bottom != null;
@@ -2253,10 +2312,12 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Sets the Drawables (if any) to appear to the start of, above,
-     * to the end of, and below the text.  Use 0 if you do not
-     * want a Drawable there. The Drawables' bounds will be set to
-     * their intrinsic bounds.
+     * Sets the Drawables (if any) to appear to the start of, above, to the end
+     * of, and below the text. Use 0 if you do not want a Drawable there. The
+     * Drawables' bounds will be set to their intrinsic bounds.
+     * <p>
+     * Calling this method will overwrite any Drawables previously set using
+     * {@link #setCompoundDrawables} or related methods.
      *
      * @param start Resource identifier of the start Drawable.
      * @param top Resource identifier of the top Drawable.
@@ -2280,18 +2341,20 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Sets the Drawables (if any) to appear to the start of, above,
-     * to the end of, and below the text.  Use null if you do not
-     * want a Drawable there. The Drawables' bounds will be set to
-     * their intrinsic bounds.
+     * Sets the Drawables (if any) to appear to the start of, above, to the end
+     * of, and below the text. Use {@code null} if you do not want a Drawable
+     * there. The Drawables' bounds will be set to their intrinsic bounds.
+     * <p>
+     * Calling this method will overwrite any Drawables previously set using
+     * {@link #setCompoundDrawables} or related methods.
      *
      * @attr ref android.R.styleable#TextView_drawableStart
      * @attr ref android.R.styleable#TextView_drawableTop
      * @attr ref android.R.styleable#TextView_drawableEnd
      * @attr ref android.R.styleable#TextView_drawableBottom
      */
-    public void setCompoundDrawablesRelativeWithIntrinsicBounds(Drawable start, Drawable top,
-            Drawable end, Drawable bottom) {
+    public void setCompoundDrawablesRelativeWithIntrinsicBounds(@Nullable Drawable start,
+            @Nullable Drawable top, @Nullable Drawable end, @Nullable Drawable bottom) {
 
         if (start != null) {
             start.setBounds(0, 0, start.getIntrinsicWidth(), start.getIntrinsicHeight());
@@ -2316,6 +2379,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * @attr ref android.R.styleable#TextView_drawableRight
      * @attr ref android.R.styleable#TextView_drawableBottom
      */
+    @NonNull
     public Drawable[] getCompoundDrawables() {
         final Drawables dr = mDrawables;
         if (dr != null) {
@@ -2335,6 +2399,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * @attr ref android.R.styleable#TextView_drawableEnd
      * @attr ref android.R.styleable#TextView_drawableBottom
      */
+    @NonNull
     public Drawable[] getCompoundDrawablesRelative() {
         final Drawables dr = mDrawables;
         if (dr != null) {
@@ -2500,6 +2565,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         if (appearance.hasValue(com.android.internal.R.styleable.TextAppearance_letterSpacing)) {
             setLetterSpacing(appearance.getFloat(
                 com.android.internal.R.styleable.TextAppearance_letterSpacing, 0));
+        }
+
+        if (appearance.hasValue(com.android.internal.R.styleable.TextAppearance_fontFeatureSettings)) {
+            setFontFeatureSettings(appearance.getString(
+                com.android.internal.R.styleable.TextAppearance_fontFeatureSettings));
         }
 
         appearance.recycle();
@@ -2686,7 +2756,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * This will normally be 0.
      *
      * @see #setLetterSpacing(float)
-     * @hide
+     * @see Paint#setLetterSpacing
      */
     public float getLetterSpacing() {
         return mTextPaint.getLetterSpacing();
@@ -2697,15 +2767,49 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * for slight expansion will be around 0.05.  Negative values tighten text.
      *
      * @see #getLetterSpacing()
-     * @see Paint#setFlags
+     * @see Paint#getLetterSpacing
      *
      * @attr ref android.R.styleable#TextView_letterSpacing
-     * @hide
      */
     @android.view.RemotableViewMethod
     public void setLetterSpacing(float letterSpacing) {
         if (letterSpacing != mTextPaint.getLetterSpacing()) {
             mTextPaint.setLetterSpacing(letterSpacing);
+
+            if (mLayout != null) {
+                nullLayouts();
+                requestLayout();
+                invalidate();
+            }
+        }
+    }
+
+    /**
+     * @return the currently set font feature settings.  Default is null.
+     *
+     * @see #setFontFeatureSettings(String)
+     * @see Paint#setFontFeatureSettings
+     */
+    @Nullable
+    public String getFontFeatureSettings() {
+        return mTextPaint.getFontFeatureSettings();
+    }
+
+    /**
+     * Sets font feature settings.  The format is the same as the CSS
+     * font-feature-settings attribute:
+     * http://dev.w3.org/csswg/css-fonts/#propdef-font-feature-settings
+     *
+     * @param fontFeatureSettings font feature settings represented as CSS compatible string
+     * @see #getFontFeatureSettings()
+     * @see Paint#getFontFeatureSettings
+     *
+     * @attr ref android.R.styleable#TextView_fontFeatureSettings
+     */
+    @android.view.RemotableViewMethod
+    public void setFontFeatureSettings(@Nullable String fontFeatureSettings) {
+        if (fontFeatureSettings != mTextPaint.getFontFeatureSettings()) {
+            mTextPaint.setFontFeatureSettings(fontFeatureSettings);
 
             if (mLayout != null) {
                 nullLayouts();
@@ -2815,8 +2919,15 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Gives the text a shadow of the specified radius and color, the specified
-     * distance from its normal position.
+     * Gives the text a shadow of the specified blur radius and color, the specified
+     * distance from its drawn position.
+     * <p>
+     * The text shadow produced does not interact with the properties on view
+     * that are responsible for real time shadows,
+     * {@link View#getElevation() elevation} and
+     * {@link View#getTranslationZ() translationZ}.
+     *
+     * @see Paint#setShadowLayer(float, float, float, int)
      *
      * @attr ref android.R.styleable#TextView_shadowColor
      * @attr ref android.R.styleable#TextView_shadowDx
@@ -3529,9 +3640,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         }
         if (mHintTextColor != null) {
             color = mHintTextColor.getColorForState(getDrawableState(), 0);
-            if (color != mCurHintTextColor && mText.length() == 0) {
+            if (color != mCurHintTextColor) {
                 mCurHintTextColor = color;
-                inval = true;
+                if (mText.length() == 0) {
+                    inval = true;
+                }
             }
         }
         if (inval) {
@@ -4909,9 +5022,15 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return (int) Math.max(0, mShadowDy + mShadowRadius);
     }
 
+    private int getFudgedPaddingRight() {
+        // Add sufficient space for cursor and tone marks
+        int cursorWidth = 2 + (int)mTextPaint.density; // adequate for Material cursors
+        return Math.max(0, getCompoundPaddingRight() - (cursorWidth - 1));
+    }
+
     @Override
     protected int getRightPaddingOffset() {
-        return -(getCompoundPaddingRight() - mPaddingRight) +
+        return -(getFudgedPaddingRight() - mPaddingRight) +
                 (int) Math.max(0, mShadowDx + mShadowRadius);
     }
 
@@ -5267,7 +5386,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
         float clipLeft = compoundPaddingLeft + scrollX;
         float clipTop = (scrollY == 0) ? 0 : extendedPaddingTop + scrollY;
-        float clipRight = right - left - compoundPaddingRight + scrollX;
+        float clipRight = right - left - getFudgedPaddingRight() + scrollX;
         float clipBottom = bottom - top + scrollY -
                 ((scrollY == maxScrollY) ? 0 : extendedPaddingBottom);
 
@@ -5660,8 +5779,6 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         }
 
         if (mEditor != null && mEditor.mKeyListener != null) {
-            resetErrorChangedFlag();
-
             boolean doDown = true;
             if (otherEvent != null) {
                 try {
@@ -7277,8 +7394,8 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * to turn off ellipsizing.
      *
      * If {@link #setMaxLines} has been used to set two or more lines,
-     * {@link android.text.TextUtils.TruncateAt#END} and
-     * {@link android.text.TextUtils.TruncateAt#MARQUEE}* are only supported
+     * only {@link android.text.TextUtils.TruncateAt#END} and
+     * {@link android.text.TextUtils.TruncateAt#MARQUEE} are supported
      * (other ellipsizing types will not do anything).
      *
      * @attr ref android.R.styleable#TextView_ellipsize
@@ -7578,6 +7695,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 list.get(i).afterTextChanged(text);
             }
         }
+        hideErrorIfUnchanged();
     }
 
     void updateAfterEdit() {
@@ -7617,7 +7735,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             }
             ims.mChangedDelta += after-before;
         }
-
+        resetErrorChangedFlag();
         sendOnTextChanged(buffer, start, before, after);
         onTextChanged(buffer, start, before, after);
     }
@@ -8076,8 +8194,15 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * Returns the TextView_textColor attribute from the TypedArray, if set, or
      * the TextAppearance_textColor from the TextView_textAppearance attribute,
      * if TextView_textColor was not set directly.
+     *
+     * @removed
      */
     public static ColorStateList getTextColors(Context context, TypedArray attrs) {
+        if (attrs == null) {
+            // Preserve behavior prior to removal of this API.
+            throw new NullPointerException();
+        }
+
         // It's not safe to use this method from apps. The parameter 'attrs'
         // must have been obtained using the TextView filter array which is not
         // available to the SDK. As such, we grab a default TypedArray with the
@@ -8103,6 +8228,8 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * AttributeSet, if set, or the default color from the
      * TextAppearance_textColor from the TextView_textAppearance attribute, if
      * TextView_textColor was not set directly.
+     *
+     * @removed
      */
     public static int getTextColor(Context context, TypedArray attrs, int def) {
         final ColorStateList colors = getTextColors(context, attrs);
@@ -8271,8 +8398,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      * to speak passwords.
      */
     private boolean shouldSpeakPasswordsForAccessibility() {
-        return (Settings.Secure.getInt(mContext.getContentResolver(),
-                Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD, 0) == 1);
+        return (Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD, 0,
+                UserHandle.USER_CURRENT_OR_SELF) == 1);
     }
 
     @Override
@@ -8340,14 +8468,56 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             }
         }
 
+        // Check for known input filter types.
+        final int numFilters = mFilters.length;
+        for (int i = 0; i < numFilters; i++) {
+            final InputFilter filter = mFilters[i];
+            if (filter instanceof InputFilter.LengthFilter) {
+                info.setMaxTextLength(((InputFilter.LengthFilter) filter).getMax());
+            }
+        }
+
         if (!isSingleLine()) {
             info.setMultiLine(true);
         }
     }
 
+    /**
+     * Performs an accessibility action after it has been offered to the
+     * delegate.
+     *
+     * @hide
+     */
     @Override
-    public boolean performAccessibilityAction(int action, Bundle arguments) {
+    public boolean performAccessibilityActionInternal(int action, Bundle arguments) {
         switch (action) {
+            case AccessibilityNodeInfo.ACTION_CLICK: {
+                boolean handled = false;
+
+                // Simulate View.onTouchEvent for an ACTION_UP event.
+                if (isClickable() || isLongClickable()) {
+                    if (isFocusable() && !isFocused()) {
+                        requestFocus();
+                    }
+
+                    performClick();
+                    handled = true;
+                }
+
+                // Simulate TextView.onTouchEvent for an ACTION_UP event.
+                if ((mMovement != null || onCheckIsTextEditor()) && isEnabled()
+                        && mText instanceof Spannable && mLayout != null
+                        && (isTextEditable() || isTextSelectable()) && isFocused()) {
+                    // Show the IME, except when selecting in read-only text.
+                    final InputMethodManager imm = InputMethodManager.peekInstance();
+                    viewClicked(imm);
+                    if (!isTextSelectable() && mEditor.mShowSoftInputOnFocus && imm != null) {
+                        handled |= imm.showSoftInput(this, 0);
+                    }
+                }
+
+                return handled;
+            }
             case AccessibilityNodeInfo.ACTION_COPY: {
                 if (isFocused() && canCopy()) {
                     if (onTextContextMenuItem(ID_COPY)) {
@@ -8371,6 +8541,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             } return false;
             case AccessibilityNodeInfo.ACTION_SET_SELECTION: {
                 if (isFocused() && canSelectText()) {
+                    ensureIterableTextForAccessibilitySelectable();
                     CharSequence text = getIterableTextForAccessibility();
                     if (text == null) {
                         return false;
@@ -8396,8 +8567,13 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                     }
                 }
             } return false;
+            case AccessibilityNodeInfo.ACTION_NEXT_AT_MOVEMENT_GRANULARITY:
+            case AccessibilityNodeInfo.ACTION_PREVIOUS_AT_MOVEMENT_GRANULARITY: {
+                ensureIterableTextForAccessibilitySelectable();
+                return super.performAccessibilityActionInternal(action, arguments);
+            }
             default: {
-                return super.performAccessibilityAction(action, arguments);
+                return super.performAccessibilityActionInternal(action, arguments);
             }
         }
     }
@@ -8652,57 +8828,6 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
-     * Prepare text so that there are not zero or two spaces at beginning and end of region defined
-     * by [min, max] when replacing this region by paste.
-     * Note that if there were two spaces (or more) at that position before, they are kept. We just
-     * make sure we do not add an extra one from the paste content.
-     */
-    long prepareSpacesAroundPaste(int min, int max, CharSequence paste) {
-        if (paste.length() > 0) {
-            if (min > 0) {
-                final char charBefore = mTransformed.charAt(min - 1);
-                final char charAfter = paste.charAt(0);
-
-                if (Character.isSpaceChar(charBefore) && Character.isSpaceChar(charAfter)) {
-                    // Two spaces at beginning of paste: remove one
-                    final int originalLength = mText.length();
-                    deleteText_internal(min - 1, min);
-                    // Due to filters, there is no guarantee that exactly one character was
-                    // removed: count instead.
-                    final int delta = mText.length() - originalLength;
-                    min += delta;
-                    max += delta;
-                } else if (!Character.isSpaceChar(charBefore) && charBefore != '\n' &&
-                        !Character.isSpaceChar(charAfter) && charAfter != '\n') {
-                    // No space at beginning of paste: add one
-                    final int originalLength = mText.length();
-                    replaceText_internal(min, min, " ");
-                    // Taking possible filters into account as above.
-                    final int delta = mText.length() - originalLength;
-                    min += delta;
-                    max += delta;
-                }
-            }
-
-            if (max < mText.length()) {
-                final char charBefore = paste.charAt(paste.length() - 1);
-                final char charAfter = mTransformed.charAt(max);
-
-                if (Character.isSpaceChar(charBefore) && Character.isSpaceChar(charAfter)) {
-                    // Two spaces at end of paste: remove one
-                    deleteText_internal(max, max + 1);
-                } else if (!Character.isSpaceChar(charBefore) && charBefore != '\n' &&
-                        !Character.isSpaceChar(charAfter) && charAfter != '\n') {
-                    // No space at end of paste: add one
-                    replaceText_internal(max, max, " ");
-                }
-            }
-        }
-
-        return TextUtils.packRangeInLong(min, max);
-    }
-
-    /**
      * Paste clipboard content between min and max positions.
      */
     private void paste(int min, int max) {
@@ -8715,9 +8840,6 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 CharSequence paste = clip.getItemAt(i).coerceToStyledText(getContext());
                 if (paste != null) {
                     if (!didFirst) {
-                        long minMax = prepareSpacesAroundPaste(min, max, paste);
-                        min = TextUtils.unpackRangeStartFromLong(minMax);
-                        max = TextUtils.unpackRangeEndFromLong(minMax);
                         Selection.setSelection((Spannable) mText, max);
                         ((Editable) mText).replace(min, max, paste);
                         didFirst = true;
@@ -8939,10 +9061,13 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      */
     @Override
     public CharSequence getIterableTextForAccessibility() {
+        return mText;
+    }
+
+    private void ensureIterableTextForAccessibilitySelectable() {
         if (!(mText instanceof Spannable)) {
             setText(mText, BufferType.SPANNABLE);
         }
-        return mText;
     }
 
     /**

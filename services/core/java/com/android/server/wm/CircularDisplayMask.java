@@ -24,6 +24,7 @@ import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.view.Display;
 import android.view.Surface;
@@ -35,7 +36,6 @@ import android.util.Slog;
 class CircularDisplayMask {
     private static final String TAG = "CircularDisplayMask";
 
-    private static final int STROKE_WIDTH = 2;
     // size of the chin
     private int mScreenOffset = 0;
     // Display dimensions
@@ -63,8 +63,14 @@ class CircularDisplayMask {
 
         SurfaceControl ctrl = null;
         try {
-            ctrl = new SurfaceControl(session, "CircularDisplayMask",
-                mScreenSize.x, mScreenSize.y, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
+            if (WindowManagerService.DEBUG_SURFACE_TRACE) {
+                ctrl = new WindowStateAnimator.SurfaceTrace(session, "CircularDisplayMask",
+                        mScreenSize.x, mScreenSize.y, PixelFormat.TRANSLUCENT,
+                        SurfaceControl.HIDDEN);
+            } else {
+                ctrl = new SurfaceControl(session, "CircularDisplayMask", mScreenSize.x,
+                        mScreenSize.y, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
+            }
             ctrl.setLayerStack(display.getLayerStack());
             ctrl.setLayer(zOrder);
             ctrl.setPosition(0, 0);
@@ -76,9 +82,7 @@ class CircularDisplayMask {
         mDrawNeeded = true;
         mPaint = new Paint();
         mPaint.setAntiAlias(true);
-        mPaint.setStyle(Paint.Style.STROKE);
-        mPaint.setColor(Color.BLACK);
-        mPaint.setStrokeWidth(STROKE_WIDTH);
+        mPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
         mScreenOffset = screenOffset;
     }
 
@@ -98,7 +102,6 @@ class CircularDisplayMask {
         if (c == null) {
             return;
         }
-        c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.SRC);
         switch (mRotation) {
         case Surface.ROTATION_0:
         case Surface.ROTATION_90:
@@ -116,7 +119,10 @@ class CircularDisplayMask {
         }
 
         int circleRadius = mScreenSize.x / 2;
-        c.drawCircle(circleRadius, circleRadius, circleRadius, mPaint);
+        c.drawColor(Color.BLACK);
+
+        // The radius is reduced by 1 to provide an anti aliasing effect on the display edges.
+        c.drawCircle(circleRadius, circleRadius, circleRadius - 1, mPaint);
         mSurface.unlockCanvasAndPost(c);
     }
 

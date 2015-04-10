@@ -561,15 +561,17 @@ status_t AaptGroup::addFile(const sp<AaptFile>& file, const bool overwriteDuplic
         return NO_ERROR;
     }
 
-#if 0
-    printf("Error adding file %s: group %s already exists in leaf=%s path=%s\n",
-            file->getSourceFile().string(),
-            file->getGroupEntry().toDirName(String8()).string(),
-            mLeaf.string(), mPath.string());
-#endif
+    // Check if the version is automatically applied. This is a common source of
+    // error.
+    ConfigDescription withoutVersion = file->getGroupEntry().toParams();
+    withoutVersion.version = 0;
+    AaptConfig::applyVersionForCompatibility(&withoutVersion);
 
-    SourcePos(file->getSourceFile(), -1).error("Duplicate file.\n%s: Original is here.",
-                                               getPrintableSource().string());
+    const sp<AaptFile>& originalFile = mFiles.valueAt(index);
+    SourcePos(file->getSourceFile(), -1)
+            .error("Duplicate file.\n%s: Original is here. %s",
+                   originalFile->getPrintableSource().string(),
+                   (withoutVersion.version != 0) ? "The version qualifier may be implied." : "");
     return UNKNOWN_ERROR;
 }
 
@@ -1139,9 +1141,10 @@ bail:
 ssize_t AaptAssets::slurpFullTree(Bundle* bundle, const String8& srcDir,
                                     const AaptGroupEntry& kind,
                                     const String8& resType,
-                                    sp<FilePathStore>& fullResPaths)
+                                    sp<FilePathStore>& fullResPaths,
+                                    const bool overwrite)
 {
-    ssize_t res = AaptDir::slurpFullTree(bundle, srcDir, kind, resType, fullResPaths);
+    ssize_t res = AaptDir::slurpFullTree(bundle, srcDir, kind, resType, fullResPaths, overwrite);
     if (res > 0) {
         mGroupEntries.add(kind);
     }
@@ -1542,21 +1545,40 @@ bool AaptAssets::isJavaSymbol(const AaptSymbolEntry& sym, bool includePrivate) c
 
 status_t AaptAssets::buildIncludedResources(Bundle* bundle)
 {
-    if (!mHaveIncludedAssets) {
-        // Add in all includes.
-        const Vector<const char*>& incl = bundle->getPackageIncludes();
-        const size_t N=incl.size();
-        for (size_t i=0; i<N; i++) {
-            if (bundle->getVerbose())
-                printf("Including resources from package: %s\n", incl[i]);
-            if (!mIncludedAssets.addAssetPath(String8(incl[i]), NULL)) {
-                fprintf(stderr, "ERROR: Asset package include '%s' not found.\n",
-                        incl[i]);
-                return UNKNOWN_ERROR;
-            }
-        }
-        mHaveIncludedAssets = true;
+    if (mHaveIncludedAssets) {
+        return NO_ERROR;
     }
+
+    // Add in all includes.
+    const Vector<String8>& includes = bundle->getPackageIncludes();
+    const size_t packageIncludeCount = includes.size();
+    for (size_t i = 0; i < packageIncludeCount; i++) {
+        if (bundle->getVerbose()) {
+            printf("Including resources from package: %s\n", includes[i].string());
+        }
+
+        if (!mIncludedAssets.addAssetPath(includes[i], NULL)) {
+            fprintf(stderr, "ERROR: Asset package include '%s' not found.\n",
+                    includes[i].string());
+            return UNKNOWN_ERROR;
+        }
+    }
+
+    const String8& featureOfBase = bundle->getFeatureOfPackage();
+    if (!featureOfBase.isEmpty()) {
+        if (bundle->getVerbose()) {
+            printf("Including base feature resources from package: %s\n",
+                    featureOfBase.string());
+        }
+
+        if (!mIncludedAssets.addAssetPath(featureOfBase, NULL)) {
+            fprintf(stderr, "ERROR: base feature package '%s' not found.\n",
+                    featureOfBase.string());
+            return UNKNOWN_ERROR;
+        }
+    }
+
+    mHaveIncludedAssets = true;
 
     return NO_ERROR;
 }
@@ -1571,6 +1593,11 @@ status_t AaptAssets::addIncludedResources(const sp<AaptFile>& file)
 const ResTable& AaptAssets::getIncludedResources() const
 {
     return mIncludedAssets.getResources(false);
+}
+
+AssetManager& AaptAssets::getAssetManager()
+{
+    return mIncludedAssets;
 }
 
 void AaptAssets::print(const String8& prefix) const

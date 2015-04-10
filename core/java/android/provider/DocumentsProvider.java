@@ -16,7 +16,6 @@
 
 package android.provider;
 
-import static android.provider.DocumentsContract.EXTRA_THUMBNAIL_SIZE;
 import static android.provider.DocumentsContract.METHOD_CREATE_DOCUMENT;
 import static android.provider.DocumentsContract.METHOD_DELETE_DOCUMENT;
 import static android.provider.DocumentsContract.METHOD_RENAME_DOCUMENT;
@@ -638,7 +637,7 @@ public abstract class DocumentsProvider extends ContentProvider {
         final Bundle out = new Bundle();
         try {
             if (METHOD_CREATE_DOCUMENT.equals(method)) {
-                enforceWritePermissionInner(documentUri);
+                enforceWritePermissionInner(documentUri, null);
 
                 final String mimeType = extras.getString(Document.COLUMN_MIME_TYPE);
                 final String displayName = extras.getString(Document.COLUMN_DISPLAY_NAME);
@@ -652,7 +651,7 @@ public abstract class DocumentsProvider extends ContentProvider {
                 out.putParcelable(DocumentsContract.EXTRA_URI, newDocumentUri);
 
             } else if (METHOD_RENAME_DOCUMENT.equals(method)) {
-                enforceWritePermissionInner(documentUri);
+                enforceWritePermissionInner(documentUri, null);
 
                 final String displayName = extras.getString(Document.COLUMN_DISPLAY_NAME);
                 final String newDocumentId = renameDocument(documentId, displayName);
@@ -676,7 +675,7 @@ public abstract class DocumentsProvider extends ContentProvider {
                 }
 
             } else if (METHOD_DELETE_DOCUMENT.equals(method)) {
-                enforceWritePermissionInner(documentUri);
+                enforceWritePermissionInner(documentUri, null);
                 deleteDocument(documentId);
 
                 // Document no longer exists, clean up any grants
@@ -763,8 +762,8 @@ public abstract class DocumentsProvider extends ContentProvider {
     public final AssetFileDescriptor openTypedAssetFile(Uri uri, String mimeTypeFilter, Bundle opts)
             throws FileNotFoundException {
         enforceTree(uri);
-        if (opts != null && opts.containsKey(EXTRA_THUMBNAIL_SIZE)) {
-            final Point sizeHint = opts.getParcelable(EXTRA_THUMBNAIL_SIZE);
+        if (opts != null && opts.containsKey(ContentResolver.EXTRA_SIZE)) {
+            final Point sizeHint = opts.getParcelable(ContentResolver.EXTRA_SIZE);
             return openDocumentThumbnail(getDocumentId(uri), sizeHint, null);
         } else {
             return super.openTypedAssetFile(uri, mimeTypeFilter, opts);
@@ -781,8 +780,8 @@ public abstract class DocumentsProvider extends ContentProvider {
             Uri uri, String mimeTypeFilter, Bundle opts, CancellationSignal signal)
             throws FileNotFoundException {
         enforceTree(uri);
-        if (opts != null && opts.containsKey(EXTRA_THUMBNAIL_SIZE)) {
-            final Point sizeHint = opts.getParcelable(EXTRA_THUMBNAIL_SIZE);
+        if (opts != null && opts.containsKey(ContentResolver.EXTRA_SIZE)) {
+            final Point sizeHint = opts.getParcelable(ContentResolver.EXTRA_SIZE);
             return openDocumentThumbnail(getDocumentId(uri), sizeHint, signal);
         } else {
             return super.openTypedAssetFile(uri, mimeTypeFilter, opts, signal);

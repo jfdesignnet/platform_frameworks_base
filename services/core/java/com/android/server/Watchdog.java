@@ -332,6 +332,7 @@ public class Watchdog extends Thread {
             final ArrayList<HandlerChecker> blockedCheckers;
             final String subject;
             final boolean allowRestart;
+            int debuggerWasConnected = 0;
             synchronized (this) {
                 long timeout = CHECK_INTERVAL;
                 // Make sure we (re)spin the checkers that have become idle within
@@ -341,16 +342,26 @@ public class Watchdog extends Thread {
                     hc.scheduleCheckLocked();
                 }
 
+                if (debuggerWasConnected > 0) {
+                    debuggerWasConnected--;
+                }
+
                 // NOTE: We use uptimeMillis() here because we do not want to increment the time we
                 // wait while asleep. If the device is asleep then the thing that we are waiting
                 // to timeout on is asleep as well and won't have a chance to run, causing a false
                 // positive on when to kill things.
                 long start = SystemClock.uptimeMillis();
                 while (timeout > 0) {
+                    if (Debug.isDebuggerConnected()) {
+                        debuggerWasConnected = 2;
+                    }
                     try {
                         wait(timeout);
                     } catch (InterruptedException e) {
                         Log.wtf(TAG, e);
+                    }
+                    if (Debug.isDebuggerConnected()) {
+                        debuggerWasConnected = 2;
                     }
                     timeout = CHECK_INTERVAL - (SystemClock.uptimeMillis() - start);
                 }
@@ -404,15 +415,9 @@ public class Watchdog extends Thread {
                 dumpKernelStackTraces();
             }
 
-            // Trigger the kernel to dump all blocked threads to the kernel log
-            try {
-                FileWriter sysrq_trigger = new FileWriter("/proc/sysrq-trigger");
-                sysrq_trigger.write("w");
-                sysrq_trigger.close();
-            } catch (IOException e) {
-                Slog.e(TAG, "Failed to write to /proc/sysrq-trigger");
-                Slog.e(TAG, e.getMessage());
-            }
+            // Trigger the kernel to dump all blocked threads, and backtraces on all CPUs to the kernel log
+            doSysRq('w');
+            doSysRq('l');
 
             // Try to add the error to the dropbox, but assuming that the ActivityManager
             // itself may be deadlocked.  (which has happened, causing this statement to
@@ -450,7 +455,12 @@ public class Watchdog extends Thread {
 
             // Only kill the process if the debugger is not attached.
             if (Debug.isDebuggerConnected()) {
+                debuggerWasConnected = 2;
+            }
+            if (debuggerWasConnected >= 2) {
                 Slog.w(TAG, "Debugger connected: Watchdog is *not* killing the system process");
+            } else if (debuggerWasConnected > 0) {
+                Slog.w(TAG, "Debugger was connected: Watchdog is *not* killing the system process");
             } else if (!allowRestart) {
                 Slog.w(TAG, "Restart not allowed: Watchdog is *not* killing the system process");
             } else {
@@ -469,6 +479,16 @@ public class Watchdog extends Thread {
             }
 
             waitedHalf = false;
+        }
+    }
+
+    private void doSysRq(char c) {
+        try {
+            FileWriter sysrq_trigger = new FileWriter("/proc/sysrq-trigger");
+            sysrq_trigger.write(c);
+            sysrq_trigger.close();
+        } catch (IOException e) {
+            Slog.w(TAG, "Failed to write to /proc/sysrq-trigger", e);
         }
     }
 

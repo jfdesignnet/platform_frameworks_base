@@ -221,6 +221,18 @@ public class IWindowManagerImpl implements IWindowManager {
     }
 
     @Override
+    public void overridePendingAppTransitionAspectScaledThumb(Bitmap srcThumb, int startX,
+            int startY, int targetWidth, int targetHeight, IRemoteCallback startedCallback,
+            boolean scaleUp) {
+        // TODO Auto-generated method stub
+    }
+
+    @Override
+    public void overridePendingAppTransitionInPlace(String packageName, int anim) {
+        // TODO Auto-generated method stub
+    }
+
+    @Override
     public void pauseKeyDispatching(IBinder arg0) throws RemoteException {
         // TODO Auto-generated method stub
 
@@ -360,7 +372,7 @@ public class IWindowManagerImpl implements IWindowManager {
     }
 
     @Override
-    public void updateScreenCaptureDisabled(int userId) {
+    public void setScreenCaptureDisabled(int userId, boolean disabled) {
         // TODO Auto-generated method stub
     }
 
@@ -444,7 +456,8 @@ public class IWindowManagerImpl implements IWindowManager {
     }
 
     @Override
-    public void keyguardGoingAway() throws RemoteException {
+    public void keyguardGoingAway(boolean disableWindowAnimations,
+            boolean keyguardGoingToNotificationShade) throws RemoteException {
     }
 
     @Override

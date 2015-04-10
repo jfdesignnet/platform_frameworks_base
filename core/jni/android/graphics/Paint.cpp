@@ -36,7 +36,6 @@
 #include "utils/Blur.h"
 
 #include <minikin/GraphemeBreak.h>
-#include <minikin/Layout.h>
 #include "MinikinSkia.h"
 #include "MinikinUtils.h"
 #include "Paint.h"
@@ -65,10 +64,6 @@ static JMetricsID gFontMetricsInt_fieldID;
 static void defaultSettingsForAndroid(Paint* paint) {
     // GlyphID encoding is required because we are using Harfbuzz shaping
     paint->setTextEncoding(Paint::kGlyphID_TextEncoding);
-
-    SkPaintOptionsAndroid paintOpts = paint->getPaintOptionsAndroid();
-    paintOpts.setUseFontFallbacks(true);
-    paint->setPaintOptionsAndroid(paintOpts);
 }
 
 class PaintGlue {
@@ -370,27 +365,19 @@ public:
         char langTag[ULOC_FULLNAME_CAPACITY];
         toLanguageTag(langTag, ULOC_FULLNAME_CAPACITY, localeChars.c_str());
 
-        SkPaintOptionsAndroid paintOpts = obj->getPaintOptionsAndroid();
-        paintOpts.setLanguage(langTag);
-        obj->setPaintOptionsAndroid(paintOpts);
+        obj->setTextLocale(langTag);
     }
 
     static jboolean isElegantTextHeight(JNIEnv* env, jobject paint) {
         NPE_CHECK_RETURN_ZERO(env, paint);
         Paint* obj = GraphicsJNI::getNativePaint(env, paint);
-        SkPaintOptionsAndroid paintOpts = obj->getPaintOptionsAndroid();
-        return paintOpts.getFontVariant() == SkPaintOptionsAndroid::kElegant_Variant;
+        return obj->getFontVariant() == VARIANT_ELEGANT;
     }
 
     static void setElegantTextHeight(JNIEnv* env, jobject paint, jboolean aa) {
         NPE_CHECK_RETURN_VOID(env, paint);
         Paint* obj = GraphicsJNI::getNativePaint(env, paint);
-        SkPaintOptionsAndroid::FontVariant variant =
-            aa ? SkPaintOptionsAndroid::kElegant_Variant :
-            SkPaintOptionsAndroid::kDefault_Variant;
-        SkPaintOptionsAndroid paintOpts = obj->getPaintOptionsAndroid();
-        paintOpts.setFontVariant(variant);
-        obj->setPaintOptionsAndroid(paintOpts);
+        obj->setFontVariant(aa ? VARIANT_ELEGANT : VARIANT_DEFAULT);
     }
 
     static jfloat getTextSize(JNIEnv* env, jobject paint) {
@@ -433,6 +420,16 @@ public:
         paint->setLetterSpacing(letterSpacing);
     }
 
+    static void setFontFeatureSettings(JNIEnv* env, jobject clazz, jlong paintHandle, jstring settings) {
+        Paint* paint = reinterpret_cast<Paint*>(paintHandle);
+        if (!settings) {
+            paint->setFontFeatureSettings(std::string());
+        } else {
+            ScopedUtfChars settingsChars(env, settings);
+            paint->setFontFeatureSettings(std::string(settingsChars.c_str(), settingsChars.size()));
+        }
+    }
+
     static SkScalar getMetricsInternal(JNIEnv* env, jobject jpaint, Paint::FontMetrics *metrics) {
         const int kElegantTop = 2500;
         const int kElegantBottom = -1000;
@@ -452,8 +449,7 @@ public:
         // restore the original settings.
         paint->setTextSkewX(saveSkewX);
         paint->setFakeBoldText(savefakeBold);
-        SkPaintOptionsAndroid paintOpts = paint->getPaintOptionsAndroid();
-        if (paintOpts.getFontVariant() == SkPaintOptionsAndroid::kElegant_Variant) {
+        if (paint->getFontVariant() == VARIANT_ELEGANT) {
             SkScalar size = paint->getTextSize();
             metrics->fTop = -size * kElegantTop / 2048;
             metrics->fBottom = -size * kElegantBottom / 2048;
@@ -943,57 +939,60 @@ static JNINativeMethod methods[] = {
     {"finalizer", "(J)V", (void*) PaintGlue::finalizer},
     {"native_init","()J", (void*) PaintGlue::init},
     {"native_initWithPaint","(J)J", (void*) PaintGlue::initWithPaint},
-    {"native_reset","(J)V", (void*) PaintGlue::reset},
-    {"native_set","(JJ)V", (void*) PaintGlue::assign},
-    {"getFlags","()I", (void*) PaintGlue::getFlags},
-    {"setFlags","(I)V", (void*) PaintGlue::setFlags},
-    {"getHinting","()I", (void*) PaintGlue::getHinting},
-    {"setHinting","(I)V", (void*) PaintGlue::setHinting},
-    {"setAntiAlias","(Z)V", (void*) PaintGlue::setAntiAlias},
-    {"setSubpixelText","(Z)V", (void*) PaintGlue::setSubpixelText},
-    {"setLinearText","(Z)V", (void*) PaintGlue::setLinearText},
-    {"setUnderlineText","(Z)V", (void*) PaintGlue::setUnderlineText},
-    {"setStrikeThruText","(Z)V", (void*) PaintGlue::setStrikeThruText},
-    {"setFakeBoldText","(Z)V", (void*) PaintGlue::setFakeBoldText},
-    {"setFilterBitmap","(Z)V", (void*) PaintGlue::setFilterBitmap},
-    {"setDither","(Z)V", (void*) PaintGlue::setDither},
-    {"native_getStyle","(J)I", (void*) PaintGlue::getStyle},
-    {"native_setStyle","(JI)V", (void*) PaintGlue::setStyle},
-    {"getColor","()I", (void*) PaintGlue::getColor},
-    {"setColor","(I)V", (void*) PaintGlue::setColor},
-    {"getAlpha","()I", (void*) PaintGlue::getAlpha},
-    {"setAlpha","(I)V", (void*) PaintGlue::setAlpha},
-    {"getStrokeWidth","()F", (void*) PaintGlue::getStrokeWidth},
-    {"setStrokeWidth","(F)V", (void*) PaintGlue::setStrokeWidth},
-    {"getStrokeMiter","()F", (void*) PaintGlue::getStrokeMiter},
-    {"setStrokeMiter","(F)V", (void*) PaintGlue::setStrokeMiter},
-    {"native_getStrokeCap","(J)I", (void*) PaintGlue::getStrokeCap},
-    {"native_setStrokeCap","(JI)V", (void*) PaintGlue::setStrokeCap},
-    {"native_getStrokeJoin","(J)I", (void*) PaintGlue::getStrokeJoin},
-    {"native_setStrokeJoin","(JI)V", (void*) PaintGlue::setStrokeJoin},
-    {"native_getFillPath","(JJJ)Z", (void*) PaintGlue::getFillPath},
-    {"native_setShader","(JJ)J", (void*) PaintGlue::setShader},
-    {"native_setColorFilter","(JJ)J", (void*) PaintGlue::setColorFilter},
-    {"native_setXfermode","(JJ)J", (void*) PaintGlue::setXfermode},
-    {"native_setPathEffect","(JJ)J", (void*) PaintGlue::setPathEffect},
-    {"native_setMaskFilter","(JJ)J", (void*) PaintGlue::setMaskFilter},
-    {"native_setTypeface","(JJ)J", (void*) PaintGlue::setTypeface},
-    {"native_setRasterizer","(JJ)J", (void*) PaintGlue::setRasterizer},
-    {"native_getTextAlign","(J)I", (void*) PaintGlue::getTextAlign},
-    {"native_setTextAlign","(JI)V", (void*) PaintGlue::setTextAlign},
-    {"native_setTextLocale","(JLjava/lang/String;)V", (void*) PaintGlue::setTextLocale},
-    {"isElegantTextHeight","()Z", (void*) PaintGlue::isElegantTextHeight},
-    {"setElegantTextHeight","(Z)V", (void*) PaintGlue::setElegantTextHeight},
-    {"getTextSize","()F", (void*) PaintGlue::getTextSize},
-    {"setTextSize","(F)V", (void*) PaintGlue::setTextSize},
-    {"getTextScaleX","()F", (void*) PaintGlue::getTextScaleX},
-    {"setTextScaleX","(F)V", (void*) PaintGlue::setTextScaleX},
-    {"getTextSkewX","()F", (void*) PaintGlue::getTextSkewX},
-    {"setTextSkewX","(F)V", (void*) PaintGlue::setTextSkewX},
-    {"native_getLetterSpacing","(J)F", (void*) PaintGlue::getLetterSpacing},
-    {"native_setLetterSpacing","(JF)V", (void*) PaintGlue::setLetterSpacing},
-    {"ascent","()F", (void*) PaintGlue::ascent},
-    {"descent","()F", (void*) PaintGlue::descent},
+
+    {"native_reset","!(J)V", (void*) PaintGlue::reset},
+    {"native_set","!(JJ)V", (void*) PaintGlue::assign},
+    {"getFlags","!()I", (void*) PaintGlue::getFlags},
+    {"setFlags","!(I)V", (void*) PaintGlue::setFlags},
+    {"getHinting","!()I", (void*) PaintGlue::getHinting},
+    {"setHinting","!(I)V", (void*) PaintGlue::setHinting},
+    {"setAntiAlias","!(Z)V", (void*) PaintGlue::setAntiAlias},
+    {"setSubpixelText","!(Z)V", (void*) PaintGlue::setSubpixelText},
+    {"setLinearText","!(Z)V", (void*) PaintGlue::setLinearText},
+    {"setUnderlineText","!(Z)V", (void*) PaintGlue::setUnderlineText},
+    {"setStrikeThruText","!(Z)V", (void*) PaintGlue::setStrikeThruText},
+    {"setFakeBoldText","!(Z)V", (void*) PaintGlue::setFakeBoldText},
+    {"setFilterBitmap","!(Z)V", (void*) PaintGlue::setFilterBitmap},
+    {"setDither","!(Z)V", (void*) PaintGlue::setDither},
+    {"native_getStyle","!(J)I", (void*) PaintGlue::getStyle},
+    {"native_setStyle","!(JI)V", (void*) PaintGlue::setStyle},
+    {"getColor","!()I", (void*) PaintGlue::getColor},
+    {"setColor","!(I)V", (void*) PaintGlue::setColor},
+    {"getAlpha","!()I", (void*) PaintGlue::getAlpha},
+    {"setAlpha","!(I)V", (void*) PaintGlue::setAlpha},
+    {"getStrokeWidth","!()F", (void*) PaintGlue::getStrokeWidth},
+    {"setStrokeWidth","!(F)V", (void*) PaintGlue::setStrokeWidth},
+    {"getStrokeMiter","!()F", (void*) PaintGlue::getStrokeMiter},
+    {"setStrokeMiter","!(F)V", (void*) PaintGlue::setStrokeMiter},
+    {"native_getStrokeCap","!(J)I", (void*) PaintGlue::getStrokeCap},
+    {"native_setStrokeCap","!(JI)V", (void*) PaintGlue::setStrokeCap},
+    {"native_getStrokeJoin","!(J)I", (void*) PaintGlue::getStrokeJoin},
+    {"native_setStrokeJoin","!(JI)V", (void*) PaintGlue::setStrokeJoin},
+    {"native_getFillPath","!(JJJ)Z", (void*) PaintGlue::getFillPath},
+    {"native_setShader","!(JJ)J", (void*) PaintGlue::setShader},
+    {"native_setColorFilter","!(JJ)J", (void*) PaintGlue::setColorFilter},
+    {"native_setXfermode","!(JJ)J", (void*) PaintGlue::setXfermode},
+    {"native_setPathEffect","!(JJ)J", (void*) PaintGlue::setPathEffect},
+    {"native_setMaskFilter","!(JJ)J", (void*) PaintGlue::setMaskFilter},
+    {"native_setTypeface","!(JJ)J", (void*) PaintGlue::setTypeface},
+    {"native_setRasterizer","!(JJ)J", (void*) PaintGlue::setRasterizer},
+    {"native_getTextAlign","!(J)I", (void*) PaintGlue::getTextAlign},
+    {"native_setTextAlign","!(JI)V", (void*) PaintGlue::setTextAlign},
+    {"native_setTextLocale","!(JLjava/lang/String;)V", (void*) PaintGlue::setTextLocale},
+    {"isElegantTextHeight","!()Z", (void*) PaintGlue::isElegantTextHeight},
+    {"setElegantTextHeight","!(Z)V", (void*) PaintGlue::setElegantTextHeight},
+    {"getTextSize","!()F", (void*) PaintGlue::getTextSize},
+    {"setTextSize","!(F)V", (void*) PaintGlue::setTextSize},
+    {"getTextScaleX","!()F", (void*) PaintGlue::getTextScaleX},
+    {"setTextScaleX","!(F)V", (void*) PaintGlue::setTextScaleX},
+    {"getTextSkewX","!()F", (void*) PaintGlue::getTextSkewX},
+    {"setTextSkewX","!(F)V", (void*) PaintGlue::setTextSkewX},
+    {"native_getLetterSpacing","!(J)F", (void*) PaintGlue::getLetterSpacing},
+    {"native_setLetterSpacing","!(JF)V", (void*) PaintGlue::setLetterSpacing},
+    {"native_setFontFeatureSettings","(JLjava/lang/String;)V", (void*) PaintGlue::setFontFeatureSettings},
+    {"ascent","!()F", (void*) PaintGlue::ascent},
+    {"descent","!()F", (void*) PaintGlue::descent},
+
     {"getFontMetrics", "(Landroid/graphics/Paint$FontMetrics;)F", (void*)PaintGlue::getFontMetrics},
     {"getFontMetricsInt", "(Landroid/graphics/Paint$FontMetricsInt;)I", (void*)PaintGlue::getFontMetricsInt},
     {"native_measureText","([CIII)F", (void*) PaintGlue::measureText_CIII},
@@ -1017,8 +1016,9 @@ static JNINativeMethod methods[] = {
                                         (void*) PaintGlue::getStringBounds },
     {"nativeGetCharArrayBounds", "(JJ[CIIILandroid/graphics/Rect;)V",
                                     (void*) PaintGlue::getCharArrayBounds },
-    {"native_setShadowLayer", "(JFFFI)V", (void*)PaintGlue::setShadowLayer},
-    {"native_hasShadowLayer", "(J)Z", (void*)PaintGlue::hasShadowLayer}
+
+    {"native_setShadowLayer", "!(JFFFI)V", (void*)PaintGlue::setShadowLayer},
+    {"native_hasShadowLayer", "!(J)Z", (void*)PaintGlue::hasShadowLayer}
 };
 
 static jfieldID req_fieldID(jfieldID id) {

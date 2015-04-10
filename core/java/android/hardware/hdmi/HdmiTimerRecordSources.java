@@ -67,7 +67,7 @@ public class HdmiTimerRecordSources {
     private HdmiTimerRecordSources() {}
 
     /**
-     * Create {@link TimerRecordSource} for digital source which is used for &lt;Set Digital
+     * Creates {@link TimerRecordSource} for digital source which is used for &lt;Set Digital
      * Timer&gt;.
      *
      * @param timerInfo timer info used for timer recording
@@ -82,7 +82,7 @@ public class HdmiTimerRecordSources {
     }
 
     /**
-     * Create {@link TimerRecordSource} for analogue source which is used for &lt;Set Analogue
+     * Creates {@link TimerRecordSource} for analogue source which is used for &lt;Set Analogue
      * Timer&gt;.
      *
      * @param timerInfo timer info used for timer recording
@@ -97,7 +97,7 @@ public class HdmiTimerRecordSources {
     }
 
     /**
-     * Create {@link TimerRecordSource} for external plug which is used for &lt;Set External
+     * Creates {@link TimerRecordSource} for external plug which is used for &lt;Set External
      * Timer&gt;.
      *
      * @param timerInfo timer info used for timer recording
@@ -112,7 +112,7 @@ public class HdmiTimerRecordSources {
     }
 
     /**
-     * Create {@link TimerRecordSource} for external physical address which is used for &lt;Set
+     * Creates {@link TimerRecordSource} for external physical address which is used for &lt;Set
      * External Timer&gt;.
      *
      * @param timerInfo timer info used for timer recording
@@ -140,36 +140,36 @@ public class HdmiTimerRecordSources {
     }
 
     /**
-     * Create {@link Duration} for time value.
+     * Creates {@link Duration} for time value.
      *
-     * @param hour hour in range of [0, 24]
+     * @param hour hour in range of [0, 23]
      * @param minute minute in range of [0, 60]
      * @return {@link Duration}
      * @throws IllegalArgumentException if hour or minute is out of range
      */
-    public static Time ofTime(int hour, int minute) {
+    public static Time timeOf(int hour, int minute) {
         checkTimeValue(hour, minute);
         return new Time(hour, minute);
     }
 
     private static void checkTimeValue(int hour, int minute) {
-        if (hour < 0 || hour > 24) {
-            throw new IllegalArgumentException("Hour should be in rage of [0, 24]:" + hour);
+        if (hour < 0 || hour > 23) {
+            throw new IllegalArgumentException("Hour should be in rage of [0, 23]:" + hour);
         }
-        if (minute < 0 || minute > 60) {
-            throw new IllegalArgumentException("Minute should be in rage of [0, 60]:" + minute);
+        if (minute < 0 || minute > 59) {
+            throw new IllegalArgumentException("Minute should be in rage of [0, 59]:" + minute);
         }
     }
 
     /**
-     * Create {@link Duration} for duration value.
+     * Creates {@link Duration} for duration value.
      *
-     * @param hour hour in range of [0, 90]
-     * @param minute minute in range of [0, 60]
+     * @param hour hour in range of [0, 99]
+     * @param minute minute in range of [0, 59]
      * @return {@link Duration}
      * @throws IllegalArgumentException if hour or minute is out of range
      */
-    public static Duration ofDuration(int hour, int minute) {
+    public static Duration durationOf(int hour, int minute) {
         checkDurationValue(hour, minute);
         return new Duration(hour, minute);
     }
@@ -178,27 +178,32 @@ public class HdmiTimerRecordSources {
         if (hour < 0 || hour > 99) {
             throw new IllegalArgumentException("Hour should be in rage of [0, 99]:" + hour);
         }
-        if (minute < 0 || minute > 60) {
-            throw new IllegalArgumentException("minute should be in rage of [0, 60]:" + minute);
+        if (minute < 0 || minute > 59) {
+            throw new IllegalArgumentException("minute should be in rage of [0, 59]:" + minute);
         }
     }
 
-    private static class TimeUnit {
-        protected final int mHour;
-        protected final int mMinute;
+    /**
+     * Base class for time-related information.
+     * @hide
+     */
+    @SystemApi
+    /* package */ static class TimeUnit {
+        /* package */ final int mHour;
+        /* package */ final int mMinute;
 
-        protected TimeUnit(int hour, int minute) {
+        /* package */ TimeUnit(int hour, int minute) {
             mHour = hour;
             mMinute = minute;
         }
 
-        protected int toByteArray(byte[] data, int index) {
+        /* package */ int toByteArray(byte[] data, int index) {
             data[index] = toBcdByte(mHour);
             data[index + 1] = toBcdByte(mMinute);
             return 2;
         }
 
-        protected static byte toBcdByte(int value) {
+        /* package */ static byte toBcdByte(int value) {
             int digitOfTen = (value / 10) % 10;
             int digitOfOne = value % 10;
             return (byte) ((digitOfTen << 4) | digitOfOne);
@@ -210,7 +215,7 @@ public class HdmiTimerRecordSources {
      * @hide
      */
     @SystemApi
-    public static class Time extends TimeUnit {
+    public static final class Time extends TimeUnit {
         private Time(int hour, int minute) {
             super(hour, minute);
         }
@@ -221,7 +226,7 @@ public class HdmiTimerRecordSources {
      * @hide
      */
     @SystemApi
-    public static class Duration extends TimeUnit {
+    public static final class Duration extends TimeUnit {
         private Duration(int hour, int minute) {
             super(hour, minute);
         }
@@ -247,7 +252,7 @@ public class HdmiTimerRecordSources {
             RECORDING_SEQUENCE_REPEAT_SATUREDAY);
 
     /**
-     * Create {@link TimerInfo} with the given information.
+     * Creates {@link TimerInfo} with the given information.
      *
      * @param dayOfMonth day of month
      * @param monthOfYear month of year
@@ -298,7 +303,7 @@ public class HdmiTimerRecordSources {
      * @hide
      */
     @SystemApi
-    public static class TimerInfo {
+    public static final class TimerInfo {
         private static final int DAY_OF_MONTH_SIZE = 1;
         private static final int MONTH_OF_YEAR_SIZE = 1;
         private static final int START_TIME_SIZE = 2; // 1byte for hour and 1byte for minute.
@@ -373,7 +378,7 @@ public class HdmiTimerRecordSources {
      * @hide
      */
     @SystemApi
-    public static class TimerRecordSource {
+    public static final class TimerRecordSource {
         private final RecordSource mRecordSource;
         private final TimerInfo mTimerInfo;
 
@@ -426,7 +431,7 @@ public class HdmiTimerRecordSources {
     }
 
     /**
-     * Check the byte array of timer record source.
+     * Checks the byte array of timer record source.
      * @param sourcetype
      * @param recordSource
      * @hide

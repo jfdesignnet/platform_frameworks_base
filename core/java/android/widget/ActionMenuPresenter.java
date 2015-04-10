@@ -19,6 +19,9 @@ package android.widget;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.Matrix;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseBooleanArray;
@@ -580,6 +583,8 @@ public class ActionMenuPresenter extends BaseMenuPresenter
     }
 
     private class OverflowMenuButton extends ImageButton implements ActionMenuView.ActionMenuChildView {
+        private final float[] mTempPts = new float[2];
+
         public OverflowMenuButton(Context context) {
             super(context, null, com.android.internal.R.attr.actionOverflowButtonStyle);
 
@@ -644,6 +649,28 @@ public class ActionMenuPresenter extends BaseMenuPresenter
         public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
             super.onInitializeAccessibilityNodeInfo(info);
             info.setCanOpenPopup(true);
+        }
+
+        @Override
+        protected boolean setFrame(int l, int t, int r, int b) {
+            final boolean changed = super.setFrame(l, t, r, b);
+
+            // Set up the hotspot bounds to square and centered on the image.
+            final Drawable d = getDrawable();
+            final Drawable bg = getBackground();
+            if (d != null && bg != null) {
+                final int width = getWidth();
+                final int height = getHeight();
+                final int halfEdge = Math.max(width, height) / 2;
+                final int offsetX = getPaddingLeft() - getPaddingRight();
+                final int offsetY = getPaddingTop() - getPaddingBottom();
+                final int centerX = (width + offsetX) / 2;
+                final int centerY = (height + offsetY) / 2;
+                bg.setHotspotBounds(centerX - halfEdge, centerY - halfEdge,
+                        centerX + halfEdge, centerY + halfEdge);
+            }
+
+            return changed;
         }
     }
 

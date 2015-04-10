@@ -34,6 +34,7 @@ import java.io.PrintWriter;
 abstract class DisplayDevice {
     private final DisplayAdapter mDisplayAdapter;
     private final IBinder mDisplayToken;
+    private final String mUniqueId;
 
     // The display device does not manage these properties itself, they are set by
     // the display manager service.  The display device shouldn't really be looking at these.
@@ -46,9 +47,10 @@ abstract class DisplayDevice {
     // within a transaction from performTraversalInTransactionLocked.
     private Surface mCurrentSurface;
 
-    public DisplayDevice(DisplayAdapter displayAdapter, IBinder displayToken) {
+    public DisplayDevice(DisplayAdapter displayAdapter, IBinder displayToken, String uniqueId) {
         mDisplayAdapter = displayAdapter;
         mDisplayToken = displayToken;
+        mUniqueId = uniqueId;
     }
 
     /**
@@ -80,6 +82,13 @@ abstract class DisplayDevice {
     }
 
     /**
+     * Returns the unique id of the display device.
+     */
+    public final String getUniqueId() {
+        return mUniqueId;
+    }
+
+    /**
      * Gets information about the display device.
      *
      * The information returned should not change between calls unless the display
@@ -108,8 +117,18 @@ abstract class DisplayDevice {
 
     /**
      * Sets the display state, if supported.
+     *
+     * @return A runnable containing work to be deferred until after we have
+     * exited the critical section, or null if none.
      */
-    public void requestDisplayStateLocked(int state) {
+    public Runnable requestDisplayStateLocked(int state) {
+        return null;
+    }
+
+    /**
+     * Sets the refresh rate, if supported.
+     */
+    public void requestRefreshRateLocked(float refreshRate) {
     }
 
     /**
@@ -198,6 +217,7 @@ abstract class DisplayDevice {
      */
     public void dumpLocked(PrintWriter pw) {
         pw.println("mAdapter=" + mDisplayAdapter.getName());
+        pw.println("mUniqueId=" + mUniqueId);
         pw.println("mDisplayToken=" + mDisplayToken);
         pw.println("mCurrentLayerStack=" + mCurrentLayerStack);
         pw.println("mCurrentOrientation=" + mCurrentOrientation);

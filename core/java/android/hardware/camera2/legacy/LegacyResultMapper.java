@@ -20,7 +20,6 @@ import android.graphics.Rect;
 import android.hardware.Camera;
 import android.hardware.Camera.Parameters;
 import android.hardware.camera2.CameraCharacteristics;
-import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.impl.CameraMetadataNative;
@@ -28,6 +27,7 @@ import android.hardware.camera2.legacy.ParameterUtils.WeightedRectangle;
 import android.hardware.camera2.legacy.ParameterUtils.ZoomData;
 import android.hardware.camera2.params.MeteringRectangle;
 import android.hardware.camera2.utils.ListUtils;
+import android.hardware.camera2.utils.ParamsUtils;
 import android.util.Log;
 import android.util.Size;
 
@@ -39,6 +39,7 @@ import static android.hardware.camera2.CaptureResult.*;
 /**
  * Provide legacy-specific implementations of camera2 CaptureResult for legacy devices.
  */
+@SuppressWarnings("deprecation")
 public class LegacyResultMapper {
     private static final String TAG = "LegacyResultMapper";
     private static final boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
@@ -60,29 +61,52 @@ public class LegacyResultMapper {
      */
     public CameraMetadataNative cachedConvertResultMetadata(
             LegacyRequest legacyRequest, long timestamp) {
-        if (mCachedRequest != null && legacyRequest.parameters.same(mCachedRequest.parameters)) {
-            CameraMetadataNative newResult = new CameraMetadataNative(mCachedResult);
+        CameraMetadataNative result;
+        boolean cached;
 
-            // sensor.timestamp
-            newResult.set(CaptureResult.SENSOR_TIMESTAMP, timestamp);
-            return newResult;
+        /*
+         * Attempt to look up the result from the cache if the parameters haven't changed
+         */
+        if (mCachedRequest != null && legacyRequest.parameters.same(mCachedRequest.parameters)) {
+            result = new CameraMetadataNative(mCachedResult);
+            cached = true;
+        } else {
+            result = convertResultMetadata(legacyRequest);
+            cached = false;
+
+            // Always cache a *copy* of the metadata result,
+            // since api2's client side takes ownership of it after it receives a result
+            mCachedRequest = legacyRequest;
+            mCachedResult = new CameraMetadataNative(result);
         }
 
-        mCachedRequest = legacyRequest;
-        mCachedResult = convertResultMetadata(mCachedRequest, timestamp);
-        return mCachedResult;
+        /*
+         * Unconditionally set fields that change in every single frame
+         */
+        {
+            // sensor.timestamp
+            result.set(SENSOR_TIMESTAMP, timestamp);
+        }
+
+        if (VERBOSE) {
+            Log.v(TAG, "cachedConvertResultMetadata - cached? " + cached +
+                    " timestamp = " + timestamp);
+
+            Log.v(TAG, "----- beginning of result dump ------");
+            result.dumpToLog();
+            Log.v(TAG, "----- end of result dump ------");
+        }
+
+        return result;
     }
 
     /**
      * Generate capture result metadata from the legacy camera request.
      *
      * @param legacyRequest a non-{@code null} legacy request containing the latest parameters
-     * @param timestamp the timestamp to use for this result in nanoseconds.
-     *
      * @return a {@link CameraMetadataNative} object containing result metadata.
      */
-    public static CameraMetadataNative convertResultMetadata(LegacyRequest legacyRequest,
-                                                      long timestamp) {
+    private static CameraMetadataNative convertResultMetadata(LegacyRequest legacyRequest) {
         CameraCharacteristics characteristics = legacyRequest.characteristics;
         CaptureRequest request = legacyRequest.captureRequest;
         Size previewSize = legacyRequest.previewSize;
@@ -96,49 +120,126 @@ public class LegacyResultMapper {
                 request.get(CaptureRequest.SCALER_CROP_REGION), previewSize, params);
 
         /*
+         * colorCorrection
+         */
+        // colorCorrection.aberrationMode
+        {
+            // Always hardcoded to FAST
+            result.set(COLOR_CORRECTION_ABERRATION_MODE, COLOR_CORRECTION_ABERRATION_MODE_FAST);
+        }
+
+        /*
          * control
          */
-        // control.afState
-        if (LegacyMetadataMapper.LIE_ABOUT_AF) {
-            // TODO: Implement autofocus state machine
-            result.set(CaptureResult.CONTROL_AF_MODE, request.get(CaptureRequest.CONTROL_AF_MODE));
-        }
 
         /*
          * control.ae*
          */
         mapAe(result, characteristics, request, activeArraySize, zoomData, /*out*/params);
 
-        // control.awbLock
-        result.set(CaptureResult.CONTROL_AWB_LOCK, params.getAutoWhiteBalanceLock());
+        /*
+         * control.af*
+         */
+        mapAf(result, activeArraySize, zoomData, /*out*/params);
 
-        // control.awbState
-        if (LegacyMetadataMapper.LIE_ABOUT_AWB_STATE) {
-            // Lie to pass CTS temporarily.
-            // TODO: CTS needs to be updated not to query this value
-            // for LIMITED devices unless its guaranteed to be available.
-            result.set(CaptureResult.CONTROL_AWB_STATE,
-                    CameraMetadata.CONTROL_AWB_STATE_CONVERGED);
-            // TODO: Read the awb mode from parameters instead
+        /*
+         * control.awb*
+         */
+        mapAwb(result, /*out*/params);
+
+        /*
+         * control.captureIntent
+         */
+        {
+            int captureIntent = ParamsUtils.getOrDefault(request,
+                    CaptureRequest.CONTROL_CAPTURE_INTENT,
+                    /*defaultValue*/CaptureRequest.CONTROL_CAPTURE_INTENT_PREVIEW);
+
+            captureIntent = LegacyRequestMapper.filterSupportedCaptureIntent(captureIntent);
+
+            result.set(CONTROL_CAPTURE_INTENT, captureIntent);
         }
 
-        if (LegacyMetadataMapper.LIE_ABOUT_AWB) {
-            result.set(CaptureResult.CONTROL_AWB_MODE,
-                    request.get(CaptureRequest.CONTROL_AWB_MODE));
+        /*
+         * control.mode
+         */
+        {
+            int controlMode = ParamsUtils.getOrDefault(request, CaptureRequest.CONTROL_MODE,
+                    CONTROL_MODE_AUTO);
+            if (controlMode == CaptureResult.CONTROL_MODE_USE_SCENE_MODE) {
+                result.set(CONTROL_MODE, CONTROL_MODE_USE_SCENE_MODE);
+            } else {
+                result.set(CONTROL_MODE, CONTROL_MODE_AUTO);
+            }
+        }
+
+        /*
+         * control.sceneMode
+         */
+        {
+            String legacySceneMode = params.getSceneMode();
+            int mode = LegacyMetadataMapper.convertSceneModeFromLegacy(legacySceneMode);
+            if (mode != LegacyMetadataMapper.UNKNOWN_MODE) {
+                result.set(CaptureResult.CONTROL_SCENE_MODE, mode);
+                // In case of SCENE_MODE == FACE_PRIORITY, LegacyFaceDetectMapper will override
+                // the result to say SCENE_MODE == FACE_PRIORITY.
+            }  else {
+                Log.w(TAG, "Unknown scene mode " + legacySceneMode +
+                        " returned by camera HAL, setting to disabled.");
+                result.set(CaptureResult.CONTROL_SCENE_MODE, CONTROL_SCENE_MODE_DISABLED);
+            }
+        }
+
+        /*
+         * control.effectMode
+         */
+        {
+            String legacyEffectMode = params.getColorEffect();
+            int mode = LegacyMetadataMapper.convertEffectModeFromLegacy(legacyEffectMode);
+            if (mode != LegacyMetadataMapper.UNKNOWN_MODE) {
+                result.set(CaptureResult.CONTROL_EFFECT_MODE, mode);
+            } else {
+                Log.w(TAG, "Unknown effect mode " + legacyEffectMode +
+                        " returned by camera HAL, setting to off.");
+                result.set(CaptureResult.CONTROL_EFFECT_MODE, CONTROL_EFFECT_MODE_OFF);
+            }
+        }
+
+        // control.videoStabilizationMode
+        {
+            int stabMode =
+                    (params.isVideoStabilizationSupported() && params.getVideoStabilization()) ?
+                        CONTROL_VIDEO_STABILIZATION_MODE_ON :
+                        CONTROL_VIDEO_STABILIZATION_MODE_OFF;
+            result.set(CONTROL_VIDEO_STABILIZATION_MODE, stabMode);
         }
 
         /*
          * flash
          */
         {
-            // TODO
+            // flash.mode, flash.state mapped in mapAeAndFlashMode
         }
 
         /*
          * lens
          */
+        // lens.focusDistance
+        {
+            if (Parameters.FOCUS_MODE_INFINITY.equals(params.getFocusMode())) {
+                result.set(CaptureResult.LENS_FOCUS_DISTANCE, 0.0f);
+            }
+        }
+
         // lens.focalLength
         result.set(CaptureResult.LENS_FOCAL_LENGTH, params.getFocalLength());
+
+        /*
+         * request
+         */
+        // request.pipelineDepth
+        result.set(REQUEST_PIPELINE_DEPTH,
+                characteristics.get(CameraCharacteristics.REQUEST_PIPELINE_MAX_DEPTH));
 
         /*
          * scaler
@@ -148,10 +249,41 @@ public class LegacyResultMapper {
         /*
          * sensor
          */
-        // sensor.timestamp
-        result.set(CaptureResult.SENSOR_TIMESTAMP, timestamp);
+        // sensor.timestamp varies every frame; mapping is done in #cachedConvertResultMetadata
+        {
+            // Unconditionally no test patterns
+            result.set(SENSOR_TEST_PATTERN_MODE, SENSOR_TEST_PATTERN_MODE_OFF);
+        }
 
-        // TODO: Remaining result metadata tags conversions.
+        /*
+         * jpeg
+         */
+        // jpeg.gpsLocation
+        result.set(JPEG_GPS_LOCATION, request.get(CaptureRequest.JPEG_GPS_LOCATION));
+
+        // jpeg.orientation
+        result.set(JPEG_ORIENTATION, request.get(CaptureRequest.JPEG_ORIENTATION));
+
+        // jpeg.quality
+        result.set(JPEG_QUALITY, (byte) params.getJpegQuality());
+
+        // jpeg.thumbnailQuality
+        result.set(JPEG_THUMBNAIL_QUALITY, (byte) params.getJpegThumbnailQuality());
+
+        // jpeg.thumbnailSize
+        Camera.Size s = params.getJpegThumbnailSize();
+        if (s != null) {
+            result.set(JPEG_THUMBNAIL_SIZE, ParameterUtils.convertSize(s));
+        } else {
+            Log.w(TAG, "Null thumbnail size received from parameters.");
+        }
+
+        /*
+         * noiseReduction.*
+         */
+        // noiseReduction.mode
+        result.set(NOISE_REDUCTION_MODE, NOISE_REDUCTION_MODE_FAST);
+
         return result;
     }
 
@@ -199,7 +331,7 @@ public class LegacyResultMapper {
         }
 
         // control.aeRegions
-        {
+        if (p.getMaxNumMeteringAreas() > 0) {
             if (VERBOSE) {
                 String meteringAreas = p.get("metering-areas");
                 Log.v(TAG, "mapAe - parameter dump; metering-areas: " + meteringAreas);
@@ -211,8 +343,15 @@ public class LegacyResultMapper {
             m.set(CONTROL_AE_REGIONS, meteringRectArray);
         }
 
+    }
+
+    private static void mapAf(CameraMetadataNative m,
+            Rect activeArray, ZoomData zoomData, Camera.Parameters p) {
+        // control.afMode
+        m.set(CaptureResult.CONTROL_AF_MODE, convertLegacyAfMode(p.getFocusMode()));
+
         // control.afRegions
-        {
+        if (p.getMaxNumFocusAreas() > 0) {
             if (VERBOSE) {
                 String focusAreas = p.get("focus-areas");
                 Log.v(TAG, "mapAe - parameter dump; focus-areas: " + focusAreas);
@@ -223,12 +362,20 @@ public class LegacyResultMapper {
 
             m.set(CONTROL_AF_REGIONS, meteringRectArray);
         }
+    }
 
+    private static void mapAwb(CameraMetadataNative m, Camera.Parameters p) {
         // control.awbLock
         {
             boolean lock = p.isAutoWhiteBalanceLockSupported() ?
                     p.getAutoWhiteBalanceLock() : false;
             m.set(CONTROL_AWB_LOCK, lock);
+        }
+
+        // control.awbMode
+        {
+            int awbMode = convertLegacyAwbMode(p.getWhiteBalance());
+            m.set(CONTROL_AWB_MODE, awbMode);
         }
     }
 
@@ -299,6 +446,62 @@ public class LegacyResultMapper {
         m.set(FLASH_MODE, flashMode);
         // control.aeMode
         m.set(CONTROL_AE_MODE, aeMode);
+    }
+
+    private static int convertLegacyAfMode(String mode) {
+        if (mode == null) {
+            Log.w(TAG, "convertLegacyAfMode - no AF mode, default to OFF");
+            return CONTROL_AF_MODE_OFF;
+        }
+
+        switch (mode) {
+            case Parameters.FOCUS_MODE_AUTO:
+                return CONTROL_AF_MODE_AUTO;
+            case Parameters.FOCUS_MODE_CONTINUOUS_PICTURE:
+                return CONTROL_AF_MODE_CONTINUOUS_PICTURE;
+            case Parameters.FOCUS_MODE_CONTINUOUS_VIDEO:
+                return CONTROL_AF_MODE_CONTINUOUS_VIDEO;
+            case Parameters.FOCUS_MODE_EDOF:
+                return CONTROL_AF_MODE_EDOF;
+            case Parameters.FOCUS_MODE_MACRO:
+                return CONTROL_AF_MODE_MACRO;
+            case Parameters.FOCUS_MODE_FIXED:
+                return CONTROL_AF_MODE_OFF;
+            case Parameters.FOCUS_MODE_INFINITY:
+                return CONTROL_AF_MODE_OFF;
+            default:
+                Log.w(TAG, "convertLegacyAfMode - unknown mode " + mode + " , ignoring");
+                return CONTROL_AF_MODE_OFF;
+        }
+    }
+
+    private static int convertLegacyAwbMode(String mode) {
+        if (mode == null) {
+            // OK: camera1 api may not support changing WB modes; assume AUTO
+            return CONTROL_AWB_MODE_AUTO;
+        }
+
+        switch (mode) {
+            case Camera.Parameters.WHITE_BALANCE_AUTO:
+                return CONTROL_AWB_MODE_AUTO;
+            case Camera.Parameters.WHITE_BALANCE_INCANDESCENT:
+                return CONTROL_AWB_MODE_INCANDESCENT;
+            case Camera.Parameters.WHITE_BALANCE_FLUORESCENT:
+                return CONTROL_AWB_MODE_FLUORESCENT;
+            case Camera.Parameters.WHITE_BALANCE_WARM_FLUORESCENT:
+                return CONTROL_AWB_MODE_WARM_FLUORESCENT;
+            case Camera.Parameters.WHITE_BALANCE_DAYLIGHT:
+                return CONTROL_AWB_MODE_DAYLIGHT;
+            case Camera.Parameters.WHITE_BALANCE_CLOUDY_DAYLIGHT:
+                return CONTROL_AWB_MODE_CLOUDY_DAYLIGHT;
+            case Camera.Parameters.WHITE_BALANCE_TWILIGHT:
+                return CONTROL_AWB_MODE_TWILIGHT;
+            case Camera.Parameters.WHITE_BALANCE_SHADE:
+                return CONTROL_AWB_MODE_SHADE;
+            default:
+                Log.w(TAG, "convertAwbMode - unrecognized WB mode " + mode);
+                return CONTROL_AWB_MODE_AUTO;
+        }
     }
 
     /** Map results for scaler.* */

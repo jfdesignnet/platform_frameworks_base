@@ -27,6 +27,7 @@
 namespace android {
 namespace uirenderer {
 
+class AnimationHandle;
 class BaseRenderNodeAnimator;
 class RenderNode;
 
@@ -39,11 +40,30 @@ public:
 
     void addAnimator(const sp<BaseRenderNodeAnimator>& animator);
 
-    void pushStaging(TreeInfo& info);
-    void animate(TreeInfo& info);
+    void setAnimationHandle(AnimationHandle* handle);
+    bool hasAnimationHandle() { return mAnimationHandle; }
+
+    void pushStaging();
+
+    // Returns the combined dirty mask of all animators run
+    uint32_t animate(TreeInfo& info);
+
+    void animateNoDamage(TreeInfo& info);
+
+    // Hard-ends all animators. May only be called on the UI thread.
+    ANDROID_API void endAllStagingAnimators();
+
+    // Hard-ends all animators that have been pushed. Used for cleanup if
+    // the ActivityContext is being destroyed
+    void endAllActiveAnimators();
+
+    bool hasAnimators() { return mAnimators.size(); }
 
 private:
+    uint32_t animateCommon(TreeInfo& info);
+
     RenderNode& mParent;
+    AnimationHandle* mAnimationHandle;
 
     // To improve the efficiency of resizing & removing from the vector
     // use manual ref counting instead of sp<>.

@@ -33,19 +33,22 @@ import android.provider.Settings;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IVoiceInteractionManagerService;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.util.Locale;
+
 
 /**
  * Top-level service of the current global voice interactor, which is providing
- * support for hotwording, the back-end of a {@link android.app.VoiceInteractor}, etc.
+ * support for hotwording etc.
  * The current VoiceInteractionService that has been selected by the user is kept
  * always running by the system, to allow it to do things like listen for hotwords
- * in the background to instigate voice interactions.
+ * in the background.
  *
  * <p>Because this service is always running, it should be kept as lightweight as
  * possible.  Heavy-weight operations (including showing UI) should be implemented
- * in the associated {@link android.service.voice.VoiceInteractionSessionService} when
- * an actual voice interaction is taking place, and that service should run in a
- * separate process from this one.
+ * in the associated {@link android.service.voice.VoiceInteractionSessionService}
+ * that only runs while the operation is active.
  */
 public class VoiceInteractionService extends Service {
     /**
@@ -125,7 +128,7 @@ public class VoiceInteractionService extends Service {
         if (curComp == null) {
             return false;
         }
-        return curComp.equals(cur);
+        return curComp.equals(service);
     }
 
     /**
@@ -160,7 +163,7 @@ public class VoiceInteractionService extends Service {
      * Called during service initialization to tell you when the system is ready
      * to receive interaction from it. You should generally do initialization here
      * rather than in {@link #onCreate()}. Methods such as {@link #startSession(Bundle)} and
-     * {@link #createAlwaysOnHotwordDetector(String, String, android.service.voice.AlwaysOnHotwordDetector.Callback)}
+     * {@link #createAlwaysOnHotwordDetector(String, Locale, android.service.voice.AlwaysOnHotwordDetector.Callback)}
      * will not be operational until this point.
      */
     public void onReady() {
@@ -182,6 +185,7 @@ public class VoiceInteractionService extends Service {
     /**
      * Called during service de-initialization to tell you when the system is shutting the
      * service down.
+     * At this point this service may no longer be the active {@link VoiceInteractionService}.
      */
     public void onShutdown() {
     }
@@ -203,12 +207,11 @@ public class VoiceInteractionService extends Service {
      *
      * @param keyphrase The keyphrase that's being used, for example "Hello Android".
      * @param locale The locale for which the enrollment needs to be performed.
-     *        This is a Java locale, for example "en_US".
      * @param callback The callback to notify of detection events.
      * @return An always-on hotword detector for the given keyphrase and locale.
      */
     public final AlwaysOnHotwordDetector createAlwaysOnHotwordDetector(
-            String keyphrase, String locale, AlwaysOnHotwordDetector.Callback callback) {
+            String keyphrase, Locale locale, AlwaysOnHotwordDetector.Callback callback) {
         if (mSystemService == null) {
             throw new IllegalStateException("Not available until onReady() is called");
         }
@@ -241,6 +244,19 @@ public class VoiceInteractionService extends Service {
             }
         } catch (Exception ex) {
             // Ignore.
+        }
+    }
+
+    @Override
+    protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("VOICE INTERACTION");
+        synchronized (mLock) {
+            pw.println("  AlwaysOnHotwordDetector");
+            if (mHotwordDetector == null) {
+                pw.println("    NULL");
+            } else {
+                mHotwordDetector.dump("    ", pw);
+            }
         }
     }
 }

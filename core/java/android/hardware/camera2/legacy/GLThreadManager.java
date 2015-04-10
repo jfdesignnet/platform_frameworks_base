@@ -17,10 +17,13 @@
 package android.hardware.camera2.legacy;
 
 import android.graphics.SurfaceTexture;
+import android.hardware.camera2.impl.CameraDeviceImpl;
 import android.os.ConditionVariable;
 import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
+import android.util.Pair;
+import android.util.Size;
 import android.view.Surface;
 
 import java.util.Collection;
@@ -42,6 +45,8 @@ public class GLThreadManager {
 
     private CaptureCollector mCaptureCollector;
 
+    private final CameraDeviceState mDeviceState;
+
     private final SurfaceTextureRenderer mTextureRenderer;
 
     private final RequestHandlerThread mGLHandlerThread;
@@ -54,11 +59,11 @@ public class GLThreadManager {
      */
     private static class ConfigureHolder {
         public final ConditionVariable condition;
-        public final Collection<Surface> surfaces;
+        public final Collection<Pair<Surface, Size>> surfaces;
         public final CaptureCollector collector;
 
-        public ConfigureHolder(ConditionVariable condition, Collection<Surface> surfaces,
-                               CaptureCollector collector) {
+        public ConfigureHolder(ConditionVariable condition, Collection<Pair<Surface,
+                Size>> surfaces, CaptureCollector collector) {
             this.condition = condition;
             this.surfaces = surfaces;
             this.collector = collector;
@@ -76,42 +81,50 @@ public class GLThreadManager {
             if (mCleanup) {
                 return true;
             }
-            switch (msg.what) {
-                case MSG_NEW_CONFIGURATION:
-                    ConfigureHolder configure = (ConfigureHolder) msg.obj;
-                    mTextureRenderer.cleanupEGLContext();
-                    mTextureRenderer.configureSurfaces(configure.surfaces);
-                    mCaptureCollector = checkNotNull(configure.collector);
-                    configure.condition.open();
-                    mConfigured = true;
-                    break;
-                case MSG_NEW_FRAME:
-                    if (mDroppingFrames) {
-                        Log.w(TAG, "Ignoring frame.");
+            try {
+                switch (msg.what) {
+                    case MSG_NEW_CONFIGURATION:
+                        ConfigureHolder configure = (ConfigureHolder) msg.obj;
+                        mTextureRenderer.cleanupEGLContext();
+                        mTextureRenderer.configureSurfaces(configure.surfaces);
+                        mCaptureCollector = checkNotNull(configure.collector);
+                        configure.condition.open();
+                        mConfigured = true;
                         break;
-                    }
-                    if (DEBUG) {
-                        mPrevCounter.countAndLog();
-                    }
-                    if (!mConfigured) {
-                        Log.e(TAG, "Dropping frame, EGL context not configured!");
-                    }
-                    mTextureRenderer.drawIntoSurfaces(mCaptureCollector);
-                    break;
-                case MSG_CLEANUP:
-                    mTextureRenderer.cleanupEGLContext();
-                    mCleanup = true;
-                    mConfigured = false;
-                    break;
-                case MSG_DROP_FRAMES:
-                    mDroppingFrames = true;
-                    break;
-                case MSG_ALLOW_FRAMES:
-                    mDroppingFrames = false;
-                    break;
-                default:
-                    Log.e(TAG, "Unhandled message " + msg.what + " on GLThread.");
-                    break;
+                    case MSG_NEW_FRAME:
+                        if (mDroppingFrames) {
+                            Log.w(TAG, "Ignoring frame.");
+                            break;
+                        }
+                        if (DEBUG) {
+                            mPrevCounter.countAndLog();
+                        }
+                        if (!mConfigured) {
+                            Log.e(TAG, "Dropping frame, EGL context not configured!");
+                        }
+                        mTextureRenderer.drawIntoSurfaces(mCaptureCollector);
+                        break;
+                    case MSG_CLEANUP:
+                        mTextureRenderer.cleanupEGLContext();
+                        mCleanup = true;
+                        mConfigured = false;
+                        break;
+                    case MSG_DROP_FRAMES:
+                        mDroppingFrames = true;
+                        break;
+                    case MSG_ALLOW_FRAMES:
+                        mDroppingFrames = false;
+                        break;
+                    case RequestHandlerThread.MSG_POKE_IDLE_HANDLER:
+                        // OK: Ignore message.
+                        break;
+                    default:
+                        Log.e(TAG, "Unhandled message " + msg.what + " on GLThread.");
+                        break;
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Received exception on GL render thread: ", e);
+                mDeviceState.setError(CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
             }
             return true;
         }
@@ -121,11 +134,14 @@ public class GLThreadManager {
      * Create a new GL thread and renderer.
      *
      * @param cameraId the camera id for this thread.
+     * @param facing direction the camera is facing.
+     * @param state {@link CameraDeviceState} to use for error handling.
      */
-    public GLThreadManager(int cameraId) {
-        mTextureRenderer = new SurfaceTextureRenderer();
+    public GLThreadManager(int cameraId, int facing, CameraDeviceState state) {
+        mTextureRenderer = new SurfaceTextureRenderer(facing);
         TAG = String.format("CameraDeviceGLThread-%d", cameraId);
         mGLHandlerThread = new RequestHandlerThread(TAG, mGLHandlerCb);
+        mDeviceState = state;
     }
 
     /**
@@ -188,10 +204,12 @@ public class GLThreadManager {
      * Configure the GL renderer for the given set of output surfaces, and block until
      * this configuration has been applied.
      *
-     * @param surfaces a collection of {@link android.view.Surface}s to configure.
+     * @param surfaces a collection of pairs of {@link android.view.Surface}s and their
+     *                 corresponding sizes to configure.
      * @param collector a {@link CaptureCollector} to retrieve requests from.
      */
-    public void setConfigurationAndWait(Collection<Surface> surfaces, CaptureCollector collector) {
+    public void setConfigurationAndWait(Collection<Pair<Surface, Size>> surfaces,
+                                        CaptureCollector collector) {
         checkNotNull(collector, "collector must not be null");
         Handler handler = mGLHandlerThread.getHandler();
 

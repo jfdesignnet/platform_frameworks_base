@@ -177,9 +177,15 @@ public class CamcorderProfile
      */
     public static final int QUALITY_HIGH_SPEED_1080P = 2004;
 
+    /**
+     * High speed ( >= 100fps) quality level corresponding to the 2160p (3840 x 2160)
+     * resolution.
+     */
+    public static final int QUALITY_HIGH_SPEED_2160P = 2005;
+
     // Start and end of high speed quality list
     private static final int QUALITY_HIGH_SPEED_LIST_START = QUALITY_HIGH_SPEED_LOW;
-    private static final int QUALITY_HIGH_SPEED_LIST_END = QUALITY_HIGH_SPEED_1080P;
+    private static final int QUALITY_HIGH_SPEED_LIST_END = QUALITY_HIGH_SPEED_2160P;
 
     /**
      * Default recording duration in seconds before the session is terminated.
@@ -313,6 +319,7 @@ public class CamcorderProfile
      * @see #QUALITY_HIGH_SPEED_480P
      * @see #QUALITY_HIGH_SPEED_720P
      * @see #QUALITY_HIGH_SPEED_1080P
+     * @see #QUALITY_HIGH_SPEED_2160P
     */
     public static CamcorderProfile get(int cameraId, int quality) {
         if (!((quality >= QUALITY_LIST_START &&
@@ -330,6 +337,24 @@ public class CamcorderProfile
     /**
      * Returns true if camcorder profile exists for the first back-facing
      * camera at the given quality level.
+     *
+     * <p>
+     * When using the Camera 2 API in {@code LEGACY} mode (i.e. when
+     * {@link android.hardware.camera2.CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL} is set
+     * to
+     * {@link android.hardware.camera2.CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY}),
+     * {@link #hasProfile} may return {@code true} for unsupported resolutions.  To ensure a
+     * a given resolution is supported in LEGACY mode, the configuration given in
+     * {@link android.hardware.camera2.CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP}
+     * must contain the the resolution in the supported output sizes.  The recommended way to check
+     * this is with
+     * {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputSizes(Class)} with the
+     * class of the desired recording endpoint, and check that the desired resolution is contained
+     * in the list returned.
+     * </p>
+     * @see android.hardware.camera2.CameraManager
+     * @see android.hardware.camera2.CameraCharacteristics
+     *
      * @param quality the target quality level for the camcorder profile
      */
     public static boolean hasProfile(int quality) {
@@ -347,6 +372,24 @@ public class CamcorderProfile
     /**
      * Returns true if camcorder profile exists for the given camera at
      * the given quality level.
+     *
+     * <p>
+     * When using the Camera 2 API in LEGACY mode (i.e. when
+     * {@link android.hardware.camera2.CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL} is set
+     * to
+     * {@link android.hardware.camera2.CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY}),
+     * {@link #hasProfile} may return {@code true} for unsupported resolutions.  To ensure a
+     * a given resolution is supported in LEGACY mode, the configuration given in
+     * {@link android.hardware.camera2.CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP}
+     * must contain the the resolution in the supported output sizes.  The recommended way to check
+     * this is with
+     * {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputSizes(Class)} with the
+     * class of the desired recording endpoint, and check that the desired resolution is contained
+     * in the list returned.
+     * </p>
+     * @see android.hardware.camera2.CameraManager
+     * @see android.hardware.camera2.CameraCharacteristics
+     *
      * @param cameraId the id for the camera
      * @param quality the target quality level for the camcorder profile
      */

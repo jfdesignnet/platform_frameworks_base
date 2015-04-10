@@ -16,6 +16,7 @@
 
 package com.android.systemui.statusbar.phone;
 
+import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.RemoteException;
@@ -24,6 +25,7 @@ import android.util.Slog;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManagerGlobal;
 
 import com.android.internal.policy.IKeyguardShowCallback;
 import com.android.internal.widget.LockPatternUtils;
@@ -39,6 +41,14 @@ import static com.android.keyguard.KeyguardHostView.OnDismissAction;
  * {@link com.android.keyguard.KeyguardViewBase}.
  */
 public class StatusBarKeyguardViewManager {
+
+    // When hiding the Keyguard with timing supplied from WindowManager, better be early than late.
+    private static final long HIDE_TIMING_CORRECTION_MS = -3 * 16;
+
+    // Delay for showing the navigation bar when the bouncer appears. This should be kept in sync
+    // with the appear animations of the PIN/pattern/password views.
+    private static final long NAV_BAR_SHOW_DELAY_BOUNCER = 320;
+
     private static String TAG = "StatusBarKeyguardViewManager";
 
     private final Context mContext;
@@ -61,6 +71,7 @@ public class StatusBarKeyguardViewManager {
     private boolean mLastOccluded;
     private boolean mLastBouncerShowing;
     private boolean mLastBouncerDismissible;
+    private OnDismissAction mAfterKeyguardGoneAction;
 
     public StatusBarKeyguardViewManager(Context context, ViewMediatorCallback callback,
             LockPatternUtils lockPatternUtils) {
@@ -99,7 +110,7 @@ public class StatusBarKeyguardViewManager {
 
             // The keyguard might be showing (already). So we need to hide it.
             mPhoneStatusBar.hideKeyguard();
-            mBouncer.show();
+            mBouncer.show(true /* resetSecuritySelection */);
         } else {
             mPhoneStatusBar.showKeyguard();
             mBouncer.hide(false /* destroyView */);
@@ -109,14 +120,19 @@ public class StatusBarKeyguardViewManager {
 
     private void showBouncer() {
         if (mShowing) {
-            mBouncer.show();
+            mBouncer.show(false /* resetSecuritySelection */);
         }
         updateStates();
     }
 
-    public void dismissWithAction(OnDismissAction r) {
+    public void dismissWithAction(OnDismissAction r, boolean afterKeyguardGone) {
         if (mShowing) {
-            mBouncer.showWithDismissAction(r);
+            if (!afterKeyguardGone) {
+                mBouncer.showWithDismissAction(r);
+            } else {
+                mBouncer.show(false /* resetSecuritySelection */);
+                mAfterKeyguardGoneAction = r;
+            }
         }
         updateStates();
     }
@@ -183,7 +199,8 @@ public class StatusBarKeyguardViewManager {
                         new Runnable() {
                             @Override
                             public void run() {
-                                mStatusBarWindowManager.setKeyguardOccluded(true);
+                                mStatusBarWindowManager.setKeyguardOccluded(mOccluded);
+                                reset();
                             }
                         });
                 return;
@@ -199,13 +216,28 @@ public class StatusBarKeyguardViewManager {
     }
 
     /**
+     * Starts the animation before we dismiss Keyguard, i.e. an disappearing animation on the
+     * security view of the bouncer.
+     *
+     * @param finishRunnable the runnable to be run after the animation finished, or {@code null} if
+     *                       no action should be run
+     */
+    public void startPreHideAnimation(Runnable finishRunnable) {
+        if (mBouncer.isShowing()) {
+            mBouncer.startPreHideAnimation(finishRunnable);
+        } else if (finishRunnable != null) {
+            finishRunnable.run();
+        }
+    }
+
+    /**
      * Hides the keyguard view
      */
     public void hide(long startTime, final long fadeoutDuration) {
         mShowing = false;
 
         long uptimeMillis = SystemClock.uptimeMillis();
-        long delay = Math.max(0, startTime - uptimeMillis);
+        long delay = Math.max(0, startTime + HIDE_TIMING_CORRECTION_MS - uptimeMillis);
 
         if (mPhoneStatusBar.isInLaunchTransition() ) {
             mPhoneStatusBar.fadeKeyguardAfterLaunchTransition(new Runnable() {
@@ -213,8 +245,7 @@ public class StatusBarKeyguardViewManager {
                 public void run() {
                     mStatusBarWindowManager.setKeyguardShowing(false);
                     mStatusBarWindowManager.setKeyguardFadingAway(true);
-                    mBouncer.animateHide(PhoneStatusBar.FADE_KEYGUARD_START_DELAY,
-                            PhoneStatusBar.FADE_KEYGUARD_DURATION);
+                    mBouncer.hide(true /* destroyView */);
                     updateStates();
                     mScrimController.animateKeyguardFadingOut(
                             PhoneStatusBar.FADE_KEYGUARD_START_DELAY,
@@ -226,25 +257,41 @@ public class StatusBarKeyguardViewManager {
                     mPhoneStatusBar.hideKeyguard();
                     mStatusBarWindowManager.setKeyguardFadingAway(false);
                     mViewMediatorCallback.keyguardGone();
+                    executeAfterKeyguardGoneAction();
                 }
             });
         } else {
             mPhoneStatusBar.setKeyguardFadingAway(delay, fadeoutDuration);
-            mPhoneStatusBar.hideKeyguard();
-            mStatusBarWindowManager.setKeyguardFadingAway(true);
+            boolean staying = mPhoneStatusBar.hideKeyguard();
+            if (!staying) {
+                mStatusBarWindowManager.setKeyguardFadingAway(true);
+                mScrimController.animateKeyguardFadingOut(delay, fadeoutDuration, new Runnable() {
+                    @Override
+                    public void run() {
+                        mStatusBarWindowManager.setKeyguardFadingAway(false);
+                        mPhoneStatusBar.finishKeyguardFadingAway();
+                        WindowManagerGlobal.getInstance().trimMemory(
+                                ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN);
+                    }
+                });
+            } else {
+                mScrimController.animateGoingToFullShade(delay, fadeoutDuration);
+                mPhoneStatusBar.finishKeyguardFadingAway();
+            }
             mStatusBarWindowManager.setKeyguardShowing(false);
-            mBouncer.animateHide(delay, fadeoutDuration);
-            mScrimController.animateKeyguardFadingOut(delay, fadeoutDuration, new Runnable() {
-                @Override
-                public void run() {
-                    mStatusBarWindowManager.setKeyguardFadingAway(false);
-                    mPhoneStatusBar.finishKeyguardFadingAway();
-                }
-            });
+            mBouncer.hide(true /* destroyView */);
             mViewMediatorCallback.keyguardGone();
+            executeAfterKeyguardGoneAction();
             updateStates();
         }
 
+    }
+
+    private void executeAfterKeyguardGoneAction() {
+        if (mAfterKeyguardGoneAction != null) {
+            mAfterKeyguardGoneAction.onDismiss();
+            mAfterKeyguardGoneAction = null;
+        }
     }
 
     /**
@@ -256,6 +303,9 @@ public class StatusBarKeyguardViewManager {
         }
     }
 
+    /**
+     * WARNING: This method might cause Binder calls.
+     */
     public boolean isSecure() {
         return mBouncer.isSecure();
     }
@@ -274,9 +324,7 @@ public class StatusBarKeyguardViewManager {
      */
     public boolean onBackPressed() {
         if (mBouncer.isShowing()) {
-            mBouncer.hide(false /* destroyView */);
-            mPhoneStatusBar.showKeyguard();
-            updateStates();
+            reset();
             return true;
         }
         return false;
@@ -286,12 +334,30 @@ public class StatusBarKeyguardViewManager {
         return mBouncer.isShowing();
     }
 
+    private long getNavBarShowDelay() {
+        if (mPhoneStatusBar.isKeyguardFadingAway()) {
+            return mPhoneStatusBar.getKeyguardFadingAwayDelay();
+        } else {
+
+            // Keyguard is not going away, thus we are showing the navigation bar because the
+            // bouncer is appearing.
+            return NAV_BAR_SHOW_DELAY_BOUNCER;
+        }
+    }
+
+    private Runnable mMakeNavigationBarVisibleRunnable = new Runnable() {
+        @Override
+        public void run() {
+            mPhoneStatusBar.getNavigationBarView().setVisibility(View.VISIBLE);
+        }
+    };
+
     private void updateStates() {
         int vis = mContainer.getSystemUiVisibility();
         boolean showing = mShowing;
         boolean occluded = mOccluded;
         boolean bouncerShowing = mBouncer.isShowing();
-        boolean bouncerDismissible = bouncerShowing && !mBouncer.needsFullscreenBouncer();
+        boolean bouncerDismissible = !mBouncer.isFullscreenBouncer();
 
         if ((bouncerDismissible || !showing) != (mLastBouncerDismissible || !mLastShowing)
                 || mFirstUpdate) {
@@ -305,8 +371,10 @@ public class StatusBarKeyguardViewManager {
                 != (!(mLastShowing && !mLastOccluded) || mLastBouncerShowing) || mFirstUpdate) {
             if (mPhoneStatusBar.getNavigationBarView() != null) {
                 if (!(showing && !occluded) || bouncerShowing) {
-                    mPhoneStatusBar.getNavigationBarView().setVisibility(View.VISIBLE);
+                    mContainer.postOnAnimationDelayed(mMakeNavigationBarVisibleRunnable,
+                            getNavBarShowDelay());
                 } else {
+                    mContainer.removeCallbacks(mMakeNavigationBarVisibleRunnable);
                     mPhoneStatusBar.getNavigationBarView().setVisibility(View.GONE);
                 }
             }
@@ -331,6 +399,8 @@ public class StatusBarKeyguardViewManager {
         mLastOccluded = occluded;
         mLastBouncerShowing = bouncerShowing;
         mLastBouncerDismissible = bouncerDismissible;
+
+        mPhoneStatusBar.onKeyguardViewManagerStatesUpdated();
     }
 
     public boolean onMenuPressed() {
@@ -339,5 +409,34 @@ public class StatusBarKeyguardViewManager {
 
     public boolean interceptMediaKey(KeyEvent event) {
         return mBouncer.interceptMediaKey(event);
+    }
+
+    public void onActivityDrawn() {
+        if (mPhoneStatusBar.isCollapsing()) {
+            mPhoneStatusBar.addPostCollapseAction(new Runnable() {
+                @Override
+                public void run() {
+                    mViewMediatorCallback.readyForKeyguardDone();
+                }
+            });
+        } else {
+            mViewMediatorCallback.readyForKeyguardDone();
+        }
+    }
+
+    public boolean shouldDisableWindowAnimationsForUnlock() {
+        return mPhoneStatusBar.isInLaunchTransition();
+    }
+
+    public boolean isGoingToNotificationShade() {
+        return mPhoneStatusBar.isGoingToNotificationShade();
+    }
+
+    public boolean isSecure(int userId) {
+        return mBouncer.isSecure() || mLockPatternUtils.isSecure(userId);
+    }
+
+    public boolean isInputRestricted() {
+        return mViewMediatorCallback.isInputRestricted();
     }
 }

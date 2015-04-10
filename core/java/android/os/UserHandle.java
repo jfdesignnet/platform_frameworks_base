@@ -16,6 +16,7 @@
 
 package android.os;
 
+import android.annotation.SystemApi;
 import android.util.SparseArray;
 
 import java.io.PrintWriter;
@@ -44,12 +45,12 @@ public final class UserHandle implements Parcelable {
 
     /** @hide A user id to indicate that we would like to send to the current
      *  user, but if this is calling from a user process then we will send it
-     *  to the caller's user instead of failing wiht a security exception */
+     *  to the caller's user instead of failing with a security exception */
     public static final int USER_CURRENT_OR_SELF = -3;
 
     /** @hide A user handle to indicate that we would like to send to the current
      *  user, but if this is calling from a user process then we will send it
-     *  to the caller's user instead of failing wiht a security exception */
+     *  to the caller's user instead of failing with a security exception */
     public static final UserHandle CURRENT_OR_SELF = new UserHandle(USER_CURRENT_OR_SELF);
 
     /** @hide An undefined user id */
@@ -233,8 +234,19 @@ public final class UserHandle implements Parcelable {
      * @return user id of the current process
      * @hide
      */
+    @SystemApi
     public static final int myUserId() {
         return getUserId(Process.myUid());
+    }
+
+    /**
+     * Returns true if this UserHandle refers to the owner user; false otherwise.
+     * @return true if this UserHandle refers to the owner user; false otherwise.
+     * @hide
+     */
+    @SystemApi
+    public final boolean isOwner() {
+        return this.equals(OWNER);
     }
 
     /** @hide */
@@ -242,7 +254,11 @@ public final class UserHandle implements Parcelable {
         mHandle = h;
     }
 
-    /** @hide */
+    /**
+     * Returns the userId stored in this UserHandle.
+     * @hide
+     */
+    @SystemApi
     public int getIdentifier() {
         return mHandle;
     }

@@ -21,8 +21,10 @@ import static android.hardware.camera2.CameraAccessException.CAMERA_IN_USE;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.ICameraDeviceCallbacks;
 import android.hardware.camera2.ICameraDeviceUser;
 import android.hardware.camera2.TotalCaptureResult;
@@ -39,6 +41,7 @@ import android.view.Surface;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -47,8 +50,7 @@ import java.util.TreeSet;
 /**
  * HAL2.1+ implementation of CameraDevice. Use CameraManager#open to instantiate
  */
-public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
-
+public class CameraDeviceImpl extends CameraDevice {
     private final String TAG;
     private final boolean DEBUG;
 
@@ -58,20 +60,20 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
     private ICameraDeviceUser mRemoteDevice;
 
     // Lock to synchronize cross-thread access to device public interface
-    private final Object mInterfaceLock = new Object();
+    final Object mInterfaceLock = new Object(); // access from this class and Session only!
     private final CameraDeviceCallbacks mCallbacks = new CameraDeviceCallbacks();
 
-    private final StateListener mDeviceListener;
-    private volatile StateListener mSessionStateListener;
+    private final StateCallback mDeviceCallback;
+    private volatile StateCallbackKK mSessionStateCallback;
     private final Handler mDeviceHandler;
 
     private volatile boolean mClosing = false;
     private boolean mInError = false;
     private boolean mIdle = true;
 
-    /** map request IDs to listener/request data */
-    private final SparseArray<CaptureListenerHolder> mCaptureListenerMap =
-            new SparseArray<CaptureListenerHolder>();
+    /** map request IDs to callback/request data */
+    private final SparseArray<CaptureCallbackHolder> mCaptureCallbackMap =
+            new SparseArray<CaptureCallbackHolder>();
 
     private int mRepeatingRequestId = REQUEST_ID_NONE;
     private final ArrayList<Integer> mRepeatingRequestIdDeletedList = new ArrayList<Integer>();
@@ -96,6 +98,7 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
     private final FrameNumberTracker mFrameNumberTracker = new FrameNumberTracker();
 
     private CameraCaptureSessionImpl mCurrentSession;
+    private int mNextSessionId = 0;
 
     // Runnables for all state transitions, except error, which needs the
     // error code argument
@@ -103,64 +106,61 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
     private final Runnable mCallOnOpened = new Runnable() {
         @Override
         public void run() {
-            StateListener sessionListener = null;
+            StateCallbackKK sessionCallback = null;
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) return; // Camera already closed
 
-                sessionListener = mSessionStateListener;
+                sessionCallback = mSessionStateCallback;
             }
-            if (sessionListener != null) {
-                sessionListener.onOpened(CameraDeviceImpl.this);
+            if (sessionCallback != null) {
+                sessionCallback.onOpened(CameraDeviceImpl.this);
             }
-            mDeviceListener.onOpened(CameraDeviceImpl.this);
+            mDeviceCallback.onOpened(CameraDeviceImpl.this);
         }
     };
 
     private final Runnable mCallOnUnconfigured = new Runnable() {
         @Override
         public void run() {
-            StateListener sessionListener = null;
+            StateCallbackKK sessionCallback = null;
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) return; // Camera already closed
 
-                sessionListener = mSessionStateListener;
+                sessionCallback = mSessionStateCallback;
             }
-            if (sessionListener != null) {
-                sessionListener.onUnconfigured(CameraDeviceImpl.this);
+            if (sessionCallback != null) {
+                sessionCallback.onUnconfigured(CameraDeviceImpl.this);
             }
-            mDeviceListener.onUnconfigured(CameraDeviceImpl.this);
         }
     };
 
     private final Runnable mCallOnActive = new Runnable() {
         @Override
         public void run() {
-            StateListener sessionListener = null;
+            StateCallbackKK sessionCallback = null;
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) return; // Camera already closed
 
-                sessionListener = mSessionStateListener;
+                sessionCallback = mSessionStateCallback;
             }
-            if (sessionListener != null) {
-                sessionListener.onActive(CameraDeviceImpl.this);
+            if (sessionCallback != null) {
+                sessionCallback.onActive(CameraDeviceImpl.this);
             }
-            mDeviceListener.onActive(CameraDeviceImpl.this);
         }
     };
 
     private final Runnable mCallOnBusy = new Runnable() {
         @Override
         public void run() {
-            StateListener sessionListener = null;
+            StateCallbackKK sessionCallback = null;
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) return; // Camera already closed
 
-                sessionListener = mSessionStateListener;
+                sessionCallback = mSessionStateCallback;
             }
-            if (sessionListener != null) {
-                sessionListener.onBusy(CameraDeviceImpl.this);
+            if (sessionCallback != null) {
+                sessionCallback.onBusy(CameraDeviceImpl.this);
             }
-            mDeviceListener.onBusy(CameraDeviceImpl.this);
         }
     };
 
@@ -172,14 +172,14 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
             if (mClosedOnce) {
                 throw new AssertionError("Don't post #onClosed more than once");
             }
-            StateListener sessionListener = null;
+            StateCallbackKK sessionCallback = null;
             synchronized(mInterfaceLock) {
-                sessionListener = mSessionStateListener;
+                sessionCallback = mSessionStateCallback;
             }
-            if (sessionListener != null) {
-                sessionListener.onClosed(CameraDeviceImpl.this);
+            if (sessionCallback != null) {
+                sessionCallback.onClosed(CameraDeviceImpl.this);
             }
-            mDeviceListener.onClosed(CameraDeviceImpl.this);
+            mDeviceCallback.onClosed(CameraDeviceImpl.this);
             mClosedOnce = true;
         }
     };
@@ -187,42 +187,41 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
     private final Runnable mCallOnIdle = new Runnable() {
         @Override
         public void run() {
-            StateListener sessionListener = null;
+            StateCallbackKK sessionCallback = null;
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) return; // Camera already closed
 
-                sessionListener = mSessionStateListener;
+                sessionCallback = mSessionStateCallback;
             }
-            if (sessionListener != null) {
-                sessionListener.onIdle(CameraDeviceImpl.this);
+            if (sessionCallback != null) {
+                sessionCallback.onIdle(CameraDeviceImpl.this);
             }
-            mDeviceListener.onIdle(CameraDeviceImpl.this);
         }
     };
 
     private final Runnable mCallOnDisconnected = new Runnable() {
         @Override
         public void run() {
-            StateListener sessionListener = null;
+            StateCallbackKK sessionCallback = null;
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) return; // Camera already closed
 
-                sessionListener = mSessionStateListener;
+                sessionCallback = mSessionStateCallback;
             }
-            if (sessionListener != null) {
-                sessionListener.onDisconnected(CameraDeviceImpl.this);
+            if (sessionCallback != null) {
+                sessionCallback.onDisconnected(CameraDeviceImpl.this);
             }
-            mDeviceListener.onDisconnected(CameraDeviceImpl.this);
+            mDeviceCallback.onDisconnected(CameraDeviceImpl.this);
         }
     };
 
-    public CameraDeviceImpl(String cameraId, StateListener listener, Handler handler,
+    public CameraDeviceImpl(String cameraId, StateCallback callback, Handler handler,
                         CameraCharacteristics characteristics) {
-        if (cameraId == null || listener == null || handler == null || characteristics == null) {
+        if (cameraId == null || callback == null || handler == null || characteristics == null) {
             throw new IllegalArgumentException("Null argument given");
         }
         mCameraId = cameraId;
-        mDeviceListener = listener;
+        mDeviceCallback = callback;
         mDeviceHandler = handler;
         mCharacteristics = characteristics;
 
@@ -264,28 +263,28 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
     /**
      * Call to indicate failed connection to a remote camera device.
      *
-     * <p>This places the camera device in the error state and informs the listener.
+     * <p>This places the camera device in the error state and informs the callback.
      * Use in place of setRemoteDevice() when startup fails.</p>
      */
     public void setRemoteFailure(final CameraRuntimeException failure) {
-        int failureCode = StateListener.ERROR_CAMERA_DEVICE;
+        int failureCode = StateCallback.ERROR_CAMERA_DEVICE;
         boolean failureIsError = true;
 
         switch (failure.getReason()) {
             case CameraAccessException.CAMERA_IN_USE:
-                failureCode = StateListener.ERROR_CAMERA_IN_USE;
+                failureCode = StateCallback.ERROR_CAMERA_IN_USE;
                 break;
             case CameraAccessException.MAX_CAMERAS_IN_USE:
-                failureCode = StateListener.ERROR_MAX_CAMERAS_IN_USE;
+                failureCode = StateCallback.ERROR_MAX_CAMERAS_IN_USE;
                 break;
             case CameraAccessException.CAMERA_DISABLED:
-                failureCode = StateListener.ERROR_CAMERA_DISABLED;
+                failureCode = StateCallback.ERROR_CAMERA_DISABLED;
                 break;
             case CameraAccessException.CAMERA_DISCONNECTED:
                 failureIsError = false;
                 break;
             case CameraAccessException.CAMERA_ERROR:
-                failureCode = StateListener.ERROR_CAMERA_DEVICE;
+                failureCode = StateCallback.ERROR_CAMERA_DEVICE;
                 break;
             default:
                 Log.wtf(TAG, "Unknown failure in opening camera device: " + failure.getReason());
@@ -294,16 +293,14 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
         final int code = failureCode;
         final boolean isError = failureIsError;
         synchronized(mInterfaceLock) {
-            if (mRemoteDevice == null) return; // Camera already closed, can't go to error state
-
             mInError = true;
             mDeviceHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     if (isError) {
-                        mDeviceListener.onError(CameraDeviceImpl.this, code);
+                        mDeviceCallback.onError(CameraDeviceImpl.this, code);
                     } else {
-                        mDeviceListener.onDisconnected(CameraDeviceImpl.this);
+                        mDeviceCallback.onDisconnected(CameraDeviceImpl.this);
                     }
                 }
             });
@@ -316,10 +313,33 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
     }
 
     public void configureOutputs(List<Surface> outputs) throws CameraAccessException {
+        // Leave this here for backwards compatibility with older code using this directly
+        configureOutputsChecked(outputs);
+    }
+
+    /**
+     * Attempt to configure the outputs; the device goes to idle and then configures the
+     * new outputs if possible.
+     *
+     * <p>The configuration may gracefully fail, if there are too many outputs, if the formats
+     * are not supported, or if the sizes for that format is not supported. In this case this
+     * function will return {@code false} and the unconfigured callback will be fired.</p>
+     *
+     * <p>If the configuration succeeds (with 1 or more outputs), then the idle callback is fired.
+     * Unconfiguring the device always fires the idle callback.</p>
+     *
+     * @param outputs a list of one or more surfaces, or {@code null} to unconfigure
+     * @return whether or not the configuration was successful
+     *
+     * @throws CameraAccessException if there were any unexpected problems during configuration
+     */
+    public boolean configureOutputsChecked(List<Surface> outputs) throws CameraAccessException {
         // Treat a null input the same an empty list
         if (outputs == null) {
             outputs = new ArrayList<Surface>();
         }
+        boolean success = false;
+
         synchronized(mInterfaceLock) {
             checkIfCameraClosedOrInError();
 
@@ -359,7 +379,17 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                     mConfiguredOutputs.put(streamId, s);
                 }
 
-                mRemoteDevice.endConfigure();
+                try {
+                    mRemoteDevice.endConfigure();
+                }
+                catch (IllegalArgumentException e) {
+                    // OK. camera service can reject stream config if it's not supported by HAL
+                    // This is only the result of a programmer misusing the camera2 api.
+                    Log.w(TAG, "Stream configuration failed");
+                    return false;
+                }
+
+                success = true;
             } catch (CameraRuntimeException e) {
                 if (e.getReason() == CAMERA_IN_USE) {
                     throw new IllegalStateException("The camera is currently busy." +
@@ -369,20 +399,23 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                 throw e.asChecked();
             } catch (RemoteException e) {
                 // impossible
-                return;
-            }
-
-            if (outputs.size() > 0) {
-                mDeviceHandler.post(mCallOnIdle);
-            } else {
-                mDeviceHandler.post(mCallOnUnconfigured);
+                return false;
+            } finally {
+                if (success && outputs.size() > 0) {
+                    mDeviceHandler.post(mCallOnIdle);
+                } else {
+                    // Always return to the 'unconfigured' state if we didn't hit a fatal error
+                    mDeviceHandler.post(mCallOnUnconfigured);
+                }
             }
         }
+
+        return success;
     }
 
     @Override
     public void createCaptureSession(List<Surface> outputs,
-            CameraCaptureSession.StateListener listener, Handler handler)
+            CameraCaptureSession.StateCallback callback, Handler handler)
             throws CameraAccessException {
         synchronized(mInterfaceLock) {
             if (DEBUG) {
@@ -391,13 +424,17 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
 
             checkIfCameraClosedOrInError();
 
-            // TODO: we must be in UNCONFIGURED mode to begin with, or using another session
+            // Notify current session that it's going away, before starting camera operations
+            // After this call completes, the session is not allowed to call into CameraDeviceImpl
+            if (mCurrentSession != null) {
+                mCurrentSession.replaceSessionClose();
+            }
 
             // TODO: dont block for this
             boolean configureSuccess = true;
             CameraAccessException pendingException = null;
             try {
-                configureOutputs(outputs); // and then block until IDLE
+                configureSuccess = configureOutputsChecked(outputs); // and then block until IDLE
             } catch (CameraAccessException e) {
                 configureSuccess = false;
                 pendingException = e;
@@ -408,12 +445,9 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
 
             // Fire onConfigured if configureOutputs succeeded, fire onConfigureFailed otherwise.
             CameraCaptureSessionImpl newSession =
-                    new CameraCaptureSessionImpl(outputs, listener, handler, this, mDeviceHandler,
+                    new CameraCaptureSessionImpl(mNextSessionId++,
+                            outputs, callback, handler, this, mDeviceHandler,
                             configureSuccess);
-
-            if (mCurrentSession != null) {
-                mCurrentSession.replaceSessionClose(newSession);
-            }
 
             // TODO: wait until current session closes, then create the new session
             mCurrentSession = newSession;
@@ -422,7 +456,16 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                 throw pendingException;
             }
 
-            mSessionStateListener = mCurrentSession.getDeviceStateListener();
+            mSessionStateCallback = mCurrentSession.getDeviceStateCallback();
+        }
+    }
+
+    /**
+     * For use by backwards-compatibility code only.
+     */
+    public void setSessionListener(StateCallbackKK sessionCallback) {
+        synchronized(mInterfaceLock) {
+            mSessionStateCallback = sessionCallback;
         }
     }
 
@@ -450,22 +493,22 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
         }
     }
 
-    public int capture(CaptureRequest request, CaptureListener listener, Handler handler)
+    public int capture(CaptureRequest request, CaptureCallback callback, Handler handler)
             throws CameraAccessException {
         if (DEBUG) {
             Log.d(TAG, "calling capture");
         }
         List<CaptureRequest> requestList = new ArrayList<CaptureRequest>();
         requestList.add(request);
-        return submitCaptureRequest(requestList, listener, handler, /*streaming*/false);
+        return submitCaptureRequest(requestList, callback, handler, /*streaming*/false);
     }
 
-    public int captureBurst(List<CaptureRequest> requests, CaptureListener listener,
+    public int captureBurst(List<CaptureRequest> requests, CaptureCallback callback,
             Handler handler) throws CameraAccessException {
         if (requests == null || requests.isEmpty()) {
             throw new IllegalArgumentException("At least one request must be given");
         }
-        return submitCaptureRequest(requests, listener, handler, /*streaming*/false);
+        return submitCaptureRequest(requests, callback, handler, /*streaming*/false);
     }
 
     /**
@@ -485,12 +528,12 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
             final int requestId, final long lastFrameNumber) {
         // lastFrameNumber being equal to NO_FRAMES_CAPTURED means that the request
         // was never sent to HAL. Should trigger onCaptureSequenceAborted immediately.
-        if (lastFrameNumber == CaptureListener.NO_FRAMES_CAPTURED) {
-            final CaptureListenerHolder holder;
-            int index = mCaptureListenerMap.indexOfKey(requestId);
-            holder = (index >= 0) ? mCaptureListenerMap.valueAt(index) : null;
+        if (lastFrameNumber == CaptureCallback.NO_FRAMES_CAPTURED) {
+            final CaptureCallbackHolder holder;
+            int index = mCaptureCallbackMap.indexOfKey(requestId);
+            holder = (index >= 0) ? mCaptureCallbackMap.valueAt(index) : null;
             if (holder != null) {
-                mCaptureListenerMap.removeAt(index);
+                mCaptureCallbackMap.removeAt(index);
                 if (DEBUG) {
                     Log.v(TAG, String.format(
                             "remove holder for requestId %d, "
@@ -518,7 +561,7 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                                     || lastFrameNumber > Integer.MAX_VALUE) {
                                 throw new AssertionError(lastFrameNumber + " cannot be cast to int");
                             }
-                            holder.getListener().onCaptureSequenceAborted(
+                            holder.getCallback().onCaptureSequenceAborted(
                                     CameraDeviceImpl.this,
                                     requestId);
                         }
@@ -527,24 +570,25 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                 holder.getHandler().post(resultDispatch);
             } else {
                 Log.w(TAG, String.format(
-                        "did not register listener to request %d",
+                        "did not register callback to request %d",
                         requestId));
             }
         } else {
             mFrameNumberRequestPairs.add(
                     new SimpleEntry<Long, Integer>(lastFrameNumber,
                             requestId));
+            // It is possible that the last frame has already arrived, so we need to check
+            // for sequence completion right away
+            checkAndFireSequenceComplete();
         }
     }
 
-    private int submitCaptureRequest(List<CaptureRequest> requestList, CaptureListener listener,
+    private int submitCaptureRequest(List<CaptureRequest> requestList, CaptureCallback callback,
             Handler handler, boolean repeating) throws CameraAccessException {
 
         // Need a valid handler, or current thread needs to have a looper, if
-        // listener is valid
-        if (listener != null) {
-            handler = checkHandler(handler);
-        }
+        // callback is valid
+        handler = checkHandler(handler, callback);
 
         // Make sure that there all requests have at least 1 surface; all surfaces are non-null
         for (CaptureRequest request : requestList) {
@@ -582,8 +626,8 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                 return -1;
             }
 
-            if (listener != null) {
-                mCaptureListenerMap.put(requestId, new CaptureListenerHolder(listener,
+            if (callback != null) {
+                mCaptureCallbackMap.put(requestId, new CaptureCallbackHolder(callback,
                         requestList, handler, repeating));
             } else {
                 if (DEBUG) {
@@ -612,19 +656,19 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
         }
     }
 
-    public int setRepeatingRequest(CaptureRequest request, CaptureListener listener,
+    public int setRepeatingRequest(CaptureRequest request, CaptureCallback callback,
             Handler handler) throws CameraAccessException {
         List<CaptureRequest> requestList = new ArrayList<CaptureRequest>();
         requestList.add(request);
-        return submitCaptureRequest(requestList, listener, handler, /*streaming*/true);
+        return submitCaptureRequest(requestList, callback, handler, /*streaming*/true);
     }
 
-    public int setRepeatingBurst(List<CaptureRequest> requests, CaptureListener listener,
+    public int setRepeatingBurst(List<CaptureRequest> requests, CaptureCallback callback,
             Handler handler) throws CameraAccessException {
         if (requests == null || requests.isEmpty()) {
             throw new IllegalArgumentException("At least one request must be given");
         }
-        return submitCaptureRequest(requests, listener, handler, /*streaming*/true);
+        return submitCaptureRequest(requests, callback, handler, /*streaming*/true);
     }
 
     public void stopRepeating() throws CameraAccessException {
@@ -637,7 +681,7 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                 mRepeatingRequestId = REQUEST_ID_NONE;
 
                 // Queue for deletion after in-flight requests finish
-                if (mCaptureListenerMap.get(requestId) != null) {
+                if (mCaptureCallbackMap.get(requestId) != null) {
                     mRepeatingRequestIdDeletedList.add(requestId);
                 }
 
@@ -682,6 +726,13 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
             checkIfCameraClosedOrInError();
 
             mDeviceHandler.post(mCallOnBusy);
+
+            // If already idle, just do a busy->idle transition immediately, don't actually
+            // flush.
+            if (mIdle) {
+                mDeviceHandler.post(mCallOnIdle);
+                return;
+            }
             try {
                 LongParcelable lastFrameNumberRef = new LongParcelable();
                 mRemoteDevice.flush(/*out*/lastFrameNumberRef);
@@ -734,31 +785,158 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
         }
     }
 
-    static class CaptureListenerHolder {
+    /**
+     * <p>A callback for tracking the progress of a {@link CaptureRequest}
+     * submitted to the camera device.</p>
+     *
+     */
+    public static abstract class CaptureCallback {
+
+        /**
+         * This constant is used to indicate that no images were captured for
+         * the request.
+         *
+         * @hide
+         */
+        public static final int NO_FRAMES_CAPTURED = -1;
+
+        /**
+         * This method is called when the camera device has started capturing
+         * the output image for the request, at the beginning of image exposure.
+         *
+         * @see android.media.MediaActionSound
+         */
+        public void onCaptureStarted(CameraDevice camera,
+                CaptureRequest request, long timestamp, long frameNumber) {
+            // default empty implementation
+        }
+
+        /**
+         * This method is called when some results from an image capture are
+         * available.
+         *
+         * @hide
+         */
+        public void onCapturePartial(CameraDevice camera,
+                CaptureRequest request, CaptureResult result) {
+            // default empty implementation
+        }
+
+        /**
+         * This method is called when an image capture makes partial forward progress; some
+         * (but not all) results from an image capture are available.
+         *
+         */
+        public void onCaptureProgressed(CameraDevice camera,
+                CaptureRequest request, CaptureResult partialResult) {
+            // default empty implementation
+        }
+
+        /**
+         * This method is called when an image capture has fully completed and all the
+         * result metadata is available.
+         */
+        public void onCaptureCompleted(CameraDevice camera,
+                CaptureRequest request, TotalCaptureResult result) {
+            // default empty implementation
+        }
+
+        /**
+         * This method is called instead of {@link #onCaptureCompleted} when the
+         * camera device failed to produce a {@link CaptureResult} for the
+         * request.
+         */
+        public void onCaptureFailed(CameraDevice camera,
+                CaptureRequest request, CaptureFailure failure) {
+            // default empty implementation
+        }
+
+        /**
+         * This method is called independently of the others in CaptureCallback,
+         * when a capture sequence finishes and all {@link CaptureResult}
+         * or {@link CaptureFailure} for it have been returned via this callback.
+         */
+        public void onCaptureSequenceCompleted(CameraDevice camera,
+                int sequenceId, long frameNumber) {
+            // default empty implementation
+        }
+
+        /**
+         * This method is called independently of the others in CaptureCallback,
+         * when a capture sequence aborts before any {@link CaptureResult}
+         * or {@link CaptureFailure} for it have been returned via this callback.
+         */
+        public void onCaptureSequenceAborted(CameraDevice camera,
+                int sequenceId) {
+            // default empty implementation
+        }
+    }
+
+    /**
+     * A callback for notifications about the state of a camera device, adding in the callbacks that
+     * were part of the earlier KK API design, but now only used internally.
+     */
+    public static abstract class StateCallbackKK extends StateCallback {
+        /**
+         * The method called when a camera device has no outputs configured.
+         *
+         */
+        public void onUnconfigured(CameraDevice camera) {
+            // Default empty implementation
+        }
+
+        /**
+         * The method called when a camera device begins processing
+         * {@link CaptureRequest capture requests}.
+         *
+         */
+        public void onActive(CameraDevice camera) {
+            // Default empty implementation
+        }
+
+        /**
+         * The method called when a camera device is busy.
+         *
+         */
+        public void onBusy(CameraDevice camera) {
+            // Default empty implementation
+        }
+
+        /**
+         * The method called when a camera device has finished processing all
+         * submitted capture requests and has reached an idle state.
+         *
+         */
+        public void onIdle(CameraDevice camera) {
+            // Default empty implementation
+        }
+    }
+
+    static class CaptureCallbackHolder {
 
         private final boolean mRepeating;
-        private final CaptureListener mListener;
+        private final CaptureCallback mCallback;
         private final List<CaptureRequest> mRequestList;
         private final Handler mHandler;
 
-        CaptureListenerHolder(CaptureListener listener, List<CaptureRequest> requestList,
+        CaptureCallbackHolder(CaptureCallback callback, List<CaptureRequest> requestList,
                 Handler handler, boolean repeating) {
-            if (listener == null || handler == null) {
+            if (callback == null || handler == null) {
                 throw new UnsupportedOperationException(
-                    "Must have a valid handler and a valid listener");
+                    "Must have a valid handler and a valid callback");
             }
             mRepeating = repeating;
             mHandler = handler;
             mRequestList = new ArrayList<CaptureRequest>(requestList);
-            mListener = listener;
+            mCallback = callback;
         }
 
         public boolean isRepeating() {
             return mRepeating;
         }
 
-        public CaptureListener getListener() {
-            return mListener;
+        public CaptureCallback getCallback() {
+            return mCallback;
         }
 
         public CaptureRequest getRequest(int subsequenceId) {
@@ -794,6 +972,8 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
 
         private long mCompletedFrameNumber = -1;
         private final TreeSet<Long> mFutureErrorSet = new TreeSet<Long>();
+        /** Map frame numbers to list of partial results */
+        private final HashMap<Long, List<CaptureResult>> mPartialResults = new HashMap<>();
 
         private void update() {
             Iterator<Long> iter = mFutureErrorSet.iterator();
@@ -810,8 +990,8 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
 
         /**
          * This function is called every time when a result or an error is received.
-         * @param frameNumber: the frame number corresponding to the result or error
-         * @param isError: true if it is an error, false if it is not an error
+         * @param frameNumber the frame number corresponding to the result or error
+         * @param isError true if it is an error, false if it is not an error
          */
         public void updateTracker(long frameNumber, boolean isError) {
             if (isError) {
@@ -827,10 +1007,61 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                     Log.e(TAG, String.format(
                             "result frame number %d comes out of order, should be %d + 1",
                             frameNumber, mCompletedFrameNumber));
+                    // Continue on to set the completed frame number to this frame anyway,
+                    // to be robust to lower-level errors and allow for clean shutdowns.
                 }
-                mCompletedFrameNumber++;
+                mCompletedFrameNumber = frameNumber;
             }
             update();
+        }
+
+        /**
+         * This function is called every time a result has been completed.
+         *
+         * <p>It keeps a track of all the partial results already created for a particular
+         * frame number.</p>
+         *
+         * @param frameNumber the frame number corresponding to the result
+         * @param result the total or partial result
+         * @param partial {@true} if the result is partial, {@code false} if total
+         */
+        public void updateTracker(long frameNumber, CaptureResult result, boolean partial) {
+
+            if (!partial) {
+                // Update the total result's frame status as being successful
+                updateTracker(frameNumber, /*isError*/false);
+                // Don't keep a list of total results, we don't need to track them
+                return;
+            }
+
+            if (result == null) {
+                // Do not record blank results; this also means there will be no total result
+                // so it doesn't matter that the partials were not recorded
+                return;
+            }
+
+            // Partial results must be aggregated in-order for that frame number
+            List<CaptureResult> partials = mPartialResults.get(frameNumber);
+            if (partials == null) {
+                partials = new ArrayList<>();
+                mPartialResults.put(frameNumber, partials);
+            }
+
+            partials.add(result);
+        }
+
+        /**
+         * Attempt to pop off all of the partial results seen so far for the {@code frameNumber}.
+         *
+         * <p>Once popped-off, the partial results are forgotten (unless {@code updateTracker}
+         * is called again with new partials for that frame number).</p>
+         *
+         * @param frameNumber the frame number corresponding to the result
+         * @return a list of partial results for that frame with at least 1 element,
+         *         or {@code null} if there were no partials recorded for that frame
+         */
+        public List<CaptureResult> popPartialResults(long frameNumber) {
+            return mPartialResults.remove(frameNumber);
         }
 
         public long getCompletedFrameNumber() {
@@ -846,20 +1077,20 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
             final SimpleEntry<Long, Integer> frameNumberRequestPair = iter.next();
             if (frameNumberRequestPair.getKey() <= completedFrameNumber) {
 
-                // remove request from mCaptureListenerMap
+                // remove request from mCaptureCallbackMap
                 final int requestId = frameNumberRequestPair.getValue();
-                final CaptureListenerHolder holder;
+                final CaptureCallbackHolder holder;
                 synchronized(mInterfaceLock) {
                     if (mRemoteDevice == null) {
                         Log.w(TAG, "Camera closed while checking sequences");
                         return;
                     }
 
-                    int index = mCaptureListenerMap.indexOfKey(requestId);
-                    holder = (index >= 0) ? mCaptureListenerMap.valueAt(index)
+                    int index = mCaptureCallbackMap.indexOfKey(requestId);
+                    holder = (index >= 0) ? mCaptureCallbackMap.valueAt(index)
                             : null;
                     if (holder != null) {
-                        mCaptureListenerMap.removeAt(index);
+                        mCaptureCallbackMap.removeAt(index);
                         if (DEBUG) {
                             Log.v(TAG, String.format(
                                     "remove holder for requestId %d, "
@@ -889,7 +1120,7 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                                     throw new AssertionError(lastFrameNumber
                                             + " cannot be cast to int");
                                 }
-                                holder.getListener().onCaptureSequenceCompleted(
+                                holder.getCallback().onCaptureSequenceCompleted(
                                     CameraDeviceImpl.this,
                                     requestId,
                                     lastFrameNumber);
@@ -904,7 +1135,6 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
     }
 
     public class CameraDeviceCallbacks extends ICameraDeviceCallbacks.Stub {
-
         //
         // Constants below need to be kept up-to-date with
         // frameworks/av/include/camera/camera2/ICameraDeviceCallbacks.h
@@ -917,19 +1147,29 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
         /**
          * Camera has been disconnected
          */
-        static final int ERROR_CAMERA_DISCONNECTED = 0;
-
+        public static final int ERROR_CAMERA_DISCONNECTED = 0;
         /**
          * Camera has encountered a device-level error
-         * Matches CameraDevice.StateListener#ERROR_CAMERA_DEVICE
+         * Matches CameraDevice.StateCallback#ERROR_CAMERA_DEVICE
          */
-        static final int ERROR_CAMERA_DEVICE = 1;
-
+        public static final int ERROR_CAMERA_DEVICE = 1;
         /**
          * Camera has encountered a service-level error
-         * Matches CameraDevice.StateListener#ERROR_CAMERA_SERVICE
+         * Matches CameraDevice.StateCallback#ERROR_CAMERA_SERVICE
          */
-        static final int ERROR_CAMERA_SERVICE = 2;
+        public static final int ERROR_CAMERA_SERVICE = 2;
+        /**
+         * Camera has encountered an error processing a single request.
+         */
+        public static final int ERROR_CAMERA_REQUEST = 3;
+        /**
+         * Camera has encountered an error producing metadata for a single capture
+         */
+        public static final int ERROR_CAMERA_RESULT = 4;
+        /**
+         * Camera has encountered an error producing an image buffer for a single capture
+         */
+        public static final int ERROR_CAMERA_BUFFER = 5;
 
         @Override
         public IBinder asBinder() {
@@ -937,47 +1177,50 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
         }
 
         @Override
-        public void onCameraError(final int errorCode, CaptureResultExtras resultExtras) {
-            Runnable r = null;
+        public void onDeviceError(final int errorCode, CaptureResultExtras resultExtras) {
+            if (DEBUG) {
+                Log.d(TAG, String.format(
+                        "Device error received, code %d, frame number %d, request ID %d, subseq ID %d",
+                        errorCode, resultExtras.getFrameNumber(), resultExtras.getRequestId(),
+                        resultExtras.getSubsequenceId()));
+            }
 
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) {
                     return; // Camera already closed
                 }
 
-                mInError = true;
                 switch (errorCode) {
                     case ERROR_CAMERA_DISCONNECTED:
-                        r = mCallOnDisconnected;
+                        CameraDeviceImpl.this.mDeviceHandler.post(mCallOnDisconnected);
                         break;
                     default:
                         Log.e(TAG, "Unknown error from camera device: " + errorCode);
                         // no break
                     case ERROR_CAMERA_DEVICE:
                     case ERROR_CAMERA_SERVICE:
-                        r = new Runnable() {
+                        mInError = true;
+                        Runnable r = new Runnable() {
                             @Override
                             public void run() {
                                 if (!CameraDeviceImpl.this.isClosed()) {
-                                    mDeviceListener.onError(CameraDeviceImpl.this, errorCode);
+                                    mDeviceCallback.onError(CameraDeviceImpl.this, errorCode);
                                 }
                             }
                         };
+                        CameraDeviceImpl.this.mDeviceHandler.post(r);
+                        break;
+                    case ERROR_CAMERA_REQUEST:
+                    case ERROR_CAMERA_RESULT:
+                    case ERROR_CAMERA_BUFFER:
+                        onCaptureErrorLocked(errorCode, resultExtras);
                         break;
                 }
-                CameraDeviceImpl.this.mDeviceHandler.post(r);
-
-                // Fire onCaptureSequenceCompleted
-                if (DEBUG) {
-                    Log.v(TAG, String.format("got error frame %d", resultExtras.getFrameNumber()));
-                }
-                mFrameNumberTracker.updateTracker(resultExtras.getFrameNumber(), /*error*/true);
-                checkAndFireSequenceComplete();
             }
         }
 
         @Override
-        public void onCameraIdle() {
+        public void onDeviceIdle() {
             if (DEBUG) {
                 Log.d(TAG, "Camera now idle");
             }
@@ -994,16 +1237,18 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
         @Override
         public void onCaptureStarted(final CaptureResultExtras resultExtras, final long timestamp) {
             int requestId = resultExtras.getRequestId();
+            final long frameNumber = resultExtras.getFrameNumber();
+
             if (DEBUG) {
-                Log.d(TAG, "Capture started for id " + requestId);
+                Log.d(TAG, "Capture started for id " + requestId + " frame number " + frameNumber);
             }
-            final CaptureListenerHolder holder;
+            final CaptureCallbackHolder holder;
 
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) return; // Camera already closed
 
-                // Get the listener for this frame ID, if there is one
-                holder = CameraDeviceImpl.this.mCaptureListenerMap.get(requestId);
+                // Get the callback for this frame ID, if there is one
+                holder = CameraDeviceImpl.this.mCaptureCallbackMap.get(requestId);
 
                 if (holder == null) {
                     return;
@@ -1017,10 +1262,10 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                         @Override
                         public void run() {
                             if (!CameraDeviceImpl.this.isClosed()) {
-                                holder.getListener().onCaptureStarted(
+                                holder.getCallback().onCaptureStarted(
                                     CameraDeviceImpl.this,
                                     holder.getRequest(resultExtras.getSubsequenceId()),
-                                    timestamp);
+                                    timestamp, frameNumber);
                             }
                         }
                     });
@@ -1033,8 +1278,10 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                 CaptureResultExtras resultExtras) throws RemoteException {
 
             int requestId = resultExtras.getRequestId();
+            long frameNumber = resultExtras.getFrameNumber();
+
             if (DEBUG) {
-                Log.v(TAG, "Received result frame " + resultExtras.getFrameNumber() + " for id "
+                Log.v(TAG, "Received result frame " + frameNumber + " for id "
                         + requestId);
             }
 
@@ -1045,25 +1292,22 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                 result.set(CameraCharacteristics.LENS_INFO_SHADING_MAP_SIZE,
                         getCharacteristics().get(CameraCharacteristics.LENS_INFO_SHADING_MAP_SIZE));
 
-                final CaptureListenerHolder holder =
-                        CameraDeviceImpl.this.mCaptureListenerMap.get(requestId);
+                final CaptureCallbackHolder holder =
+                        CameraDeviceImpl.this.mCaptureCallbackMap.get(requestId);
 
                 boolean isPartialResult =
                         (resultExtras.getPartialResultCount() < mTotalPartialCount);
 
-                // Update tracker (increment counter) when it's not a partial result.
-                if (!isPartialResult) {
-                    mFrameNumberTracker.updateTracker(resultExtras.getFrameNumber(),
-                            /*error*/false);
-                }
-
-                // Check if we have a listener for this
+                // Check if we have a callback for this
                 if (holder == null) {
                     if (DEBUG) {
                         Log.d(TAG,
                                 "holder is null, early return at frame "
-                                        + resultExtras.getFrameNumber());
+                                        + frameNumber);
                     }
+
+                    mFrameNumberTracker.updateTracker(frameNumber, /*result*/null, isPartialResult);
+
                     return;
                 }
 
@@ -1071,62 +1315,131 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                     if (DEBUG) {
                         Log.d(TAG,
                                 "camera is closed, early return at frame "
-                                        + resultExtras.getFrameNumber());
+                                        + frameNumber);
                     }
+
+                    mFrameNumberTracker.updateTracker(frameNumber, /*result*/null, isPartialResult);
                     return;
                 }
 
                 final CaptureRequest request = holder.getRequest(resultExtras.getSubsequenceId());
 
-
                 Runnable resultDispatch = null;
+
+                CaptureResult finalResult;
 
                 // Either send a partial result or the final capture completed result
                 if (isPartialResult) {
                     final CaptureResult resultAsCapture =
-                            new CaptureResult(result, request, requestId);
+                            new CaptureResult(result, request, resultExtras);
 
                     // Partial result
                     resultDispatch = new Runnable() {
                         @Override
                         public void run() {
                             if (!CameraDeviceImpl.this.isClosed()){
-                                holder.getListener().onCaptureProgressed(
+                                holder.getCallback().onCaptureProgressed(
                                     CameraDeviceImpl.this,
                                     request,
                                     resultAsCapture);
                             }
                         }
                     };
+
+                    finalResult = resultAsCapture;
                 } else {
+                    List<CaptureResult> partialResults =
+                            mFrameNumberTracker.popPartialResults(frameNumber);
+
                     final TotalCaptureResult resultAsCapture =
-                            new TotalCaptureResult(result, request, requestId);
+                            new TotalCaptureResult(result, request, resultExtras, partialResults);
 
                     // Final capture result
                     resultDispatch = new Runnable() {
                         @Override
                         public void run() {
                             if (!CameraDeviceImpl.this.isClosed()){
-                                holder.getListener().onCaptureCompleted(
+                                holder.getCallback().onCaptureCompleted(
                                     CameraDeviceImpl.this,
                                     request,
                                     resultAsCapture);
                             }
                         }
                     };
+
+                    finalResult = resultAsCapture;
                 }
 
                 holder.getHandler().post(resultDispatch);
+
+                // Collect the partials for a total result; or mark the frame as totally completed
+                mFrameNumberTracker.updateTracker(frameNumber, finalResult, isPartialResult);
 
                 // Fire onCaptureSequenceCompleted
                 if (!isPartialResult) {
                     checkAndFireSequenceComplete();
                 }
-
             }
         }
 
-    }
+        /**
+         * Called by onDeviceError for handling single-capture failures.
+         */
+        private void onCaptureErrorLocked(int errorCode, CaptureResultExtras resultExtras) {
+
+            final int requestId = resultExtras.getRequestId();
+            final int subsequenceId = resultExtras.getSubsequenceId();
+            final long frameNumber = resultExtras.getFrameNumber();
+            final CaptureCallbackHolder holder =
+                    CameraDeviceImpl.this.mCaptureCallbackMap.get(requestId);
+
+            final CaptureRequest request = holder.getRequest(subsequenceId);
+
+            // No way to report buffer errors right now
+            if (errorCode == ERROR_CAMERA_BUFFER) {
+                Log.e(TAG, String.format("Lost output buffer reported for frame %d", frameNumber));
+                return;
+            }
+
+            boolean mayHaveBuffers = (errorCode == ERROR_CAMERA_RESULT);
+
+            // This is only approximate - exact handling needs the camera service and HAL to
+            // disambiguate between request failures to due abort and due to real errors.
+            // For now, assume that if the session believes we're mid-abort, then the error
+            // is due to abort.
+            int reason = (mCurrentSession != null && mCurrentSession.isAborting()) ?
+                    CaptureFailure.REASON_FLUSHED :
+                    CaptureFailure.REASON_ERROR;
+
+            final CaptureFailure failure = new CaptureFailure(
+                request,
+                reason,
+                /*dropped*/ mayHaveBuffers,
+                requestId,
+                frameNumber);
+
+            Runnable failureDispatch = new Runnable() {
+                @Override
+                public void run() {
+                    if (!CameraDeviceImpl.this.isClosed()){
+                        holder.getCallback().onCaptureFailed(
+                            CameraDeviceImpl.this,
+                            request,
+                            failure);
+                    }
+                }
+            };
+            holder.getHandler().post(failureDispatch);
+
+            // Fire onCaptureSequenceCompleted if appropriate
+            if (DEBUG) {
+                Log.v(TAG, String.format("got error frame %d", frameNumber));
+            }
+            mFrameNumberTracker.updateTracker(frameNumber, /*error*/true);
+            checkAndFireSequenceComplete();
+        }
+
+    } // public class CameraDeviceCallbacks
 
     /**
      * Default handler management.
@@ -1144,6 +1457,18 @@ public class CameraDeviceImpl extends android.hardware.camera2.CameraDevice {
                     "No handler given, and current thread has no looper!");
             }
             handler = new Handler(looper);
+        }
+        return handler;
+    }
+
+    /**
+     * Default handler management, conditional on there being a callback.
+     *
+     * <p>If the callback isn't null, check the handler, otherwise pass it through.</p>
+     */
+    static <T> Handler checkHandler(Handler handler, T callback) {
+        if (callback != null) {
+            return checkHandler(handler);
         }
         return handler;
     }

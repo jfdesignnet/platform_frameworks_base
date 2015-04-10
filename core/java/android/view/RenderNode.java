@@ -167,10 +167,13 @@ public class RenderNode {
     public static final int STATUS_DREW = 0x4;
 
     private boolean mValid;
-    private final long mNativeRenderNode;
+    // Do not access directly unless you are ThreadedRenderer
+    final long mNativeRenderNode;
+    private final View mOwningView;
 
-    private RenderNode(String name) {
+    private RenderNode(String name, View owningView) {
         mNativeRenderNode = nCreate(name);
+        mOwningView = owningView;
     }
 
     /**
@@ -178,6 +181,7 @@ public class RenderNode {
      */
     private RenderNode(long nativePtr) {
         mNativeRenderNode = nativePtr;
+        mOwningView = null;
     }
 
     /**
@@ -188,8 +192,8 @@ public class RenderNode {
      *
      * @return A new RenderNode.
      */
-    public static RenderNode create(String name) {
-        return new RenderNode(name);
+    public static RenderNode create(String name, @Nullable View owningView) {
+        return new RenderNode(name, owningView);
     }
 
     /**
@@ -355,11 +359,16 @@ public class RenderNode {
             return nSetOutlineEmpty(mNativeRenderNode);
         } else if (outline.mRect != null) {
             return nSetOutlineRoundRect(mNativeRenderNode, outline.mRect.left, outline.mRect.top,
-                    outline.mRect.right, outline.mRect.bottom, outline.mRadius);
+                    outline.mRect.right, outline.mRect.bottom, outline.mRadius, outline.mAlpha);
         } else if (outline.mPath != null) {
-            return nSetOutlineConvexPath(mNativeRenderNode, outline.mPath.mNativePath);
+            return nSetOutlineConvexPath(mNativeRenderNode, outline.mPath.mNativePath,
+                    outline.mAlpha);
         }
         throw new IllegalArgumentException("Unrecognized outline?");
+    }
+
+    public boolean hasShadow() {
+        return nHasShadow(mNativeRenderNode);
     }
 
     /**
@@ -378,9 +387,9 @@ public class RenderNode {
     /**
      * Controls the RenderNode's circular reveal clip.
      */
-    public boolean setRevealClip(boolean shouldClip, boolean inverseClip,
+    public boolean setRevealClip(boolean shouldClip,
             float x, float y, float radius) {
-        return nSetRevealClip(mNativeRenderNode, shouldClip, inverseClip, x, y, radius);
+        return nSetRevealClip(mNativeRenderNode, shouldClip, x, y, radius);
     }
 
     /**
@@ -804,7 +813,15 @@ public class RenderNode {
     ///////////////////////////////////////////////////////////////////////////
 
     public void addAnimator(RenderNodeAnimator animator) {
+        if (mOwningView == null || mOwningView.mAttachInfo == null) {
+            throw new IllegalStateException("Cannot start this animator on a detached view!");
+        }
         nAddAnimator(mNativeRenderNode, animator.getNativeAnimator());
+        mOwningView.mAttachInfo.mViewRootImpl.registerAnimatingRenderNode(this);
+    }
+
+    public void endAllAnimators() {
+        nEndAllAnimators(mNativeRenderNode);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -843,13 +860,15 @@ public class RenderNode {
     private static native boolean nSetProjectBackwards(long renderNode, boolean shouldProject);
     private static native boolean nSetProjectionReceiver(long renderNode, boolean shouldRecieve);
     private static native boolean nSetOutlineRoundRect(long renderNode, int left, int top,
-            int right, int bottom, float radius);
-    private static native boolean nSetOutlineConvexPath(long renderNode, long nativePath);
+            int right, int bottom, float radius, float alpha);
+    private static native boolean nSetOutlineConvexPath(long renderNode, long nativePath,
+            float alpha);
     private static native boolean nSetOutlineEmpty(long renderNode);
     private static native boolean nSetOutlineNone(long renderNode);
+    private static native boolean nHasShadow(long renderNode);
     private static native boolean nSetClipToOutline(long renderNode, boolean clipToOutline);
     private static native boolean nSetRevealClip(long renderNode,
-            boolean shouldClip, boolean inverseClip, float x, float y, float radius);
+            boolean shouldClip, float x, float y, float radius);
     private static native boolean nSetAlpha(long renderNode, float alpha);
     private static native boolean nSetHasOverlappingRendering(long renderNode,
             boolean hasOverlappingRendering);
@@ -889,6 +908,7 @@ public class RenderNode {
     ///////////////////////////////////////////////////////////////////////////
 
     private static native void nAddAnimator(long renderNode, long animatorPtr);
+    private static native void nEndAllAnimators(long renderNode);
 
     ///////////////////////////////////////////////////////////////////////////
     // Finalization

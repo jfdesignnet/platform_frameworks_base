@@ -16,8 +16,6 @@
 
 package com.android.systemui.recents.views;
 
-import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.graphics.Outline;
 import android.graphics.Rect;
 import android.view.View;
@@ -29,98 +27,35 @@ public class AnimateableViewBounds extends ViewOutlineProvider {
 
     RecentsConfiguration mConfig;
 
-    View mSourceView;
+    TaskView mSourceView;
     Rect mClipRect = new Rect();
-    Rect mOutlineClipRect = new Rect();
+    Rect mClipBounds = new Rect();
     int mCornerRadius;
+    float mAlpha = 1f;
+    final float mMinAlpha = 0.25f;
 
-    ObjectAnimator mClipTopAnimator;
-    ObjectAnimator mClipRightAnimator;
-    ObjectAnimator mClipBottomAnimator;
-
-    public AnimateableViewBounds(View source, int cornerRadius) {
+    public AnimateableViewBounds(TaskView source, int cornerRadius) {
         mConfig = RecentsConfiguration.getInstance();
         mSourceView = source;
         mCornerRadius = cornerRadius;
-        mSourceView.setClipToOutline(true);
-        setClipTop(getClipTop());
-        setClipRight(getClipRight());
         setClipBottom(getClipBottom());
-        setOutlineClipBottom(getOutlineClipBottom());
     }
 
     @Override
     public void getOutline(View view, Outline outline) {
-        outline.setRoundRect(Math.max(mClipRect.left, mOutlineClipRect.left),
-                Math.max(mClipRect.top, mOutlineClipRect.top),
-                mSourceView.getMeasuredWidth() - Math.max(mClipRect.right, mOutlineClipRect.right),
-                mSourceView.getMeasuredHeight() - Math.max(mClipRect.bottom, mOutlineClipRect.bottom),
+        outline.setAlpha(mMinAlpha + mAlpha / (1f - mMinAlpha));
+        outline.setRoundRect(mClipRect.left, mClipRect.top,
+                mSourceView.getWidth() - mClipRect.right,
+                mSourceView.getHeight() - mClipRect.bottom,
                 mCornerRadius);
     }
 
-    /** Animates the top clip. */
-    void animateClipTop(int top, int duration, ValueAnimator.AnimatorUpdateListener updateListener) {
-        if (mClipTopAnimator != null) {
-            mClipTopAnimator.removeAllListeners();
-            mClipTopAnimator.cancel();
-        }
-        mClipTopAnimator = ObjectAnimator.ofInt(this, "clipTop", top);
-        mClipTopAnimator.setDuration(duration);
-        mClipTopAnimator.setInterpolator(mConfig.fastOutSlowInInterpolator);
-        if (updateListener != null) {
-            mClipTopAnimator.addUpdateListener(updateListener);
-        }
-        mClipTopAnimator.start();
-    }
-
-    /** Sets the top clip. */
-    public void setClipTop(int top) {
-        if (top != mClipRect.top) {
-            mClipRect.top = top;
+    /** Sets the view outline alpha. */
+    void setAlpha(float alpha) {
+        if (Float.compare(alpha, mAlpha) != 0) {
+            mAlpha = alpha;
             mSourceView.invalidateOutline();
         }
-    }
-
-    /** Returns the top clip. */
-    public int getClipTop() {
-        return mClipRect.top;
-    }
-
-    /** Animates the right clip. */
-    void animateClipRight(int right, int duration) {
-        if (mClipRightAnimator != null) {
-            mClipRightAnimator.removeAllListeners();
-            mClipRightAnimator.cancel();
-        }
-        mClipRightAnimator = ObjectAnimator.ofInt(this, "clipRight", right);
-        mClipRightAnimator.setDuration(duration);
-        mClipRightAnimator.setInterpolator(mConfig.fastOutSlowInInterpolator);
-        mClipRightAnimator.start();
-    }
-
-    /** Sets the right clip. */
-    public void setClipRight(int right) {
-        if (right != mClipRect.right) {
-            mClipRect.right = right;
-            mSourceView.invalidateOutline();
-        }
-    }
-
-    /** Returns the right clip. */
-    public int getClipRight() {
-        return mClipRect.right;
-    }
-
-    /** Animates the bottom clip. */
-    void animateClipBottom(int bottom, int duration) {
-        if (mClipBottomAnimator != null) {
-            mClipBottomAnimator.removeAllListeners();
-            mClipBottomAnimator.cancel();
-        }
-        mClipBottomAnimator = ObjectAnimator.ofInt(this, "clipBottom", bottom);
-        mClipBottomAnimator.setDuration(duration);
-        mClipBottomAnimator.setInterpolator(mConfig.fastOutSlowInInterpolator);
-        mClipBottomAnimator.start();
     }
 
     /** Sets the bottom clip. */
@@ -128,6 +63,11 @@ public class AnimateableViewBounds extends ViewOutlineProvider {
         if (bottom != mClipRect.bottom) {
             mClipRect.bottom = bottom;
             mSourceView.invalidateOutline();
+            updateClipBounds();
+            if (!mConfig.useHardwareLayers) {
+                mSourceView.mThumbnailView.updateThumbnailVisibility(
+                        bottom - mSourceView.getPaddingBottom());
+            }
         }
     }
 
@@ -136,16 +76,10 @@ public class AnimateableViewBounds extends ViewOutlineProvider {
         return mClipRect.bottom;
     }
 
-    /** Sets the outline bottom clip. */
-    public void setOutlineClipBottom(int bottom) {
-        if (bottom != mOutlineClipRect.bottom) {
-            mOutlineClipRect.bottom = bottom;
-            mSourceView.invalidateOutline();
-        }
-    }
-
-    /** Gets the outline bottom clip. */
-    public int getOutlineClipBottom() {
-        return mOutlineClipRect.bottom;
+    private void updateClipBounds() {
+        mClipBounds.set(mClipRect.left, mClipRect.top,
+                mSourceView.getWidth() - mClipRect.right,
+                mSourceView.getHeight() - mClipRect.bottom);
+        mSourceView.setClipBounds(mClipBounds);
     }
 }

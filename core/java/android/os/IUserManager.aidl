@@ -18,7 +18,6 @@
 package android.os;
 
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
 import android.content.pm.UserInfo;
 import android.content.RestrictionEntry;
 import android.graphics.Bitmap;
@@ -42,6 +41,7 @@ interface IUserManager {
     int getUserSerialNumber(int userHandle);
     int getUserHandle(int userSerialNumber);
     Bundle getUserRestrictions(int userHandle);
+    boolean hasUserRestriction(in String restrictionKey, int userHandle);
     void setUserRestrictions(in Bundle restrictions, int userHandle);
     void setApplicationRestrictions(in String packageName, in Bundle restrictions,
             int userHandle);
@@ -53,4 +53,5 @@ interface IUserManager {
     void removeRestrictions();
     void setDefaultGuestRestrictions(in Bundle restrictions);
     Bundle getDefaultGuestRestrictions();
+    boolean markGuestForDeletion(int userHandle);
 }

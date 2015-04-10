@@ -50,7 +50,7 @@ import java.util.List;
 public abstract class CameraMetadata<TKey> {
 
     private static final String TAG = "CameraMetadataAb";
-    private static final boolean VERBOSE = false;
+    private static final boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
 
     /**
      * Set a camera metadata field to a value. The field definitions can be
@@ -130,6 +130,11 @@ public abstract class CameraMetadata<TKey> {
              int[] filterTags) {
 
         if (VERBOSE) Log.v(TAG, "getKeysStatic for " + type);
+
+        // TotalCaptureResult does not have any of the keys on it, use CaptureResult instead
+        if (type.equals(TotalCaptureResult.class)) {
+            type = CaptureResult.class;
+        }
 
         if (filterTags != null) {
             Arrays.sort(filterTags);
@@ -381,8 +386,8 @@ public abstract class CameraMetadata<TKey> {
      * </ul>
      * </li>
      * <li>Manual aberration correction control (if aberration correction is supported)<ul>
-     * <li>{@link CaptureRequest#COLOR_CORRECTION_ABERRATION_CORRECTION_MODE android.colorCorrection.aberrationCorrectionMode}</li>
-     * <li>{@link CameraCharacteristics#COLOR_CORRECTION_AVAILABLE_ABERRATION_CORRECTION_MODES android.colorCorrection.availableAberrationCorrectionModes}</li>
+     * <li>{@link CaptureRequest#COLOR_CORRECTION_ABERRATION_MODE android.colorCorrection.aberrationMode}</li>
+     * <li>{@link CameraCharacteristics#COLOR_CORRECTION_AVAILABLE_ABERRATION_MODES android.colorCorrection.availableAberrationModes}</li>
      * </ul>
      * </li>
      * </ul>
@@ -391,8 +396,8 @@ public abstract class CameraMetadata<TKey> {
      * <p>A given camera device may also support additional post-processing
      * controls, but this capability only covers the above list of controls.</p>
      *
-     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_CORRECTION_MODE
-     * @see CameraCharacteristics#COLOR_CORRECTION_AVAILABLE_ABERRATION_CORRECTION_MODES
+     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_MODE
+     * @see CameraCharacteristics#COLOR_CORRECTION_AVAILABLE_ABERRATION_MODES
      * @see CaptureRequest#COLOR_CORRECTION_GAINS
      * @see CaptureRequest#COLOR_CORRECTION_TRANSFORM
      * @see CaptureRequest#SHADING_MODE
@@ -413,11 +418,11 @@ public abstract class CameraMetadata<TKey> {
      * <ul>
      * <li>RAW_SENSOR is supported as an output format.</li>
      * <li>The maximum available resolution for RAW_SENSOR streams
-     * will match either the value in
-     * {@link CameraCharacteristics#SENSOR_INFO_PIXEL_ARRAY_SIZE android.sensor.info.pixelArraySize} or
-     * {@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize}.</li>
+     *   will match either the value in
+     *   {@link CameraCharacteristics#SENSOR_INFO_PIXEL_ARRAY_SIZE android.sensor.info.pixelArraySize} or
+     *   {@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize}.</li>
      * <li>All DNG-related optional metadata entries are provided
-     * by the camera device.</li>
+     *   by the camera device.</li>
      * </ul>
      *
      * @see CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE
@@ -432,18 +437,76 @@ public abstract class CameraMetadata<TKey> {
      * <li>At least one input stream can be used.</li>
      * <li>RAW_OPAQUE is supported as an output/input format</li>
      * <li>Using RAW_OPAQUE does not cause a frame rate drop
-     * relative to the sensor's maximum capture rate (at that
-     * resolution).</li>
+     *   relative to the sensor's maximum capture rate (at that
+     *   resolution).</li>
      * <li>RAW_OPAQUE will be reprocessable into both YUV_420_888
-     * and JPEG formats.</li>
+     *   and JPEG formats.</li>
      * <li>The maximum available resolution for RAW_OPAQUE streams
-     * (both input/output) will match the maximum available
-     * resolution of JPEG streams.</li>
+     *   (both input/output) will match the maximum available
+     *   resolution of JPEG streams.</li>
      * </ul>
      * @see CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES
      * @hide
      */
     public static final int REQUEST_AVAILABLE_CAPABILITIES_ZSL = 4;
+
+    /**
+     * <p>The camera device supports accurately reporting the sensor settings for many of
+     * the sensor controls while the built-in 3A algorithm is running.  This allows
+     * reporting of sensor settings even when these settings cannot be manually changed.</p>
+     * <p>The values reported for the following controls are guaranteed to be available
+     * in the CaptureResult, including when 3A is enabled:</p>
+     * <ul>
+     * <li>Exposure control<ul>
+     * <li>{@link CaptureRequest#SENSOR_EXPOSURE_TIME android.sensor.exposureTime}</li>
+     * </ul>
+     * </li>
+     * <li>Sensitivity control<ul>
+     * <li>{@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity}</li>
+     * </ul>
+     * </li>
+     * <li>Lens controls (if the lens is adjustable)<ul>
+     * <li>{@link CaptureRequest#LENS_FOCUS_DISTANCE android.lens.focusDistance}</li>
+     * <li>{@link CaptureRequest#LENS_APERTURE android.lens.aperture}</li>
+     * </ul>
+     * </li>
+     * </ul>
+     * <p>This capability is a subset of the MANUAL_SENSOR control capability, and will
+     * always be included if the MANUAL_SENSOR capability is available.</p>
+     *
+     * @see CaptureRequest#LENS_APERTURE
+     * @see CaptureRequest#LENS_FOCUS_DISTANCE
+     * @see CaptureRequest#SENSOR_EXPOSURE_TIME
+     * @see CaptureRequest#SENSOR_SENSITIVITY
+     * @see CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES
+     */
+    public static final int REQUEST_AVAILABLE_CAPABILITIES_READ_SENSOR_SETTINGS = 5;
+
+    /**
+     * <p>The camera device supports capturing maximum-resolution
+     * images at &gt;= 20 frames per second, in at least the
+     * uncompressed YUV format, when post-processing settings
+     * are set to FAST.</p>
+     * <p>More specifically, this means that a size matching the
+     * camera device's active array size is listed as a
+     * supported size for the YUV_420_888 format in
+     * {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap}, the minimum frame
+     * duration for that format and size is &lt;= 1/20 s, and
+     * the {@link CameraCharacteristics#CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES android.control.aeAvailableTargetFpsRanges} entry
+     * lists at least one FPS range where the minimum FPS is</p>
+     * <blockquote>
+     * <p>= 1 / minimumFrameDuration for the maximum-size
+     * YUV_420_888 format.</p>
+     * </blockquote>
+     * <p>In addition, the {@link CameraCharacteristics#SYNC_MAX_LATENCY android.sync.maxLatency} field is
+     * guaranted to have a value between 0 and 4, inclusive.</p>
+     *
+     * @see CameraCharacteristics#CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES
+     * @see CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP
+     * @see CameraCharacteristics#SYNC_MAX_LATENCY
+     * @see CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES
+     */
+    public static final int REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE = 6;
 
     //
     // Enumeration values for CameraCharacteristics#SCALER_CROPPING_TYPE
@@ -494,7 +557,7 @@ public abstract class CameraMetadata<TKey> {
     public static final int SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_RGB = 4;
 
     //
-    // Enumeration values for CameraCharacteristics#SENSOR_INFO_TIMESTAMP_CALIBRATION
+    // Enumeration values for CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE
     //
 
     /**
@@ -506,9 +569,9 @@ public abstract class CameraMetadata<TKey> {
      * and the result metadata generated by a single capture are identical.</p>
      *
      * @see CaptureResult#SENSOR_TIMESTAMP
-     * @see CameraCharacteristics#SENSOR_INFO_TIMESTAMP_CALIBRATION
+     * @see CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE
      */
-    public static final int SENSOR_INFO_TIMESTAMP_CALIBRATION_UNCALIBRATED = 0;
+    public static final int SENSOR_INFO_TIMESTAMP_SOURCE_UNKNOWN = 0;
 
     /**
      * <p>Timestamps from {@link CaptureResult#SENSOR_TIMESTAMP android.sensor.timestamp} are in the same timebase as
@@ -516,9 +579,9 @@ public abstract class CameraMetadata<TKey> {
      * and they can be compared to other timestamps using that base.</p>
      *
      * @see CaptureResult#SENSOR_TIMESTAMP
-     * @see CameraCharacteristics#SENSOR_INFO_TIMESTAMP_CALIBRATION
+     * @see CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE
      */
-    public static final int SENSOR_INFO_TIMESTAMP_CALIBRATION_CALIBRATED = 1;
+    public static final int SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME = 1;
 
     //
     // Enumeration values for CameraCharacteristics#SENSOR_REFERENCE_ILLUMINANT1
@@ -664,7 +727,7 @@ public abstract class CameraMetadata<TKey> {
     /**
      * <p>Every frame has the requests immediately applied.</p>
      * <p>Furthermore for all results,
-     * <code>android.sync.frameNumber == android.request.frameCount</code></p>
+     * <code>android.sync.frameNumber == CaptureResult#getFrameNumber()</code></p>
      * <p>Changing controls over multiple requests one after another will
      * produce results that have those controls applied atomically
      * each frame.</p>
@@ -679,6 +742,7 @@ public abstract class CameraMetadata<TKey> {
      * <p>By submitting a series of identical requests, the camera device
      * will eventually have the camera settings applied, but it is
      * unknown when that exact point will be.</p>
+     * <p>All LEGACY capability devices will have this as their maxLatency.</p>
      * @see CameraCharacteristics#SYNC_MAX_LATENCY
      */
     public static final int SYNC_MAX_LATENCY_UNKNOWN = -1;
@@ -733,28 +797,28 @@ public abstract class CameraMetadata<TKey> {
     public static final int COLOR_CORRECTION_MODE_HIGH_QUALITY = 2;
 
     //
-    // Enumeration values for CaptureRequest#COLOR_CORRECTION_ABERRATION_CORRECTION_MODE
+    // Enumeration values for CaptureRequest#COLOR_CORRECTION_ABERRATION_MODE
     //
 
     /**
      * <p>No aberration correction is applied.</p>
-     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_CORRECTION_MODE
+     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_MODE
      */
-    public static final int COLOR_CORRECTION_ABERRATION_CORRECTION_MODE_OFF = 0;
+    public static final int COLOR_CORRECTION_ABERRATION_MODE_OFF = 0;
 
     /**
      * <p>Aberration correction will not slow down capture rate
      * relative to sensor raw output.</p>
-     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_CORRECTION_MODE
+     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_MODE
      */
-    public static final int COLOR_CORRECTION_ABERRATION_CORRECTION_MODE_FAST = 1;
+    public static final int COLOR_CORRECTION_ABERRATION_MODE_FAST = 1;
 
     /**
      * <p>Aberration correction operates at improved quality but reduced
      * capture rate (relative to sensor raw output).</p>
-     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_CORRECTION_MODE
+     * @see CaptureRequest#COLOR_CORRECTION_ABERRATION_MODE
      */
-    public static final int COLOR_CORRECTION_ABERRATION_CORRECTION_MODE_HIGH_QUALITY = 2;
+    public static final int COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY = 2;
 
     //
     // Enumeration values for CaptureRequest#CONTROL_AE_ANTIBANDING_MODE
@@ -785,7 +849,8 @@ public abstract class CameraMetadata<TKey> {
     /**
      * <p>The camera device will automatically adapt its
      * antibanding routine to the current illumination
-     * conditions. This is the default.</p>
+     * condition. This is the default mode if AUTO is
+     * available on given camera device.</p>
      * @see CaptureRequest#CONTROL_AE_ANTIBANDING_MODE
      */
     public static final int CONTROL_AE_ANTIBANDING_MODE_AUTO = 3;
@@ -801,7 +866,21 @@ public abstract class CameraMetadata<TKey> {
      * {@link CaptureRequest#SENSOR_FRAME_DURATION android.sensor.frameDuration} are used by the camera
      * device, along with android.flash.* fields, if there's
      * a flash unit for this camera device.</p>
+     * <p>Note that auto-white balance (AWB) and auto-focus (AF)
+     * behavior is device dependent when AE is in OFF mode.
+     * To have consistent behavior across different devices,
+     * it is recommended to either set AWB and AF to OFF mode
+     * or lock AWB and AF before setting AE to OFF.
+     * See {@link CaptureRequest#CONTROL_AWB_MODE android.control.awbMode}, {@link CaptureRequest#CONTROL_AF_MODE android.control.afMode},
+     * {@link CaptureRequest#CONTROL_AWB_LOCK android.control.awbLock}, and {@link CaptureRequest#CONTROL_AF_TRIGGER android.control.afTrigger}
+     * for more details.</p>
+     * <p>LEGACY devices do not support the OFF mode and will
+     * override attempts to use this value to ON.</p>
      *
+     * @see CaptureRequest#CONTROL_AF_MODE
+     * @see CaptureRequest#CONTROL_AF_TRIGGER
+     * @see CaptureRequest#CONTROL_AWB_LOCK
+     * @see CaptureRequest#CONTROL_AWB_MODE
      * @see CaptureRequest#SENSOR_EXPOSURE_TIME
      * @see CaptureRequest#SENSOR_FRAME_DURATION
      * @see CaptureRequest#SENSOR_SENSITIVITY
@@ -1207,8 +1286,7 @@ public abstract class CameraMetadata<TKey> {
      * image while recording video) use case.</p>
      * <p>The camera device should take the highest-quality image
      * possible (given the other settings) without disrupting the
-     * frame rate of video recording.<br />
-     * </p>
+     * frame rate of video recording.  </p>
      * @see CaptureRequest#CONTROL_CAPTURE_INTENT
      */
     public static final int CONTROL_CAPTURE_INTENT_VIDEO_SNAPSHOT = 4;
@@ -1569,6 +1647,45 @@ public abstract class CameraMetadata<TKey> {
      */
     public static final int CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO = 17;
 
+    /**
+     * <p>Turn on a device-specific high dynamic range (HDR) mode.</p>
+     * <p>In this scene mode, the camera device captures images
+     * that keep a larger range of scene illumination levels
+     * visible in the final image. For example, when taking a
+     * picture of a object in front of a bright window, both
+     * the object and the scene through the window may be
+     * visible when using HDR mode, while in normal AUTO mode,
+     * one or the other may be poorly exposed. As a tradeoff,
+     * HDR mode generally takes much longer to capture a single
+     * image, has no user control, and may have other artifacts
+     * depending on the HDR method used.</p>
+     * <p>Therefore, HDR captures operate at a much slower rate
+     * than regular captures.</p>
+     * <p>In this mode, on LIMITED or FULL devices, when a request
+     * is made with a {@link CaptureRequest#CONTROL_CAPTURE_INTENT android.control.captureIntent} of
+     * STILL_CAPTURE, the camera device will capture an image
+     * using a high dynamic range capture technique.  On LEGACY
+     * devices, captures that target a JPEG-format output will
+     * be captured with HDR, and the capture intent is not
+     * relevant.</p>
+     * <p>The HDR capture may involve the device capturing a burst
+     * of images internally and combining them into one, or it
+     * may involve the device using specialized high dynamic
+     * range capture hardware. In all cases, a single image is
+     * produced in response to a capture request submitted
+     * while in HDR mode.</p>
+     * <p>Since substantial post-processing is generally needed to
+     * produce an HDR image, only YUV and JPEG outputs are
+     * supported for LIMITED/FULL device HDR captures, and only
+     * JPEG outputs are supported for LEGACY HDR
+     * captures. Using a RAW output for HDR capture is not
+     * supported.</p>
+     *
+     * @see CaptureRequest#CONTROL_CAPTURE_INTENT
+     * @see CaptureRequest#CONTROL_SCENE_MODE
+     */
+    public static final int CONTROL_SCENE_MODE_HDR = 18;
+
     //
     // Enumeration values for CaptureRequest#CONTROL_VIDEO_STABILIZATION_MODE
     //
@@ -1849,8 +1966,6 @@ public abstract class CameraMetadata<TKey> {
 
     /**
      * <p>Return face rectangle and confidence values only.</p>
-     * <p>In this mode, only android.statistics.faceRectangles and
-     * android.statistics.faceScores outputs are valid.</p>
      * @see CaptureRequest#STATISTICS_FACE_DETECT_MODE
      */
     public static final int STATISTICS_FACE_DETECT_MODE_SIMPLE = 1;
@@ -1858,11 +1973,7 @@ public abstract class CameraMetadata<TKey> {
     /**
      * <p>Return all face
      * metadata.</p>
-     * <p>In this mode,
-     * android.statistics.faceRectangles,
-     * android.statistics.faceScores,
-     * android.statistics.faceIds, and
-     * android.statistics.faceLandmarks outputs are valid.</p>
+     * <p>In this mode, face rectangles, scores, landmarks, and face IDs are all valid.</p>
      * @see CaptureRequest#STATISTICS_FACE_DETECT_MODE
      */
     public static final int STATISTICS_FACE_DETECT_MODE_FULL = 2;
@@ -2051,6 +2162,8 @@ public abstract class CameraMetadata<TKey> {
      * and may restart scanning at any time.</p>
      * <p>Only used by CONTINUOUS_* AF modes. This is a transient state, the camera
      * device may skip reporting this state in capture result.</p>
+     * <p>LEGACY camera devices do not support this state. When a passive
+     * scan has finished, it will always go to PASSIVE_FOCUSED.</p>
      * @see CaptureResult#CONTROL_AF_STATE
      */
     public static final int CONTROL_AF_STATE_PASSIVE_UNFOCUSED = 6;

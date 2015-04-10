@@ -118,7 +118,7 @@ public class NumPadKey extends ViewGroup {
         }
 
         setBackground(mContext.getDrawable(R.drawable.ripple_drawable));
-        setContentDescription(mDigitText.getText().toString() + mKlondikeText.getText().toString());
+        setContentDescription(mDigitText.getText().toString());
     }
 
     @Override
@@ -150,6 +150,11 @@ public class NumPadKey extends ViewGroup {
 
         left = centerX - mKlondikeText.getMeasuredWidth() / 2;
         mKlondikeText.layout(left, top, left + mKlondikeText.getMeasuredWidth(), bottom);
+    }
+
+    @Override
+    public boolean hasOverlappingRendering() {
+        return false;
     }
 
     // Cause a VIRTUAL_KEY vibration

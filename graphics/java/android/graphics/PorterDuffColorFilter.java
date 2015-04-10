@@ -46,6 +46,8 @@ public class PorterDuffColorFilter extends ColorFilter {
      *
      * @see Color
      * @see #setColor(int)
+     *
+     * @hide
      */
     public int getColor() {
         return mColor;
@@ -60,6 +62,8 @@ public class PorterDuffColorFilter extends ColorFilter {
      * @see Color
      * @see #getColor()
      * @see #getMode()
+     *
+     * @hide
      */
     public void setColor(int color) {
         mColor = color;
@@ -72,6 +76,8 @@ public class PorterDuffColorFilter extends ColorFilter {
      *
      * @see PorterDuff
      * @see #setMode(android.graphics.PorterDuff.Mode)
+     *
+     * @hide
      */
     public PorterDuff.Mode getMode() {
         return mMode;
@@ -84,6 +90,8 @@ public class PorterDuffColorFilter extends ColorFilter {
      * @see PorterDuff
      * @see #getMode()
      * @see #getColor()
+     *
+     * @hide
      */
     public void setMode(PorterDuff.Mode mode) {
         mMode = mode;
@@ -93,6 +101,26 @@ public class PorterDuffColorFilter extends ColorFilter {
     private void update() {
         destroyFilter(native_instance);
         native_instance = native_CreatePorterDuffFilter(mColor, mMode.nativeInt);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
+        }
+        if (object == null || getClass() != object.getClass()) {
+            return false;
+        }
+        final PorterDuffColorFilter other = (PorterDuffColorFilter) object;
+        if (mColor != other.mColor || mMode != other.mMode) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 *  mMode.hashCode() + mColor;
     }
 
     private static native long native_CreatePorterDuffFilter(int srcColor, int porterDuffMode);

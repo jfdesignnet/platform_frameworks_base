@@ -29,6 +29,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.view.Gravity;
+import android.view.SoundEffectConstants;
 import android.view.ViewDebug;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -53,9 +54,10 @@ public abstract class CompoundButton extends Button implements Checkable {
     private boolean mBroadcasting;
 
     private Drawable mButtonDrawable;
-    private ColorStateList mButtonTint = null;
-    private PorterDuff.Mode mButtonTintMode = PorterDuff.Mode.SRC_ATOP;
+    private ColorStateList mButtonTintList = null;
+    private PorterDuff.Mode mButtonTintMode = null;
     private boolean mHasButtonTint = false;
+    private boolean mHasButtonTintMode = false;
 
     private OnCheckedChangeListener mOnCheckedChangeListener;
     private OnCheckedChangeListener mOnCheckedChangeWidgetListener;
@@ -87,14 +89,15 @@ public abstract class CompoundButton extends Button implements Checkable {
             setButtonDrawable(d);
         }
 
-        mButtonTintMode = Drawable.parseTintMode(a.getInt(
-                R.styleable.CompoundButton_buttonTintMode, -1), mButtonTintMode);
+        if (a.hasValue(R.styleable.CompoundButton_buttonTintMode)) {
+            mButtonTintMode = Drawable.parseTintMode(a.getInt(
+                    R.styleable.CompoundButton_buttonTintMode, -1), mButtonTintMode);
+            mHasButtonTintMode = true;
+        }
 
         if (a.hasValue(R.styleable.CompoundButton_buttonTint)) {
-            mButtonTint = a.getColorStateList(R.styleable.CompoundButton_buttonTint);
+            mButtonTintList = a.getColorStateList(R.styleable.CompoundButton_buttonTint);
             mHasButtonTint = true;
-
-            applyButtonTint();
         }
 
         final boolean checked = a.getBoolean(
@@ -102,6 +105,8 @@ public abstract class CompoundButton extends Button implements Checkable {
         setChecked(checked);
 
         a.recycle();
+
+        applyButtonTint();
     }
 
     public void toggle() {
@@ -110,15 +115,16 @@ public abstract class CompoundButton extends Button implements Checkable {
 
     @Override
     public boolean performClick() {
-        /*
-         * XXX: These are tiny, need some surrounding 'expanded touch area',
-         * which will need to be implemented in Button if we only override
-         * performClick()
-         */
-
-        /* When clicked, toggle the state */
         toggle();
-        return super.performClick();
+
+        final boolean handled = super.performClick();
+        if (!handled) {
+            // View only makes a sound effect if the onClickListener was
+            // called, so we'll need to make one here instead.
+            playSoundEffect(SoundEffectConstants.CLICK);
+        }
+
+        return handled;
     }
 
     @ViewDebug.ExportedProperty
@@ -240,21 +246,21 @@ public abstract class CompoundButton extends Button implements Checkable {
 
     /**
      * Applies a tint to the button drawable. Does not modify the current tint
-     * mode, which is {@link PorterDuff.Mode#SRC_ATOP} by default.
+     * mode, which is {@link PorterDuff.Mode#SRC_IN} by default.
      * <p>
      * Subsequent calls to {@link #setButtonDrawable(Drawable)} will
      * automatically mutate the drawable and apply the specified tint and tint
      * mode using
-     * {@link Drawable#setTint(ColorStateList, PorterDuff.Mode)}.
+     * {@link Drawable#setTintList(ColorStateList)}.
      *
      * @param tint the tint to apply, may be {@code null} to clear tint
      *
      * @attr ref android.R.styleable#CompoundButton_buttonTint
-     * @see #setButtonTint(ColorStateList)
-     * @see Drawable#setTint(ColorStateList, PorterDuff.Mode)
+     * @see #setButtonTintList(ColorStateList)
+     * @see Drawable#setTintList(ColorStateList)
      */
-    public void setButtonTint(@Nullable ColorStateList tint) {
-        mButtonTint = tint;
+    public void setButtonTintList(@Nullable ColorStateList tint) {
+        mButtonTintList = tint;
         mHasButtonTint = true;
 
         applyButtonTint();
@@ -263,26 +269,27 @@ public abstract class CompoundButton extends Button implements Checkable {
     /**
      * @return the tint applied to the button drawable
      * @attr ref android.R.styleable#CompoundButton_buttonTint
-     * @see #setButtonTint(ColorStateList)
+     * @see #setButtonTintList(ColorStateList)
      */
     @Nullable
-    public ColorStateList getButtonTint() {
-        return mButtonTint;
+    public ColorStateList getButtonTintList() {
+        return mButtonTintList;
     }
 
     /**
      * Specifies the blending mode used to apply the tint specified by
-     * {@link #setButtonTint(ColorStateList)}} to the button drawable. The
-     * default mode is {@link PorterDuff.Mode#SRC_ATOP}.
+     * {@link #setButtonTintList(ColorStateList)}} to the button drawable. The
+     * default mode is {@link PorterDuff.Mode#SRC_IN}.
      *
      * @param tintMode the blending mode used to apply the tint, may be
      *                 {@code null} to clear tint
      * @attr ref android.R.styleable#CompoundButton_buttonTintMode
      * @see #getButtonTintMode()
-     * @see Drawable#setTint(ColorStateList, PorterDuff.Mode)
+     * @see Drawable#setTintMode(PorterDuff.Mode)
      */
     public void setButtonTintMode(@Nullable PorterDuff.Mode tintMode) {
         mButtonTintMode = tintMode;
+        mHasButtonTintMode = true;
 
         applyButtonTint();
     }
@@ -298,9 +305,22 @@ public abstract class CompoundButton extends Button implements Checkable {
     }
 
     private void applyButtonTint() {
-        if (mButtonDrawable != null && mHasButtonTint) {
+        if (mButtonDrawable != null && (mHasButtonTint || mHasButtonTintMode)) {
             mButtonDrawable = mButtonDrawable.mutate();
-            mButtonDrawable.setTint(mButtonTint, mButtonTintMode);
+
+            if (mHasButtonTint) {
+                mButtonDrawable.setTintList(mButtonTintList);
+            }
+
+            if (mHasButtonTintMode) {
+                mButtonDrawable.setTintMode(mButtonTintMode);
+            }
+
+            // The drawable (or one of its children) may not have been
+            // stateful before applying the tint, so let's try again.
+            if (mButtonDrawable.isStateful()) {
+                mButtonDrawable.setState(getDrawableState());
+            }
         }
     }
 
@@ -386,7 +406,15 @@ public abstract class CompoundButton extends Button implements Checkable {
         super.onDraw(canvas);
 
         if (buttonDrawable != null) {
-            buttonDrawable.draw(canvas);
+            final int scrollX = mScrollX;
+            final int scrollY = mScrollY;
+            if (scrollX == 0 && scrollY == 0) {
+                buttonDrawable.draw(canvas);
+            } else {
+                canvas.translate(scrollX, scrollY);
+                buttonDrawable.draw(canvas);
+                canvas.translate(-scrollX, -scrollY);
+            }
         }
     }
 

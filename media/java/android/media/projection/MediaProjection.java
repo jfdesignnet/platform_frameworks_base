@@ -40,7 +40,7 @@ import java.util.Map;
  *
  * <p>
  * A screen capture session can be started through {@link
- * MediaProjectionManager#getScreenCaptureIntent}. This grants the ability to
+ * MediaProjectionManager#createScreenCaptureIntent}. This grants the ability to
  * capture screen contents, but not system audio.
  * </p>
  */
@@ -70,11 +70,14 @@ public final class MediaProjection {
      * @param handler The handler on which the callback should be invoked, or
      * null if the callback should be invoked on the calling thread's looper.
      *
-     * @see #removeCallback
+     * @see #unregisterCallback
      */
-    public void addCallback(Callback callback, Handler handler) {
+    public void registerCallback(Callback callback, Handler handler) {
         if (callback == null) {
             throw new IllegalArgumentException("callback should not be null");
+        }
+        if (handler == null) {
+            handler = new Handler();
         }
         mCallbacks.put(callback, new CallbackRecord(callback, handler));
     }
@@ -83,13 +86,26 @@ public final class MediaProjection {
      *
      * @param callback The callback to unregister.
      *
-     * @see #addCallback
+     * @see #registerCallback
      */
-    public void removeCallback(Callback callback) {
+    public void unregisterCallback(Callback callback) {
         if (callback == null) {
             throw new IllegalArgumentException("callback should not be null");
         }
         mCallbacks.remove(callback);
+    }
+
+    /**
+     * @hide
+     */
+    public VirtualDisplay createVirtualDisplay(@NonNull String name,
+            int width, int height, int dpi, boolean isSecure, @Nullable Surface surface,
+            @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
+        DisplayManager dm = (DisplayManager) mContext.getSystemService(Context.DISPLAY_SERVICE);
+        int flags = isSecure ? DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE : 0;
+        return dm.createVirtualDisplay(this, name, width, height, dpi, surface,
+                    flags | DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR |
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION, callback, handler);
     }
 
     /**
@@ -105,29 +121,27 @@ public final class MediaProjection {
      * than 0.
      * @param surface The surface to which the content of the virtual display
      * should be rendered, or null if there is none initially.
-     * @param isSecure Whether the display should be considered a secure
-     * display. This typically requires special permissions not available to
-     * third party applications.
-     * @param callbacks Callbacks to call when the virtual display's state
+     * @param flags A combination of virtual display flags. See {@link DisplayManager} for the full
+     * list of flags.
+     * @param callback Callback to call when the virtual display's state
      * changes, or null if none.
      * @param handler The {@link android.os.Handler} on which the callback should be
      * invoked, or null if the callback should be invoked on the calling
      * thread's main {@link android.os.Looper}.
      *
-     * @see android.hardware.display.DisplayManager#createVirtualDisplay(
-     * String, int, int, int, int, Surface, VirtualDisplay.Callbacks, Handler)
+     * @see android.hardware.display.VirtualDisplay
      */
     public VirtualDisplay createVirtualDisplay(@NonNull String name,
-            int width, int height, int dpi, boolean isSecure, @Nullable Surface surface,
-            @Nullable VirtualDisplay.Callbacks callbacks, @Nullable Handler handler) {
+            int width, int height, int dpi, int flags, @Nullable Surface surface,
+            @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
         DisplayManager dm = (DisplayManager) mContext.getSystemService(Context.DISPLAY_SERVICE);
-        int flags = isSecure ? DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE : 0;
         return dm.createVirtualDisplay(
-                    this, name, width, height, dpi, surface, flags, callbacks, handler);
+                    this, name, width, height, dpi, surface, flags, callback, handler);
     }
 
     /**
      * Creates an AudioRecord to capture audio played back by the system.
+     * @hide
      */
     public AudioRecord createAudioRecord(
             int sampleRateInHz, int channelConfig,
@@ -160,9 +174,10 @@ public final class MediaProjection {
     public static abstract class Callback {
         /**
          * Called when the MediaProjection session is no longer valid.
-         *
+         * <p>
          * Once a MediaProjection has been stopped, it's up to the application to release any
          * resources it may be holding (e.g. {@link android.hardware.display.VirtualDisplay}s).
+         * </p>
          */
         public void onStop() { }
     }
@@ -170,16 +185,15 @@ public final class MediaProjection {
     private final class MediaProjectionCallback extends IMediaProjectionCallback.Stub {
         @Override
         public void onStop() {
-            final int N = mCallbacks.size();
-            for (int i = 0; i < N; i++) {
-                mCallbacks.get(i).onStop();
+            for (CallbackRecord cbr : mCallbacks.values()) {
+                cbr.onStop();
             }
         }
     }
 
     private final static class CallbackRecord {
-        private Callback mCallback;
-        private Handler mHandler;
+        private final Callback mCallback;
+        private final Handler mHandler;
 
         public CallbackRecord(Callback callback, Handler handler) {
             mCallback = callback;

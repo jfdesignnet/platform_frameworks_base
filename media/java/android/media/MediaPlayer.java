@@ -18,6 +18,7 @@ package android.media;
 
 import android.app.ActivityThread;
 import android.app.AppOpsManager;
+import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -36,6 +37,9 @@ import android.os.Process;
 import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.provider.Settings;
+import android.system.ErrnoException;
+import android.system.OsConstants;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -44,15 +48,23 @@ import android.media.AudioManager;
 import android.media.MediaFormat;
 import android.media.MediaTimeProvider;
 import android.media.SubtitleController;
+import android.media.SubtitleController.Anchor;
 import android.media.SubtitleData;
+import android.media.SubtitleTrack.RenderingWidget;
 
 import com.android.internal.app.IAppOpsService;
 
+import libcore.io.IoBridge;
+import libcore.io.Libcore;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.Runnable;
 import java.net.InetSocketAddress;
 import java.util.Map;
@@ -951,14 +963,26 @@ public class MediaPlayer implements SubtitleController.Listener
      * @param context the Context to use when resolving the Uri
      * @param uri the Content URI of the data you want to play
      * @param headers the headers to be sent together with the request for the data
+     *                Note that the cross domain redirection is allowed by default, but that can be
+     *                changed with key/value pairs through the headers parameter with
+     *                "android-allow-cross-domain-redirect" as the key and "0" or "1" as the value
+     *                to disallow or allow cross domain redirection.
      * @throws IllegalStateException if it is called in an invalid state
      */
     public void setDataSource(Context context, Uri uri, Map<String, String> headers)
-        throws IOException, IllegalArgumentException, SecurityException, IllegalStateException {
-        String scheme = uri.getScheme();
-        if(scheme == null || scheme.equals("file")) {
+            throws IOException, IllegalArgumentException, SecurityException, IllegalStateException {
+        final String scheme = uri.getScheme();
+        if (ContentResolver.SCHEME_FILE.equals(scheme)) {
             setDataSource(uri.getPath());
             return;
+        } else if (ContentResolver.SCHEME_CONTENT.equals(scheme)
+                && Settings.AUTHORITY.equals(uri.getAuthority())) {
+            // Redirect ringtones to go directly to underlying provider
+            uri = RingtoneManager.getActualDefaultRingtoneUri(context,
+                    RingtoneManager.getDefaultType(uri));
+            if (uri == null) {
+                throw new FileNotFoundException("Failed to resolve default ringtone");
+            }
         }
 
         AssetFileDescriptor fd = null;
@@ -1039,8 +1063,17 @@ public class MediaPlayer implements SubtitleController.Listener
     private void setDataSource(String path, String[] keys, String[] values)
             throws IOException, IllegalArgumentException, SecurityException, IllegalStateException {
         final Uri uri = Uri.parse(path);
-        if ("file".equals(uri.getScheme())) {
+        final String scheme = uri.getScheme();
+        if ("file".equals(scheme)) {
             path = uri.getPath();
+        } else if (scheme != null) {
+            // handle non-file sources
+            nativeSetDataSource(
+                MediaHTTPService.createHttpServiceBinderIfNecessary(path),
+                path,
+                keys,
+                values);
+            return;
         }
 
         final File file = new File(path);
@@ -1050,18 +1083,8 @@ public class MediaPlayer implements SubtitleController.Listener
             setDataSource(fd);
             is.close();
         } else {
-            _setDataSource(path, keys, values);
+            throw new IOException("setDataSource failed.");
         }
-    }
-
-    private void _setDataSource(
-        String path, String[] keys, String[] values)
-        throws IOException, IllegalArgumentException, SecurityException, IllegalStateException {
-        nativeSetDataSource(
-                MediaHTTPService.createHttpServiceBinderIfNecessary(path),
-                path,
-                keys,
-                values);
     }
 
     private native void nativeSetDataSource(
@@ -1108,7 +1131,12 @@ public class MediaPlayer implements SubtitleController.Listener
      *
      * @throws IllegalStateException if it is called in an invalid state
      */
-    public native void prepare() throws IOException, IllegalStateException;
+    public void prepare() throws IOException, IllegalStateException {
+        _prepare();
+        scanInternalSubtitleTracks();
+    }
+
+    private native void _prepare() throws IOException, IllegalStateException;
 
     /**
      * Prepares the player for playback, asynchronously.
@@ -1616,7 +1644,7 @@ public class MediaPlayer implements SubtitleController.Listener
      * Attaches an auxiliary effect to the player. A typical auxiliary effect is a reverberation
      * effect which can be applied on any sound source that directs a certain amount of its
      * energy to this effect. This amount is defined by setAuxEffectSendLevel().
-     * {@see #setAuxEffectSendLevel(float)}.
+     * See {@link #setAuxEffectSendLevel(float)}.
      * <p>After creating an auxiliary effect (e.g.
      * {@link android.media.audiofx.EnvironmentalReverb}), retrieve its ID with
      * {@link android.media.audiofx.AudioEffect#getId()} and use it when calling this method
@@ -1630,8 +1658,8 @@ public class MediaPlayer implements SubtitleController.Listener
 
 
     /**
-     * Sets the send level of the player to the attached auxiliary effect
-     * {@see #attachAuxEffect(int)}. The level value range is 0 to 1.0.
+     * Sets the send level of the player to the attached auxiliary effect.
+     * See {@link #attachAuxEffect(int)}. The level value range is 0 to 1.0.
      * <p>By default the send level is 0, so even if an effect is attached to the player
      * this method must be called for the effect to be applied.
      * <p>Note that the passed level value is a raw scalar. UI controls should be scaled
@@ -1846,7 +1874,10 @@ public class MediaPlayer implements SubtitleController.Listener
         System.arraycopy(trackInfo, 0, allTrackInfo, 0, trackInfo.length);
         int i = trackInfo.length;
         for (SubtitleTrack track: mOutOfBandSubtitleTracks) {
-            allTrackInfo[i] = new TrackInfo(TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE, track.getFormat());
+            int type = track.isTimedText()
+                    ? TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT
+                    : TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE;
+            allTrackInfo[i] = new TrackInfo(type, track.getFormat());
             ++i;
         }
         return allTrackInfo;
@@ -1891,7 +1922,7 @@ public class MediaPlayer implements SubtitleController.Listener
      * A helper function to check if the mime type is supported by media framework.
      */
     private static boolean availableMimeTypeForExternalSource(String mimeType) {
-        if (mimeType == MEDIA_MIMETYPE_TEXT_SUBRIP) {
+        if (MEDIA_MIMETYPE_TEXT_SUBRIP.equals(mimeType)) {
             return true;
         }
         return false;
@@ -1908,6 +1939,7 @@ public class MediaPlayer implements SubtitleController.Listener
         mSubtitleController.setAnchor(anchor);
     }
 
+    private final Object mInbandSubtitleLock = new Object();
     private SubtitleTrack[] mInbandSubtitleTracks;
     private int mSelectedSubtitleTrackIndex = -1;
     private Vector<SubtitleTrack> mOutOfBandSubtitleTracks;
@@ -2015,19 +2047,21 @@ public class MediaPlayer implements SubtitleController.Listener
         }
 
         TrackInfo[] tracks = getInbandTrackInfo();
-        SubtitleTrack[] inbandTracks = new SubtitleTrack[tracks.length];
-        for (int i=0; i < tracks.length; i++) {
-            if (tracks[i].getTrackType() == TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE) {
-                if (i < mInbandSubtitleTracks.length) {
-                    inbandTracks[i] = mInbandSubtitleTracks[i];
-                } else {
-                    SubtitleTrack track = mSubtitleController.addTrack(
-                            tracks[i].getFormat());
-                    inbandTracks[i] = track;
+        synchronized (mInbandSubtitleLock) {
+            SubtitleTrack[] inbandTracks = new SubtitleTrack[tracks.length];
+            for (int i=0; i < tracks.length; i++) {
+                if (tracks[i].getTrackType() == TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE) {
+                    if (i < mInbandSubtitleTracks.length) {
+                        inbandTracks[i] = mInbandSubtitleTracks[i];
+                    } else {
+                        SubtitleTrack track = mSubtitleController.addTrack(
+                                tracks[i].getFormat());
+                        inbandTracks[i] = track;
+                    }
                 }
             }
+            mInbandSubtitleTracks = inbandTracks;
         }
-        mInbandSubtitleTracks = inbandTracks;
         mSubtitleController.selectDefaultTrack();
     }
 
@@ -2143,31 +2177,101 @@ public class MediaPlayer implements SubtitleController.Listener
      * @param fd the FileDescriptor for the file you want to play
      * @param offset the offset into the file where the data to be played starts, in bytes
      * @param length the length in bytes of the data to be played
-     * @param mimeType The mime type of the file. Must be one of the mime types listed above.
+     * @param mime The mime type of the file. Must be one of the mime types listed above.
      * @throws IllegalArgumentException if the mimeType is not supported.
      * @throws IllegalStateException if called in an invalid state.
      */
-    public void addTimedTextSource(FileDescriptor fd, long offset, long length, String mimeType)
+    public void addTimedTextSource(FileDescriptor fd, long offset, long length, String mime)
             throws IllegalArgumentException, IllegalStateException {
-        if (!availableMimeTypeForExternalSource(mimeType)) {
-            throw new IllegalArgumentException("Illegal mimeType for timed text source: " + mimeType);
-
+        if (!availableMimeTypeForExternalSource(mime)) {
+            throw new IllegalArgumentException("Illegal mimeType for timed text source: " + mime);
         }
 
-        Parcel request = Parcel.obtain();
-        Parcel reply = Parcel.obtain();
+        FileDescriptor fd2;
         try {
-            request.writeInterfaceToken(IMEDIA_PLAYER);
-            request.writeInt(INVOKE_ID_ADD_EXTERNAL_SOURCE_FD);
-            request.writeFileDescriptor(fd);
-            request.writeLong(offset);
-            request.writeLong(length);
-            request.writeString(mimeType);
-            invoke(request, reply);
-        } finally {
-            request.recycle();
-            reply.recycle();
+            fd2 = Libcore.os.dup(fd);
+        } catch (ErrnoException ex) {
+            Log.e(TAG, ex.getMessage(), ex);
+            throw new RuntimeException(ex);
         }
+
+        final MediaFormat fFormat = new MediaFormat();
+        fFormat.setString(MediaFormat.KEY_MIME, mime);
+        fFormat.setInteger(MediaFormat.KEY_IS_TIMED_TEXT, 1);
+
+        Context context = ActivityThread.currentApplication();
+        // A MediaPlayer created by a VideoView should already have its mSubtitleController set.
+        if (mSubtitleController == null) {
+            mSubtitleController = new SubtitleController(context, mTimeProvider, this);
+            mSubtitleController.setAnchor(new Anchor() {
+                @Override
+                public void setSubtitleWidget(RenderingWidget subtitleWidget) {
+                }
+
+                @Override
+                public Looper getSubtitleLooper() {
+                    return Looper.getMainLooper();
+                }
+            });
+        }
+
+        if (!mSubtitleController.hasRendererFor(fFormat)) {
+            // test and add not atomic
+            mSubtitleController.registerRenderer(new SRTRenderer(context, mEventHandler));
+        }
+        final SubtitleTrack track = mSubtitleController.addTrack(fFormat);
+        mOutOfBandSubtitleTracks.add(track);
+
+        final FileDescriptor fd3 = fd2;
+        final long offset2 = offset;
+        final long length2 = length;
+        final HandlerThread thread = new HandlerThread(
+                "TimedTextReadThread",
+                Process.THREAD_PRIORITY_BACKGROUND + Process.THREAD_PRIORITY_MORE_FAVORABLE);
+        thread.start();
+        Handler handler = new Handler(thread.getLooper());
+        handler.post(new Runnable() {
+            private int addTrack() {
+                InputStream is = null;
+                final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                try {
+                    Libcore.os.lseek(fd3, offset2, OsConstants.SEEK_SET);
+                    byte[] buffer = new byte[4096];
+                    for (long total = 0; total < length2;) {
+                        int bytesToRead = (int) Math.min(buffer.length, length2 - total);
+                        int bytes = IoBridge.read(fd3, buffer, 0, bytesToRead);
+                        if (bytes < 0) {
+                            break;
+                        } else {
+                            bos.write(buffer, 0, bytes);
+                            total += bytes;
+                        }
+                    }
+                    track.onData(bos.toByteArray(), true /* eos */, ~0 /* runID: keep forever */);
+                    return MEDIA_INFO_EXTERNAL_METADATA_UPDATE;
+                } catch (Exception e) {
+                    Log.e(TAG, e.getMessage(), e);
+                    return MEDIA_INFO_TIMED_TEXT_ERROR;
+                } finally {
+                    if (is != null) {
+                        try {
+                            is.close();
+                        } catch (IOException e) {
+                            Log.e(TAG, e.getMessage(), e);
+                        }
+                    }
+                }
+            }
+
+            public void run() {
+                int res = addTrack();
+                if (mEventHandler != null) {
+                    Message m = mEventHandler.obtainMessage(MEDIA_INFO, res, 0, null);
+                    mEventHandler.sendMessage(m);
+                }
+                thread.getLooper().quitSafely();
+            }
+        });
     }
 
     /**
@@ -2183,9 +2287,9 @@ public class MediaPlayer implements SubtitleController.Listener
      * when {@code trackType} is not one of audio, video, or subtitle.
      * @throws IllegalStateException if called after {@link #release()}
      *
-     * @see {@link #getTrackInfo()}
-     * @see {@link #selectTrack(int)}
-     * @see {@link #deselectTrack(int)}
+     * @see #getTrackInfo()
+     * @see #selectTrack(int)
+     * @see #deselectTrack(int)
      */
     public int getSelectedTrack(int trackType) throws IllegalStateException {
         if (trackType == TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE && mSubtitleController != null) {
@@ -2267,6 +2371,18 @@ public class MediaPlayer implements SubtitleController.Listener
             throws IllegalStateException {
         // handle subtitle track through subtitle controller
         SubtitleTrack track = null;
+        synchronized (mInbandSubtitleLock) {
+            if (mInbandSubtitleTracks.length == 0) {
+                TrackInfo[] tracks = getInbandTrackInfo();
+                mInbandSubtitleTracks = new SubtitleTrack[tracks.length];
+                for (int i=0; i < tracks.length; i++) {
+                    if (tracks[i].getTrackType() == TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE) {
+                        mInbandSubtitleTracks[i] = mSubtitleController.addTrack(tracks[i].getFormat());
+                    }
+                }
+            }
+        }
+
         if (index < mInbandSubtitleTracks.length) {
             track = mInbandSubtitleTracks[index];
         } else if (index < mInbandSubtitleTracks.length + mOutOfBandSubtitleTracks.size()) {
@@ -2275,6 +2391,13 @@ public class MediaPlayer implements SubtitleController.Listener
 
         if (mSubtitleController != null && track != null) {
             if (select) {
+                if (track.isTimedText()) {
+                    int ttIndex = getSelectedTrack(TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT);
+                    if (ttIndex >= 0 && ttIndex < mInbandSubtitleTracks.length) {
+                        // deselect inband counterpart
+                        selectOrDeselectInbandTrack(ttIndex, false);
+                    }
+                }
                 mSubtitleController.selectTrack(track);
             } else if (mSubtitleController.getSelectedTrack() == track) {
                 mSubtitleController.selectTrack(null);
@@ -3158,9 +3281,7 @@ public class MediaPlayer implements SubtitleController.Listener
                 if (DEBUG) Log.d(TAG, "scheduleUpdate");
                 int i = registerListener(listener);
 
-                if (mStopped) {
-                    scheduleNotification(NOTIFY_STOP, 0 /* delay */);
-                } else {
+                if (!mStopped) {
                     mTimes[i] = 0;
                     scheduleNotification(NOTIFY_TIME, 0 /* delay */);
                 }

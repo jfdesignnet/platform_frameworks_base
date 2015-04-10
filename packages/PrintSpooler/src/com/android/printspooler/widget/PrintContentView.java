@@ -53,7 +53,7 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
 
     private View mDraggableContent;
     private View mPrintButton;
-    private ViewGroup mMoreOptionsContainer;
+    private View mMoreOptionsButton;
     private ViewGroup mOptionsContainer;
 
     private View mEmbeddedContentContainer;
@@ -140,7 +140,7 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
         mDynamicContent = findViewById(R.id.dynamic_content);
         mDraggableContent = findViewById(R.id.draggable_content);
         mPrintButton = findViewById(R.id.print_button);
-        mMoreOptionsContainer = (ViewGroup) findViewById(R.id.more_options_container);
+        mMoreOptionsButton = findViewById(R.id.more_options_button);
         mOptionsContainer = (ViewGroup) findViewById(R.id.options_container);
         mEmbeddedContentContainer = findViewById(R.id.embedded_content_container);
         mEmbeddedContentScrim = findViewById(R.id.embedded_content_scrim);
@@ -152,6 +152,17 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
 
         // Make sure we start in a closed options state.
         onDragProgress(1.0f);
+
+        // The framework gives focus to the frist focusable and we
+        // do not want that, hence we will take focus instead.
+        setFocusableInTouchMode(true);
+    }
+
+    @Override
+    public void focusableViewAvailable(View v) {
+        // The framework gives focus to the frist focusable and we
+        // do not want that, hence do not announce new focusables.
+        return;
     }
 
     @Override
@@ -272,8 +283,13 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
         mDynamicContent.layout(left, dynContentTop, right, dynContentBottom);
 
         MarginLayoutParams params = (MarginLayoutParams) mPrintButton.getLayoutParams();
-        final int rightMargin = params.rightMargin;
-        final int printButtonLeft = right - mPrintButton.getMeasuredWidth() - rightMargin;
+
+        final int printButtonLeft;
+        if (getLayoutDirection() == View.LAYOUT_DIRECTION_LTR) {
+            printButtonLeft = right - mPrintButton.getMeasuredWidth() - params.getMarginStart();
+        } else {
+            printButtonLeft = left + params.getMarginStart();
+        }
         final int printButtonTop = dynContentBottom - mPrintButton.getMeasuredHeight() / 2;
         final int printButtonRight = printButtonLeft + mPrintButton.getMeasuredWidth();
         final int printButtonBottom = printButtonTop + mPrintButton.getMeasuredHeight();
@@ -301,14 +317,15 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
                 || (mDragProgress == 1.0f && progress < 1.0f)) {
             mSummaryContent.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             mDraggableContent.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            mMoreOptionsContainer.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            mMoreOptionsButton.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             ensureImeClosedAndInputFocusCleared();
         }
         if ((mDragProgress > 0 && progress == 0)
                 || (mDragProgress < 1.0f && progress == 1.0f)) {
             mSummaryContent.setLayerType(View.LAYER_TYPE_NONE, null);
             mDraggableContent.setLayerType(View.LAYER_TYPE_NONE, null);
-            mMoreOptionsContainer.setLayerType(View.LAYER_TYPE_NONE, null);
+            mMoreOptionsButton.setLayerType(View.LAYER_TYPE_NONE, null);
+            mMoreOptionsButton.setLayerType(View.LAYER_TYPE_NONE, null);
         }
 
         mDragProgress = progress;
@@ -317,14 +334,16 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
 
         final float inverseAlpha = 1.0f - progress;
         mOptionsContainer.setAlpha(inverseAlpha);
-        mMoreOptionsContainer.setAlpha(inverseAlpha);
+        mMoreOptionsButton.setAlpha(inverseAlpha);
 
         mEmbeddedContentScrim.setBackgroundColor(computeScrimColor());
-
         if (progress == 0) {
             if (mOptionsStateChangeListener != null) {
                 mOptionsStateChangeListener.onOptionsOpened();
             }
+            mExpandCollapseHandle.setContentDescription(
+                    mContext.getString(R.string.collapse_handle));
+            announceForAccessibility(mContext.getString(R.string.print_options_expanded));
             mSummaryContent.setVisibility(View.GONE);
             mEmbeddedContentScrim.setOnClickListener(this);
             mExpandCollapseIcon.setBackgroundResource(R.drawable.ic_expand_less);
@@ -336,8 +355,11 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
             if (mOptionsStateChangeListener != null) {
                 mOptionsStateChangeListener.onOptionsClosed();
             }
-            if (mMoreOptionsContainer.getVisibility() != View.GONE) {
-                mMoreOptionsContainer.setVisibility(View.INVISIBLE);
+            mExpandCollapseHandle.setContentDescription(
+                    mContext.getString(R.string.expand_handle));
+            announceForAccessibility(mContext.getString(R.string.print_options_collapsed));
+            if (mMoreOptionsButton.getVisibility() != View.GONE) {
+                mMoreOptionsButton.setVisibility(View.INVISIBLE);
             }
             mDraggableContent.setVisibility(View.INVISIBLE);
             // If we change the scrim visibility the dimming is lagging
@@ -346,22 +368,23 @@ public final class PrintContentView extends ViewGroup implements View.OnClickLis
             mEmbeddedContentScrim.setClickable(false);
             mExpandCollapseIcon.setBackgroundResource(R.drawable.ic_expand_more);
         } else {
-            if (mMoreOptionsContainer.getVisibility() != View.GONE) {
-                mMoreOptionsContainer.setVisibility(View.VISIBLE);
+            if (mMoreOptionsButton.getVisibility() != View.GONE) {
+                mMoreOptionsButton.setVisibility(View.VISIBLE);
             }
             mDraggableContent.setVisibility(View.VISIBLE);
         }
     }
 
     private void ensureImeClosedAndInputFocusCleared() {
-        View focus = findFocus();
-        if (focus != null) {
+        View focused = findFocus();
+
+        if (focused != null && focused.isFocused()) {
             InputMethodManager imm = (InputMethodManager) mContext.getSystemService(
                     Context.INPUT_METHOD_SERVICE);
-            if (imm.isActive(focus)) {
+            if (imm.isActive(focused)) {
                 imm.hideSoftInputFromWindow(getWindowToken(), 0);
             }
-            focus.clearFocus();
+            focused.clearFocus();
         }
     }
 

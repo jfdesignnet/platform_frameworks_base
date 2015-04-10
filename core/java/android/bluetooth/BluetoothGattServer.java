@@ -286,20 +286,20 @@ public final class BluetoothGattServer implements BluetoothProfile {
             }
 
             /**
-             * Callback indicating the remote device connection is congested.
+             * The MTU for a connection has changed
              * @hide
              */
-            public void onConnectionCongested(String address, boolean congested) {
-                if (DBG) Log.d(TAG, "onConnectionCongested() - Device=" + address
-                        + " congested=" + congested);
+            public void onMtuChanged(String address, int mtu) {
+                if (DBG) Log.d(TAG, "onMtuChanged() - "
+                    + "device=" + address + ", mtu=" + mtu);
 
                 BluetoothDevice device = mAdapter.getRemoteDevice(address);
                 if (device == null) return;
 
                 try {
-                    mCallback.onConnectionCongested(device, congested);
+                    mCallback.onMtuChanged(device, mtu);
                 } catch (Exception ex) {
-                    Log.w(TAG, "Unhandled exception in callback", ex);
+                    Log.w(TAG, "Unhandled exception: " + ex);
                 }
             }
         };
@@ -519,6 +519,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
      * @param characteristic The local characteristic that has been updated
      * @param confirm true to request confirmation from the client (indication),
      *                false to send a notification
+     * @throws IllegalArgumentException
      * @return true, if the notification has been triggered successfully
      */
     public boolean notifyCharacteristicChanged(BluetoothDevice device,
@@ -528,6 +529,11 @@ public final class BluetoothGattServer implements BluetoothProfile {
 
         BluetoothGattService service = characteristic.getService();
         if (service == null) return false;
+
+        if (characteristic.getValue() == null) {
+            throw new IllegalArgumentException("Chracteristic value is empty. Use "
+                    + "BluetoothGattCharacteristic#setvalue to update");
+        }
 
         try {
             mService.sendNotification(mServerIf, device.getAddress(),

@@ -81,6 +81,8 @@ public class SwipeHelper implements Gefingerpoken {
     private long mLongPressTimeout;
 
     final private int[] mTmpPos = new int[2];
+    private int mFalsingThreshold;
+    private boolean mTouchAboveFalsingThreshold;
 
     public SwipeHelper(int swipeDirection, Callback callback, Context context) {
         mCallback = callback;
@@ -93,6 +95,8 @@ public class SwipeHelper implements Gefingerpoken {
         mLongPressTimeout = (long) (ViewConfiguration.getLongPressTimeout() * 1.5f); // extra long-press!
         mFastOutLinearInInterpolator = AnimationUtils.loadInterpolator(context,
                 android.R.interpolator.fast_out_linear_in);
+        mFalsingThreshold = context.getResources().getDimensionPixelSize(
+                R.dimen.swipe_helper_falsing_threshold);
     }
 
     public void setLongPressListener(LongPressListener listener) {
@@ -222,6 +226,7 @@ public class SwipeHelper implements Gefingerpoken {
 
         switch (action) {
             case MotionEvent.ACTION_DOWN:
+                mTouchAboveFalsingThreshold = false;
                 mDragging = false;
                 mLongPressSent = false;
                 mCurrView = mCallback.getChildAtPosition(ev);
@@ -306,11 +311,14 @@ public class SwipeHelper implements Gefingerpoken {
         final View animView = mCallback.getChildContentView(view);
         final boolean canAnimViewBeDismissed = mCallback.canChildBeDismissed(view);
         float newPos;
+        boolean isLayoutRtl = view.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
 
         if (velocity < 0
                 || (velocity == 0 && getTranslation(animView) < 0)
                 // if we use the Menu to dismiss an item in landscape, animate up
-                || (velocity == 0 && getTranslation(animView) == 0 && mSwipeDirection == Y)) {
+                || (velocity == 0 && getTranslation(animView) == 0 && mSwipeDirection == Y)
+                // if the language is rtl we prefer swiping to the left
+                || (velocity == 0 && getTranslation(animView) == 0 && isLayoutRtl)) {
             newPos = -getSize(animView);
         } else {
             newPos = getSize(animView);
@@ -384,10 +392,19 @@ public class SwipeHelper implements Gefingerpoken {
         }
 
         if (!mDragging) {
-            // We are not doing anything, make sure the long press callback
-            // is not still ticking like a bomb waiting to go off.
-            removeLongPressCallback();
-            return false;
+            if (mCallback.getChildAtPosition(ev) != null) {
+
+                // We are dragging directly over a card, make sure that we also catch the gesture
+                // even if nobody else wants the touch event.
+                onInterceptTouchEvent(ev);
+                return true;
+            } else {
+
+                // We are not doing anything, make sure the long press callback
+                // is not still ticking like a bomb waiting to go off.
+                removeLongPressCallback();
+                return false;
+            }
         }
 
         mVelocityTracker.addMovement(ev);
@@ -397,12 +414,16 @@ public class SwipeHelper implements Gefingerpoken {
             case MotionEvent.ACTION_MOVE:
                 if (mCurrView != null) {
                     float delta = getPos(ev) - mInitialTouchPos;
+                    float absDelta = Math.abs(delta);
+                    if (absDelta >= getFalsingThreshold()) {
+                        mTouchAboveFalsingThreshold = true;
+                    }
                     // don't let items that can't be dismissed be dragged more than
                     // maxScrollDistance
                     if (CONSTRAIN_SWIPE && !mCallback.canChildBeDismissed(mCurrView)) {
                         float size = getSize(mCurrAnimView);
                         float maxScrollDistance = 0.15f * size;
-                        if (Math.abs(delta) >= size) {
+                        if (absDelta >= size) {
                             delta = delta > 0 ? maxScrollDistance : -maxScrollDistance;
                         } else {
                             delta = maxScrollDistance * (float) Math.sin((delta/size)*(Math.PI/2));
@@ -428,9 +449,12 @@ public class SwipeHelper implements Gefingerpoken {
                     boolean childSwipedFastEnough = (Math.abs(velocity) > escapeVelocity) &&
                             (Math.abs(velocity) > Math.abs(perpendicularVelocity)) &&
                             (velocity > 0) == (getTranslation(mCurrAnimView) > 0);
+                    boolean falsingDetected = mCallback.isAntiFalsingNeeded()
+                            && !mTouchAboveFalsingThreshold;
 
-                    boolean dismissChild = mCallback.canChildBeDismissed(mCurrView) &&
-                            (childSwipedFastEnough || childSwipedFarEnough);
+                    boolean dismissChild = mCallback.canChildBeDismissed(mCurrView)
+                            && !falsingDetected && (childSwipedFastEnough || childSwipedFarEnough)
+                            && ev.getActionMasked() == MotionEvent.ACTION_UP;
 
                     if (dismissChild) {
                         // flingadingy
@@ -446,12 +470,19 @@ public class SwipeHelper implements Gefingerpoken {
         return true;
     }
 
+    private int getFalsingThreshold() {
+        float factor = mCallback.getFalsingThresholdFactor();
+        return (int) (mFalsingThreshold * factor);
+    }
+
     public interface Callback {
         View getChildAtPosition(MotionEvent ev);
 
         View getChildContentView(View v);
 
         boolean canChildBeDismissed(View v);
+
+        boolean isAntiFalsingNeeded();
 
         void onBeginDrag(View v);
 
@@ -467,6 +498,11 @@ public class SwipeHelper implements Gefingerpoken {
          * @return if true, prevents the default alpha fading.
          */
         boolean updateSwipeProgress(View animView, boolean dismissable, float swipeProgress);
+
+        /**
+         * @return The factor the falsing threshold should be multiplied with
+         */
+        float getFalsingThresholdFactor();
     }
 
     /**

@@ -17,17 +17,15 @@
 package com.android.printspooler.widget;
 
 import android.content.Context;
-import android.graphics.Canvas;
 import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.print.PrintAttributes.MediaSize;
 import android.print.PrintAttributes.Margins;
 import android.util.AttributeSet;
-import android.util.TypedValue;
 import android.view.View;
 import com.android.printspooler.model.PageContentRepository;
-import com.android.printspooler.model.PageContentRepository.PageContentProvider;
 import com.android.printspooler.model.PageContentRepository.RenderSpec;
+import com.android.printspooler.model.PageContentRepository.PageContentProvider;
 
 /**
  * This class represents a page in the print preview list. The width of the page
@@ -38,63 +36,59 @@ import com.android.printspooler.model.PageContentRepository.RenderSpec;
 public class PageContentView extends View
         implements PageContentRepository.OnPageContentAvailableCallback {
 
-    private final ColorDrawable mEmptyState;
-
     private PageContentProvider mProvider;
 
     private MediaSize mMediaSize;
+
     private Margins mMinMargins;
+
+    private Drawable mEmptyState;
 
     private boolean mContentRequested;
 
     public PageContentView(Context context, AttributeSet attrs) {
         super(context, attrs);
-
-        TypedValue typedValue = new TypedValue();
-        context.getTheme().resolveAttribute(com.android.internal.R.attr.textColorPrimary,
-                typedValue, true);
-
-        mEmptyState = new ColorDrawable(typedValue.data);
-
-        setBackground(mEmptyState);
     }
 
     @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-        requestPageContentIfNeeded();
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        mContentRequested = false;
         requestPageContentIfNeeded();
     }
 
     @Override
     public void onPageContentAvailable(BitmapDrawable content) {
-        if (getBackground() != content) {
-            setBackground(content);
-        }
+        setBackground(content);
     }
 
     public PageContentProvider getPageContentProvider() {
         return mProvider;
     }
 
-    public void init(PageContentProvider provider, MediaSize mediaSize, Margins minMargins) {
-        if (mProvider == provider
-                && ((mMediaSize == null) ? mediaSize == null : mMediaSize.equals(mediaSize))
-                && ((mMinMargins == null) ? minMargins == null : mMinMargins.equals(minMargins))) {
+    public void init(PageContentProvider provider, Drawable emptyState,
+            MediaSize mediaSize, Margins minMargins) {
+        final boolean providerChanged = (mProvider == null)
+                ? provider != null : !mProvider.equals(provider);
+        final boolean loadingDrawableChanged = (mEmptyState == null)
+                ? emptyState != null : !mEmptyState.equals(emptyState);
+        final boolean mediaSizeChanged = (mMediaSize == null)
+                ? mediaSize != null : !mMediaSize.equals(mediaSize);
+        final boolean marginsChanged = (mMinMargins == null)
+                ? minMargins != null : !mMinMargins.equals(minMargins);
+
+        if (!providerChanged && !mediaSizeChanged
+                && !marginsChanged && !loadingDrawableChanged) {
             return;
         }
 
         mProvider = provider;
         mMediaSize = mediaSize;
         mMinMargins = minMargins;
+
+        mEmptyState = emptyState;
         mContentRequested = false;
 
-        // If there is not provider we want immediately to switch to
+        // If there is no provider we want immediately to switch to
         // the empty state, so pages with no content appear blank.
         if (mProvider == null && getBackground() != mEmptyState) {
             setBackground(mEmptyState);
@@ -104,10 +98,11 @@ public class PageContentView extends View
     }
 
     private void requestPageContentIfNeeded() {
-        if (getWidth() > 0 && getHeight() > 0 && !mContentRequested && mProvider != null) {
+        if (getWidth() > 0 && getHeight() > 0 && !mContentRequested
+                && mProvider != null) {
             mContentRequested = true;
-            mProvider.getPageContent(new RenderSpec(getWidth(), getHeight(), mMediaSize,
-                    mMinMargins), this);
+            mProvider.getPageContent(new RenderSpec(getWidth(), getHeight(),
+                    mMediaSize, mMinMargins), this);
         }
     }
 }

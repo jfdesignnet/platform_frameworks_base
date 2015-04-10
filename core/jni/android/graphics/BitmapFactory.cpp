@@ -18,6 +18,7 @@
 #include <android_runtime/AndroidRuntime.h>
 #include <androidfw/Asset.h>
 #include <androidfw/ResourceTypes.h>
+#include <cutils/compiler.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -76,8 +77,10 @@ jstring getMimeTypeString(JNIEnv* env, SkImageDecoder::Format format) {
         }
     }
 
-    jstring jstr = 0;
-    if (NULL != cstr) {
+    jstring jstr = NULL;
+    if (cstr != NULL) {
+        // NOTE: Caller should env->ExceptionCheck() for OOM
+        // (can't check for NULL as it's a valid return value)
         jstr = env->NewStringUTF(cstr);
     }
     return jstr;
@@ -87,27 +90,39 @@ static bool optionsJustBounds(JNIEnv* env, jobject options) {
     return options != NULL && env->GetBooleanField(options, gOptions_justBoundsFieldID);
 }
 
-static void scaleNinePatchChunk(android::Res_png_9patch* chunk, float scale) {
+static void scaleDivRange(int32_t* divs, int count, float scale, int maxValue) {
+    for (int i = 0; i < count; i++) {
+        divs[i] = int32_t(divs[i] * scale + 0.5f);
+        if (i > 0 && divs[i] == divs[i - 1]) {
+            divs[i]++; // avoid collisions
+        }
+    }
+
+    if (CC_UNLIKELY(divs[count - 1] > maxValue)) {
+        // if the collision avoidance above put some divs outside the bounds of the bitmap,
+        // slide outer stretchable divs inward to stay within bounds
+        int highestAvailable = maxValue;
+        for (int i = count - 1; i >= 0; i--) {
+            divs[i] = highestAvailable;
+            if (i > 0 && divs[i] <= divs[i-1]){
+                // keep shifting
+                highestAvailable = divs[i] - 1;
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+static void scaleNinePatchChunk(android::Res_png_9patch* chunk, float scale,
+        int scaledWidth, int scaledHeight) {
     chunk->paddingLeft = int(chunk->paddingLeft * scale + 0.5f);
     chunk->paddingTop = int(chunk->paddingTop * scale + 0.5f);
     chunk->paddingRight = int(chunk->paddingRight * scale + 0.5f);
     chunk->paddingBottom = int(chunk->paddingBottom * scale + 0.5f);
 
-    int32_t* xDivs = chunk->getXDivs();
-    for (int i = 0; i < chunk->numXDivs; i++) {
-        xDivs[i] = int32_t(xDivs[i] * scale + 0.5f);
-        if (i > 0 && xDivs[i] == xDivs[i - 1]) {
-            xDivs[i]++;
-        }
-    }
-
-    int32_t* yDivs = chunk->getYDivs();
-    for (int i = 0; i < chunk->numYDivs; i++) {
-        yDivs[i] = int32_t(yDivs[i] * scale + 0.5f);
-        if (i > 0 && yDivs[i] == yDivs[i - 1]) {
-            yDivs[i]++;
-        }
-    }
+    scaleDivRange(chunk->getXDivs(), chunk->numXDivs, scale, scaledWidth);
+    scaleDivRange(chunk->getYDivs(), chunk->numYDivs, scale, scaledHeight);
 }
 
 static SkColorType colorTypeForScaledOutput(SkColorType colorType) {
@@ -302,7 +317,8 @@ static jobject doDecode(JNIEnv* env, SkStreamRewindable* stream, jobject padding
     }
 
     SkBitmap decodingBitmap;
-    if (!decoder->decode(stream, &decodingBitmap, prefColorType, decodeMode)) {
+    if (decoder->decode(stream, &decodingBitmap, prefColorType, decodeMode)
+                != SkImageDecoder::kSuccess) {
         return nullObjectReturn("decoder->decode returned false");
     }
 
@@ -316,10 +332,13 @@ static jobject doDecode(JNIEnv* env, SkStreamRewindable* stream, jobject padding
 
     // update options (if any)
     if (options != NULL) {
+        jstring mimeType = getMimeTypeString(env, decoder->getFormat());
+        if (env->ExceptionCheck()) {
+            return nullObjectReturn("OOM in getMimeTypeString()");
+        }
         env->SetIntField(options, gOptions_widthFieldID, scaledWidth);
         env->SetIntField(options, gOptions_heightFieldID, scaledHeight);
-        env->SetObjectField(options, gOptions_mimeFieldID,
-                getMimeTypeString(env, decoder->getFormat()));
+        env->SetObjectField(options, gOptions_mimeFieldID, mimeType);
     }
 
     // if we're in justBounds mode, return now (skip the java bitmap)
@@ -330,7 +349,7 @@ static jobject doDecode(JNIEnv* env, SkStreamRewindable* stream, jobject padding
     jbyteArray ninePatchChunk = NULL;
     if (peeker.mPatch != NULL) {
         if (willScale) {
-            scaleNinePatchChunk(peeker.mPatch, scale);
+            scaleNinePatchChunk(peeker.mPatch, scale, scaledWidth, scaledHeight);
         }
 
         size_t ninePatchArraySize = peeker.mPatch->serializedSize();
@@ -353,7 +372,10 @@ static jobject doDecode(JNIEnv* env, SkStreamRewindable* stream, jobject padding
         ninePatchInsets = env->NewObject(gInsetStruct_class, gInsetStruct_constructorMethodID,
                 peeker.mOpticalInsets[0], peeker.mOpticalInsets[1], peeker.mOpticalInsets[2], peeker.mOpticalInsets[3],
                 peeker.mOutlineInsets[0], peeker.mOutlineInsets[1], peeker.mOutlineInsets[2], peeker.mOutlineInsets[3],
-                peeker.mOutlineRadius, peeker.mOutlineFilled, scale);
+                peeker.mOutlineRadius, peeker.mOutlineAlpha, scale);
+        if (ninePatchInsets == NULL) {
+            return nullObjectReturn("nine patch insets == null");
+        }
         if (javaBitmap != NULL) {
             env->SetObjectField(javaBitmap, gBitmap_ninePatchInsetsFieldID, ninePatchInsets);
         }
@@ -462,7 +484,7 @@ static jobject nativeDecodeFileDescriptor(JNIEnv* env, jobject clazz, jobject fi
 
     NPE_CHECK_RETURN_ZERO(env, fileDescriptor);
 
-    jint descriptor = jniGetFDFromFileDescriptor(env, fileDescriptor);
+    int descriptor = jniGetFDFromFileDescriptor(env, fileDescriptor);
 
     struct stat fdStat;
     if (fstat(descriptor, &fdStat) == -1) {
@@ -470,16 +492,27 @@ static jobject nativeDecodeFileDescriptor(JNIEnv* env, jobject clazz, jobject fi
         return nullObjectReturn("fstat return -1");
     }
 
-    // Restore the descriptor's offset on exiting this function.
+    // Restore the descriptor's offset on exiting this function. Even though
+    // we dup the descriptor, both the original and dup refer to the same open
+    // file description and changes to the file offset in one impact the other.
     AutoFDSeek autoRestore(descriptor);
 
-    FILE* file = fdopen(descriptor, "r");
+    // Duplicate the descriptor here to prevent leaking memory. A leak occurs
+    // if we only close the file descriptor and not the file object it is used to
+    // create.  If we don't explicitly clean up the file (which in turn closes the
+    // descriptor) the buffers allocated internally by fseek will be leaked.
+    int dupDescriptor = dup(descriptor);
+
+    FILE* file = fdopen(dupDescriptor, "r");
     if (file == NULL) {
+        // cleanup the duplicated descriptor since it will not be closed when the
+        // file is cleaned up (fclose).
+        close(dupDescriptor);
         return nullObjectReturn("Could not open file");
     }
 
     SkAutoTUnref<SkFILEStream> fileStream(new SkFILEStream(file,
-                         SkFILEStream::kCallerRetains_Ownership));
+                         SkFILEStream::kCallerPasses_Ownership));
 
     // Use a buffered stream. Although an SkFILEStream can be rewound, this
     // ensures that SkImageDecoder::Factory never rewinds beyond the
@@ -589,7 +622,7 @@ int register_android_graphics_BitmapFactory(JNIEnv* env) {
             "Landroid/graphics/NinePatch$InsetStruct;");
 
     gInsetStruct_class = (jclass) env->NewGlobalRef(env->FindClass("android/graphics/NinePatch$InsetStruct"));
-    gInsetStruct_constructorMethodID = env->GetMethodID(gInsetStruct_class, "<init>", "(IIIIIIIIFZF)V");
+    gInsetStruct_constructorMethodID = env->GetMethodID(gInsetStruct_class, "<init>", "(IIIIIIIIFIF)V");
 
     int ret = AndroidRuntime::registerNativeMethods(env,
                                     "android/graphics/BitmapFactory$Options",

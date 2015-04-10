@@ -36,6 +36,7 @@ import android.os.UserHandle;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.view.WindowManager;
+import android.view.WindowManagerGlobal;
 
 import com.android.keyguard.KeyguardHostView.OnDismissAction;
 
@@ -214,9 +215,9 @@ public abstract class KeyguardActivityLauncher {
 
     private void dismissKeyguardOnNextActivity() {
         try {
-            ActivityManagerNative.getDefault().dismissKeyguardOnNextActivity();
+            WindowManagerGlobal.getWindowManagerService().dismissKeyguard();
         } catch (RemoteException e) {
-            Log.w(TAG, "can't dismiss keyguard on launch");
+            Log.w(TAG, "Error dismissing keyguard", e);
         }
     }
 
@@ -241,8 +242,7 @@ public abstract class KeyguardActivityLauncher {
                             null /*resultWho*/,
                             0 /*requestCode*/,
                             Intent.FLAG_ACTIVITY_NEW_TASK,
-                            null /*profileFile*/,
-                            null /*profileFd*/,
+                            null /*profilerInfo*/,
                             options,
                             user.getIdentifier());
                     if (DEBUG) Log.d(TAG, String.format("waitResult[%s,%s,%s,%s] at %s",

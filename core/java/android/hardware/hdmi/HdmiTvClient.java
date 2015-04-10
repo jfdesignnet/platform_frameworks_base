@@ -15,6 +15,7 @@
  */
 package android.hardware.hdmi;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.hardware.hdmi.HdmiRecordSources.RecordSource;
 import android.hardware.hdmi.HdmiTimerRecordSources.TimerRecordSource;
@@ -22,6 +23,9 @@ import android.os.RemoteException;
 import android.util.Log;
 
 import libcore.util.EmptyArray;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
  * HdmiTvClient represents HDMI-CEC logical device of type TV in the Android system
@@ -34,68 +38,24 @@ import libcore.util.EmptyArray;
 public final class HdmiTvClient extends HdmiClient {
     private static final String TAG = "HdmiTvClient";
 
-    // Definitions used for setOption(). These should be in sync with the definition
-    // in hardware/libhardware/include/hardware/{hdmi_cec.h,mhl.h}.
-
     /**
-     * TV gets turned on by incoming &lt;Text/Image View On&gt;. {@code ENABLED} by default.
-     * If set to {@code DISABLED}, TV won't turn on automatically.
+     * Size of MHL register for vendor command
      */
-    public static final int OPTION_CEC_AUTO_WAKEUP = 1;
+    public static final int VENDOR_DATA_SIZE = 16;
 
-    /**
-     * If set to {@code DISABLED}, all CEC commands are discarded.
-     *
-     * <p> This option is for internal use only, not supposed to be used by other components.
-     * @hide
-     */
-    public static final int OPTION_CEC_ENABLE = 2;
-
-    /**
-     * If set to {@code DISABLED}, system service yields control of CEC to sub-microcontroller.
-     * If {@code ENABLED}, it take the control back.
-     *
-     * <p> This option is for internal use only, not supposed to be used by other components.
-     * @hide
-     */
-    public static final int OPTION_CEC_SERVICE_CONTROL = 3;
-
-    /**
-     * Put other devices to standby when TV goes to standby. {@code ENABLED} by default.
-     * If set to {@code DISABLED}, TV doesn't send &lt;Standby&gt; to other devices.
-     */
-    public static final int OPTION_CEC_AUTO_DEVICE_OFF = 4;
-
-    /** If set to {@code DISABLED}, TV does not switch ports when mobile device is connected. */
-    public static final int OPTION_MHL_INPUT_SWITCHING = 101;
-
-    /** If set to {@code ENABLED}, TV disables power charging for mobile device. */
-    public static final int OPTION_MHL_POWER_CHARGE = 102;
-
-    /**
-     * If set to {@code DISABLED}, all MHL commands are discarded.
-     *
-     * <p> This option is for internal use only, not supposed to be used by other components.
-     * @hide
-     */
-    public static final int OPTION_MHL_ENABLE = 103;
-
-    public static final int DISABLED = 0;
-    public static final int ENABLED = 1;
-
-    HdmiTvClient(IHdmiControlService service) {
+    /* package */ HdmiTvClient(IHdmiControlService service) {
         super(service);
     }
 
     // Factory method for HdmiTvClient.
     // Declared package-private. Accessed by HdmiControlManager only.
-    static HdmiTvClient create(IHdmiControlService service) {
+    /* package */ static HdmiTvClient create(IHdmiControlService service) {
         return new HdmiTvClient(service);
     }
 
     @Override
     public int getDeviceType() {
-        return HdmiCecDeviceInfo.DEVICE_TV;
+        return HdmiDeviceInfo.DEVICE_TV;
     }
 
     /**
@@ -111,13 +71,16 @@ public final class HdmiTvClient extends HdmiClient {
     }
 
     /**
-     * Select a CEC logical device to be a new active source.
+     * Selects a CEC logical device to be a new active source.
      *
-     * @param logicalAddress
-     * @param callback
+     * @param logicalAddress logical address of the device to select
+     * @param callback callback to get the result with
+     * @throws {@link IllegalArgumentException} if the {@code callback} is null
      */
-    public void deviceSelect(int logicalAddress, SelectCallback callback) {
-        // TODO: Replace SelectCallback with PartialResult.
+    public void deviceSelect(int logicalAddress, @NonNull SelectCallback callback) {
+        if (callback == null) {
+            throw new IllegalArgumentException("callback must not be null.");
+        }
         try {
             mService.deviceSelect(logicalAddress, getCallbackWrapper(callback));
         } catch (RemoteException e) {
@@ -125,8 +88,87 @@ public final class HdmiTvClient extends HdmiClient {
         }
     }
 
+    private static IHdmiControlCallback getCallbackWrapper(final SelectCallback callback) {
+        return new IHdmiControlCallback.Stub() {
+            @Override
+            public void onComplete(int result) {
+                callback.onComplete(result);
+            }
+        };
+    }
+
     /**
-     * Set system audio volume
+     * Selects a HDMI port to be a new route path.
+     *
+     * @param portId HDMI port to select
+     * @param callback callback to get the result with
+     * @throws {@link IllegalArgumentException} if the {@code callback} is null
+     */
+    public void portSelect(int portId, @NonNull SelectCallback callback) {
+        if (callback == null) {
+            throw new IllegalArgumentException("Callback must not be null");
+        }
+        try {
+            mService.portSelect(portId, getCallbackWrapper(callback));
+        } catch (RemoteException e) {
+            Log.e(TAG, "failed to select port: ", e);
+        }
+    }
+
+    /**
+     * Callback interface used to get the input change event.
+     */
+    public interface InputChangeListener {
+        /**
+         * Called when the input was changed.
+         *
+         * @param info newly selected HDMI input
+         */
+        void onChanged(HdmiDeviceInfo info);
+    }
+
+    /**
+     * Sets the listener used to get informed of the input change event.
+     *
+     * @param listener listener object
+     */
+    public void setInputChangeListener(InputChangeListener listener) {
+        if (listener == null) {
+            throw new IllegalArgumentException("listener must not be null.");
+        }
+        try {
+            mService.setInputChangeListener(getListenerWrapper(listener));
+        } catch (RemoteException e) {
+            Log.e("TAG", "Failed to set InputChangeListener:", e);
+        }
+    }
+
+    private static IHdmiInputChangeListener getListenerWrapper(final InputChangeListener listener) {
+        return new IHdmiInputChangeListener.Stub() {
+            @Override
+            public void onChanged(HdmiDeviceInfo info) {
+                listener.onChanged(info);
+            }
+        };
+    }
+
+    /**
+     * Returns all the CEC devices connected to TV.
+     *
+     * @return list of {@link HdmiDeviceInfo} for connected CEC devices.
+     *         Empty list is returned if there is none.
+     */
+    public List<HdmiDeviceInfo> getDeviceList() {
+        try {
+            return mService.getDeviceList();
+        } catch (RemoteException e) {
+            Log.e("TAG", "Failed to call getDeviceList():", e);
+            return Collections.<HdmiDeviceInfo>emptyList();
+        }
+    }
+
+    /**
+     * Sets system audio volume
      *
      * @param oldIndex current volume index
      * @param newIndex volume index to be set
@@ -141,7 +183,7 @@ public final class HdmiTvClient extends HdmiClient {
     }
 
     /**
-     * Set system audio mute status
+     * Sets system audio mute status
      *
      * @param mute {@code true} if muted; otherwise, {@code false}
      */
@@ -154,11 +196,14 @@ public final class HdmiTvClient extends HdmiClient {
     }
 
     /**
-     * Set record listener
+     * Sets record listener
      *
      * @param listener
      */
-    public void setRecordListener(HdmiRecordListener listener) {
+    public void setRecordListener(@NonNull HdmiRecordListener listener) {
+        if (listener == null) {
+            throw new IllegalArgumentException("listener must not be null.");
+        }
         try {
             mService.setHdmiRecordListener(getListenerWrapper(listener));
         } catch (RemoteException e) {
@@ -166,18 +211,54 @@ public final class HdmiTvClient extends HdmiClient {
         }
     }
 
+    private static IHdmiRecordListener getListenerWrapper(final HdmiRecordListener callback) {
+        return new IHdmiRecordListener.Stub() {
+            @Override
+            public byte[] getOneTouchRecordSource(int recorderAddress) {
+                HdmiRecordSources.RecordSource source =
+                        callback.onOneTouchRecordSourceRequested(recorderAddress);
+                if (source == null) {
+                    return EmptyArray.BYTE;
+                }
+                byte[] data = new byte[source.getDataSize(true)];
+                source.toByteArray(true, data, 0);
+                return data;
+            }
+
+            @Override
+            public void onOneTouchRecordResult(int recorderAddress, int result) {
+                callback.onOneTouchRecordResult(recorderAddress, result);
+            }
+
+            @Override
+            public void onTimerRecordingResult(int recorderAddress, int result) {
+                callback.onTimerRecordingResult(recorderAddress,
+                        HdmiRecordListener.TimerStatusData.parseFrom(result));
+            }
+
+            @Override
+            public void onClearTimerRecordingResult(int recorderAddress, int result) {
+                callback.onClearTimerRecordingResult(recorderAddress, result);
+            }
+        };
+    }
+
     /**
-     * Start one touch recording with the given recorder address and recorder source.
+     * Starts one touch recording with the given recorder address and recorder source.
      * <p>
      * Usage
      * <pre>
      * HdmiTvClient tvClient = ....;
      * // for own source.
-     * OwnSource ownSource = ownHdmiRecordSources.ownSource();
+     * OwnSource ownSource = HdmiRecordSources.ofOwnSource();
      * tvClient.startOneTouchRecord(recorderAddress, ownSource);
      * </pre>
      */
-    public void startOneTouchRecord(int recorderAddress, RecordSource source) {
+    public void startOneTouchRecord(int recorderAddress, @NonNull RecordSource source) {
+        if (source == null) {
+            throw new IllegalArgumentException("source must not be null.");
+        }
+
         try {
             byte[] data = new byte[source.getDataSize(true)];
             source.toByteArray(true, data, 0);
@@ -188,7 +269,7 @@ public final class HdmiTvClient extends HdmiClient {
     }
 
     /**
-     * Stop one touch record.
+     * Stops one touch record.
      *
      * @param recorderAddress recorder address where recoding will be stopped
      */
@@ -201,7 +282,7 @@ public final class HdmiTvClient extends HdmiClient {
     }
 
     /**
-     * Start timer recording with the given recoder address and recorder source.
+     * Starts timer recording with the given recoder address and recorder source.
      * <p>
      * Usage
      * <pre>
@@ -223,6 +304,10 @@ public final class HdmiTvClient extends HdmiClient {
      * @param source record source to be used
      */
     public void startTimerRecording(int recorderAddress, int sourceType, TimerRecordSource source) {
+        if (source == null) {
+            throw new IllegalArgumentException("source must not be null.");
+        }
+
         checkTimerRecordingSourceType(sourceType);
 
         try {
@@ -246,10 +331,14 @@ public final class HdmiTvClient extends HdmiClient {
     }
 
     /**
-     * Clear timer recording with the given recorder address and recording source.
+     * Clears timer recording with the given recorder address and recording source.
      * For more details, please refer {@link #startTimerRecording(int, int, TimerRecordSource)}.
      */
     public void clearTimerRecording(int recorderAddress, int sourceType, TimerRecordSource source) {
+        if (source == null) {
+            throw new IllegalArgumentException("source must not be null.");
+        }
+
         checkTimerRecordingSourceType(sourceType);
         try {
             byte[] data = new byte[source.getDataSize()];
@@ -260,38 +349,63 @@ public final class HdmiTvClient extends HdmiClient {
         }
     }
 
-    private static IHdmiControlCallback getCallbackWrapper(final SelectCallback callback) {
-        return new IHdmiControlCallback.Stub() {
+    /**
+     * Interface used to get incoming MHL vendor command.
+     */
+    public interface HdmiMhlVendorCommandListener {
+        void onReceived(int portId, int offset, int length, byte[] data);
+    }
+
+    /**
+     * Sets {@link HdmiMhlVendorCommandListener} to get incoming MHL vendor command.
+     *
+     * @param listener to receive incoming MHL vendor command
+     */
+    public void setHdmiMhlVendorCommandListener(HdmiMhlVendorCommandListener listener) {
+        if (listener == null) {
+            throw new IllegalArgumentException("listener must not be null.");
+        }
+        try {
+            mService.addHdmiMhlVendorCommandListener(getListenerWrapper(listener));
+        } catch (RemoteException e) {
+            Log.e(TAG, "failed to set hdmi mhl vendor command listener: ", e);
+        }
+    }
+
+    private IHdmiMhlVendorCommandListener getListenerWrapper(
+            final HdmiMhlVendorCommandListener listener) {
+        return new IHdmiMhlVendorCommandListener.Stub() {
             @Override
-            public void onComplete(int result) {
-                callback.onComplete(result);
+            public void onReceived(int portId, int offset, int length, byte[] data) {
+                listener.onReceived(portId, offset, length, data);
             }
         };
     }
 
-    private static IHdmiRecordListener getListenerWrapper(final HdmiRecordListener callback) {
-        return new IHdmiRecordListener.Stub() {
-            @Override
-            public byte[] getOneTouchRecordSource(int recorderAddress) {
-                HdmiRecordSources.RecordSource source =
-                        callback.getOneTouchRecordSource(recorderAddress);
-                if (source == null) {
-                    return EmptyArray.BYTE;
-                }
-                byte[] data = new byte[source.getDataSize(true)];
-                source.toByteArray(true, data, 0);
-                return data;
-            }
+    /**
+     * Sends MHL vendor command to the device connected to a port of the given portId.
+     *
+     * @param portId id of port to send MHL vendor command
+     * @param offset offset in the in given data
+     * @param length length of data. offset + length should be bound to length of data.
+     * @param data container for vendor command data. It should be 16 bytes.
+     * @throws IllegalArgumentException if the given parameters are invalid
+     */
+    public void sendMhlVendorCommand(int portId, int offset, int length, byte[] data) {
+        if (data == null || data.length != VENDOR_DATA_SIZE) {
+            throw new IllegalArgumentException("Invalid vendor command data.");
+        }
+        if (offset < 0 || offset >= VENDOR_DATA_SIZE) {
+            throw new IllegalArgumentException("Invalid offset:" + offset);
+        }
+        if (length < 0 || offset + length > VENDOR_DATA_SIZE) {
+            throw new IllegalArgumentException("Invalid length:" + length);
+        }
 
-            @Override
-            public void onOneTouchRecordResult(int result) {
-                callback.onOneTouchRecordResult(result);
-            }
-
-            @Override
-            public void onTimerRecordingResult(int result) {
-                callback.onTimerRecordingResult(result);
-            }
-        };
+        try {
+            mService.sendMhlVendorCommand(portId, offset, length, data);
+        } catch (RemoteException e) {
+            Log.e(TAG, "failed to send vendor command: ", e);
+        }
     }
 }

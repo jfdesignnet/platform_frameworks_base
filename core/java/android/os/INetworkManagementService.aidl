@@ -19,6 +19,7 @@ package android.os;
 
 import android.net.InterfaceConfiguration;
 import android.net.INetworkManagementEventObserver;
+import android.net.Network;
 import android.net.NetworkStats;
 import android.net.RouteInfo;
 import android.net.UidRange;
@@ -89,6 +90,11 @@ interface INetworkManagementService
      * Enable IPv6 on an interface
      */
     void enableIpv6(String iface);
+
+    /**
+     * Enables or enables IPv6 ND offload.
+     */
+    void setInterfaceIpv6NdOffload(String iface, boolean enable);
 
     /**
      * Retrieves the network routes currently configured on the specified
@@ -164,10 +170,10 @@ interface INetworkManagementService
     /**
      * Sets the list of DNS forwarders (in order of priority)
      */
-    void setDnsForwarders(in String[] dns);
+    void setDnsForwarders(in Network network, in String[] dns);
 
     /**
-     * Returns the list of DNS fowarders (in order of priority)
+     * Returns the list of DNS forwarders (in order of priority)
      */
     String[] getDnsForwarders();
 
@@ -312,6 +318,11 @@ interface INetworkManagementService
      */
     void setDnsServersForNetwork(int netId, in String[] servers, String domains);
 
+    /**
+     * Flush the DNS cache associated with the specified network.
+     */
+    void flushNetworkDnsCache(int netId);
+
     void setFirewallEnabled(boolean enabled);
     boolean isFirewallEnabled();
     void setFirewallInterfaceRule(String iface, boolean allow);
@@ -330,19 +341,19 @@ interface INetworkManagementService
     void removeVpnUidRanges(int netId, in UidRange[] ranges);
 
     /**
-     * Start the clatd (464xlat) service
+     * Start the clatd (464xlat) service on the given interface.
      */
     void startClatd(String interfaceName);
 
     /**
-     * Stop the clatd (464xlat) service
+     * Stop the clatd (464xlat) service on the given interface.
      */
-    void stopClatd();
+    void stopClatd(String interfaceName);
 
     /**
-     * Determine whether the clatd (464xlat) service has been started
+     * Determine whether the clatd (464xlat) service has been started on the given interface.
      */
-    boolean isClatdStarted();
+    boolean isClatdStarted(String interfaceName);
 
     /**
      * Start listening for mobile activity state changes.
@@ -389,7 +400,7 @@ interface INetworkManagementService
     void setDefaultNetId(int netId);
     void clearDefaultNetId();
 
-    void setPermission(boolean internal, boolean changeNetState, in int[] uids);
+    void setPermission(String permission, in int[] uids);
     void clearPermission(in int[] uids);
 
     /**

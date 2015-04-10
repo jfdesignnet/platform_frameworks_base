@@ -106,6 +106,10 @@ public final class MediaFormat {
     public static final String MIMETYPE_AUDIO_FLAC = "audio/flac";
     public static final String MIMETYPE_AUDIO_MSGSM = "audio/gsm";
     public static final String MIMETYPE_AUDIO_AC3 = "audio/ac3";
+    /**
+     * @hide
+     */
+    public static final String MIMETYPE_AUDIO_EAC3 = "audio/eac3";
 
     /**
      * MIME type for WebVTT subtitle data.
@@ -118,19 +122,6 @@ public final class MediaFormat {
     public static final String MIMETYPE_TEXT_CEA_608 = "text/cea-608";
 
     private Map<String, Object> mMap;
-
-    /**
-     * A key prefix used together with a {@link MediaCodecInfo.CodecCapabilities}
-     * feature name describing a required or optional feature for a codec capabilities
-     * query.
-     * The associated value is an integer, where non-0 value means the feature is
-     * requested to be present, while 0 value means the feature is requested to be not
-     * present.
-     * @see MediaCodecList#findDecoderForFormat
-     * @see MediaCodecList#findEncoderForFormat
-     * @see MediaCodecInfo.CodecCapabilities#isFormatSupported
-     */
-    public static final String KEY_FEATURE_ = "feature-";
 
     /**
      * A key describing the mime type of the MediaFormat.
@@ -411,7 +402,7 @@ public final class MediaFormat {
      * The associated value is an integer.  These values are device and codec specific,
      * but lower values generally result in faster and/or less power-hungry encoding.
      *
-     * @see MediaCodecInfo.CodecCapabilities.EncoderCapabilities#getComplexityRange
+     * @see MediaCodecInfo.EncoderCapabilities#getComplexityRange()
      */
     public static final String KEY_COMPLEXITY = "complexity";
 
@@ -422,7 +413,9 @@ public final class MediaFormat {
      * codec specific, but lower values generally result in more efficient
      * (smaller-sized) encoding.
      *
-     * @see MediaCodecInfo.CodecCapabilities.EncoderCapabilities#getQualityRange
+     * @hide
+     *
+     * @see MediaCodecInfo.EncoderCapabilities#getQualityRange()
      */
     public static final String KEY_QUALITY = "quality";
 
@@ -439,17 +432,18 @@ public final class MediaFormat {
      * A key describing the desired bitrate mode to be used by an encoder.
      * Constants are declared in {@link MediaCodecInfo.CodecCapabilities}.
      *
-     * @see MediaCodecInfo.CodecCapabilities.EncoderCapabilities#isBitrateModeSupported
+     * @see MediaCodecInfo.EncoderCapabilities#isBitrateModeSupported(int)
      */
     public static final String KEY_BITRATE_MODE = "bitrate-mode";
 
     /**
-     * A key describing the reference clock ID for a tunneled codec.
+     * A key describing the audio session ID of the AudioTrack associated
+     * to a tunneled video codec.
      * The associated value is an integer.
      *
      * @see MediaCodecInfo.CodecCapabilities#FEATURE_TunneledPlayback
      */
-    public static final String KEY_REFERENCE_CLOCK_ID = "reference-clock-id";
+    public static final String KEY_AUDIO_SESSION_ID = "audio-session-id";
 
     /**
      * A key for boolean AUTOSELECT behavior for the track. Tracks with AUTOSELECT=true
@@ -483,6 +477,9 @@ public final class MediaFormat {
      */
     public static final String KEY_IS_FORCED_SUBTITLE = "is-forced-subtitle";
 
+    /** @hide */
+    public static final String KEY_IS_TIMED_TEXT = "is-timed-text";
+
     /* package private */ MediaFormat(Map<String, Object> map) {
         mMap = map;
     }
@@ -504,6 +501,21 @@ public final class MediaFormat {
     public final boolean containsKey(String name) {
         return mMap.containsKey(name);
     }
+
+    /**
+     * A key prefix used together with a {@link MediaCodecInfo.CodecCapabilities}
+     * feature name describing a required or optional feature for a codec capabilities
+     * query.
+     * The associated value is an integer, where non-0 value means the feature is
+     * requested to be present, while 0 value means the feature is requested to be not
+     * present.
+     * @see MediaCodecList#findDecoderForFormat
+     * @see MediaCodecList#findEncoderForFormat
+     * @see MediaCodecInfo.CodecCapabilities#isFormatSupported
+     *
+     * @hide
+     */
+    public static final String KEY_FEATURE_ = "feature-";
 
     /**
      * Returns the value of an integer key.
@@ -555,6 +567,23 @@ public final class MediaFormat {
     }
 
     /**
+     * Returns whether a feature is to be enabled ({@code true}) or disabled
+     * ({@code false}).
+     *
+     * @param feature the name of a {@link MediaCodecInfo.CodecCapabilities} feature.
+     *
+     * @throws IllegalArgumentException if the feature was neither set to be enabled
+     *        nor to be disabled.
+     */
+    public boolean getFeatureEnabled(String feature) {
+        Integer enabled = (Integer)mMap.get(KEY_FEATURE_ + feature);
+        if (enabled == null) {
+            throw new IllegalArgumentException("feature is not specified");
+        }
+        return enabled != 0;
+    }
+
+    /**
      * Sets the value of an integer key.
      */
     public final void setInteger(String name, int value) {
@@ -587,6 +616,23 @@ public final class MediaFormat {
      */
     public final void setByteBuffer(String name, ByteBuffer bytes) {
         mMap.put(name, bytes);
+    }
+
+    /**
+     * Sets whether a feature is to be enabled ({@code true}) or disabled
+     * ({@code false}).
+     *
+     * If {@code enabled} is {@code true}, the feature is requested to be present.
+     * Otherwise, the feature is requested to be not present.
+     *
+     * @param feature the name of a {@link MediaCodecInfo.CodecCapabilities} feature.
+     *
+     * @see MediaCodecList#findDecoderForFormat
+     * @see MediaCodecList#findEncoderForFormat
+     * @see MediaCodecInfo.CodecCapabilities#isFormatSupported
+     */
+    public void setFeatureEnabled(String feature, boolean enabled) {
+        setInteger(KEY_FEATURE_ + feature, enabled ? 1 : 0);
     }
 
     /**

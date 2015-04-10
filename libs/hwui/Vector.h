@@ -99,6 +99,10 @@ struct Vector2 {
         return x * v.x + y * v.y;
     }
 
+    float cross(const Vector2& v) const {
+        return x * v.y - y * v.x;
+    }
+
     void dump() {
         ALOGD("Vector2[%.2f, %.2f]", x, y);
     }
@@ -110,6 +114,23 @@ public:
     float x;
     float y;
     float z;
+
+    Vector3 operator+(const Vector3& v) const {
+        return (Vector3){x + v.x, y + v.y, z + v.z};
+    }
+
+    Vector3 operator-(const Vector3& v) const {
+        return (Vector3){x - v.x, y - v.y, z - v.z};
+    }
+
+    Vector3 operator/(float s) const {
+        return (Vector3){x / s, y / s, z / s};
+    }
+
+    Vector3 operator*(float s) const {
+        return (Vector3){x * s, y * s, z * s};
+    }
+
 
     void dump() {
         ALOGD("Vector3[%.2f, %.2f, %.2f]", x, y, z);

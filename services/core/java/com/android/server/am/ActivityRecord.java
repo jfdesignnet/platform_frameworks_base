@@ -16,11 +16,16 @@
 
 package com.android.server.am;
 
+import static com.android.server.am.TaskPersister.DEBUG_PERSISTER;
+import static com.android.server.am.TaskPersister.DEBUG_RESTORER;
+import static com.android.server.am.TaskRecord.INVALID_TASK_ID;
+
 import android.app.ActivityManager.TaskDescription;
 import android.os.PersistableBundle;
 import android.os.Trace;
 
 import com.android.internal.app.ResolverActivity;
+import com.android.internal.content.ReferrerIntent;
 import com.android.internal.util.XmlUtils;
 import com.android.server.AttributeCache;
 import com.android.server.am.ActivityStack.ActivityState;
@@ -68,7 +73,7 @@ import java.util.Objects;
 final class ActivityRecord {
     static final String TAG = ActivityManagerService.TAG;
     static final boolean DEBUG_SAVED_STATE = ActivityStackSupervisor.DEBUG_SAVED_STATE;
-    final public static String RECENTS_PACKAGE_NAME = "com.android.systemui.recent";
+    final public static String RECENTS_PACKAGE_NAME = "com.android.systemui.recents";
 
     private static final String TAG_ACTIVITY = "activity";
     private static final String ATTR_ID = "id";
@@ -76,16 +81,16 @@ final class ActivityRecord {
     private static final String ATTR_USERID = "user_id";
     private static final String TAG_PERSISTABLEBUNDLE = "persistable_bundle";
     private static final String ATTR_LAUNCHEDFROMUID = "launched_from_uid";
-    private static final String ATTR_LAUNCHEDFROMPACKAGE = "launched_from_package";
+    static final String ATTR_LAUNCHEDFROMPACKAGE = "launched_from_package";
     private static final String ATTR_RESOLVEDTYPE = "resolved_type";
     private static final String ATTR_COMPONENTSPECIFIED = "component_specified";
-    private static final String ACTIVITY_ICON_SUFFIX = "_activity_icon_";
+    static final String ACTIVITY_ICON_SUFFIX = "_activity_icon_";
 
     final ActivityManagerService service; // owner
     final IApplicationToken.Stub appToken; // window manager token
     final ActivityInfo info; // all about me
     final ApplicationInfo appInfo; // information about activity's app
-    final int launchedFromUid; // always the uid who started the activity.
+    int launchedFromUid; // always the uid who started the activity.
     final String launchedFromPackage; // always the package who started the activity.
     final int userId;          // Which user is this running for?
     final Intent intent;    // the original intent that generated us
@@ -128,8 +133,9 @@ final class ActivityRecord {
     final int requestCode;  // code given by requester (resultTo)
     ArrayList<ResultInfo> results; // pending ActivityResult objs we have received
     HashSet<WeakReference<PendingIntentRecord>> pendingResults; // all pending intents for this act
-    ArrayList<Intent> newIntents; // any pending new intents for single-top mode
+    ArrayList<ReferrerIntent> newIntents; // any pending new intents for single-top mode
     ActivityOptions pendingOptions; // most recently given options
+    ActivityOptions returningOptions; // options that are coming back via convertToTranslucent
     HashSet<ConnectionRecord> connections; // All ConnectionRecord we hold
     UriPermissionOwner uriPermissions; // current special URI access perms.
     ProcessRecord app;      // if non-null, hosting application
@@ -204,13 +210,20 @@ final class ActivityRecord {
                     pw.print(" resultWho="); pw.print(resultWho);
                     pw.print(" resultCode="); pw.println(requestCode);
         }
-        if (taskDescription.getIcon() != null || taskDescription.getLabel() != null ||
-                taskDescription.getPrimaryColor() != 0) {
-            pw.print(prefix); pw.print("taskDescription:");
-                    pw.print(" icon="); pw.print(taskDescription.getIcon());
-                    pw.print(" label=\""); pw.print(taskDescription.getLabel()); pw.print("\"");
-                    pw.print(" color=");
-                    pw.println(Integer.toHexString(taskDescription.getPrimaryColor()));
+        if (taskDescription != null) {
+            final String iconFilename = taskDescription.getIconFilename();
+            if (iconFilename != null || taskDescription.getLabel() != null ||
+                    taskDescription.getPrimaryColor() != 0) {
+                pw.print(prefix); pw.print("taskDescription:");
+                        pw.print(" iconFilename="); pw.print(taskDescription.getIconFilename());
+                        pw.print(" label=\""); pw.print(taskDescription.getLabel());
+                                pw.print("\"");
+                        pw.print(" color=");
+                        pw.println(Integer.toHexString(taskDescription.getPrimaryColor()));
+            }
+            if (iconFilename == null && taskDescription.getIcon() != null) {
+                pw.print(prefix); pw.println("taskDescription contains Bitmap");
+            }
         }
         if (results != null) {
             pw.print(prefix); pw.print("results="); pw.println(results);
@@ -503,7 +516,7 @@ final class ActivityRecord {
     void setTask(TaskRecord newTask, TaskRecord taskToAffiliateWith) {
         if (task != null && task.removeActivity(this)) {
             if (task != newTask) {
-                task.stack.removeTask(task);
+                task.stack.removeTask(task, "setTask");
             } else {
                 Slog.d(TAG, "!!! REMOVE THIS LOG !!! setTask: nearly removed stack=" +
                         (newTask == null ? null : newTask.stack));
@@ -574,6 +587,10 @@ final class ActivityRecord {
 
     void makeFinishing() {
         if (!finishing) {
+            if (this == task.stack.getVisibleBehindActivity()) {
+                // A finishing activity should not remain as visible in the background
+                mStackSupervisor.requestVisibleBehindLocked(this, false);
+            }
             finishing = true;
             if (stopped) {
                 clearOptionsLocked();
@@ -617,9 +634,9 @@ final class ActivityRecord {
         }
     }
 
-    void addNewIntentLocked(Intent intent) {
+    void addNewIntentLocked(ReferrerIntent intent) {
         if (newIntents == null) {
-            newIntents = new ArrayList<Intent>();
+            newIntents = new ArrayList<>();
         }
         newIntents.add(intent);
     }
@@ -628,7 +645,7 @@ final class ActivityRecord {
      * Deliver a new Intent to an existing activity, so that its onNewIntent()
      * method will be called at the proper time.
      */
-    final void deliverNewIntentLocked(int callingUid, Intent intent) {
+    final void deliverNewIntentLocked(int callingUid, Intent intent, String referrer) {
         // The activity now gets access to the data associated with this Intent.
         service.grantUriPermissionFromIntentLocked(callingUid, packageName,
                 intent, getUriPermissionsLocked(), userId);
@@ -637,14 +654,14 @@ final class ActivityRecord {
         // device is sleeping, then all activities are stopped, so in that
         // case we will deliver it if this is the current top activity on its
         // stack.
+        final ReferrerIntent rintent = new ReferrerIntent(intent, referrer);
         boolean unsent = true;
         if ((state == ActivityState.RESUMED || (service.isSleeping()
                         && task.stack.topRunningActivityLocked(null) == this))
                 && app != null && app.thread != null) {
             try {
-                ArrayList<Intent> ar = new ArrayList<Intent>();
-                intent = new Intent(intent);
-                ar.add(intent);
+                ArrayList<ReferrerIntent> ar = new ArrayList<>(1);
+                ar.add(rintent);
                 app.thread.scheduleNewIntent(ar, appToken);
                 unsent = false;
             } catch (RemoteException e) {
@@ -656,7 +673,7 @@ final class ActivityRecord {
             }
         }
         if (unsent) {
-            addNewIntentLocked(new Intent(intent));
+            addNewIntentLocked(rintent);
         }
     }
 
@@ -693,12 +710,12 @@ final class ActivityRecord {
                 case ActivityOptions.ANIM_SCALE_UP:
                     service.mWindowManager.overridePendingAppTransitionScaleUp(
                             pendingOptions.getStartX(), pendingOptions.getStartY(),
-                            pendingOptions.getStartWidth(), pendingOptions.getStartHeight());
+                            pendingOptions.getWidth(), pendingOptions.getHeight());
                     if (intent.getSourceBounds() == null) {
                         intent.setSourceBounds(new Rect(pendingOptions.getStartX(),
                                 pendingOptions.getStartY(),
-                                pendingOptions.getStartX()+pendingOptions.getStartWidth(),
-                                pendingOptions.getStartY()+pendingOptions.getStartHeight()));
+                                pendingOptions.getStartX()+pendingOptions.getWidth(),
+                                pendingOptions.getStartY()+pendingOptions.getHeight()));
                     }
                     break;
                 case ActivityOptions.ANIM_THUMBNAIL_SCALE_UP:
@@ -716,6 +733,21 @@ final class ActivityRecord {
                                         + pendingOptions.getThumbnail().getWidth(),
                                 pendingOptions.getStartY()
                                         + pendingOptions.getThumbnail().getHeight()));
+                    }
+                    break;
+                case ActivityOptions.ANIM_THUMBNAIL_ASPECT_SCALE_UP:
+                case ActivityOptions.ANIM_THUMBNAIL_ASPECT_SCALE_DOWN:
+                    service.mWindowManager.overridePendingAppTransitionAspectScaledThumb(
+                            pendingOptions.getThumbnail(),
+                            pendingOptions.getStartX(), pendingOptions.getStartY(),
+                            pendingOptions.getWidth(), pendingOptions.getHeight(),
+                            pendingOptions.getOnAnimationStartListener(),
+                            (animationType == ActivityOptions.ANIM_THUMBNAIL_ASPECT_SCALE_UP));
+                    if (intent.getSourceBounds() == null) {
+                        intent.setSourceBounds(new Rect(pendingOptions.getStartX(),
+                                pendingOptions.getStartY(),
+                                pendingOptions.getStartX() + pendingOptions.getWidth(),
+                                pendingOptions.getStartY() + pendingOptions.getHeight()));
                     }
                     break;
                 default:
@@ -764,12 +796,12 @@ final class ActivityRecord {
         }
     }
 
-    void updateThumbnail(Bitmap newThumbnail, CharSequence description) {
+    void updateThumbnailLocked(Bitmap newThumbnail, CharSequence description) {
         if (newThumbnail != null) {
             if (ActivityManagerService.DEBUG_THUMBNAILS) Slog.i(ActivityManagerService.TAG,
                     "Setting thumbnail of " + this + " to " + newThumbnail);
-            task.setLastThumbnail(newThumbnail);
-            if (isPersistable()) {
+            boolean thumbnailUpdated = task.setLastThumbnail(newThumbnail);
+            if (thumbnailUpdated && isPersistable()) {
                 mStackSupervisor.mService.notifyTaskPersisterLocked(task, false);
             }
         }
@@ -897,6 +929,7 @@ final class ActivityRecord {
             if (displayStartTime != 0) {
                 reportLaunchTimeLocked(SystemClock.uptimeMillis());
             }
+            mStackSupervisor.sendWaitingVisibleReportLocked(this);
             startTime = 0;
             finishLaunchTickingLocked();
             if (task != null) {
@@ -1023,12 +1056,12 @@ final class ActivityRecord {
     static int getTaskForActivityLocked(IBinder token, boolean onlyRoot) {
         final ActivityRecord r = ActivityRecord.forToken(token);
         if (r == null) {
-            return -1;
+            return INVALID_TASK_ID;
         }
         final TaskRecord task = r.task;
         final int activityNdx = task.mActivities.indexOf(r);
         if (activityNdx < 0 || (onlyRoot && activityNdx > task.findEffectiveRootIndex())) {
-            return -1;
+            return INVALID_TASK_ID;
         }
         return task.taskId;
     }
@@ -1049,9 +1082,38 @@ final class ActivityRecord {
         return null;
     }
 
-    private static String createImageFilename(ActivityRecord r, int taskId) {
-        return String.valueOf(taskId) + ACTIVITY_ICON_SUFFIX + r.createTime +
+    final boolean isDestroyable() {
+        if (finishing || app == null || state == ActivityState.DESTROYING
+                || state == ActivityState.DESTROYED) {
+            // This would be redundant.
+            return false;
+        }
+        if (task == null || task.stack == null || this == task.stack.mResumedActivity
+                || this == task.stack.mPausingActivity || !haveState || !stopped) {
+            // We're not ready for this kind of thing.
+            return false;
+        }
+        if (visible) {
+            // The user would notice this!
+            return false;
+        }
+        return true;
+    }
+
+    private static String createImageFilename(long createTime, int taskId) {
+        return String.valueOf(taskId) + ACTIVITY_ICON_SUFFIX + createTime +
                 TaskPersister.IMAGE_EXTENSION;
+    }
+
+    void setTaskDescription(TaskDescription _taskDescription) {
+        Bitmap icon;
+        if (_taskDescription.getIconFilename() == null &&
+                (icon = _taskDescription.getIcon()) != null) {
+            final String iconFilename = createImageFilename(createTime, task.taskId);
+            mStackSupervisor.mService.mTaskPersister.saveImage(icon, iconFilename);
+            _taskDescription.setIconFilename(iconFilename);
+        }
+        taskDescription = _taskDescription;
     }
 
     void saveToXml(XmlSerializer out) throws IOException, XmlPullParserException {
@@ -1067,8 +1129,7 @@ final class ActivityRecord {
         out.attribute(null, ATTR_USERID, String.valueOf(userId));
 
         if (taskDescription != null) {
-            task.saveTaskDescription(taskDescription, createImageFilename(this, task.taskId),
-                    out);
+            taskDescription.saveToXml(out);
         }
 
         out.startTag(null, TAG_INTENT);
@@ -1082,8 +1143,8 @@ final class ActivityRecord {
         }
     }
 
-    static ActivityRecord restoreFromXml(XmlPullParser in, int taskId,
-            ActivityStackSupervisor stackSupervisor) throws IOException, XmlPullParserException {
+    static ActivityRecord restoreFromXml(XmlPullParser in, ActivityStackSupervisor stackSupervisor)
+            throws IOException, XmlPullParserException {
         Intent intent = null;
         PersistableBundle persistentState = null;
         int launchedFromUid = 0;
@@ -1098,8 +1159,8 @@ final class ActivityRecord {
         for (int attrNdx = in.getAttributeCount() - 1; attrNdx >= 0; --attrNdx) {
             final String attrName = in.getAttributeName(attrNdx);
             final String attrValue = in.getAttributeValue(attrNdx);
-            if (TaskPersister.DEBUG) Slog.d(TaskPersister.TAG, "ActivityRecord: attribute name=" +
-                    attrName + " value=" + attrValue);
+            if (DEBUG_PERSISTER || DEBUG_RESTORER) Slog.d(TaskPersister.TAG,
+                        "ActivityRecord: attribute name=" + attrName + " value=" + attrValue);
             if (ATTR_ID.equals(attrName)) {
                 createTime = Long.valueOf(attrValue);
             } else if (ATTR_LAUNCHEDFROMUID.equals(attrName)) {
@@ -1112,9 +1173,8 @@ final class ActivityRecord {
                 componentSpecified = Boolean.valueOf(attrValue);
             } else if (ATTR_USERID.equals(attrName)) {
                 userId = Integer.valueOf(attrValue);
-            } else if (TaskRecord.readTaskDescriptionAttribute(taskDescription, attrName,
-                    attrValue)) {
-                // Completed in TaskRecord.readTaskDescriptionAttribute()
+            } else if (attrName.startsWith(TaskDescription.ATTR_TASKDESCRIPTION_PREFIX)) {
+                taskDescription.restoreFromXml(attrName, attrValue);
             } else {
                 Log.d(TAG, "Unknown ActivityRecord attribute=" + attrName);
             }
@@ -1125,15 +1185,15 @@ final class ActivityRecord {
                 (event != XmlPullParser.END_TAG || in.getDepth() < outerDepth)) {
             if (event == XmlPullParser.START_TAG) {
                 final String name = in.getName();
-                if (TaskPersister.DEBUG) Slog.d(TaskPersister.TAG,
-                        "ActivityRecord: START_TAG name=" + name);
+                if (DEBUG_PERSISTER || DEBUG_RESTORER)
+                        Slog.d(TaskPersister.TAG, "ActivityRecord: START_TAG name=" + name);
                 if (TAG_INTENT.equals(name)) {
                     intent = Intent.restoreFromXml(in);
-                    if (TaskPersister.DEBUG) Slog.d(TaskPersister.TAG,
-                            "ActivityRecord: intent=" + intent);
+                    if (DEBUG_PERSISTER || DEBUG_RESTORER)
+                            Slog.d(TaskPersister.TAG, "ActivityRecord: intent=" + intent);
                 } else if (TAG_PERSISTABLEBUNDLE.equals(name)) {
                     persistentState = PersistableBundle.restoreFromXml(in);
-                    if (TaskPersister.DEBUG) Slog.d(TaskPersister.TAG,
+                    if (DEBUG_PERSISTER || DEBUG_RESTORER) Slog.d(TaskPersister.TAG,
                             "ActivityRecord: persistentState=" + persistentState);
                 } else {
                     Slog.w(TAG, "restoreActivity: unexpected name=" + name);
@@ -1148,7 +1208,7 @@ final class ActivityRecord {
 
         final ActivityManagerService service = stackSupervisor.mService;
         final ActivityInfo aInfo = stackSupervisor.resolveActivity(intent, resolvedType, 0, null,
-                null, userId);
+                userId);
         if (aInfo == null) {
             throw new XmlPullParserException("restoreActivity resolver error. Intent=" + intent +
                     " resolvedType=" + resolvedType);
@@ -1158,10 +1218,6 @@ final class ActivityRecord {
                 null, null, 0, componentSpecified, stackSupervisor, null, null);
 
         r.persistentState = persistentState;
-
-        if (createTime >= 0) {
-            taskDescription.setIcon(TaskPersister.restoreImage(createImageFilename(r, taskId)));
-        }
         r.taskDescription = taskDescription;
         r.createTime = createTime;
 
@@ -1180,7 +1236,7 @@ final class ActivityRecord {
     @Override
     public String toString() {
         if (stringName != null) {
-            return stringName + " t" + (task == null ? -1 : task.taskId) +
+            return stringName + " t" + (task == null ? INVALID_TASK_ID : task.taskId) +
                     (finishing ? " f}" : "}");
         }
         StringBuilder sb = new StringBuilder(128);

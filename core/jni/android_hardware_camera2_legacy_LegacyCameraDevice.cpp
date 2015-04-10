@@ -49,46 +49,47 @@ using namespace android;
 #define ALIGN(x, mask) ( ((x) + (mask) - 1) & ~((mask) - 1) )
 
 /**
- * Convert from RGB 888 to Y'CbCr using the conversion specified in ITU-R BT.601 for
- * digital RGB with K_b = 0.114, and K_r = 0.299.
+ * Convert from RGB 888 to Y'CbCr using the conversion specified in JFIF v1.02
  */
-static void rgbToYuv420(uint8_t* rgbBuf, int32_t width, int32_t height, uint8_t* yPlane,
+static void rgbToYuv420(uint8_t* rgbBuf, size_t width, size_t height, uint8_t* yPlane,
         uint8_t* uPlane, uint8_t* vPlane, size_t chromaStep, size_t yStride, size_t chromaStride) {
     uint8_t R, G, B;
     size_t index = 0;
-
-    int32_t cStrideDiff = chromaStride - width;
-
-    for (int32_t j = 0; j < height; j++) {
-        for (int32_t i = 0; i < width; i++) {
+    for (size_t j = 0; j < height; j++) {
+        uint8_t* u = uPlane;
+        uint8_t* v = vPlane;
+        uint8_t* y = yPlane;
+        bool jEven = (j & 1) == 0;
+        for (size_t i = 0; i < width; i++) {
             R = rgbBuf[index++];
             G = rgbBuf[index++];
             B = rgbBuf[index++];
-            *(yPlane + i) = ((66 * R + 129 * G +  25 * B + 128) >> 8) +  16;
-
-            if (j % 2 == 0 && i % 2 == 0){
-                *uPlane = (( -38 * R -  74 * G + 112 * B + 128) >> 8) + 128;
-                *vPlane = (( 112 * R -  94 * G -  18 * B + 128) >> 8) + 128;
-                uPlane += chromaStep;
-                vPlane += chromaStep;
+            *y++ = (77 * R + 150 * G +  29 * B) >> 8;
+            if (jEven && (i & 1) == 0) {
+                *v = (( -43 * R - 85 * G + 128 * B) >> 8) + 128;
+                *u = (( 128 * R - 107 * G - 21 * B) >> 8) + 128;
+                u += chromaStep;
+                v += chromaStep;
             }
             // Skip alpha
             index++;
         }
         yPlane += yStride;
-        if (j % 2 == 0) {
-            uPlane += cStrideDiff;
-            vPlane += cStrideDiff;
+        if (jEven) {
+            uPlane += chromaStride;
+            vPlane += chromaStride;
         }
     }
 }
 
-static void rgbToYuv420(uint8_t* rgbBuf, int32_t width, int32_t height, android_ycbcr* ycbcr) {
+static void rgbToYuv420(uint8_t* rgbBuf, size_t width, size_t height, android_ycbcr* ycbcr) {
     size_t cStep = ycbcr->chroma_step;
     size_t cStride = ycbcr->cstride;
     size_t yStride = ycbcr->ystride;
+    ALOGV("%s: yStride is: %zu, cStride is: %zu, cStep is: %zu", __FUNCTION__, yStride, cStride,
+            cStep);
     rgbToYuv420(rgbBuf, width, height, reinterpret_cast<uint8_t*>(ycbcr->y),
-            reinterpret_cast<uint8_t*>(ycbcr->cb), reinterpret_cast<uint8_t*>(ycbcr->cr),
+            reinterpret_cast<uint8_t*>(ycbcr->cr), reinterpret_cast<uint8_t*>(ycbcr->cb),
             cStep, yStride, cStride);
 }
 
@@ -157,15 +158,15 @@ static status_t configureSurface(const sp<ANativeWindow>& anw,
  */
 static status_t produceFrame(const sp<ANativeWindow>& anw,
                              uint8_t* pixelBuffer,
-                             int32_t width, // Width of the pixelBuffer
-                             int32_t height, // Height of the pixelBuffer
+                             int32_t bufWidth, // Width of the pixelBuffer
+                             int32_t bufHeight, // Height of the pixelBuffer
                              int32_t pixelFmt, // Format of the pixelBuffer
                              int32_t bufSize) {
     ATRACE_CALL();
     status_t err = NO_ERROR;
     ANativeWindowBuffer* anb;
     ALOGV("%s: Dequeue buffer from %p %dx%d (fmt=%x, size=%x)",
-            __FUNCTION__, anw.get(), width, height, pixelFmt, bufSize);
+            __FUNCTION__, anw.get(), bufWidth, bufHeight, pixelFmt, bufSize);
 
     if (anw == 0) {
         ALOGE("%s: anw must not be NULL", __FUNCTION__);
@@ -173,10 +174,10 @@ static status_t produceFrame(const sp<ANativeWindow>& anw,
     } else if (pixelBuffer == NULL) {
         ALOGE("%s: pixelBuffer must not be NULL", __FUNCTION__);
         return BAD_VALUE;
-    } else if (width < 0) {
+    } else if (bufWidth < 0) {
         ALOGE("%s: width must be non-negative", __FUNCTION__);
         return BAD_VALUE;
-    } else if (height < 0) {
+    } else if (bufHeight < 0) {
         ALOGE("%s: height must be non-negative", __FUNCTION__);
         return BAD_VALUE;
     } else if (bufSize < 0) {
@@ -184,24 +185,59 @@ static status_t produceFrame(const sp<ANativeWindow>& anw,
         return BAD_VALUE;
     }
 
-    if (width < 0 || height < 0 || bufSize < 0) {
-        ALOGE("%s: Illegal argument, negative dimension passed to produceFrame", __FUNCTION__);
-        return BAD_VALUE;
-    }
+    size_t width = static_cast<size_t>(bufWidth);
+    size_t height = static_cast<size_t>(bufHeight);
+    size_t bufferLength = static_cast<size_t>(bufSize);
 
     // TODO: Switch to using Surface::lock and Surface::unlockAndPost
     err = native_window_dequeue_buffer_and_wait(anw.get(), &anb);
     if (err != NO_ERROR) return err;
 
-    // TODO: check anb is large enough to store the results
-
     sp<GraphicBuffer> buf(new GraphicBuffer(anb, /*keepOwnership*/false));
+    uint32_t grallocBufWidth = buf->getWidth();
+    uint32_t grallocBufHeight = buf->getHeight();
+    uint32_t grallocBufStride = buf->getStride();
+    if (grallocBufWidth != width || grallocBufHeight != height) {
+        ALOGE("%s: Received gralloc buffer with bad dimensions %" PRIu32 "x%" PRIu32
+                ", expecting dimensions %zu x %zu",  __FUNCTION__, grallocBufWidth,
+                grallocBufHeight, width, height);
+        return BAD_VALUE;
+    }
 
+    int32_t bufFmt = 0;
+    err = anw->query(anw.get(), NATIVE_WINDOW_FORMAT, &bufFmt);
+    if (err != NO_ERROR) {
+        ALOGE("%s: Error while querying surface pixel format %s (%d).", __FUNCTION__,
+                strerror(-err), err);
+        return err;
+    }
+
+    uint64_t tmpSize = (pixelFmt == HAL_PIXEL_FORMAT_BLOB) ? grallocBufWidth :
+            4 * grallocBufHeight * grallocBufWidth;
+    if (bufFmt != pixelFmt) {
+        if (bufFmt == HAL_PIXEL_FORMAT_RGBA_8888 && pixelFmt == HAL_PIXEL_FORMAT_BLOB) {
+            ALOGV("%s: Using BLOB to RGBA format override.", __FUNCTION__);
+            tmpSize = 4 * (grallocBufWidth + grallocBufStride * (grallocBufHeight - 1));
+        } else {
+            ALOGW("%s: Format mismatch in produceFrame: expecting format %#" PRIx32
+                    ", but received buffer with format %#" PRIx32, __FUNCTION__, pixelFmt, bufFmt);
+        }
+    }
+
+    if (tmpSize > SIZE_MAX) {
+        ALOGE("%s: Overflow calculating size, buffer with dimens %zu x %zu is absurdly large...",
+                __FUNCTION__, width, height);
+        return BAD_VALUE;
+    }
+
+    size_t totalSizeBytes = tmpSize;
+
+    ALOGV("%s: Pixel format chosen: %x", __FUNCTION__, pixelFmt);
     switch(pixelFmt) {
         case HAL_PIXEL_FORMAT_YCrCb_420_SP: {
-            if (bufSize < width * height * 4) {
-                ALOGE("%s: PixelBuffer size %" PRId32 " to small for given dimensions",
-                        __FUNCTION__, bufSize);
+            if (bufferLength < totalSizeBytes) {
+                ALOGE("%s: PixelBuffer size %zu too small for given dimensions",
+                        __FUNCTION__, bufferLength);
                 return BAD_VALUE;
             }
             uint8_t* img = NULL;
@@ -221,14 +257,14 @@ static status_t produceFrame(const sp<ANativeWindow>& anw,
             break;
         }
         case HAL_PIXEL_FORMAT_YV12: {
-            if (bufSize < width * height * 4) {
-                ALOGE("%s: PixelBuffer size %" PRId32 " to small for given dimensions",
-                        __FUNCTION__, bufSize);
+            if (bufferLength < totalSizeBytes) {
+                ALOGE("%s: PixelBuffer size %zu too small for given dimensions",
+                        __FUNCTION__, bufferLength);
                 return BAD_VALUE;
             }
 
             if ((width & 1) || (height & 1)) {
-                ALOGE("%s: Dimens %dx%d are not divisible by 2.", __FUNCTION__, width, height);
+                ALOGE("%s: Dimens %zu x %zu are not divisible by 2.", __FUNCTION__, width, height);
                 return BAD_VALUE;
             }
 
@@ -242,6 +278,7 @@ static status_t produceFrame(const sp<ANativeWindow>& anw,
             }
 
             uint32_t stride = buf->getStride();
+            ALOGV("%s: stride is: %" PRIu32, __FUNCTION__, stride);
             LOG_ALWAYS_FATAL_IF(stride % 16, "Stride is not 16 pixel aligned %d", stride);
 
             uint32_t cStride = ALIGN(stride / 2, 16);
@@ -258,9 +295,9 @@ static status_t produceFrame(const sp<ANativeWindow>& anw,
         case HAL_PIXEL_FORMAT_YCbCr_420_888: {
             // Software writes with YCbCr_420_888 format are unsupported
             // by the gralloc module for now
-            if (bufSize < width * height * 4) {
-                ALOGE("%s: PixelBuffer size %" PRId32 " to small for given dimensions",
-                        __FUNCTION__, bufSize);
+            if (bufferLength < totalSizeBytes) {
+                ALOGE("%s: PixelBuffer size %zu too small for given dimensions",
+                        __FUNCTION__, bufferLength);
                 return BAD_VALUE;
             }
             android_ycbcr ycbcr = android_ycbcr();
@@ -276,25 +313,30 @@ static status_t produceFrame(const sp<ANativeWindow>& anw,
             break;
         }
         case HAL_PIXEL_FORMAT_BLOB: {
-            if (bufSize != width || height != 1) {
-                ALOGE("%s: Incorrect pixelBuffer size: %" PRId32, __FUNCTION__, bufSize);
+            int8_t* img = NULL;
+            struct camera3_jpeg_blob footer = {
+                jpeg_blob_id: CAMERA3_JPEG_BLOB_ID,
+                jpeg_size: (uint32_t)bufferLength
+            };
+
+            size_t totalJpegSize = bufferLength + sizeof(footer);
+            totalJpegSize = (totalJpegSize + 3) & ~0x3; // round up to nearest octonibble
+
+            if (totalJpegSize > totalSizeBytes) {
+                ALOGE("%s: Pixel buffer needs size %zu, cannot fit in gralloc buffer of size %zu",
+                        __FUNCTION__, totalJpegSize, totalSizeBytes);
                 return BAD_VALUE;
             }
-            int8_t* img = NULL;
 
-            ALOGV("%s: Lock buffer from %p for write", __FUNCTION__, anw.get());
             err = buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
             if (err != NO_ERROR) {
                 ALOGE("%s: Failed to lock buffer, error %s (%d).", __FUNCTION__, strerror(-err),
                         err);
                 return err;
             }
-            struct camera3_jpeg_blob footer = {
-                jpeg_blob_id: CAMERA3_JPEG_BLOB_ID,
-                jpeg_size: (uint32_t)width
-            };
-            memcpy(img, pixelBuffer, width);
-            memcpy(img + anb->width - sizeof(footer), &footer, sizeof(footer));
+
+            memcpy(img, pixelBuffer, bufferLength);
+            memcpy(img + totalSizeBytes - sizeof(footer), &footer, sizeof(footer));
             break;
         }
         default: {
@@ -431,6 +473,26 @@ static jint LegacyCameraDevice_nativeDetectSurfaceDimens(JNIEnv* env, jobject th
     return NO_ERROR;
 }
 
+static jint LegacyCameraDevice_nativeDetectSurfaceUsageFlags(JNIEnv* env, jobject thiz,
+          jobject surface) {
+    ALOGV("nativeDetectSurfaceUsageFlags");
+
+    sp<ANativeWindow> anw;
+    if ((anw = getNativeWindow(env, surface)) == NULL) {
+        jniThrowException(env, "Ljava/lang/UnsupportedOperationException;",
+            "Could not retrieve native window from surface.");
+        return BAD_VALUE;
+    }
+    int32_t usage = 0;
+    status_t err = anw->query(anw.get(), NATIVE_WINDOW_CONSUMER_USAGE_BITS, &usage);
+    if(err != NO_ERROR) {
+        jniThrowException(env, "Ljava/lang/UnsupportedOperationException;",
+            "Error while querying surface usage bits");
+        return err;
+    }
+    return usage;
+}
+
 static jint LegacyCameraDevice_nativeDetectTextureDimens(JNIEnv* env, jobject thiz,
         jobject surfaceTexture, jintArray dimens) {
     ALOGV("nativeDetectTextureDimens");
@@ -536,9 +598,13 @@ static jint LegacyCameraDevice_nativeSetSurfaceDimens(JNIEnv* env, jobject thiz,
         ALOGE("%s: Could not retrieve native window from surface.", __FUNCTION__);
         return BAD_VALUE;
     }
-    status_t err = native_window_set_buffers_dimensions(anw.get(), width, height);
+
+    // Set user dimensions only
+    // The producer dimensions are owned by GL
+    status_t err = native_window_set_buffers_user_dimensions(anw.get(), width, height);
     if (err != NO_ERROR) {
-        ALOGE("%s: Error while setting surface dimens %s (%d).", __FUNCTION__, strerror(-err), err);
+        ALOGE("%s: Error while setting surface user dimens %s (%d).", __FUNCTION__, strerror(-err),
+                err);
         return err;
     }
     return NO_ERROR;
@@ -624,6 +690,11 @@ static jint LegacyCameraDevice_nativeSetNextTimestamp(JNIEnv* env, jobject thiz,
     return NO_ERROR;
 }
 
+static jint LegacyCameraDevice_nativeGetJpegFooterSize(JNIEnv* env, jobject thiz) {
+    ALOGV("nativeGetJpegFooterSize");
+    return static_cast<jint>(sizeof(struct camera3_jpeg_blob));
+}
+
 } // extern "C"
 
 static JNINativeMethod gCameraDeviceMethods[] = {
@@ -657,6 +728,12 @@ static JNINativeMethod gCameraDeviceMethods[] = {
     { "nativeSetNextTimestamp",
     "(Landroid/view/Surface;J)I",
     (void *)LegacyCameraDevice_nativeSetNextTimestamp },
+    { "nativeGetJpegFooterSize",
+    "()I",
+    (void *)LegacyCameraDevice_nativeGetJpegFooterSize },
+    { "nativeDetectSurfaceUsageFlags",
+    "(Landroid/view/Surface;)I",
+    (void *)LegacyCameraDevice_nativeDetectSurfaceUsageFlags },
 };
 
 // Get all the required offsets in java class and register native functions
@@ -668,4 +745,3 @@ int register_android_hardware_camera2_legacy_LegacyCameraDevice(JNIEnv* env)
             gCameraDeviceMethods,
             NELEM(gCameraDeviceMethods));
 }
-

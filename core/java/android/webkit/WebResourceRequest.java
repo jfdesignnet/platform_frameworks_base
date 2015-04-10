@@ -41,15 +41,11 @@ public interface WebResourceRequest {
     boolean isForMainFrame();
 
     /**
-     * Gets whether a gesture was associated with the request.
-     * <p>
-     * <strong>IMPORTANT:</strong>
-     * This should not be used to implement any form of security. It is possible for the content
-     * to spoof this.
+     * Gets whether a gesture (such as a click) was associated with the request.
      *
      * @return whether a gesture was associated with the request.
      */
-    boolean hasUserGestureInsecure();
+    boolean hasGesture();
 
     /**
      * Gets the method associated with the request, for example "GET".

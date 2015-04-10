@@ -51,11 +51,11 @@ public class JobStoreTest extends AndroidTestCase {
 
         final JobInfo task = new Builder(taskId, mComponent)
                 .setRequiresCharging(true)
-                .setRequiredNetworkCapabilities(JobInfo.NetworkType.ANY)
-                .setBackoffCriteria(initialBackoff, JobInfo.BackoffPolicy.EXPONENTIAL)
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                .setBackoffCriteria(initialBackoff, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
                 .setOverrideDeadline(runByMillis)
                 .setMinimumLatency(runFromMillis)
-                .setIsPersisted(true)
+                .setPersisted(true)
                 .build();
         final JobStatus ts = new JobStatus(task, SOME_UID);
         mTaskStoreUnderTest.add(ts);
@@ -67,6 +67,7 @@ public class JobStoreTest extends AndroidTestCase {
         assertEquals("Didn't get expected number of persisted tasks.", 1, jobStatusSet.size());
         final JobStatus loadedTaskStatus = jobStatusSet.iterator().next();
         assertTasksEqual(task, loadedTaskStatus.getJob());
+        assertTrue("JobStore#contains invalid.", mTaskStoreUnderTest.containsJob(ts));
         assertEquals("Different uids.", SOME_UID, loadedTaskStatus.getUid());
         compareTimestampsSubjectToIoLatency("Early run-times not the same after read.",
                 ts.getEarliestRunTime(), loadedTaskStatus.getEarliestRunTime());
@@ -80,14 +81,14 @@ public class JobStoreTest extends AndroidTestCase {
                 .setRequiresDeviceIdle(true)
                 .setPeriodic(10000L)
                 .setRequiresCharging(true)
-                .setIsPersisted(true)
+                .setPersisted(true)
                 .build();
         final JobInfo task2 = new Builder(12, mComponent)
                 .setMinimumLatency(5000L)
-                .setBackoffCriteria(15000L, JobInfo.BackoffPolicy.LINEAR)
+                .setBackoffCriteria(15000L, JobInfo.BACKOFF_POLICY_LINEAR)
                 .setOverrideDeadline(30000L)
-                .setRequiredNetworkCapabilities(JobInfo.NetworkType.UNMETERED)
-                .setIsPersisted(true)
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED)
+                .setPersisted(true)
                 .build();
         final JobStatus taskStatus1 = new JobStatus(task1, SOME_UID);
         final JobStatus taskStatus2 = new JobStatus(task2, SOME_UID);
@@ -103,7 +104,8 @@ public class JobStoreTest extends AndroidTestCase {
         JobStatus loaded2 = it.next();
         assertTasksEqual(task1, loaded1.getJob());
         assertTasksEqual(task2, loaded2.getJob());
-
+        assertTrue("JobStore#contains invalid.", mTaskStoreUnderTest.containsJob(taskStatus1));
+        assertTrue("JobStore#contains invalid.", mTaskStoreUnderTest.containsJob(taskStatus2));
         // Check that the loaded task has the correct runtimes.
         compareTimestampsSubjectToIoLatency("Early run-times not the same after read.",
                 taskStatus1.getEarliestRunTime(), loaded1.getEarliestRunTime());
@@ -121,7 +123,7 @@ public class JobStoreTest extends AndroidTestCase {
                 .setRequiresDeviceIdle(true)
                 .setPeriodic(10000L)
                 .setRequiresCharging(true)
-                .setIsPersisted(true);
+                .setPersisted(true);
 
         PersistableBundle extras = new PersistableBundle();
         extras.putDouble("hello", 3.2);
@@ -159,11 +161,11 @@ public class JobStoreTest extends AndroidTestCase {
         assertEquals("Invalid idle constraint.", first.isRequireDeviceIdle(),
                 second.isRequireDeviceIdle());
         assertEquals("Invalid unmetered constraint.",
-                first.getNetworkCapabilities() == JobInfo.NetworkType.UNMETERED,
-                second.getNetworkCapabilities() == JobInfo.NetworkType.UNMETERED);
+                first.getNetworkType() == JobInfo.NETWORK_TYPE_UNMETERED,
+                second.getNetworkType() == JobInfo.NETWORK_TYPE_UNMETERED);
         assertEquals("Invalid connectivity constraint.",
-                first.getNetworkCapabilities() == JobInfo.NetworkType.ANY,
-                second.getNetworkCapabilities() == JobInfo.NetworkType.ANY);
+                first.getNetworkType() == JobInfo.NETWORK_TYPE_ANY,
+                second.getNetworkType() == JobInfo.NETWORK_TYPE_ANY);
         assertEquals("Invalid deadline constraint.",
                 first.hasLateConstraint(),
                 second.hasLateConstraint());

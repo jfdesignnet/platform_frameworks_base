@@ -16,7 +16,7 @@
 
 package com.android.systemui.recents;
 
-import android.content.ContentResolver;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -38,7 +38,17 @@ public class RecentsConfiguration {
     static RecentsConfiguration sInstance;
     static int sPrevConfigurationHashCode;
 
-    DisplayMetrics mDisplayMetrics;
+    /** Levels of svelte in increasing severity/austerity. */
+    // No svelting.
+    public static final int SVELTE_NONE = 0;
+    // Limit thumbnail cache to number of visible thumbnails when Recents was loaded, disable
+    // caching thumbnails as you scroll.
+    public static final int SVELTE_LIMIT_CACHE = 1;
+    // Disable the thumbnail cache, load thumbnails asynchronously when the activity loads and
+    // evict all thumbnails when hidden.
+    public static final int SVELTE_DISABLE_CACHE = 2;
+    // Disable all thumbnail loading.
+    public static final int SVELTE_DISABLE_LOADING = 3;
 
     /** Animations */
     public float animationPxMovementPerSecond;
@@ -59,46 +69,52 @@ public class RecentsConfiguration {
 
     /** Layout */
     boolean isLandscape;
-    boolean transposeRecentsLayoutWithOrientation;
+    boolean hasTransposedSearchBar;
+    boolean hasTransposedNavBar;
+
+    /** Loading */
+    public int maxNumTasksToLoad;
 
     /** Search bar */
     int searchBarAppWidgetId = -1;
     public int searchBarSpaceHeightPx;
 
     /** Task stack */
+    public int taskStackScrollDuration;
     public int taskStackMaxDim;
     public int taskStackTopPaddingPx;
     public float taskStackWidthPaddingPct;
+    public float taskStackOverscrollPct;
+
+    /** Transitions */
+    public int transitionEnterFromAppDelay;
+    public int transitionEnterFromHomeDelay;
 
     /** Task view animation and styles */
+    public int taskViewEnterFromAppDuration;
     public int taskViewEnterFromHomeDuration;
-    public int taskViewEnterFromHomeDelay;
+    public int taskViewEnterFromHomeStaggerDelay;
+    public int taskViewExitToAppDuration;
     public int taskViewExitToHomeDuration;
     public int taskViewRemoveAnimDuration;
     public int taskViewRemoveAnimTranslationXPx;
     public int taskViewTranslationZMinPx;
-    public int taskViewTranslationZIncrementPx;
+    public int taskViewTranslationZMaxPx;
     public int taskViewRoundedCornerRadiusPx;
     public int taskViewHighlightPx;
     public int taskViewAffiliateGroupEnterOffsetPx;
+    public float taskViewThumbnailAlpha;
 
     /** Task bar colors */
     public int taskBarViewDefaultBackgroundColor;
     public int taskBarViewLightTextColor;
     public int taskBarViewDarkTextColor;
     public int taskBarViewHighlightColor;
+    public float taskBarViewAffiliationColorMinAlpha;
 
     /** Task bar size & animations */
     public int taskBarHeight;
-    public int taskBarEnterAnimDuration;
-    public int taskBarEnterAnimDelay;
-    public int taskBarExitAnimDuration;
     public int taskBarDismissDozeDelaySeconds;
-
-    /** Lock to app */
-    public int taskViewLockToAppButtonHeight;
-    public int taskViewLockToAppShortAnimDuration;
-    public int taskViewLockToAppLongAnimDuration;
 
     /** Nav bar scrim */
     public int navBarScrimEnterDuration;
@@ -107,14 +123,24 @@ public class RecentsConfiguration {
     public boolean launchedWithAltTab;
     public boolean launchedWithNoRecentTasks;
     public boolean launchedFromAppWithThumbnail;
-    public boolean launchedFromAppWithScreenshot;
     public boolean launchedFromHome;
+    public boolean launchedFromSearchHome;
+    public boolean launchedReuseTaskStackViews;
+    public boolean launchedHasConfigurationChanged;
     public int launchedToTaskId;
+    public int launchedNumVisibleTasks;
+    public int launchedNumVisibleThumbnails;
+
+    /** Misc **/
+    public boolean useHardwareLayers;
+    public int altTabKeyDelay;
+    public boolean fakeShadows;
 
     /** Dev options and global settings */
     public boolean lockToAppEnabled;
     public boolean developerOptionsEnabled;
     public boolean debugModeEnabled;
+    public int svelteLevel;
 
     /** Private constructor */
     private RecentsConfiguration(Context context) {
@@ -156,13 +182,20 @@ public class RecentsConfiguration {
         SharedPreferences settings = context.getSharedPreferences(context.getPackageName(), 0);
         Resources res = context.getResources();
         DisplayMetrics dm = res.getDisplayMetrics();
-        mDisplayMetrics = dm;
 
         // Debug mode
         debugModeEnabled = settings.getBoolean(Constants.Values.App.Key_DebugModeEnabled, false);
         if (debugModeEnabled) {
             Console.Enabled = true;
         }
+
+        // Layout
+        isLandscape = res.getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        hasTransposedSearchBar = res.getBoolean(R.bool.recents_has_transposed_search_bar);
+        hasTransposedNavBar = res.getBoolean(R.bool.recents_has_transposed_nav_bar);
+
+        // Insets
+        displayRect.set(0, 0, dm.widthPixels, dm.heightPixels);
 
         // Animations
         animationPxMovementPerSecond =
@@ -174,33 +207,42 @@ public class RecentsConfiguration {
         filteringNewViewsAnimDuration =
                 res.getInteger(R.integer.recents_filter_animate_new_views_duration);
 
-        // Insets
-        displayRect.set(0, 0, dm.widthPixels, dm.heightPixels);
-
-        // Layout
-        isLandscape = res.getConfiguration().orientation ==
-                Configuration.ORIENTATION_LANDSCAPE;
-        transposeRecentsLayoutWithOrientation =
-                res.getBoolean(R.bool.recents_transpose_layout_with_orientation);
+        // Loading
+        maxNumTasksToLoad = ActivityManager.getMaxRecentTasksStatic();
 
         // Search Bar
         searchBarSpaceHeightPx = res.getDimensionPixelSize(R.dimen.recents_search_bar_space_height);
         searchBarAppWidgetId = settings.getInt(Constants.Values.App.Key_SearchAppWidgetId, -1);
 
         // Task stack
+        taskStackScrollDuration =
+                res.getInteger(R.integer.recents_animate_task_stack_scroll_duration);
         TypedValue widthPaddingPctValue = new TypedValue();
         res.getValue(R.dimen.recents_stack_width_padding_percentage, widthPaddingPctValue, true);
         taskStackWidthPaddingPct = widthPaddingPctValue.getFloat();
+        TypedValue stackOverscrollPctValue = new TypedValue();
+        res.getValue(R.dimen.recents_stack_overscroll_percentage, stackOverscrollPctValue, true);
+        taskStackOverscrollPct = stackOverscrollPctValue.getFloat();
         taskStackMaxDim = res.getInteger(R.integer.recents_max_task_stack_view_dim);
         taskStackTopPaddingPx = res.getDimensionPixelSize(R.dimen.recents_stack_top_padding);
 
+        // Transition
+        transitionEnterFromAppDelay =
+                res.getInteger(R.integer.recents_enter_from_app_transition_duration);
+        transitionEnterFromHomeDelay =
+                res.getInteger(R.integer.recents_enter_from_home_transition_duration);
+
         // Task view animation and styles
+        taskViewEnterFromAppDuration =
+                res.getInteger(R.integer.recents_task_enter_from_app_duration);
         taskViewEnterFromHomeDuration =
-                res.getInteger(R.integer.recents_animate_task_enter_from_home_duration);
-        taskViewEnterFromHomeDelay =
-                res.getInteger(R.integer.recents_animate_task_enter_from_home_delay);
+                res.getInteger(R.integer.recents_task_enter_from_home_duration);
+        taskViewEnterFromHomeStaggerDelay =
+                res.getInteger(R.integer.recents_task_enter_from_home_stagger_delay);
+        taskViewExitToAppDuration =
+                res.getInteger(R.integer.recents_task_exit_to_app_duration);
         taskViewExitToHomeDuration =
-                res.getInteger(R.integer.recents_animate_task_exit_to_home_duration);
+                res.getInteger(R.integer.recents_task_exit_to_home_duration);
         taskViewRemoveAnimDuration =
                 res.getInteger(R.integer.recents_animate_task_view_remove_duration);
         taskViewRemoveAnimTranslationXPx =
@@ -209,10 +251,12 @@ public class RecentsConfiguration {
                 res.getDimensionPixelSize(R.dimen.recents_task_view_rounded_corners_radius);
         taskViewHighlightPx = res.getDimensionPixelSize(R.dimen.recents_task_view_highlight);
         taskViewTranslationZMinPx = res.getDimensionPixelSize(R.dimen.recents_task_view_z_min);
-        taskViewTranslationZIncrementPx =
-                res.getDimensionPixelSize(R.dimen.recents_task_view_z_increment);
+        taskViewTranslationZMaxPx = res.getDimensionPixelSize(R.dimen.recents_task_view_z_max);
         taskViewAffiliateGroupEnterOffsetPx =
                 res.getDimensionPixelSize(R.dimen.recents_task_view_affiliate_group_enter_offset);
+        TypedValue thumbnailAlphaValue = new TypedValue();
+        res.getValue(R.dimen.recents_task_view_thumbnail_alpha, thumbnailAlphaValue, true);
+        taskViewThumbnailAlpha = thumbnailAlphaValue.getFloat();
 
         // Task bar colors
         taskBarViewDefaultBackgroundColor =
@@ -223,29 +267,24 @@ public class RecentsConfiguration {
                 res.getColor(R.color.recents_task_bar_dark_text_color);
         taskBarViewHighlightColor =
                 res.getColor(R.color.recents_task_bar_highlight_color);
+        TypedValue affMinAlphaPctValue = new TypedValue();
+        res.getValue(R.dimen.recents_task_affiliation_color_min_alpha_percentage, affMinAlphaPctValue, true);
+        taskBarViewAffiliationColorMinAlpha = affMinAlphaPctValue.getFloat();
 
         // Task bar size & animations
         taskBarHeight = res.getDimensionPixelSize(R.dimen.recents_task_bar_height);
-        taskBarEnterAnimDuration =
-                res.getInteger(R.integer.recents_animate_task_bar_enter_duration);
-        taskBarEnterAnimDelay =
-                res.getInteger(R.integer.recents_animate_task_bar_enter_delay);
-        taskBarExitAnimDuration =
-                res.getInteger(R.integer.recents_animate_task_bar_exit_duration);
         taskBarDismissDozeDelaySeconds =
                 res.getInteger(R.integer.recents_task_bar_dismiss_delay_seconds);
-
-        // Lock to app
-        taskViewLockToAppButtonHeight =
-                res.getDimensionPixelSize(R.dimen.recents_task_view_lock_to_app_button_height);
-        taskViewLockToAppShortAnimDuration =
-                res.getInteger(R.integer.recents_animate_lock_to_app_button_short_duration);
-        taskViewLockToAppLongAnimDuration =
-                res.getInteger(R.integer.recents_animate_lock_to_app_button_long_duration);
 
         // Nav bar scrim
         navBarScrimEnterDuration =
                 res.getInteger(R.integer.recents_nav_bar_scrim_enter_duration);
+
+        // Misc
+        useHardwareLayers = res.getBoolean(R.bool.config_recents_use_hardware_layers);
+        altTabKeyDelay = res.getInteger(R.integer.recents_alt_tab_key_delay);
+        fakeShadows = res.getBoolean(R.bool.config_recents_fake_shadows);
+        svelteLevel = res.getInteger(R.integer.recents_svelte_level);
     }
 
     /** Updates the system insets */
@@ -273,12 +312,10 @@ public class RecentsConfiguration {
     /** Called when the configuration has changed, and we want to reset any configuration specific
      * members. */
     public void updateOnConfigurationChange() {
-        launchedWithAltTab = false;
-        launchedWithNoRecentTasks = false;
-        launchedFromAppWithThumbnail = false;
-        launchedFromAppWithScreenshot = false;
-        launchedFromHome = false;
-        launchedToTaskId = -1;
+        // Reset this flag on configuration change to ensure that we recreate new task views
+        launchedReuseTaskStackViews = false;
+        // Set this flag to indicate that the configuration has changed since Recents last launched
+        launchedHasConfigurationChanged = true;
     }
 
     /** Returns whether the search bar app widget exists. */
@@ -304,13 +341,12 @@ public class RecentsConfiguration {
     /** Returns whether the nav bar scrim should be visible. */
     public boolean hasNavBarScrim() {
         // Only show the scrim if we have recent tasks, and if the nav bar is not transposed
-        return !launchedWithNoRecentTasks &&
-                (!transposeRecentsLayoutWithOrientation || !isLandscape);
+        return !launchedWithNoRecentTasks && (!hasTransposedNavBar || !isLandscape);
     }
 
     /** Returns whether the current layout is horizontal. */
     public boolean hasHorizontalLayout() {
-        return isLandscape && transposeRecentsLayoutWithOrientation;
+        return isLandscape && hasTransposedSearchBar;
     }
 
     /**
@@ -321,9 +357,9 @@ public class RecentsConfiguration {
                                    Rect taskStackBounds) {
         Rect searchBarBounds = new Rect();
         getSearchBarBounds(windowWidth, windowHeight, topInset, searchBarBounds);
-        if (isLandscape && transposeRecentsLayoutWithOrientation) {
-            // In landscape, the search bar appears on the left
-            taskStackBounds.set(searchBarBounds.right, topInset, windowWidth - rightInset, windowHeight);
+        if (isLandscape && hasTransposedSearchBar) {
+            // In landscape, the search bar appears on the left, but we overlay it on top
+            taskStackBounds.set(0, topInset, windowWidth - rightInset, windowHeight);
         } else {
             // In portrait, the search bar appears on the top (which already has the inset)
             taskStackBounds.set(0, searchBarBounds.bottom, windowWidth, windowHeight);
@@ -342,7 +378,7 @@ public class RecentsConfiguration {
             searchBarSize = 0;
         }
 
-        if (isLandscape && transposeRecentsLayoutWithOrientation) {
+        if (isLandscape && hasTransposedSearchBar) {
             // In landscape, the search bar appears on the left
             searchBarSpaceBounds.set(0, topInset, searchBarSize, windowHeight);
         } else {

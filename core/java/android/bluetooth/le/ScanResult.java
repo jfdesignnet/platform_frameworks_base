@@ -69,7 +69,7 @@ public final class ScanResult implements Parcelable {
             dest.writeInt(0);
         }
         if (mScanRecord != null) {
-            dest.writeInt(mScanRecord.getBytes().length);
+            dest.writeInt(1);
             dest.writeByteArray(mScanRecord.getBytes());
         } else {
             dest.writeInt(0);
@@ -145,13 +145,10 @@ public final class ScanResult implements Parcelable {
     @Override
     public String toString() {
         return "ScanResult{" + "mDevice=" + mDevice + ", mScanRecord="
-                + mScanRecord.toString() + ", mRssi=" + mRssi + ", mTimestampNanos="
+                + Objects.toString(mScanRecord) + ", mRssi=" + mRssi + ", mTimestampNanos="
                 + mTimestampNanos + '}';
     }
 
-    /**
-     * @hide
-     */
     public static final Parcelable.Creator<ScanResult> CREATOR = new Creator<ScanResult>() {
             @Override
         public ScanResult createFromParcel(Parcel source) {

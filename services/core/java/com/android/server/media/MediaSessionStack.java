@@ -16,6 +16,7 @@
 
 package com.android.server.media;
 
+import android.media.session.MediaController.PlaybackInfo;
 import android.media.session.PlaybackState;
 import android.media.session.MediaSession;
 import android.os.UserHandle;
@@ -50,6 +51,9 @@ public class MediaSessionStack {
 
     private MediaSessionRecord mGlobalPrioritySession;
 
+    // The last record that either entered one of the playing states or was
+    // added.
+    private MediaSessionRecord mLastInterestingRecord;
     private MediaSessionRecord mCachedButtonReceiver;
     private MediaSessionRecord mCachedDefault;
     private MediaSessionRecord mCachedVolumeDefault;
@@ -63,10 +67,8 @@ public class MediaSessionStack {
      */
     public void addSession(MediaSessionRecord record) {
         mSessions.add(record);
-        if ((record.getFlags() & MediaSession.FLAG_EXCLUSIVE_GLOBAL_PRIORITY) != 0) {
-            mGlobalPrioritySession = record;
-        }
         clearCache();
+        mLastInterestingRecord = record;
     }
 
     /**
@@ -95,9 +97,12 @@ public class MediaSessionStack {
             mSessions.remove(record);
             mSessions.add(0, record);
             clearCache();
+            // This becomes the last interesting record since it entered a
+            // playing state
+            mLastInterestingRecord = record;
             return true;
-        } else if (newState == PlaybackState.STATE_PAUSED) {
-            // Just clear the volume cache in this case
+        } else if (!MediaSession.isActiveState(newState)) {
+            // Just clear the volume cache when a state goes inactive
             mCachedVolumeDefault = null;
         }
         return false;
@@ -110,6 +115,9 @@ public class MediaSessionStack {
      * @param record The record that changed.
      */
     public void onSessionStateChange(MediaSessionRecord record) {
+        if ((record.getFlags() & MediaSession.FLAG_EXCLUSIVE_GLOBAL_PRIORITY) != 0) {
+            mGlobalPrioritySession = record;
+        }
         // For now just clear the cache. Eventually we'll selectively clear
         // depending on what changed.
         clearCache();
@@ -167,9 +175,11 @@ public class MediaSessionStack {
      * Get the highest priority session that can handle media buttons.
      *
      * @param userId The user to check.
+     * @param includeNotPlaying Return a non-playing session if nothing else is
+     *            available
      * @return The default media button session or null.
      */
-    public MediaSessionRecord getDefaultMediaButtonSession(int userId) {
+    public MediaSessionRecord getDefaultMediaButtonSession(int userId, boolean includeNotPlaying) {
         if (mGlobalPrioritySession != null && mGlobalPrioritySession.isActive()) {
             return mGlobalPrioritySession;
         }
@@ -179,7 +189,25 @@ public class MediaSessionStack {
         ArrayList<MediaSessionRecord> records = getPriorityListLocked(true,
                 MediaSession.FLAG_HANDLES_MEDIA_BUTTONS, userId);
         if (records.size() > 0) {
-            mCachedButtonReceiver = records.get(0);
+            MediaSessionRecord record = records.get(0);
+            if (record.isPlaybackActive(false)) {
+                // Since we're going to send a button event to this record make
+                // it the last interesting one.
+                mLastInterestingRecord = record;
+                mCachedButtonReceiver = record;
+            } else if (mLastInterestingRecord != null) {
+                if (records.contains(mLastInterestingRecord)) {
+                    mCachedButtonReceiver = mLastInterestingRecord;
+                } else {
+                    // That record is no longer used. Clear its reference.
+                    mLastInterestingRecord = null;
+                }
+            }
+            if (includeNotPlaying && mCachedButtonReceiver == null) {
+                // If we really want a record and we didn't find one yet use the
+                // highest priority session even if it's not playing.
+                mCachedButtonReceiver = record;
+            }
         }
         return mCachedButtonReceiver;
     }
@@ -209,17 +237,22 @@ public class MediaSessionStack {
         int size = records.size();
         for (int i = 0; i < size; i++) {
             MediaSessionRecord record = records.get(i);
-            if (record.getPlaybackType() == MediaSession.PLAYBACK_TYPE_REMOTE) {
+            if (record.getPlaybackType() == PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
                 return record;
             }
         }
         return null;
     }
 
+    public boolean isGlobalPriorityActive() {
+        return mGlobalPrioritySession == null ? false : mGlobalPrioritySession.isActive();
+    }
+
     public void dump(PrintWriter pw, String prefix) {
         ArrayList<MediaSessionRecord> sortedSessions = getPriorityListLocked(false, 0,
                 UserHandle.USER_ALL);
         int count = sortedSessions.size();
+        pw.println(prefix + "Global priority session is " + mGlobalPrioritySession);
         pw.println(prefix + "Sessions Stack - have " + count + " sessions:");
         String indent = prefix + "  ";
         for (int i = 0; i < count; i++) {

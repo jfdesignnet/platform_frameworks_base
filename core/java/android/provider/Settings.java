@@ -18,6 +18,7 @@ package android.provider;
 
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SystemApi;
 import android.app.SearchManager;
 import android.app.WallpaperManager;
 import android.content.ComponentName;
@@ -131,6 +132,33 @@ public final class Settings {
             "android.settings.AIRPLANE_MODE_SETTINGS";
 
     /**
+     * @hide
+     * Activity Action: Modify Airplane mode settings using the users voice.
+     * <p>
+     * In some cases, a matching Activity may not exist, so ensure you safeguard against this.
+     * <p>
+     * This intent MUST be started using
+     * {@link android.service.voice.VoiceInteractionSession#startVoiceActivity
+     * startVoiceActivity}.
+     * <p>
+     * To tell which state airplane mode should be set to, add the
+     * {@link #EXTRA_AIRPLANE_MODE_ENABLED} extra to this Intent with the state specified.
+     * If there is no extra in this Intent, no changes will be made.
+     * <p>
+     * The activity should verify that
+     * {@link android.app.Activity#isVoiceInteraction isVoiceInteraction} returns true before
+     * modifying the setting.
+     * <p>
+     * Input: Nothing.
+     * <p>
+     * Output: Nothing.
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    @SystemApi
+    public static final String ACTION_VOICE_CONTROL_AIRPLANE_MODE =
+            "android.settings.VOICE_CONTROL_AIRPLANE_MODE";
+
+    /**
      * Activity Action: Show settings for accessibility modules.
      * <p>
      * In some cases, a matching Activity may not exist, so ensure you
@@ -143,6 +171,20 @@ public final class Settings {
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_ACCESSIBILITY_SETTINGS =
             "android.settings.ACCESSIBILITY_SETTINGS";
+
+    /**
+     * Activity Action: Show settings to control access to usage information.
+     * <p>
+     * In some cases, a matching Activity may not exist, so ensure you
+     * safeguard against this.
+     * <p>
+     * Input: Nothing.
+     * <p>
+     * Output: Nothing.
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_USAGE_ACCESS_SETTINGS =
+            "android.settings.USAGE_ACCESS_SETTINGS";
 
     /**
      * Activity Action: Show settings to allow configuration of security and
@@ -207,7 +249,6 @@ public final class Settings {
 
     /**
      * Activity Action: Show settings to allow configuration of Wi-Fi.
-
      * <p>
      * In some cases, a matching Activity may not exist, so ensure you
      * safeguard against this.
@@ -267,7 +308,7 @@ public final class Settings {
 
     /**
      * Activity Action: Show settings to allow configuration of
-     * {@link android.media.routing.MediaRouteService media route providers}.
+     * cast endpoints.
      * <p>
      * In some cases, a matching Activity may not exist, so ensure you
      * safeguard against this.
@@ -335,6 +376,21 @@ public final class Settings {
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_LOCALE_SETTINGS =
             "android.settings.LOCALE_SETTINGS";
+
+    /**
+     * Activity Action: Show settings to configure input methods, in particular
+     * allowing the user to enable input methods.
+     * <p>
+     * In some cases, a matching Activity may not exist, so ensure you
+     * safeguard against this.
+     * <p>
+     * Input: Nothing.
+     * <p>
+     * Output: Nothing.
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_VOICE_INPUT_SETTINGS =
+            "android.settings.VOICE_INPUT_SETTINGS";
 
     /**
      * Activity Action: Show settings to configure input methods, in particular
@@ -731,11 +787,10 @@ public final class Settings {
      * <p>
      * Output: Nothing.
      * @see android.service.notification.NotificationListenerService
-     * @hide
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_NOTIFICATION_LISTENER_SETTINGS
-            = "android.settings.NOTIFICATION_LISTENER_SETTINGS";
+            = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS";
 
     /**
      * @hide
@@ -817,8 +872,9 @@ public final class Settings {
 
     /**
      * Activity Action: Show battery saver settings.
-     *
-     * @hide
+     * <p>
+     * In some cases, a matching Activity may not exist, so ensure you safeguard
+     * against this.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_BATTERY_SAVER_SETTINGS
@@ -832,6 +888,36 @@ public final class Settings {
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_HOME_SETTINGS
             = "android.settings.HOME_SETTINGS";
+
+    /**
+     * Activity Action: Show notification settings.
+     *
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_NOTIFICATION_SETTINGS
+            = "android.settings.NOTIFICATION_SETTINGS";
+
+    /**
+     * Activity Action: Show notification settings for a single app.
+     *
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_APP_NOTIFICATION_SETTINGS
+            = "android.settings.APP_NOTIFICATION_SETTINGS";
+
+    /**
+     * Activity Action: Show notification redaction settings.
+     *
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_APP_NOTIFICATION_REDACTION
+            = "android.settings.ACTION_APP_NOTIFICATION_REDACTION";
+
+    /** @hide */ public static final String EXTRA_APP_UID = "app_uid";
+    /** @hide */ public static final String EXTRA_APP_PACKAGE = "app_package";
 
     // End of Intent actions for Settings
 
@@ -890,6 +976,29 @@ public final class Settings {
     public static final String EXTRA_ACCOUNT_TYPES = "account_types";
 
     public static final String EXTRA_INPUT_METHOD_ID = "input_method_id";
+
+    /**
+     * Activity Extra: The device identifier to act upon.
+     * <p>
+     * This can be passed as an extra field in an Activity Intent with a single
+     * InputDeviceIdentifier. This field is used by some activities to jump straight into the
+     * settings for the given device.
+     * <p>
+     * Example: The {@link #ACTION_INPUT_METHOD_SETTINGS} intent opens the keyboard layout
+     * dialog for the given device.
+     * @hide
+     */
+    public static final String EXTRA_INPUT_DEVICE_IDENTIFIER = "input_device_identifier";
+
+    /**
+     * @hide
+     * Activity Extra: Enable or disable Airplane Mode.
+     * <p>
+     * This can be passed as an extra field to the {@link #ACTION_VOICE_CONTROL_AIRPLANE_MODE}
+     * intent as a boolean.
+     */
+    @SystemApi
+    public static final String EXTRA_AIRPLANE_MODE_ENABLED = "airplane_mode_enabled";
 
     private static final String JID_RESOURCE_PREFIX = "android";
 
@@ -1892,7 +2001,10 @@ public final class Settings {
         public static final String DIM_SCREEN = "dim_screen";
 
         /**
-         * The timeout before the screen turns off.
+         * The amount of time in milliseconds before the device goes to sleep or begins
+         * to dream after a period of inactivity.  This value is also known as the
+         * user activity timeout period since the screen isn't necessarily turned off
+         * when it expires.
          */
         public static final String SCREEN_OFF_TIMEOUT = "screen_off_timeout";
 
@@ -2029,6 +2141,13 @@ public final class Settings {
          * @hide
          */
         public static final String VOLUME_MASTER_MUTE = "volume_master_mute";
+
+        /**
+         * Microphone mute (int 1 = mute, 0 = not muted).
+         *
+         * @hide
+         */
+        public static final String MICROPHONE_MUTE = "microphone_mute";
 
         /**
          * Whether the notifications should use the ring volume (value of 1) or
@@ -2249,7 +2368,7 @@ public final class Settings {
          * preference, this rotation value will be used. Must be one of the
          * {@link android.view.Surface#ROTATION_0 Surface rotation constants}.
          *
-         * @see Display#getRotation
+         * @see android.view.Display#getRotation
          */
         public static final String USER_ROTATION = "user_rotation";
 
@@ -2357,7 +2476,8 @@ public final class Settings {
         public static final String SHOW_TOUCHES = "show_touches";
 
         /**
-         * Log raw orientation data from {@link WindowOrientationListener} for use with the
+         * Log raw orientation data from
+         * {@link com.android.internal.policy.impl.WindowOrientationListener} for use with the
          * orientationplot.py tool.
          * 0 = no
          * 1 = yes
@@ -2462,7 +2582,6 @@ public final class Settings {
          * Call Preference String.
          * "SIP_ALWAYS" : Always use SIP with network access
          * "SIP_ADDRESS_ONLY" : Only if destination is a SIP address
-         * "SIP_ASK_ME_EACH_TIME" : Always ask me each time
          * @hide
          */
         public static final String SIP_CALL_OPTIONS = "sip_call_options";
@@ -2480,9 +2599,13 @@ public final class Settings {
         public static final String SIP_ADDRESS_ONLY = "SIP_ADDRESS_ONLY";
 
         /**
-         * One of the sip call options: Always ask me each time.
+         * @deprecated Use SIP_ALWAYS or SIP_ADDRESS_ONLY instead.  Formerly used to indicate that
+         * the user should be prompted each time a call is made whether it should be placed using
+         * SIP.  The {@link com.android.providers.settings.DatabaseHelper} replaces this with
+         * SIP_ADDRESS_ONLY.
          * @hide
          */
+        @Deprecated
         public static final String SIP_ASK_ME_EACH_TIME = "SIP_ASK_ME_EACH_TIME";
 
         /**
@@ -2500,12 +2623,6 @@ public final class Settings {
          * @hide
          */
         public static final String LOCK_TO_APP_ENABLED = "lock_to_app_enabled";
-
-        /**
-         * Whether lock-to-app will lock the keyguard when exiting.
-         * @hide
-         */
-        public static final String LOCK_TO_APP_EXIT_LOCKED = "lock_to_app_exit_locked";
 
         /**
          * I am the lolrus.
@@ -2581,7 +2698,21 @@ public final class Settings {
             POINTER_SPEED,
             VIBRATE_WHEN_RINGING,
             RINGTONE,
+            LOCK_TO_APP_ENABLED,
             NOTIFICATION_SOUND
+        };
+
+        /**
+         * These entries are considered common between the personal and the managed profile,
+         * since the managed profile doesn't get to change them.
+         * @hide
+         */
+        public static final String[] CLONE_TO_MANAGED_PROFILE = {
+            DATE_FORMAT,
+            HAPTIC_FEEDBACK_ENABLED,
+            SOUND_EFFECTS_ENABLED,
+            TEXT_SHOW_PASSWORD,
+            TIME_12_24
         };
 
         /**
@@ -2881,7 +3012,6 @@ public final class Settings {
             MOVED_TO_GLOBAL.add(Settings.Global.NETSTATS_ENABLED);
             MOVED_TO_GLOBAL.add(Settings.Global.NETSTATS_GLOBAL_ALERT_BYTES);
             MOVED_TO_GLOBAL.add(Settings.Global.NETSTATS_POLL_INTERVAL);
-            MOVED_TO_GLOBAL.add(Settings.Global.NETSTATS_REPORT_XT_OVER_DEV);
             MOVED_TO_GLOBAL.add(Settings.Global.NETSTATS_SAMPLE_ENABLED);
             MOVED_TO_GLOBAL.add(Settings.Global.NETSTATS_TIME_CACHE_MAX_AGE);
             MOVED_TO_GLOBAL.add(Settings.Global.NETSTATS_UID_BUCKET_DURATION);
@@ -3030,6 +3160,11 @@ public final class Settings {
         /** @hide */
         public static boolean putStringForUser(ContentResolver resolver, String name, String value,
                 int userHandle) {
+            if (LOCATION_MODE.equals(name)) {
+                // HACK ALERT: temporary hack to work around b/10491283.
+                // TODO: once b/10491283 fixed, remove this hack
+                return setLocationModeForUser(resolver, Integer.parseInt(value), userHandle);
+            }
             if (MOVED_TO_GLOBAL.contains(name)) {
                 Log.w(TAG, "Setting " + name + " has moved from android.provider.Settings.System"
                         + " to android.provider.Settings.Global");
@@ -3145,11 +3280,6 @@ public final class Settings {
         /** @hide */
         public static boolean putIntForUser(ContentResolver cr, String name, int value,
                 int userHandle) {
-            if (LOCATION_MODE.equals(name)) {
-                // HACK ALERT: temporary hack to work around b/10491283.
-                // TODO: once b/10491283 fixed, remove this hack
-                return setLocationModeForUser(cr, value, userHandle);
-            }
             return putStringForUser(cr, name, Integer.toString(value), userHandle);
         }
 
@@ -3453,6 +3583,13 @@ public final class Settings {
         public static final String DISABLED_SYSTEM_INPUT_METHODS = "disabled_system_input_methods";
 
         /**
+         * Whether to show the IME when a hard keyboard is connected. This is a boolean that
+         * determines if the IME should be shown when a hard keyboard is attached.
+         * @hide
+         */
+        public static final String SHOW_IME_WITH_HARD_KEYBOARD = "show_ime_with_hard_keyboard";
+
+        /**
          * Host name and port for global http proxy. Uses ':' seperator for
          * between host and port.
          *
@@ -3522,6 +3659,12 @@ public final class Settings {
          */
         public static final String LOCK_BIOMETRIC_WEAK_FLAGS =
                 "lock_biometric_weak_flags";
+
+        /**
+         * Whether lock-to-app will lock the keyguard when exiting.
+         * @hide
+         */
+        public static final String LOCK_TO_APP_EXIT_LOCKED = "lock_to_app_exit_locked";
 
         /**
          * Whether autolock is enabled (0 = false, 1 = true)
@@ -3604,6 +3747,21 @@ public final class Settings {
                 "lock_screen_allow_private_notifications";
 
         /**
+         * Set by the system to track if the user needs to see the call to action for
+         * the lockscreen notification policy.
+         * @hide
+         */
+        public static final String SHOW_NOTE_ABOUT_NOTIFICATION_HIDING =
+                "show_note_about_notification_hiding";
+
+        /**
+         * Set to 1 by the system after trust agents have been initialized.
+         * @hide
+         */
+        public static final String TRUST_AGENTS_INITIALIZED =
+                "trust_agents_initialized";
+
+        /**
          * The Logging ID (a unique 64-bit value) as a hex string.
          * Used as a pseudonymous identifier for logging.
          * @deprecated This identifier is poorly initialized and has
@@ -3632,20 +3790,6 @@ public final class Settings {
          * No longer supported.
          */
         public static final String PARENTAL_CONTROL_REDIRECT_URL = "parental_control_redirect_url";
-
-
-        /**
-         * Whether the TV parental control is enabled.
-         * @hide
-         */
-        public static final String TV_PARENTAL_CONTROL_ENABLED = "tv_parental_control_enabled";
-
-        /**
-         * List of TV content ratings blocked by the user. (comma-delimited)
-         * @hide
-         */
-        public static final String TV_PARENTAL_CONTROL_BLOCKED_RATINGS =
-                "tv_parental_control_blocked_ratings";
 
         /**
          * Settings classname to launch when Settings is clicked from All
@@ -4205,6 +4349,16 @@ public final class Settings {
                 Global.WIFI_MOBILE_DATA_TRANSITION_WAKELOCK_TIMEOUT_MS;
 
         /**
+         * The number of milliseconds to hold on to a PendingIntent based request. This delay gives
+         * the receivers of the PendingIntent an opportunity to make a new network request before
+         * the Network satisfying the request is potentially removed.
+         *
+         * @hide
+         */
+        public static final String CONNECTIVITY_RELEASE_PENDING_INTENT_DELAY_MS =
+                "connectivity_release_pending_intent_delay_ms";
+
+        /**
          * Whether background data usage is allowed.
          *
          * @deprecated As of {@link VERSION_CODES#ICE_CREAM_SANDWICH},
@@ -4444,13 +4598,6 @@ public final class Settings {
         public static final String ANR_SHOW_BACKGROUND = "anr_show_background";
 
         /**
-         * (Experimental). If nonzero, WebView uses data reduction proxy to save network
-         * bandwidth. Otherwise, WebView does not use data reduction proxy.
-         * @hide
-         */
-        public static final String WEBVIEW_DATA_REDUCTION_PROXY = "webview_data_reduction_proxy";
-
-        /**
          * The {@link ComponentName} string of the service to be used as the voice recognition
          * service.
          *
@@ -4528,6 +4675,12 @@ public final class Settings {
         public static final String WAKE_GESTURE_ENABLED = "wake_gesture_enabled";
 
         /**
+         * Whether the device should doze if configured.
+         * @hide
+         */
+        public static final String DOZE_ENABLED = "doze_enabled";
+
+        /**
          * The current night mode that has been selected by the user.  Owned
          * and controlled by UiModeManagerService.  Constants are as per
          * UiModeManager.
@@ -4589,8 +4742,8 @@ public final class Settings {
         public static final String SMS_DEFAULT_APPLICATION = "sms_default_application";
 
         /**
-         * Name of a package that the current user has explicitly allowed to see all of that
-         * user's notifications.
+         * Names of the packages that the current user has explicitly allowed to
+         * see all of the user's notifications, separated by ':'.
          *
          * @hide
          */
@@ -4635,6 +4788,53 @@ public final class Settings {
          * @hide
          */
         public static final String UNSAFE_VOLUME_MUSIC_ACTIVE_MS = "unsafe_volume_music_active_ms";
+
+        /**
+         * This preference enables notification display on the lockscreen.
+         * @hide
+         */
+        public static final String LOCK_SCREEN_SHOW_NOTIFICATIONS =
+                "lock_screen_show_notifications";
+
+        /**
+         * List of TV inputs that are currently hidden. This is a string
+         * containing the IDs of all hidden TV inputs. Each ID is encoded by
+         * {@link android.net.Uri#encode(String)} and separated by ':'.
+         * @hide
+         */
+        public static final String TV_INPUT_HIDDEN_INPUTS = "tv_input_hidden_inputs";
+
+        /**
+         * List of custom TV input labels. This is a string containing <TV input id, custom name>
+         * pairs. TV input id and custom name are encoded by {@link android.net.Uri#encode(String)}
+         * and separated by ','. Each pair is separated by ':'.
+         * @hide
+         */
+        public static final String TV_INPUT_CUSTOM_LABELS = "tv_input_custom_labels";
+
+        /**
+         * Whether automatic routing of system audio to USB audio peripheral is disabled.
+         * The value is boolean (1 or 0), where 1 means automatic routing is disabled,
+         * and 0 means automatic routing is enabled.
+         *
+         * @hide
+         */
+        public static final String USB_AUDIO_AUTOMATIC_ROUTING_DISABLED =
+                "usb_audio_automatic_routing_disabled";
+
+        /**
+         * The timeout in milliseconds before the device fully goes to sleep after
+         * a period of inactivity.  This value sets an upper bound on how long the device
+         * will stay awake or dreaming without user activity.  It should generally
+         * be longer than {@link Settings.System#SCREEN_OFF_TIMEOUT} as otherwise the device
+         * will sleep before it ever has a chance to dream.
+         * <p>
+         * Use -1 to disable this timeout.
+         * </p>
+         *
+         * @hide
+         */
+        public static final String SLEEP_TIMEOUT = "sleep_timeout";
 
         /**
          * This are the settings to be backed up.
@@ -4685,7 +4885,28 @@ public final class Settings {
             MOUNT_UMS_AUTOSTART,
             MOUNT_UMS_PROMPT,
             MOUNT_UMS_NOTIFY_ENABLED,
-            UI_NIGHT_MODE
+            UI_NIGHT_MODE,
+            SLEEP_TIMEOUT
+        };
+
+        /**
+         * These entries are considered common between the personal and the managed profile,
+         * since the managed profile doesn't get to change them.
+         * @hide
+         */
+        public static final String[] CLONE_TO_MANAGED_PROFILE = {
+            ACCESSIBILITY_ENABLED,
+            ALLOW_MOCK_LOCATION,
+            ALLOWED_GEOLOCATION_ORIGINS,
+            DEFAULT_INPUT_METHOD,
+            ENABLED_ACCESSIBILITY_SERVICES,
+            ENABLED_INPUT_METHODS,
+            LOCATION_MODE,
+            LOCATION_PROVIDERS_ALLOWED,
+            LOCK_SCREEN_ALLOW_PRIVATE_NOTIFICATIONS,
+            SELECTED_INPUT_METHOD_SUBTYPE,
+            SELECTED_SPELL_CHECKER,
+            SELECTED_SPELL_CHECKER_SUBTYPE
         };
 
         /**
@@ -4795,10 +5016,19 @@ public final class Settings {
                     default:
                         throw new IllegalArgumentException("Invalid location mode: " + mode);
                 }
-                boolean gpsSuccess = Settings.Secure.setLocationProviderEnabledForUser(
-                        cr, LocationManager.GPS_PROVIDER, gps, userId);
+                // Note it's important that we set the NLP mode first. The Google implementation
+                // of NLP clears its NLP consent setting any time it receives a
+                // LocationManager.PROVIDERS_CHANGED_ACTION broadcast and NLP is disabled. Also,
+                // it shows an NLP consent dialog any time it receives the broadcast, NLP is
+                // enabled, and the NLP consent is not set. If 1) we were to enable GPS first,
+                // 2) a setup wizard has its own NLP consent UI that sets the NLP consent setting,
+                // and 3) the receiver happened to complete before we enabled NLP, then the Google
+                // NLP would detect the attempt to enable NLP and show a redundant NLP consent
+                // dialog. Then the people who wrote the setup wizard would be sad.
                 boolean nlpSuccess = Settings.Secure.setLocationProviderEnabledForUser(
                         cr, LocationManager.NETWORK_PROVIDER, network, userId);
+                boolean gpsSuccess = Settings.Secure.setLocationProviderEnabledForUser(
+                        cr, LocationManager.GPS_PROVIDER, gps, userId);
                 return gpsSuccess && nlpSuccess;
             }
         }
@@ -4866,6 +5096,12 @@ public final class Settings {
          * Whether Airplane Mode is on.
          */
         public static final String AIRPLANE_MODE_ON = "airplane_mode_on";
+
+        /**
+         * Whether Theater Mode is on.
+         * {@hide}
+         */
+        public static final String THEATER_MODE_ON = "theater_mode_on";
 
         /**
          * Constant for use in AIRPLANE_MODE_RADIOS to specify Bluetooth radio.
@@ -4993,6 +5229,13 @@ public final class Settings {
         public static final String UNLOCK_SOUND = "unlock_sound";
 
         /**
+         * URI for the "device is trusted" sound, which is played when the device enters the trusted
+         * state without unlocking.
+         * @hide
+         */
+        public static final String TRUSTED_SOUND = "trusted_sound";
+
+        /**
          * URI for the low battery sound file.
          * @hide
          */
@@ -5035,6 +5278,12 @@ public final class Settings {
          * Whether ADB is enabled.
          */
         public static final String ADB_ENABLED = "adb_enabled";
+
+        /**
+         * Whether Views are allowed to save their attribute data.
+         * @hide
+         */
+        public static final String DEBUG_VIEW_ATTRIBUTES = "debug_view_attributes";
 
         /**
          * Whether assisted GPS should be enabled or not.
@@ -5216,8 +5465,6 @@ public final class Settings {
        public static final String NETSTATS_GLOBAL_ALERT_BYTES = "netstats_global_alert_bytes";
        /** {@hide} */
        public static final String NETSTATS_SAMPLE_ENABLED = "netstats_sample_enabled";
-       /** {@hide} */
-       public static final String NETSTATS_REPORT_XT_OVER_DEV = "netstats_report_xt_over_dev";
 
        /** {@hide} */
        public static final String NETSTATS_DEV_BUCKET_DURATION = "netstats_dev_bucket_duration";
@@ -5311,6 +5558,13 @@ public final class Settings {
         * @hide
         */
        public static final String PACKAGE_VERIFIER_INCLUDE_ADB = "verifier_verify_adb_installs";
+
+       /**
+        * Time since last fstrim (milliseconds) after which we force one to happen
+        * during device startup.  If unset, the default is 3 days.
+        * @hide
+        */
+       public static final String FSTRIM_MANDATORY_INTERVAL = "fstrim_mandatory_interval";
 
        /**
         * The interval in milliseconds at which to check packet counts on the
@@ -5670,6 +5924,18 @@ public final class Settings {
        public static final String WIFI_REENABLE_DELAY_MS = "wifi_reenable_delay";
 
        /**
+        * Timeout for ephemeral networks when all known BSSIDs go out of range. We will disconnect
+        * from an ephemeral network if there is no BSSID for that network with a non-null score that
+        * has been seen in this time period.
+        *
+        * If this is less than or equal to zero, we use a more conservative behavior and only check
+        * for a non-null score from the currently connected or target BSSID.
+        * @hide
+        */
+       public static final String WIFI_EPHEMERAL_OUT_OF_RANGE_TIMEOUT_MS =
+               "wifi_ephemeral_out_of_range_timeout_ms";
+
+       /**
         * The number of milliseconds to delay when checking for data stalls during
         * non-aggressive detection. (screen is turned off.)
         * @hide
@@ -5874,7 +6140,7 @@ public final class Settings {
 
         /**
          * The number of milliseconds to delay before sending out
-         * {@link ConnectivityManager#CONNECTIVITY_ACTION} broadcasts.
+         * {@link ConnectivityManager#CONNECTIVITY_ACTION} broadcasts. Ignored.
          *
          * @hide
          */
@@ -6126,6 +6392,14 @@ public final class Settings {
                 "preferred_network_mode";
 
         /**
+         * Setting to 1 will hide carrier network settings.
+         * Default is 0.
+         * @hide
+         */
+        public static final String HIDE_CARRIER_NETWORK_SETTINGS =
+                "hide_carrier_network_settings";
+
+        /**
          * Name of an application package to be debugged.
          */
         public static final String DEBUG_APP = "debug_app";
@@ -6159,8 +6433,7 @@ public final class Settings {
          * processes as soon as they are no longer needed.  If 0, the normal
          * extended lifetime is used.
          */
-        public static final String ALWAYS_FINISH_ACTIVITIES =
-                "always_finish_activities";
+        public static final String ALWAYS_FINISH_ACTIVITIES = "always_finish_activities";
 
         /**
          * Use Dock audio output for media:
@@ -6264,7 +6537,7 @@ public final class Settings {
 
         /**
          * Milliseconds to wait before bouncing Wi-Fi after settings is restored. Note that after
-         * the caller is done with this, they should call {@link ContentResolver#delete(Uri)} to
+         * the caller is done with this, they should call {@link ContentResolver#delete} to
          * clean up any value that they may have written.
          *
          * @hide
@@ -6279,15 +6552,6 @@ public final class Settings {
          * @hide
          */
         public static final String POLICY_CONTROL = "policy_control";
-
-
-        /**
-         * This preference enables notification display even over a securely
-         * locked screen.
-         * @hide
-         */
-        public static final String LOCK_SCREEN_SHOW_NOTIFICATIONS =
-                "lock_screen_show_notifications";
 
         /**
          * Defines global zen mode.  ZEN_MODE_OFF, ZEN_MODE_IMPORTANT_INTERRUPTIONS,
@@ -6341,6 +6605,48 @@ public final class Settings {
         public static final String GUEST_USER_ENABLED = "guest_user_enabled";
 
         /**
+         * Whether the NetworkScoringService has been first initialized.
+         * <p>
+         * Type: int (0 for false, 1 for true)
+         * @hide
+         */
+        public static final String NETWORK_SCORING_PROVISIONED = "network_scoring_provisioned";
+
+        /**
+         * Whether the user wants to be prompted for password to decrypt the device on boot.
+         * This only matters if the storage is encrypted.
+         * <p>
+         * Type: int (0 for false, 1 for true)
+         * @hide
+         */
+        public static final String REQUIRE_PASSWORD_TO_DECRYPT = "require_password_to_decrypt";
+
+        /**
+         * Whether the Volte/VT is enabled
+         * <p>
+         * Type: int (0 for false, 1 for true)
+         * @hide
+         */
+        public static final String ENHANCED_4G_MODE_ENABLED = "volte_vt_enabled";
+
+        /**
+         * Global override to disable VoLTE (independent of user setting)
+         * <p>
+         * Type: int (1 for disable VoLTE, 0 to use user configuration)
+         * @hide
+         */
+        public static final String VOLTE_FEATURE_DISABLED = "volte_feature_disabled";
+
+        /**
+         * Whether user can enable/disable LTE as a preferred network. A carrier might control
+         * this via gservices, OMA-DM, carrier app, etc.
+         * <p>
+         * Type: int (0 for false, 1 for true)
+         * @hide
+         */
+        public static final String LTE_SERVICE_FORCED = "lte_service_forced";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
@@ -6371,7 +6677,8 @@ public final class Settings {
             WIFI_NUM_OPEN_NETWORKS_KEPT,
             EMERGENCY_TONE,
             CALL_AUTO_RETRY,
-            DOCK_AUDIO_MEDIA_ENABLED
+            DOCK_AUDIO_MEDIA_ENABLED,
+            LOW_POWER_MODE_TRIGGER_LEVEL
         };
 
         // Populated lazily, guarded by class object:

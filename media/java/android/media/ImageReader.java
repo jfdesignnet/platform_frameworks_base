@@ -26,6 +26,7 @@ import android.view.Surface;
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.NioUtils;
 
 /**
  * <p>The ImageReader class allows direct application access to image data
@@ -77,9 +78,9 @@ public class ImageReader implements AutoCloseable {
      * data.</p>
      *
      * @param width
-     *            The width in pixels of the Images that this reader will produce.
+     *            The default width in pixels of the Images that this reader will produce.
      * @param height
-     *            The height in pixels of the Images that this reader will produce.
+     *            The default height in pixels of the Images that this reader will produce.
      * @param format
      *            The format of the Image that this reader will produce. This
      *            must be one of the {@link android.graphics.ImageFormat} or
@@ -130,39 +131,43 @@ public class ImageReader implements AutoCloseable {
     }
 
     /**
-     * The width of each {@link Image}, in pixels.
+     * The default width of {@link Image Images}, in pixels.
      *
-     * <p>ImageReader guarantees that all Images acquired from ImageReader (for example, with
-     * {@link #acquireNextImage}) will have the same dimensions as specified in
-     * {@link #newInstance}.</p>
+     * <p>The width may be overridden by the producer sending buffers to this
+     * ImageReader's Surface. If so, the actual width of the images can be
+     * found using {@link Image#getWidth}.</p>
      *
-     * @return the width of an Image
+     * @return the expected width of an Image
      */
     public int getWidth() {
         return mWidth;
     }
 
     /**
-     * The height of each {@link Image}, in pixels.
+     * The default height of {@link Image Images}, in pixels.
      *
-     * <p>ImageReader guarantees that all Images acquired from ImageReader (for example, with
-     * {@link #acquireNextImage}) will have the same dimensions as specified in
-     * {@link #newInstance}.</p>
+     * <p>The height may be overridden by the producer sending buffers to this
+     * ImageReader's Surface. If so, the actual height of the images can be
+     * found using {@link Image#getHeight}.</p>
      *
-     * @return the height of an Image
+     * @return the expected height of an Image
      */
     public int getHeight() {
         return mHeight;
     }
 
     /**
-     * The {@link ImageFormat image format} of each Image.
+     * The default {@link ImageFormat image format} of {@link Image Images}.
      *
-     * <p>ImageReader guarantees that all {@link Image Images} acquired from ImageReader
-     *  (for example, with {@link #acquireNextImage}) will have the same format as specified in
-     * {@link #newInstance}.</p>
+     * <p>Some color formats may be overridden by the producer sending buffers to
+     * this ImageReader's Surface if the default color format allows. ImageReader
+     * guarantees that all {@link Image Images} acquired from ImageReader
+     * (for example, with {@link #acquireNextImage}) will have a "compatible"
+     * format to what was specified in {@link #newInstance}.
+     * As of now, each format is only compatible to itself.
+     * The actual format of the images can be found using {@link Image#getFormat}.</p>
      *
-     * @return the format of an Image
+     * @return the expected format of an Image
      *
      * @see ImageFormat
      */
@@ -573,7 +578,11 @@ public class ImageReader implements AutoCloseable {
         @Override
         public int getWidth() {
             if (mIsImageValid) {
-                return ImageReader.this.mWidth;
+                if (mWidth == -1) {
+                    mWidth = (getFormat() == ImageFormat.JPEG) ? ImageReader.this.getWidth() :
+                            nativeGetWidth();
+                }
+                return mWidth;
             } else {
                 throw new IllegalStateException("Image is already released");
             }
@@ -582,7 +591,11 @@ public class ImageReader implements AutoCloseable {
         @Override
         public int getHeight() {
             if (mIsImageValid) {
-                return ImageReader.this.mHeight;
+                if (mHeight == -1) {
+                    mHeight = (getFormat() == ImageFormat.JPEG) ? ImageReader.this.getHeight() :
+                            nativeGetHeight();
+                }
+                return mHeight;
             } else {
                 throw new IllegalStateException("Image is already released");
             }
@@ -638,7 +651,7 @@ public class ImageReader implements AutoCloseable {
         private void createSurfacePlanes() {
             mPlanes = new SurfacePlane[ImageReader.this.mNumPlanes];
             for (int i = 0; i < ImageReader.this.mNumPlanes; i++) {
-                mPlanes[i] = nativeCreatePlane(i);
+                mPlanes[i] = nativeCreatePlane(i, ImageReader.this.mFormat);
             }
         }
         private class SurfacePlane extends android.media.Image.Plane {
@@ -657,7 +670,8 @@ public class ImageReader implements AutoCloseable {
                 if (mBuffer != null) {
                     return mBuffer;
                 } else {
-                    mBuffer = SurfaceImage.this.nativeImageGetBuffer(mIndex);
+                    mBuffer = SurfaceImage.this.nativeImageGetBuffer(mIndex,
+                            ImageReader.this.mFormat);
                     // Set the byteBuffer order according to host endianness (native order),
                     // otherwise, the byteBuffer order defaults to ByteOrder.BIG_ENDIAN.
                     return mBuffer.order(ByteOrder.nativeOrder());
@@ -683,6 +697,15 @@ public class ImageReader implements AutoCloseable {
             }
 
             private void clearBuffer() {
+                // Need null check first, as the getBuffer() may not be called before an image
+                // is closed.
+                if (mBuffer == null) {
+                    return;
+                }
+
+                if (mBuffer.isDirect()) {
+                    NioUtils.freeDirectBuffer(mBuffer);
+                }
                 mBuffer = null;
             }
 
@@ -706,9 +729,13 @@ public class ImageReader implements AutoCloseable {
 
         private SurfacePlane[] mPlanes;
         private boolean mIsImageValid;
+        private int mHeight = -1;
+        private int mWidth = -1;
 
-        private synchronized native ByteBuffer nativeImageGetBuffer(int idx);
-        private synchronized native SurfacePlane nativeCreatePlane(int idx);
+        private synchronized native ByteBuffer nativeImageGetBuffer(int idx, int readerFormat);
+        private synchronized native SurfacePlane nativeCreatePlane(int idx, int readerFormat);
+        private synchronized native int nativeGetWidth();
+        private synchronized native int nativeGetHeight();
     }
 
     private synchronized native void nativeInit(Object weakSelf, int w, int h,

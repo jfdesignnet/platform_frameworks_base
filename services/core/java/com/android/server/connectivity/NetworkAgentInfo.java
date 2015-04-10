@@ -40,51 +40,125 @@ import java.util.ArrayList;
  */
 public class NetworkAgentInfo {
     public NetworkInfo networkInfo;
-    public final Network network;
+    public Network network;
     public LinkProperties linkProperties;
     public NetworkCapabilities networkCapabilities;
-    public int currentScore;
     public final NetworkMonitor networkMonitor;
     public final NetworkMisc networkMisc;
+    // Indicates if netd has been told to create this Network.  Once created the appropriate routing
+    // rules are setup and routes are added so packets can begin flowing over the Network.
+    // NOTE: This is a sticky bit; once set it is never cleared.
+    public boolean created;
+    // Set to true if this Network successfully passed validation or if it did not satisfy the
+    // default NetworkRequest in which case validation will not be attempted.
+    // NOTE: This is a sticky bit; once set it is never cleared even if future validation attempts
+    // fail.
+    public boolean everValidated;
+
+    // The result of the last validation attempt on this network (true if validated, false if not).
+    // This bit exists only because we never unvalidate a network once it's been validated, and that
+    // is because the network scoring and revalidation code does not (may not?) deal properly with
+    // networks becoming unvalidated.
+    // TODO: Fix the network scoring code, remove this, and rename everValidated to validated.
+    public boolean lastValidated;
+
+    // This represents the last score received from the NetworkAgent.
+    private int currentScore;
+    // Penalty applied to scores of Networks that have not been validated.
+    private static final int UNVALIDATED_SCORE_PENALTY = 40;
+
+    // Score for explicitly connected network.
+    private static final int EXPLICITLY_SELECTED_NETWORK_SCORE = 100;
 
     // The list of NetworkRequests being satisfied by this Network.
     public final SparseArray<NetworkRequest> networkRequests = new SparseArray<NetworkRequest>();
+    // The list of NetworkRequests that this Network previously satisfied with the highest
+    // score.  A non-empty list indicates that if this Network was validated it is lingered.
+    // NOTE: This list is only used for debugging.
     public final ArrayList<NetworkRequest> networkLingered = new ArrayList<NetworkRequest>();
 
     public final Messenger messenger;
     public final AsyncChannel asyncChannel;
 
-    public NetworkAgentInfo(Messenger messenger, AsyncChannel ac, int netId, NetworkInfo info,
+    // Used by ConnectivityService to keep track of 464xlat.
+    public Nat464Xlat clatd;
+
+    public NetworkAgentInfo(Messenger messenger, AsyncChannel ac, NetworkInfo info,
             LinkProperties lp, NetworkCapabilities nc, int score, Context context, Handler handler,
-            NetworkMisc misc) {
+            NetworkMisc misc, NetworkRequest defaultRequest) {
         this.messenger = messenger;
         asyncChannel = ac;
-        network = new Network(netId);
+        network = null;
         networkInfo = info;
         linkProperties = lp;
         networkCapabilities = nc;
         currentScore = score;
-        networkMonitor = new NetworkMonitor(context, handler, this);
+        networkMonitor = new NetworkMonitor(context, handler, this, defaultRequest);
         networkMisc = misc;
+        created = false;
+        everValidated = false;
+        lastValidated = false;
     }
 
     public void addRequest(NetworkRequest networkRequest) {
         networkRequests.put(networkRequest.requestId, networkRequest);
     }
 
+    // Does this network satisfy request?
+    public boolean satisfies(NetworkRequest request) {
+        return created &&
+                request.networkCapabilities.satisfiedByNetworkCapabilities(networkCapabilities);
+    }
+
     public boolean isVPN() {
         return networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
+    }
+
+    private int getCurrentScore(boolean pretendValidated) {
+        // TODO: We may want to refactor this into a NetworkScore class that takes a base score from
+        // the NetworkAgent and signals from the NetworkAgent and uses those signals to modify the
+        // score.  The NetworkScore class would provide a nice place to centralize score constants
+        // so they are not scattered about the transports.
+
+        int score = currentScore;
+
+        if (!everValidated && !pretendValidated) score -= UNVALIDATED_SCORE_PENALTY;
+        if (score < 0) score = 0;
+
+        if (networkMisc.explicitlySelected) score = EXPLICITLY_SELECTED_NETWORK_SCORE;
+
+        return score;
+    }
+
+    // Get the current score for this Network.  This may be modified from what the
+    // NetworkAgent sent, as it has modifiers applied to it.
+    public int getCurrentScore() {
+        return getCurrentScore(false);
+    }
+
+    // Get the current score for this Network as if it was validated.  This may be modified from
+    // what the NetworkAgent sent, as it has modifiers applied to it.
+    public int getCurrentScoreAsValidated() {
+        return getCurrentScore(true);
+    }
+
+    public void setCurrentScore(int newScore) {
+        currentScore = newScore;
     }
 
     public String toString() {
         return "NetworkAgentInfo{ ni{" + networkInfo + "}  network{" +
                 network + "}  lp{" +
                 linkProperties + "}  nc{" +
-                networkCapabilities + "}  Score{" + currentScore + "} }";
+                networkCapabilities + "}  Score{" + getCurrentScore() + "}  " +
+                "everValidated{" + everValidated + "}  lastValidated{" + lastValidated + "}  " +
+                "created{" + created + "}  " +
+                "explicitlySelected{" + networkMisc.explicitlySelected + "} }";
     }
 
     public String name() {
         return "NetworkAgentInfo [" + networkInfo.getTypeName() + " (" +
-                networkInfo.getSubtypeName() + ") - " + network.toString() + "]";
+                networkInfo.getSubtypeName() + ") - " +
+                (network == null ? "null" : network.toString()) + "]";
     }
 }

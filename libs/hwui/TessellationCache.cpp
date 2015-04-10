@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "OpenGLRenderer"
-#define ATRACE_TAG ATRACE_TAG_VIEW
-
 #include <utils/JenkinsHash.h>
 #include <utils/Trace.h>
 
@@ -219,7 +216,7 @@ static void tessellateShadows(
 
     // tessellate caster outline into a 2d polygon
     Vector<Vertex> casterVertices2d;
-    const float casterRefinementThresholdSquared = 20.0f; // TODO: experiment with this value
+    const float casterRefinementThresholdSquared = 4.0f;
     PathTessellator::approximatePathOutlineVertices(*casterPerimeter,
             casterRefinementThresholdSquared, casterVertices2d);
     if (!ShadowTessellator::isClockwisePath(*casterPerimeter)) {
@@ -270,7 +267,7 @@ static void tessellateShadows(
             casterBounds, *localClip, maxZ, ambientBuffer);
 
     ShadowTessellator::tessellateSpotShadow(
-            isCasterOpaque, casterPolygon, casterVertexCount,
+            isCasterOpaque, casterPolygon, casterVertexCount, centroid3d,
             *drawTransform, lightCenter, lightRadius, casterBounds, *localClip,
             spotBuffer);
 }

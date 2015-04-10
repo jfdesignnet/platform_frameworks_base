@@ -25,9 +25,9 @@ import android.util.Log;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.CompletionInfo;
 import android.view.inputmethod.CorrectionInfo;
-import android.view.inputmethod.CursorAnchorInfoRequest;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
+import android.view.inputmethod.InputConnection;
 import android.widget.TextView;
 
 public class EditableInputConnection extends BaseInputConnection {
@@ -188,24 +188,31 @@ public class EditableInputConnection extends BaseInputConnection {
     }
 
     @Override
-    public int requestCursorAnchorInfo(CursorAnchorInfoRequest request) {
-        if (DEBUG) Log.v(TAG, "requestCursorAnchorInfo " + request);
+    public boolean requestCursorUpdates(int cursorUpdateMode) {
+        if (DEBUG) Log.v(TAG, "requestUpdateCursorAnchorInfo " + cursorUpdateMode);
 
-        // This implementation supports TYPE_CURSOR_ANCHOR_INFO only. Other events will be
-        // delegated to the super class.
-        if (request == null ||
-                request.getRequestType() != CursorAnchorInfoRequest.TYPE_CURSOR_ANCHOR_INFO) {
-            return super.requestCursorAnchorInfo(request);
+        // It is possible that any other bit is used as a valid flag in a future release.
+        // We should reject the entire request in such a case.
+        final int KNOWN_FLAGS_MASK = InputConnection.CURSOR_UPDATE_IMMEDIATE |
+                InputConnection.CURSOR_UPDATE_MONITOR;
+        final int unknownFlags = cursorUpdateMode & ~KNOWN_FLAGS_MASK;
+        if (unknownFlags != 0) {
+            if (DEBUG) {
+                Log.d(TAG, "Rejecting requestUpdateCursorAnchorInfo due to unknown flags." +
+                        " cursorUpdateMode=" + cursorUpdateMode +
+                        " unknownFlags=" + unknownFlags);
+            }
+            return false;
         }
+
         if (mIMM == null) {
             // In this case, TYPE_CURSOR_ANCHOR_INFO is not handled.
-            // TODO: Return some notification code for the input method that indicates
+            // TODO: Return some notification code rather than false to indicate method that
             // CursorAnchorInfo is temporarily unavailable.
-            return CursorAnchorInfoRequest.RESULT_NOT_HANDLED;
+            return false;
         }
-        final int flags = request.getRequestFlags();
-        mIMM.setCursorAnchorInfoMonitorMode(flags);
-        if ((flags & CursorAnchorInfoRequest.FLAG_CURSOR_ANCHOR_INFO_IMMEDIATE) != 0) {
+        mIMM.setUpdateCursorAnchorInfoMode(cursorUpdateMode);
+        if ((cursorUpdateMode & InputConnection.CURSOR_UPDATE_IMMEDIATE) != 0) {
             if (mTextView == null) {
                 // In this case, FLAG_CURSOR_ANCHOR_INFO_IMMEDIATE is silently ignored.
                 // TODO: Return some notification code for the input method that indicates
@@ -220,6 +227,6 @@ public class EditableInputConnection extends BaseInputConnection {
                 mTextView.requestLayout();
             }
         }
-        return CursorAnchorInfoRequest.RESULT_SCHEDULED;
+        return true;
     }
 }

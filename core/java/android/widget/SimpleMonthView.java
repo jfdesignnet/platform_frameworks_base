@@ -18,6 +18,7 @@ package android.widget;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -30,6 +31,8 @@ import android.text.format.DateFormat;
 import android.text.format.DateUtils;
 import android.text.format.Time;
 import android.util.AttributeSet;
+import android.util.IntArray;
+import android.util.MathUtils;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
@@ -38,10 +41,9 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import com.android.internal.R;
 import com.android.internal.widget.ExploreByTouchHelper;
 
-import java.security.InvalidParameterException;
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Formatter;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -50,10 +52,8 @@ import java.util.Locale;
  * within the specified month.
  */
 class SimpleMonthView extends View {
-    private static final String TAG = "SimpleMonthView";
-
-    private static int DEFAULT_HEIGHT = 32;
-    private static int MIN_HEIGHT = 10;
+    private static final int DEFAULT_HEIGHT = 32;
+    private static final int MIN_HEIGHT = 10;
 
     private static final int DEFAULT_SELECTED_DAY = -1;
     private static final int DEFAULT_WEEK_START = Calendar.SUNDAY;
@@ -63,16 +63,19 @@ class SimpleMonthView extends View {
 
     private static final int SELECTED_CIRCLE_ALPHA = 60;
 
-    private static int DAY_SEPARATOR_WIDTH = 1;
+    private static final int DAY_SEPARATOR_WIDTH = 1;
 
-    private int mMiniDayNumberTextSize;
-    private int mMonthLabelTextSize;
-    private int mMonthDayLabelTextSize;
-    private int mMonthHeaderSize;
-    private int mDaySelectedCircleSize;
+    private final Formatter mFormatter;
+    private final StringBuilder mStringBuilder;
 
-    // used for scaling to the device density
-    private static float mScale = 0;
+    private final int mMiniDayNumberTextSize;
+    private final int mMonthLabelTextSize;
+    private final int mMonthDayLabelTextSize;
+    private final int mMonthHeaderSize;
+    private final int mDaySelectedCircleSize;
+
+    /** Single-letter (when available) formatter for the day of week label. */
+    private SimpleDateFormat mDayFormatter = new SimpleDateFormat("EEEEE", Locale.getDefault());
 
     // affects the padding on the sides of this view
     private int mPadding = 0;
@@ -86,9 +89,6 @@ class SimpleMonthView extends View {
 
     private Paint mMonthTitlePaint;
     private Paint mMonthDayLabelPaint;
-
-    private final Formatter mFormatter;
-    private final StringBuilder mStringBuilder;
 
     private int mMonth;
     private int mYear;
@@ -150,11 +150,14 @@ class SimpleMonthView extends View {
         this(context, attrs, R.attr.datePickerStyle);
     }
 
-    public SimpleMonthView(Context context, AttributeSet attrs, int defStyle) {
-        super(context, attrs);
+    public SimpleMonthView(Context context, AttributeSet attrs, int defStyleAttr) {
+        this(context, attrs, defStyleAttr, 0);
+    }
+
+    public SimpleMonthView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+        super(context, attrs, defStyleAttr, defStyleRes);
 
         final Resources res = context.getResources();
-
         mDayOfWeekTypeface = res.getString(R.string.day_of_week_label_typeface);
         mMonthTitleTypeface = res.getString(R.string.sans_serif);
 
@@ -181,6 +184,13 @@ class SimpleMonthView extends View {
 
         // Sets up any standard paints that will be used
         initView();
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+
+        mDayFormatter = new SimpleDateFormat("EEEEE", newConfig.locale);
     }
 
     void setTextColor(ColorStateList colors) {
@@ -289,8 +299,12 @@ class SimpleMonthView extends View {
         drawDays(canvas);
     }
 
-    private static boolean isValidDay(int day) {
-        return (day >= Time.SUNDAY && day <= Time.SATURDAY);
+    private static boolean isValidDayOfWeek(int day) {
+        return day >= Calendar.SUNDAY && day <= Calendar.SATURDAY;
+    }
+
+    private static boolean isValidMonth(int month) {
+        return month >= Calendar.JANUARY && month <= Calendar.DECEMBER;
     }
 
     /**
@@ -299,11 +313,11 @@ class SimpleMonthView extends View {
      * default to no focus month if no value is passed in. The only required parameter is the
      * week start.
      *
-     * @param selectedDay the selected day.
+     * @param selectedDay the selected day of the month, or -1 for no selection.
      * @param month the month.
      * @param year the year.
-     * @param weekStart which day the week should start on. {@link Time#SUNDAY} through
-     *        {@link Time#SATURDAY}.
+     * @param weekStart which day the week should start on. {@link Calendar#SUNDAY} through
+     *        {@link Calendar#SATURDAY}.
      * @param enabledDayStart the first enabled day.
      * @param enabledDayEnd the last enabled day.
      */
@@ -313,11 +327,9 @@ class SimpleMonthView extends View {
             mRowHeight = MIN_HEIGHT;
         }
 
-        if (isValidDay(selectedDay)) {
-            mSelectedDay = selectedDay;
-        }
+        mSelectedDay = selectedDay;
 
-        if (month >= Calendar.JANUARY && month <= Calendar.DECEMBER) {
+        if (isValidMonth(month)) {
             mMonth = month;
         }
         mYear = year;
@@ -333,7 +345,7 @@ class SimpleMonthView extends View {
         mCalendar.set(Calendar.DAY_OF_MONTH, 1);
         mDayOfWeekStart = mCalendar.get(Calendar.DAY_OF_WEEK);
 
-        if (isValidDay(weekStart)) {
+        if (isValidDayOfWeek(weekStart)) {
             mWeekStart = weekStart;
         } else {
             mWeekStart = mCalendar.getFirstDayOfWeek();
@@ -424,22 +436,22 @@ class SimpleMonthView extends View {
     }
 
     private void drawMonthTitle(Canvas canvas) {
-        int x = (mWidth + 2 * mPadding) / 2;
-        int y = (mMonthHeaderSize - mMonthDayLabelTextSize) / 2 + (mMonthLabelTextSize / 3);
+        final float x = (mWidth + 2 * mPadding) / 2f;
+        final float y = (mMonthHeaderSize - mMonthDayLabelTextSize) / 2f;
         canvas.drawText(getMonthAndYearString(), x, y, mMonthTitlePaint);
     }
 
     private void drawWeekDayLabels(Canvas canvas) {
-        int y = mMonthHeaderSize - (mMonthDayLabelTextSize / 2);
-        int dayWidthHalf = (mWidth - mPadding * 2) / (mNumDays * 2);
+        final int y = mMonthHeaderSize - (mMonthDayLabelTextSize / 2);
+        final int dayWidthHalf = (mWidth - mPadding * 2) / (mNumDays * 2);
 
         for (int i = 0; i < mNumDays; i++) {
-            int calendarDay = (i + mWeekStart) % mNumDays;
-            int x = (2 * i + 1) * dayWidthHalf + mPadding;
+            final int calendarDay = (i + mWeekStart) % mNumDays;
             mDayLabelCalendar.set(Calendar.DAY_OF_WEEK, calendarDay);
-            canvas.drawText(mDayLabelCalendar.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.SHORT,
-                    Locale.getDefault()).toUpperCase(Locale.getDefault()), x, y,
-                    mMonthDayLabelPaint);
+
+            final String dayLabel = mDayFormatter.format(mDayLabelCalendar.getTime());
+            final int x = (2 * i + 1) * dayWidthHalf + mPadding;
+            canvas.drawText(dayLabel, x, y, mMonthDayLabelPaint);
         }
     }
 
@@ -597,7 +609,7 @@ class SimpleMonthView extends View {
         }
 
         @Override
-        protected void getVisibleVirtualViews(List<Integer> virtualViewIds) {
+        protected void getVisibleVirtualViews(IntArray virtualViewIds) {
             for (int day = 1; day <= mNumCells; day++) {
                 virtualViewIds.add(day);
             }

@@ -151,6 +151,31 @@ public class TransitionSet extends Transition {
     }
 
     /**
+     * Returns the number of child transitions in the TransitionSet.
+     *
+     * @return The number of child transitions in the TransitionSet.
+     * @see #addTransition(Transition)
+     * @see #getTransitionAt(int)
+     */
+    public int getTransitionCount() {
+        return mTransitions.size();
+    }
+
+    /**
+     * Returns the child Transition at the specified position in the TransitionSet.
+     *
+     * @param index The position of the Transition to retrieve.
+     * @see #addTransition(Transition)
+     * @see #getTransitionCount()
+     */
+    public Transition getTransitionAt(int index) {
+        if (index < 0 || index >= mTransitions.size()) {
+            return null;
+        }
+        return mTransitions.get(index);
+    }
+
+    /**
      * Setting a non-negative duration on a TransitionSet causes all of the child
      * transitions (current and future) to inherit this duration.
      *
@@ -361,30 +386,25 @@ public class TransitionSet extends Transition {
      */
     @Override
     protected void createAnimators(ViewGroup sceneRoot, TransitionValuesMaps startValues,
-            TransitionValuesMaps endValues) {
-        startValues = removeExcludes(startValues);
-        endValues = removeExcludes(endValues);
-        for (Transition childTransition : mTransitions) {
-            childTransition.createAnimators(sceneRoot, startValues, endValues);
-        }
-    }
-
-    private TransitionValuesMaps removeExcludes(TransitionValuesMaps values) {
-        if (mTargetIds.isEmpty() && mTargetIdExcludes == null && mTargetTypeExcludes == null
-                && mTargetNames == null && mTargetTypes == null
-                && mTargetExcludes == null && mTargetNameExcludes == null
-                && mTargets.isEmpty()) {
-            return values;
-        }
-        TransitionValuesMaps included = new TransitionValuesMaps();
-        int numValues = values.viewValues.size();
-        for (int i = 0; i < numValues; i++) {
-            View view = values.viewValues.keyAt(i);
-            if (isValidTarget(view)) {
-                addViewValues(included, view, values.viewValues.valueAt(i));
+            TransitionValuesMaps endValues, ArrayList<TransitionValues> startValuesList,
+            ArrayList<TransitionValues> endValuesList) {
+        long startDelay = getStartDelay();
+        int numTransitions = mTransitions.size();
+        for (int i = 0; i < numTransitions; i++) {
+            Transition childTransition = mTransitions.get(i);
+            // We only set the start delay on the first transition if we are playing
+            // the transitions sequentially.
+            if (startDelay > 0 && (mPlayTogether || i == 0)) {
+                long childStartDelay = childTransition.getStartDelay();
+                if (childStartDelay > 0) {
+                    childTransition.setStartDelay(startDelay + childStartDelay);
+                } else {
+                    childTransition.setStartDelay(startDelay);
+                }
             }
+            childTransition.createAnimators(sceneRoot, startValues, endValues, startValuesList,
+                    endValuesList);
         }
-        return included;
     }
 
     /**
@@ -392,11 +412,17 @@ public class TransitionSet extends Transition {
      */
     @Override
     protected void runAnimators() {
+        if (mTransitions.isEmpty()) {
+            start();
+            end();
+            return;
+        }
         setupStartEndListeners();
+        int numTransitions = mTransitions.size();
         if (!mPlayTogether) {
             // Setup sequence with listeners
             // TODO: Need to add listeners in such a way that we can remove them later if canceled
-            for (int i = 1; i < mTransitions.size(); ++i) {
+            for (int i = 1; i < numTransitions; ++i) {
                 Transition previousTransition = mTransitions.get(i - 1);
                 final Transition nextTransition = mTransitions.get(i);
                 previousTransition.addListener(new TransitionListenerAdapter() {
@@ -412,8 +438,8 @@ public class TransitionSet extends Transition {
                 firstTransition.runAnimators();
             }
         } else {
-            for (Transition childTransition : mTransitions) {
-                childTransition.runAnimators();
+            for (int i = 0; i < numTransitions; ++i) {
+                mTransitions.get(i).runAnimators();
             }
         }
     }
@@ -424,6 +450,7 @@ public class TransitionSet extends Transition {
             for (Transition childTransition : mTransitions) {
                 if (childTransition.isValidTarget(transitionValues.view)) {
                     childTransition.captureStartValues(transitionValues);
+                    transitionValues.targetedTransitions.add(childTransition);
                 }
             }
         }
@@ -435,6 +462,7 @@ public class TransitionSet extends Transition {
             for (Transition childTransition : mTransitions) {
                 if (childTransition.isValidTarget(transitionValues.view)) {
                     childTransition.captureEndValues(transitionValues);
+                    transitionValues.targetedTransitions.add(childTransition);
                 }
             }
         }

@@ -19,6 +19,7 @@ package android.animation;
 import android.animation.Keyframe.IntKeyframe;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class holds a collection of IntKeyframe objects and is called by ValueAnimator to calculate
@@ -30,7 +31,7 @@ import java.util.ArrayList;
  * TypeEvaluator set for the animation, so that values can be calculated without autoboxing to the
  * Object equivalents of these primitive types.</p>
  */
-class IntKeyframeSet extends KeyframeSet {
+class IntKeyframeSet extends KeyframeSet implements Keyframes.IntKeyframes {
     private int firstValue;
     private int lastValue;
     private int deltaValue;
@@ -47,7 +48,7 @@ class IntKeyframeSet extends KeyframeSet {
 
     @Override
     public IntKeyframeSet clone() {
-        ArrayList<Keyframe> keyframes = mKeyframes;
+        List<Keyframe> keyframes = mKeyframes;
         int numKeyframes = mKeyframes.size();
         IntKeyframe[] newKeyframes = new IntKeyframe[numKeyframes];
         for (int i = 0; i < numKeyframes; ++i) {
@@ -58,10 +59,11 @@ class IntKeyframeSet extends KeyframeSet {
     }
 
     @Override
-    void invalidateCache() {
+    public void invalidateCache() {
         firstTime = true;
     }
 
+    @Override
     public int getIntValue(float fraction) {
         if (mNumKeyframes == 2) {
             if (firstTime) {
@@ -134,5 +136,9 @@ class IntKeyframeSet extends KeyframeSet {
         return ((Number)mKeyframes.get(mNumKeyframes - 1).getValue()).intValue();
     }
 
+    @Override
+    public Class getType() {
+        return Integer.class;
+    }
 }
 

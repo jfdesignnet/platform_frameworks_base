@@ -71,7 +71,7 @@ public class PacManager {
     public static final String KEY_PROXY = "keyProxy";
     private String mCurrentPac;
     @GuardedBy("mProxyLock")
-    private Uri mPacUrl;
+    private Uri mPacUrl = Uri.EMPTY;
 
     private AlarmManager mAlarmManager;
     @GuardedBy("mProxyLock")
@@ -175,7 +175,7 @@ public class PacManager {
         } else {
             getAlarmManager().cancel(mPacRefreshIntent);
             synchronized (mProxyLock) {
-                mPacUrl = null;
+                mPacUrl = Uri.EMPTY;
                 mCurrentPac = null;
                 if (mProxyService != null) {
                     try {
@@ -265,14 +265,9 @@ public class PacManager {
         }
         Intent intent = new Intent();
         intent.setClassName(PAC_PACKAGE, PAC_SERVICE);
-        // Already bound no need to bind again.
         if ((mProxyConnection != null) && (mConnection != null)) {
-            if (mLastPort != -1) {
-                sendPacBroadcast(new ProxyInfo(mPacUrl, mLastPort));
-            } else {
-                Log.e(TAG, "Received invalid port from Local Proxy,"
-                        + " PAC will not be operational");
-            }
+            // Already bound no need to bind again, just download the new file.
+            IoThread.getHandler().post(mPacDownloader);
             return;
         }
         mConnection = new ServiceConnection() {

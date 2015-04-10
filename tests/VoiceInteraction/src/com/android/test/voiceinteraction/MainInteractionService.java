@@ -20,10 +20,12 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.service.voice.AlwaysOnHotwordDetector;
 import android.service.voice.AlwaysOnHotwordDetector.Callback;
+import android.service.voice.AlwaysOnHotwordDetector.EventPayload;
 import android.service.voice.VoiceInteractionService;
 import android.util.Log;
 
 import java.util.Arrays;
+import java.util.Locale;
 
 public class MainInteractionService extends VoiceInteractionService {
     static final String TAG = "MainInteractionService";
@@ -36,13 +38,23 @@ public class MainInteractionService extends VoiceInteractionService {
         }
 
         @Override
-        public void onDetected(byte[] data) {
+        public void onDetected(EventPayload eventPayload) {
             Log.i(TAG, "onDetected");
         }
 
         @Override
-        public void onDetectionStopped() {
-            Log.i(TAG, "onDetectionStopped");
+        public void onError() {
+            Log.i(TAG, "onError");
+        }
+
+        @Override
+        public void onRecognitionPaused() {
+            Log.i(TAG, "onRecognitionPaused");
+        }
+
+        @Override
+        public void onRecognitionResumed() {
+            Log.i(TAG, "onRecognitionResumed");
         }
     };
 
@@ -56,7 +68,8 @@ public class MainInteractionService extends VoiceInteractionService {
         Log.i(TAG, "Keyphrase enrollment meta-data: "
                 + Arrays.toString(getKeyphraseEnrollmentInfo().listKeyphraseMetadata()));
 
-        mHotwordDetector = createAlwaysOnHotwordDetector("Hello There", "en-US", mHotwordCallback);
+        mHotwordDetector = createAlwaysOnHotwordDetector(
+                "Hello There", Locale.forLanguageTag("en-US"), mHotwordCallback);
     }
 
     @Override
@@ -71,11 +84,6 @@ public class MainInteractionService extends VoiceInteractionService {
     private void hotwordAvailabilityChangeHelper(int availability) {
         Log.i(TAG, "Hotword availability = " + availability);
         switch (availability) {
-            case AlwaysOnHotwordDetector.STATE_INVALID:
-                Log.i(TAG, "STATE_INVALID");
-                mHotwordDetector =
-                        createAlwaysOnHotwordDetector("Hello There", "en-US", mHotwordCallback);
-                break;
             case AlwaysOnHotwordDetector.STATE_HARDWARE_UNAVAILABLE:
                 Log.i(TAG, "STATE_HARDWARE_UNAVAILABLE");
                 break;
@@ -84,15 +92,17 @@ public class MainInteractionService extends VoiceInteractionService {
                 break;
             case AlwaysOnHotwordDetector.STATE_KEYPHRASE_UNENROLLED:
                 Log.i(TAG, "STATE_KEYPHRASE_UNENROLLED");
-                Intent enroll = mHotwordDetector.getManageIntent(
-                        AlwaysOnHotwordDetector.MANAGE_ACTION_ENROLL);
+                Intent enroll = mHotwordDetector.createEnrollIntent();
                 Log.i(TAG, "Need to enroll with " + enroll);
                 break;
             case AlwaysOnHotwordDetector.STATE_KEYPHRASE_ENROLLED:
-                Log.i(TAG, "STATE_KEYPHRASE_ENROLLED");
-                int status = mHotwordDetector.startRecognition(
-                        AlwaysOnHotwordDetector.RECOGNITION_FLAG_NONE);
-                Log.i(TAG, "startRecognition status = " + status);
+                Log.i(TAG, "STATE_KEYPHRASE_ENROLLED - starting recognition");
+                if (mHotwordDetector.startRecognition(
+                        AlwaysOnHotwordDetector.RECOGNITION_FLAG_NONE)) {
+                    Log.i(TAG, "startRecognition succeeded");
+                } else {
+                    Log.i(TAG, "startRecognition failed");
+                }
                 break;
         }
     }

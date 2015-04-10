@@ -20,16 +20,22 @@ import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
 import android.app.job.JobParameters;
 import android.app.job.JobService;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.AsyncTask;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
 import android.util.Log;
+import android.util.SparseArray;
+import android.widget.Toast;
 
 import com.android.demo.jobSchedulerApp.MainActivity;
 
+import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.Random;
 
 
 /**
@@ -75,43 +81,59 @@ public class TestJobService extends JobService {
 
     @Override
     public boolean onStartJob(JobParameters params) {
-        jobParamsMap.add(params);
+        Log.i(TAG, "on start job: " + params.getJobId());
+        currentId++;
+        jobParamsMap.put(currentId, params);
+        final int currId = this.currentId;
         if (mActivity != null) {
             mActivity.onReceivedStartJob(params);
         }
-        Log.i(TAG, "on start job: " + params.getJobId());
+
+        Toast.makeText(
+                this, "On start job: '" + params.getJobId() + "' deadline exceeded: " +
+                        params.isOverrideDeadlineExpired(),
+                Toast.LENGTH_LONG).show();
+
         return true;
     }
+
 
     @Override
     public boolean onStopJob(JobParameters params) {
-        jobParamsMap.remove(params);
-        mActivity.onReceivedStopJob();
         Log.i(TAG, "on stop job: " + params.getJobId());
-        return true;
+        int ind = jobParamsMap.indexOfValue(params);
+        jobParamsMap.remove(ind);
+        mActivity.onReceivedStopJob();
+        return false; // no reschedule
     }
 
+    static int currentId = 0;
     MainActivity mActivity;
-    private final LinkedList<JobParameters> jobParamsMap = new LinkedList<JobParameters>();
+    private final SparseArray<JobParameters> jobParamsMap = new SparseArray<JobParameters>();
+
 
     public void setUiCallback(MainActivity activity) {
         mActivity = activity;
     }
 
     /** Send job to the JobScheduler. */
-    public void scheduleJob(JobInfo t) {
-        Log.d(TAG, "Scheduling job");
+    public void scheduleJob(JobInfo job) {
+        Log.d(TAG, "Scheduling job " + job);
         JobScheduler tm =
                 (JobScheduler) getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        tm.schedule(t);
+        tm.schedule(job);
     }
 
     public boolean callJobFinished() {
-        JobParameters params = jobParamsMap.poll();
+        if (jobParamsMap.size() == 0) {
+            return false;
+        }
+        JobParameters params = jobParamsMap.valueAt(0);
         if (params == null) {
             return false;
         } else {
             jobFinished(params, false);
+            jobParamsMap.removeAt(0);
             return true;
         }
     }

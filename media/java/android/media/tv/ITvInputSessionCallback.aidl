@@ -27,12 +27,14 @@ import android.os.Bundle;
  * @hide
  */
 oneway interface ITvInputSessionCallback {
-    void onSessionCreated(ITvInputSession session);
+    void onSessionCreated(ITvInputSession session, in IBinder hardwareSessionToken);
     void onSessionEvent(in String name, in Bundle args);
     void onChannelRetuned(in Uri channelUri);
-    void onTrackInfoChanged(in List<TvTrackInfo> tracks);
+    void onTracksChanged(in List<TvTrackInfo> tracks);
+    void onTrackSelected(int type, in String trackId);
     void onVideoAvailable();
     void onVideoUnavailable(int reason);
     void onContentAllowed();
     void onContentBlocked(in String rating);
+    void onLayoutSurface(int left, int top, int right, int bottom);
 }

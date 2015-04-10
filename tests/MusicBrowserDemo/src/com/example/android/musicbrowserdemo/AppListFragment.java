@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (C) 2014 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.media.browse.MediaBrowserService;
+import android.service.media.MediaBrowserService;
 import android.os.Bundle;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.FragmentTransaction;
@@ -94,7 +94,7 @@ public class AppListFragment extends ListFragment {
 
             // Load the data
             final PackageManager pm = context.getPackageManager();
-            final Intent intent = new Intent(MediaBrowserService.SERVICE_ACTION);
+            final Intent intent = new Intent(MediaBrowserService.SERVICE_INTERFACE);
             final List<ResolveInfo> list = pm.queryIntentServices(intent, 0);
             final int N = list.size();
             mItems = new ArrayList(N);

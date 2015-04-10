@@ -37,6 +37,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.StatFs;
 import android.os.UserHandle;
@@ -45,6 +46,7 @@ import android.provider.MediaStore;
 import android.util.AttributeSet;
 import android.view.DisplayAdjustments;
 import android.view.Display;
+import android.view.ViewDebug;
 import android.view.WindowManager;
 
 import java.io.File;
@@ -420,6 +422,7 @@ public abstract class Context {
     /**
      * Return the Theme object associated with this Context.
      */
+    @ViewDebug.ExportedProperty(deepExport = true)
     public abstract Resources.Theme getTheme();
 
     /**
@@ -1484,8 +1487,6 @@ public abstract class Context {
      * @see #sendBroadcast(Intent)
      * @see #sendBroadcast(Intent, String)
      * @see #sendOrderedBroadcast(Intent, String)
-     * @see #sendStickyBroadcast(Intent)
-     * @see #sendStickyOrderedBroadcast(Intent, BroadcastReceiver, Handler, int, String, Bundle)
      * @see android.content.BroadcastReceiver
      * @see #registerReceiver
      * @see android.app.Activity#RESULT_OK
@@ -1582,7 +1583,7 @@ public abstract class Context {
             @Nullable  Bundle initialExtras);
 
     /**
-     * Perform a {@link #sendBroadcast(Intent)} that is "sticky," meaning the
+     * <p>Perform a {@link #sendBroadcast(Intent)} that is "sticky," meaning the
      * Intent you are sending stays around after the broadcast is complete,
      * so that others can quickly retrieve that data through the return
      * value of {@link #registerReceiver(BroadcastReceiver, IntentFilter)}.  In
@@ -1593,6 +1594,12 @@ public abstract class Context {
      * permission in order to use this API.  If you do not hold that
      * permission, {@link SecurityException} will be thrown.
      *
+     * @deprecated Sticky broadcasts should not be used.  They provide no security (anyone
+     * can access them), no protection (anyone can modify them), and many other problems.
+     * The recommended pattern is to use a non-sticky broadcast to report that <em>something</em>
+     * has changed, with another mechanism for apps to retrieve the current value whenever
+     * desired.
+     *
      * @param intent The Intent to broadcast; all receivers matching this
      * Intent will receive the broadcast, and the Intent will be held to
      * be re-broadcast to future receivers.
@@ -1600,10 +1607,11 @@ public abstract class Context {
      * @see #sendBroadcast(Intent)
      * @see #sendStickyOrderedBroadcast(Intent, BroadcastReceiver, Handler, int, String, Bundle)
      */
+    @Deprecated
     public abstract void sendStickyBroadcast(Intent intent);
 
     /**
-     * Version of {@link #sendStickyBroadcast} that allows you to
+     * <p>Version of {@link #sendStickyBroadcast} that allows you to
      * receive data back from the broadcast.  This is accomplished by
      * supplying your own BroadcastReceiver when calling, which will be
      * treated as a final receiver at the end of the broadcast -- its
@@ -1619,6 +1627,12 @@ public abstract class Context {
      * the result of any changes made by the receivers.
      *
      * <p>See {@link BroadcastReceiver} for more information on Intent broadcasts.
+     *
+     * @deprecated Sticky broadcasts should not be used.  They provide no security (anyone
+     * can access them), no protection (anyone can modify them), and many other problems.
+     * The recommended pattern is to use a non-sticky broadcast to report that <em>something</em>
+     * has changed, with another mechanism for apps to retrieve the current value whenever
+     * desired.
      *
      * @param intent The Intent to broadcast; all receivers matching this
      *               Intent will receive the broadcast.
@@ -1642,30 +1656,44 @@ public abstract class Context {
      * @see #registerReceiver
      * @see android.app.Activity#RESULT_OK
      */
+    @Deprecated
     public abstract void sendStickyOrderedBroadcast(Intent intent,
             BroadcastReceiver resultReceiver,
             @Nullable Handler scheduler, int initialCode, @Nullable String initialData,
             @Nullable Bundle initialExtras);
 
     /**
-     * Remove the data previously sent with {@link #sendStickyBroadcast},
+     * <p>Remove the data previously sent with {@link #sendStickyBroadcast},
      * so that it is as if the sticky broadcast had never happened.
      *
      * <p>You must hold the {@link android.Manifest.permission#BROADCAST_STICKY}
      * permission in order to use this API.  If you do not hold that
      * permission, {@link SecurityException} will be thrown.
      *
+     * @deprecated Sticky broadcasts should not be used.  They provide no security (anyone
+     * can access them), no protection (anyone can modify them), and many other problems.
+     * The recommended pattern is to use a non-sticky broadcast to report that <em>something</em>
+     * has changed, with another mechanism for apps to retrieve the current value whenever
+     * desired.
+     *
      * @param intent The Intent that was previously broadcast.
      *
      * @see #sendStickyBroadcast
      */
+    @Deprecated
     public abstract void removeStickyBroadcast(Intent intent);
 
     /**
-     * Version of {@link #sendStickyBroadcast(Intent)} that allows you to specify the
+     * <p>Version of {@link #sendStickyBroadcast(Intent)} that allows you to specify the
      * user the broadcast will be sent to.  This is not available to applications
      * that are not pre-installed on the system image.  Using it requires holding
      * the INTERACT_ACROSS_USERS permission.
+     *
+     * @deprecated Sticky broadcasts should not be used.  They provide no security (anyone
+     * can access them), no protection (anyone can modify them), and many other problems.
+     * The recommended pattern is to use a non-sticky broadcast to report that <em>something</em>
+     * has changed, with another mechanism for apps to retrieve the current value whenever
+     * desired.
      *
      * @param intent The Intent to broadcast; all receivers matching this
      * Intent will receive the broadcast, and the Intent will be held to
@@ -1674,10 +1702,11 @@ public abstract class Context {
      *
      * @see #sendBroadcast(Intent)
      */
+    @Deprecated
     public abstract void sendStickyBroadcastAsUser(Intent intent, UserHandle user);
 
     /**
-     * Version of
+     * <p>Version of
      * {@link #sendStickyOrderedBroadcast(Intent, BroadcastReceiver, Handler, int, String, Bundle)}
      * that allows you to specify the
      * user the broadcast will be sent to.  This is not available to applications
@@ -1685,6 +1714,12 @@ public abstract class Context {
      * the INTERACT_ACROSS_USERS permission.
      *
      * <p>See {@link BroadcastReceiver} for more information on Intent broadcasts.
+     *
+     * @deprecated Sticky broadcasts should not be used.  They provide no security (anyone
+     * can access them), no protection (anyone can modify them), and many other problems.
+     * The recommended pattern is to use a non-sticky broadcast to report that <em>something</em>
+     * has changed, with another mechanism for apps to retrieve the current value whenever
+     * desired.
      *
      * @param intent The Intent to broadcast; all receivers matching this
      *               Intent will receive the broadcast.
@@ -1703,13 +1738,14 @@ public abstract class Context {
      *
      * @see #sendStickyOrderedBroadcast(Intent, BroadcastReceiver, Handler, int, String, Bundle)
      */
+    @Deprecated
     public abstract void sendStickyOrderedBroadcastAsUser(Intent intent,
             UserHandle user, BroadcastReceiver resultReceiver,
             @Nullable Handler scheduler, int initialCode, @Nullable String initialData,
             @Nullable Bundle initialExtras);
 
     /**
-     * Version of {@link #removeStickyBroadcast(Intent)} that allows you to specify the
+     * <p>Version of {@link #removeStickyBroadcast(Intent)} that allows you to specify the
      * user the broadcast will be sent to.  This is not available to applications
      * that are not pre-installed on the system image.  Using it requires holding
      * the INTERACT_ACROSS_USERS permission.
@@ -1718,11 +1754,18 @@ public abstract class Context {
      * permission in order to use this API.  If you do not hold that
      * permission, {@link SecurityException} will be thrown.
      *
+     * @deprecated Sticky broadcasts should not be used.  They provide no security (anyone
+     * can access them), no protection (anyone can modify them), and many other problems.
+     * The recommended pattern is to use a non-sticky broadcast to report that <em>something</em>
+     * has changed, with another mechanism for apps to retrieve the current value whenever
+     * desired.
+     *
      * @param intent The Intent that was previously broadcast.
      * @param user UserHandle to remove the sticky broadcast from.
      *
      * @see #sendStickyBroadcastAsUser
      */
+    @Deprecated
     public abstract void removeStickyBroadcastAsUser(Intent intent, UserHandle user);
 
     /**
@@ -1995,6 +2038,7 @@ public abstract class Context {
      * argument for use by system server and other multi-user aware code.
      * @hide
      */
+    @SystemApi
     public boolean bindServiceAsUser(Intent service, ServiceConnection conn, int flags, UserHandle user) {
         throw new RuntimeException("Not implemented. Must override in a subclass.");
     }
@@ -2072,11 +2116,11 @@ public abstract class Context {
             AUDIO_SERVICE,
             MEDIA_ROUTER_SERVICE,
             TELEPHONY_SERVICE,
-            TELECOMM_SERVICE,
+            TELECOM_SERVICE,
             CLIPBOARD_SERVICE,
             INPUT_METHOD_SERVICE,
             TEXT_SERVICES_MANAGER_SERVICE,
-            //@hide: APPWIDGET_SERVICE,
+            APPWIDGET_SERVICE,
             //@hide: BACKUP_SERVICE,
             DROPBOX_SERVICE,
             DEVICE_POLICY_SERVICE,
@@ -2098,6 +2142,7 @@ public abstract class Context {
             MEDIA_SESSION_SERVICE,
             BATTERY_SERVICE,
             JOB_SCHEDULER_SERVICE,
+            MEDIA_PROJECTION_SERVICE,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface ServiceName {}
@@ -2201,8 +2246,8 @@ public abstract class Context {
      * @see android.media.MediaRouter
      * @see #TELEPHONY_SERVICE
      * @see android.telephony.TelephonyManager
-     * @see #PHONE_SERVICE
-     * @see android.phone.PhoneManager
+     * @see #TELEPHONY_SUBSCRIPTION_SERVICE
+     * @see android.telephony.SubscriptionManager
      * @see #INPUT_METHOD_SERVICE
      * @see android.view.inputmethod.InputMethodManager
      * @see #UI_MODE_SERVICE
@@ -2512,6 +2557,7 @@ public abstract class Context {
      *
      * @see #getSystemService
      * @see android.app.FingerprintManager
+     * @hide
      */
     public static final String FINGERPRINT_SERVICE = "fingerprint";
 
@@ -2546,23 +2592,23 @@ public abstract class Context {
 
     /**
      * Use with {@link #getSystemService} to retrieve a
-     * {@link android.telecomm.TelecommManager} to manage telecomm-related features
-     * of the device.
+     * {@link android.telephony.SubscriptionManager} for handling management the
+     * telephony subscriptions of the device.
      *
      * @see #getSystemService
-     * @see android.telecomm.TelecommManager
+     * @see android.telephony.SubscriptionManager
      */
-    public static final String TELECOMM_SERVICE = "telecomm";
+    public static final String TELEPHONY_SUBSCRIPTION_SERVICE = "telephony_subscription_service";
 
     /**
      * Use with {@link #getSystemService} to retrieve a
-     * {@link android.phone.PhoneManager} to manage phone-related features
+     * {@link android.telecom.TelecomManager} to manage telecom-related features
      * of the device.
      *
      * @see #getSystemService
-     * @see android.phone.PhoneManager
+     * @see android.telecom.TelecomManager
      */
-    public static final String PHONE_SERVICE = "phone_service";  // "phone" used by telephony.
+    public static final String TELECOM_SERVICE = "telecom";
 
     /**
      * Use with {@link #getSystemService} to retrieve a
@@ -2596,7 +2642,6 @@ public abstract class Context {
      * Use with {@link #getSystemService} to retrieve a
      * {@link android.appwidget.AppWidgetManager} for accessing AppWidgets.
      *
-     * @hide
      * @see #getSystemService
      */
     public static final String APPWIDGET_SERVICE = "appwidget";
@@ -2617,6 +2662,7 @@ public abstract class Context {
      *
      * @see #getSystemService
      */
+    @SystemApi
     public static final String BACKUP_SERVICE = "backup";
 
     /**
@@ -2822,16 +2868,6 @@ public abstract class Context {
     public static final String TV_INPUT_SERVICE = "tv_input";
 
     /**
-     * Use with {@link #getSystemService} to retrieve a
-     * {@link android.media.tv.TvParentalControlManager} for obtaining parental
-     * control settings and listening to their changes.
-     *
-     * @see #getSystemService
-     * @see android.media.tv.TvParentalControlManager
-     */
-    public static final String TV_PARENTAL_CONTROL_SERVICE = "tv_parental_control";
-
-    /**
      * {@link android.net.NetworkScoreManager} for managing network scoring.
      * @see #getSystemService
      * @see android.net.NetworkScoreManager
@@ -2842,11 +2878,10 @@ public abstract class Context {
 
     /**
      * Use with {@link #getSystemService} to retrieve a {@link
-     * android.app.UsageStatsManager} for interacting with the status bar.
+     * android.app.usage.UsageStatsManager} for querying device usage stats.
      *
      * @see #getSystemService
-     * @see android.app.UsageStatsManager
-     * @hide
+     * @see android.app.usage.UsageStatsManager
      */
     public static final String USAGE_STATS_SERVICE = "usagestats";
 
@@ -2861,12 +2896,14 @@ public abstract class Context {
 
     /**
      * Use with {@link #getSystemService} to retrieve a {@link
-     * android.service.persistentdata.PersistentDataBlockManager} instance retrieving
-     * a file descriptor for a persistent data block.
+     * android.service.persistentdata.PersistentDataBlockManager} instance
+     * for interacting with a storage device that lives across factory resets.
+     *
      * @see #getSystemService
      * @see android.service.persistentdata.PersistentDataBlockManager
      * @hide
      */
+    @SystemApi
     public static final String PERSISTENT_DATA_BLOCK_SERVICE = "persistent_data_block";
 
     /**
@@ -2896,6 +2933,11 @@ public abstract class Context {
      */
     @PackageManager.PermissionResult
     public abstract int checkPermission(@NonNull String permission, int pid, int uid);
+
+    /** @hide */
+    @PackageManager.PermissionResult
+    public abstract int checkPermission(@NonNull String permission, int pid, int uid,
+            IBinder callerToken);
 
     /**
      * Determine whether the calling process of an IPC you are handling has been
@@ -3041,6 +3083,14 @@ public abstract class Context {
      * "content://foo".  It will not remove any prefix grants that exist at a
      * higher level.
      *
+     * <p>Prior to {@link android.os.Build.VERSION_CODES#LOLLIPOP}, if you did not have
+     * regular permission access to a Uri, but had received access to it through
+     * a specific Uri permission grant, you could not revoke that grant with this
+     * function and a {@link SecurityException} would be thrown.  As of
+     * {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this function will not throw a security exception,
+     * but will remove whatever permission grants to the Uri had been given to the app
+     * (or none).</p>
+     *
      * @param uri The Uri you would like to revoke access to.
      * @param modeFlags The desired access modes.  Any combination of
      * {@link Intent#FLAG_GRANT_READ_URI_PERMISSION
@@ -3075,6 +3125,10 @@ public abstract class Context {
      */
     public abstract int checkUriPermission(Uri uri, int pid, int uid,
             @Intent.AccessUriMode int modeFlags);
+
+    /** @hide */
+    public abstract int checkUriPermission(Uri uri, int pid, int uid,
+            @Intent.AccessUriMode int modeFlags, IBinder callerToken);
 
     /**
      * Determine whether the calling process and user ID has been
@@ -3314,6 +3368,14 @@ public abstract class Context {
     public abstract Context createPackageContextAsUser(
             String packageName, int flags, UserHandle user)
             throws PackageManager.NameNotFoundException;
+
+    /**
+     * Creates a context given an {@link android.content.pm.ApplicationInfo}.
+     *
+     * @hide
+     */
+    public abstract Context createApplicationContext(ApplicationInfo application,
+            int flags) throws PackageManager.NameNotFoundException;
 
     /**
      * Get the userId associated with this context

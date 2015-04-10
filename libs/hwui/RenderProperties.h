@@ -209,7 +209,7 @@ public:
     }
 
     bool setAlpha(float alpha) {
-        alpha = fminf(1.0f, fmaxf(0.0f, alpha));
+        alpha = MathUtils::clampAlpha(alpha);
         return RP_SET(mPrimitiveFields.mAlpha, alpha);
     }
 
@@ -313,7 +313,6 @@ public:
     }
 
     bool setScaleX(float scaleX) {
-        LOG_ALWAYS_FATAL_IF(scaleX > 1000000, "invalid scaleX %e", scaleX);
         return RP_SET_AND_DIRTY(mPrimitiveFields.mScaleX, scaleX);
     }
 
@@ -322,7 +321,6 @@ public:
     }
 
     bool setScaleY(float scaleY) {
-        LOG_ALWAYS_FATAL_IF(scaleY > 1000000, "invalid scaleY %e", scaleY);
         return RP_SET_AND_DIRTY(mPrimitiveFields.mScaleY, scaleY);
     }
 
@@ -546,19 +544,6 @@ public:
 
     void updateMatrix();
 
-    bool hasClippingPath() const {
-        return mPrimitiveFields.mRevealClip.willClip();
-    }
-
-    const SkPath* getClippingPath() const {
-        return mPrimitiveFields.mRevealClip.getPath();
-    }
-
-    SkRegion::Op getClippingPathOp() const {
-        return mPrimitiveFields.mRevealClip.isInverseClip()
-                ? SkRegion::kDifference_Op : SkRegion::kIntersect_Op;
-    }
-
     Outline& mutableOutline() {
         return mPrimitiveFields.mOutline;
     }
@@ -582,6 +567,12 @@ public:
     // Z damage estimate instead of INT_MAX
     bool getClipDamageToBounds() const {
         return getClipToBounds() && (getZ() <= 0 || getOutline().isEmpty());
+    }
+
+    bool hasShadow() const {
+        return getZ() > 0.0f
+                && getOutline().getPath() != NULL
+                && getOutline().getAlpha() != 0.0f;
     }
 
 private:

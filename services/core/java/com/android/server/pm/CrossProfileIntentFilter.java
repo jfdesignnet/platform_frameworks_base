@@ -33,17 +33,24 @@ import android.os.UserHandle;
 class CrossProfileIntentFilter extends IntentFilter {
     private static final String ATTR_TARGET_USER_ID = "targetUserId";
     private static final String ATTR_FLAGS = "flags";
+    private static final String ATTR_OWNER_USER_ID = "ownerUserId";
+    private static final String ATTR_OWNER_PACKAGE = "ownerPackage";
     private static final String ATTR_FILTER = "filter";
 
     private static final String TAG = "CrossProfileIntentFilter";
 
     // If the intent matches the IntentFilter, then it can be forwarded to this userId.
     final int mTargetUserId;
+    final int mOwnerUserId; // userId of the app which has set this CrossProfileIntentFilter.
+    final String mOwnerPackage; // packageName of the app.
     final int mFlags;
 
-    CrossProfileIntentFilter(IntentFilter filter, int targetUserId, int flags) {
+    CrossProfileIntentFilter(IntentFilter filter, String ownerPackage, int ownerUserId,
+            int targetUserId, int flags) {
         super(filter);
         mTargetUserId = targetUserId;
+        mOwnerUserId = ownerUserId;
+        mOwnerPackage = ownerPackage;
         mFlags = flags;
     }
 
@@ -55,25 +62,20 @@ class CrossProfileIntentFilter extends IntentFilter {
         return mFlags;
     }
 
+    public int getOwnerUserId() {
+        return mOwnerUserId;
+    }
+
+    public String getOwnerPackage() {
+        return mOwnerPackage;
+    }
+
     CrossProfileIntentFilter(XmlPullParser parser) throws XmlPullParserException, IOException {
-        String targetUserIdString = parser.getAttributeValue(null, ATTR_TARGET_USER_ID);
-        if (targetUserIdString == null) {
-            String msg = "Missing element under " + TAG +": " + ATTR_TARGET_USER_ID + " at " +
-                    parser.getPositionDescription();
-            PackageManagerService.reportSettingsProblem(Log.WARN, msg);
-            mTargetUserId = UserHandle.USER_NULL;
-        } else {
-            mTargetUserId = Integer.parseInt(targetUserIdString);
-        }
-        String flagsString = parser.getAttributeValue(null, ATTR_FLAGS);
-        if (flagsString == null) {
-            String msg = "Missing element under " + TAG +": " + ATTR_FLAGS + " at " +
-                    parser.getPositionDescription();
-            PackageManagerService.reportSettingsProblem(Log.WARN, msg);
-            mFlags = 0;
-        } else {
-            mFlags = Integer.parseInt(flagsString);
-        }
+        mTargetUserId = getIntFromXml(parser, ATTR_TARGET_USER_ID, UserHandle.USER_NULL);
+        mOwnerUserId = getIntFromXml(parser, ATTR_OWNER_USER_ID, UserHandle.USER_NULL);
+        mOwnerPackage = getStringFromXml(parser, ATTR_OWNER_PACKAGE, "");
+        mFlags = getIntFromXml(parser, ATTR_FLAGS, 0);
+
         int outerDepth = parser.getDepth();
         String tagName = parser.getName();
         int type;
@@ -86,8 +88,9 @@ class CrossProfileIntentFilter extends IntentFilter {
                 if (tagName.equals(ATTR_FILTER)) {
                     break;
                 } else {
-                    String msg = "Unknown element under " + Settings.TAG_FORWARDING_INTENT_FILTERS
-                            + ": " + tagName + " at " + parser.getPositionDescription();
+                    String msg = "Unknown element under "
+                            + Settings.TAG_CROSS_PROFILE_INTENT_FILTERS + ": " + tagName + " at "
+                            + parser.getPositionDescription();
                     PackageManagerService.reportSettingsProblem(Log.WARN, msg);
                     XmlUtils.skipCurrentTag(parser);
                 }
@@ -103,9 +106,31 @@ class CrossProfileIntentFilter extends IntentFilter {
         }
     }
 
+    String getStringFromXml(XmlPullParser parser, String attribute, String defaultValue) {
+        String value = parser.getAttributeValue(null, attribute);
+        if (value == null) {
+            String msg = "Missing element under " + TAG +": " + attribute + " at " +
+                    parser.getPositionDescription();
+            PackageManagerService.reportSettingsProblem(Log.WARN, msg);
+            return defaultValue;
+        } else {
+            return value;
+        }
+    }
+
+    int getIntFromXml(XmlPullParser parser, String attribute, int defaultValue) {
+        String stringValue = getStringFromXml(parser, attribute, null);
+        if (stringValue != null) {
+            return Integer.parseInt(stringValue);
+        }
+        return defaultValue;
+    }
+
     public void writeToXml(XmlSerializer serializer) throws IOException {
         serializer.attribute(null, ATTR_TARGET_USER_ID, Integer.toString(mTargetUserId));
         serializer.attribute(null, ATTR_FLAGS, Integer.toString(mFlags));
+        serializer.attribute(null, ATTR_OWNER_USER_ID, Integer.toString(mOwnerUserId));
+        serializer.attribute(null, ATTR_OWNER_PACKAGE, mOwnerPackage);
         serializer.startTag(null, ATTR_FILTER);
             super.writeToXml(serializer);
         serializer.endTag(null, ATTR_FILTER);
@@ -115,5 +140,12 @@ class CrossProfileIntentFilter extends IntentFilter {
     public String toString() {
         return "CrossProfileIntentFilter{0x" + Integer.toHexString(System.identityHashCode(this))
                 + " " + Integer.toString(mTargetUserId) + "}";
+    }
+
+    boolean equalsIgnoreFilter(CrossProfileIntentFilter other) {
+        return mTargetUserId == other.mTargetUserId
+                && mOwnerUserId == other.mOwnerUserId
+                && mOwnerPackage.equals(other.mOwnerPackage)
+                && mFlags == other.mFlags;
     }
 }

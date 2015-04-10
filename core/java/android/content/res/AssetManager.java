@@ -666,6 +666,14 @@ public final class AssetManager implements AutoCloseable {
 
     /**
      * Get the locales that this asset manager contains data for.
+     *
+     * <p>On SDK 21 (Android 5.0: Lollipop) and above, Locale strings are valid
+     * <a href="https://tools.ietf.org/html/bcp47">BCP-47</a> language tags and can be
+     * parsed using {@link java.util.Locale#forLanguageTag(String)}.
+     *
+     * <p>On SDK 20 (Android 4.4W: Kitkat for watches) and below, locale strings
+     * are of the form {@code ll_CC} where {@code ll} is a two letter language code,
+     * and {@code CC} is a two letter country code.
      */
     public native final String[] getLocales();
 
@@ -773,6 +781,7 @@ public final class AssetManager implements AutoCloseable {
     private native final String[] getArrayStringResource(int arrayRes);
     private native final int[] getArrayStringInfo(int arrayRes);
     /*package*/ native final int[] getArrayIntResource(int arrayRes);
+    /*package*/ native final int[] getStyleAttributes(int themeRes);
 
     private native final void init(boolean isSystem);
     private native final void destroy();

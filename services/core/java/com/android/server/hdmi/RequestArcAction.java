@@ -16,14 +16,13 @@
 
 package com.android.server.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
-
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.util.Slog;
 
 /**
  * Base feature action class for &lt;Request ARC Initiation&gt;/&lt;Request ARC Termination&gt;.
  */
-abstract class RequestArcAction extends FeatureAction {
+abstract class RequestArcAction extends HdmiCecFeatureAction {
     private static final String TAG = "RequestArcAction";
 
     // State in which waits for ARC response.
@@ -42,8 +41,8 @@ abstract class RequestArcAction extends FeatureAction {
      */
     RequestArcAction(HdmiCecLocalDevice source, int avrAddress) {
         super(source);
-        HdmiUtils.verifyAddressType(getSourceAddress(), HdmiCecDeviceInfo.DEVICE_TV);
-        HdmiUtils.verifyAddressType(avrAddress, HdmiCecDeviceInfo.DEVICE_AUDIO_SYSTEM);
+        HdmiUtils.verifyAddressType(getSourceAddress(), HdmiDeviceInfo.DEVICE_TV);
+        HdmiUtils.verifyAddressType(avrAddress, HdmiDeviceInfo.DEVICE_AUDIO_SYSTEM);
         mAvrAddress = avrAddress;
     }
 
@@ -57,13 +56,17 @@ abstract class RequestArcAction extends FeatureAction {
         switch (opcode) {
             // Handles only <Feature Abort> here and, both <Initiate ARC> and <Terminate ARC>
             // are handled in HdmiControlService itself because both can be
-            // received wihtout <Request ARC Initiation> or <Request ARC Termination>.
+            // received without <Request ARC Initiation> or <Request ARC Termination>.
             case Constants.MESSAGE_FEATURE_ABORT:
-                disableArcTransmission();
-                finish();
-                return true;
-            default:
-                Slog.w(TAG, "Unsupported opcode:" + cmd.toString());
+                int originalOpcode = cmd.getParams()[0] & 0xFF;
+                if (originalOpcode == Constants.MESSAGE_REQUEST_ARC_INITIATION
+                        || originalOpcode == Constants.MESSAGE_REQUEST_ARC_TERMINATION) {
+                    disableArcTransmission();
+                    finish();
+                    return true;
+                } else {
+                    return false;
+                }
         }
         return false;
     }
@@ -80,6 +83,7 @@ abstract class RequestArcAction extends FeatureAction {
         if (mState != state || state != STATE_WATING_FOR_REQUEST_ARC_REQUEST_RESPONSE) {
             return;
         }
+        HdmiLogger.debug("[T]RequestArcAction.");
         disableArcTransmission();
         finish();
     }

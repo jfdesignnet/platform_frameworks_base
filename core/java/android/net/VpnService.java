@@ -19,12 +19,15 @@ package android.net;
 import static android.system.OsConstants.AF_INET;
 import static android.system.OsConstants.AF_INET6;
 
+import android.annotation.SystemApi;
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
+import android.net.Network;
 import android.net.NetworkUtils;
 import android.os.Binder;
 import android.os.IBinder;
@@ -32,6 +35,7 @@ import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.UserHandle;
 
 import com.android.internal.net.VpnConfig;
 
@@ -60,7 +64,8 @@ import java.util.List;
  * conflict with each other. The system takes several actions to address
  * these issues. Here are some key points:
  * <ul>
- *   <li>User action is required to create a VPN connection.</li>
+ *   <li>User action is required the first time an application creates a VPN
+ *       connection.</li>
  *   <li>There can be only one VPN connection running at the same time. The
  *       existing interface is deactivated when a new one is created.</li>
  *   <li>A system-managed notification is shown during the lifetime of a
@@ -80,8 +85,8 @@ import java.util.List;
  * other methods in this class, and the right can be revoked at any time.
  * Here are the general steps to create a VPN connection:
  * <ol>
- *   <li>When the user press the button to connect, call {@link #prepare}
- *       and launch the returned intent.</li>
+ *   <li>When the user presses the button to connect, call {@link #prepare}
+ *       and launch the returned intent, if non-null.</li>
  *   <li>When the application becomes prepared, start the service.</li>
  *   <li>Create a tunnel to the remote server and negotiate the network
  *       parameters for the VPN connection.</li>
@@ -128,7 +133,8 @@ public class VpnService extends Service {
 
     /**
      * Prepare to establish a VPN connection. This method returns {@code null}
-     * if the VPN application is already prepared. Otherwise, it returns an
+     * if the VPN application is already prepared or if the user has previously
+     * consented to the VPN application. Otherwise, it returns an
      * {@link Intent} to a system activity. The application should launch the
      * activity using {@link Activity#startActivityForResult} to get itself
      * prepared. The activity may pop up a dialog to require user action, and
@@ -142,6 +148,10 @@ public class VpnService extends Service {
      * it becomes prepared again, subsequent calls to other methods in this
      * class will fail.
      *
+     * <p>The user may disable the VPN at any time while it is activated, in
+     * which case this method will return an intent the next time it is
+     * executed to obtain the user's consent again.
+     *
      * @see #onRevoke
      */
     public static Intent prepare(Context context) {
@@ -153,6 +163,32 @@ public class VpnService extends Service {
             // ignore
         }
         return VpnConfig.getIntentForConfirmation();
+    }
+
+    /**
+     * Version of {@link #prepare(Context)} which does not require user consent.
+     *
+     * <p>Requires {@link android.Manifest.permission#CONTROL_VPN} and should generally not be
+     * used. Only acceptable in situations where user consent has been obtained through other means.
+     *
+     * <p>Once this is run, future preparations may be done with the standard prepare method as this
+     * will authorize the package to prepare the VPN without consent in the future.
+     *
+     * @hide
+     */
+    @SystemApi
+    public static void prepareAndAuthorize(Context context) {
+        IConnectivityManager cm = getService();
+        String packageName = context.getPackageName();
+        try {
+            // Only prepare if we're not already prepared.
+            if (!cm.prepareVpn(packageName, null)) {
+                cm.prepareVpn(null, packageName);
+            }
+            cm.setVpnPackageAuthorization(true);
+        } catch (RemoteException e) {
+            // ignore
+        }
     }
 
     /**
@@ -210,10 +246,16 @@ public class VpnService extends Service {
      *
      * @return {@code true} on success.
      * @see Builder#addAddress
+     *
+     * @hide
      */
     public boolean addAddress(InetAddress address, int prefixLength) {
-        // TODO
-        return true;
+        check(address, prefixLength);
+        try {
+            return getService().addVpnAddress(address.getHostAddress(), prefixLength);
+        } catch (RemoteException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**
@@ -234,10 +276,56 @@ public class VpnService extends Service {
      * @param prefixLength The prefix length of the address.
      *
      * @return {@code true} on success.
+     *
+     * @hide
      */
     public boolean removeAddress(InetAddress address, int prefixLength) {
-        // TODO
-        return true;
+        check(address, prefixLength);
+        try {
+            return getService().removeVpnAddress(address.getHostAddress(), prefixLength);
+        } catch (RemoteException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * Sets the underlying networks used by the VPN for its upstream connections.
+     *
+     * <p>Used by the system to know the actual networks that carry traffic for apps affected by
+     * this VPN in order to present this information to the user (e.g., via status bar icons).
+     *
+     * <p>This method only needs to be called if the VPN has explicitly bound its underlying
+     * communications channels &mdash; such as the socket(s) passed to {@link #protect(int)} &mdash;
+     * to a {@code Network} using APIs such as {@link Network#bindSocket(Socket)} or
+     * {@link Network#bindSocket(DatagramSocket)}. The VPN should call this method every time
+     * the set of {@code Network}s it is using changes.
+     *
+     * <p>{@code networks} is one of the following:
+     * <ul>
+     * <li><strong>a non-empty array</strong>: an array of one or more {@link Network}s, in
+     * decreasing preference order. For example, if this VPN uses both wifi and mobile (cellular)
+     * networks to carry app traffic, but prefers or uses wifi more than mobile, wifi should appear
+     * first in the array.</li>
+     * <li><strong>an empty array</strong>: a zero-element array, meaning that the VPN has no
+     * underlying network connection, and thus, app traffic will not be sent or received.</li>
+     * <li><strong>null</strong>: (default) signifies that the VPN uses whatever is the system's
+     * default network. I.e., it doesn't use the {@code bindSocket} or {@code bindDatagramSocket}
+     * APIs mentioned above to send traffic over specific channels.</li>
+     * </ul>
+     *
+     * <p>This call will succeed only if the VPN is currently established. For setting this value
+     * when the VPN has not yet been established, see {@link Builder#setUnderlyingNetworks}.
+     *
+     * @param networks An array of networks the VPN uses to tunnel traffic to/from its servers.
+     *
+     * @return {@code true} on success.
+     */
+    public boolean setUnderlyingNetworks(Network[] networks) {
+        try {
+            return getService().setUnderlyingNetworksForVpn(networks);
+        } catch (RemoteException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**
@@ -282,6 +370,26 @@ public class VpnService extends Service {
                 return true;
             }
             return false;
+        }
+    }
+
+    /**
+     * Private method to validate address and prefixLength.
+     */
+    private static void check(InetAddress address, int prefixLength) {
+        if (address.isLoopbackAddress()) {
+            throw new IllegalArgumentException("Bad address");
+        }
+        if (address instanceof Inet4Address) {
+            if (prefixLength < 0 || prefixLength > 32) {
+                throw new IllegalArgumentException("Bad prefixLength");
+            }
+        } else if (address instanceof Inet6Address) {
+            if (prefixLength < 0 || prefixLength > 128) {
+                throw new IllegalArgumentException("Bad prefixLength");
+            }
+        } else {
+            throw new IllegalArgumentException("Unsupported family");
         }
     }
 
@@ -337,26 +445,6 @@ public class VpnService extends Service {
         }
 
         /**
-         * Private method to validate address and prefixLength.
-         */
-        private void check(InetAddress address, int prefixLength) {
-            if (address.isLoopbackAddress()) {
-                throw new IllegalArgumentException("Bad address");
-            }
-            if (address instanceof Inet4Address) {
-                if (prefixLength < 0 || prefixLength > 32) {
-                    throw new IllegalArgumentException("Bad prefixLength");
-                }
-            } else if (address instanceof Inet6Address) {
-                if (prefixLength < 0 || prefixLength > 128) {
-                    throw new IllegalArgumentException("Bad prefixLength");
-                }
-            } else {
-                throw new IllegalArgumentException("Unsupported family");
-            }
-        }
-
-        /**
          * Add a network address to the VPN interface. Both IPv4 and IPv6
          * addresses are supported. At least one address must be set before
          * calling {@link #establish}.
@@ -373,6 +461,7 @@ public class VpnService extends Service {
                 throw new IllegalArgumentException("Bad address");
             }
             mAddresses.add(new LinkAddress(address, prefixLength));
+            mConfig.updateAllowedFamilies(address);
             return this;
         }
 
@@ -412,7 +501,8 @@ public class VpnService extends Service {
                     }
                 }
             }
-            mRoutes.add(new RouteInfo(new LinkAddress(address, prefixLength), null));
+            mRoutes.add(new RouteInfo(new IpPrefix(address, prefixLength), null));
+            mConfig.updateAllowedFamilies(address);
             return this;
         }
 
@@ -497,8 +587,25 @@ public class VpnService extends Service {
          * @return this {@link Builder} object to facilitate chaining of method calls.
          */
         public Builder allowFamily(int family) {
-            // TODO
+            if (family == AF_INET) {
+                mConfig.allowIPv4 = true;
+            } else if (family == AF_INET6) {
+                mConfig.allowIPv6 = true;
+            } else {
+                throw new IllegalArgumentException(family + " is neither " + AF_INET + " nor " +
+                        AF_INET6);
+            }
             return this;
+        }
+
+        private void verifyApp(String packageName) throws PackageManager.NameNotFoundException {
+            IPackageManager pm = IPackageManager.Stub.asInterface(
+                    ServiceManager.getService("package"));
+            try {
+                pm.getApplicationInfo(packageName, 0, UserHandle.getCallingUserId());
+            } catch (RemoteException e) {
+                throw new IllegalStateException(e);
+            }
         }
 
         /**
@@ -506,7 +613,8 @@ public class VpnService extends Service {
          *
          * If this method is called at least once, only applications added through this method (and
          * no others) are allowed access. Else (if this method is never called), all applications
-         * are allowed by default.
+         * are allowed by default.  If some applications are added, other, un-added applications
+         * will use networking as if the VPN wasn't running.
          *
          * A {@link Builder} may have only a set of allowed applications OR a set of disallowed
          * ones, but not both. Calling this method after {@link #addDisallowedApplication} has
@@ -523,7 +631,14 @@ public class VpnService extends Service {
          */
         public Builder addAllowedApplication(String packageName)
                 throws PackageManager.NameNotFoundException {
-            // TODO
+            if (mConfig.disallowedApplications != null) {
+                throw new UnsupportedOperationException("addDisallowedApplication already called");
+            }
+            verifyApp(packageName);
+            if (mConfig.allowedApplications == null) {
+                mConfig.allowedApplications = new ArrayList<String>();
+            }
+            mConfig.allowedApplications.add(packageName);
             return this;
         }
 
@@ -531,7 +646,7 @@ public class VpnService extends Service {
          * Adds an application that's denied access to the VPN connection.
          *
          * By default, all applications are allowed access, except for those denied through this
-         * method.
+         * method.  Denied applications will use networking as if the VPN wasn't running.
          *
          * A {@link Builder} may have only a set of allowed applications OR a set of disallowed
          * ones, but not both. Calling this method after {@link #addAllowedApplication} has already
@@ -548,7 +663,14 @@ public class VpnService extends Service {
          */
         public Builder addDisallowedApplication(String packageName)
                 throws PackageManager.NameNotFoundException {
-            // TODO
+            if (mConfig.allowedApplications != null) {
+                throw new UnsupportedOperationException("addAllowedApplication already called");
+            }
+            verifyApp(packageName);
+            if (mConfig.disallowedApplications == null) {
+                mConfig.disallowedApplications = new ArrayList<String>();
+            }
+            mConfig.disallowedApplications.add(packageName);
             return this;
         }
 
@@ -578,6 +700,20 @@ public class VpnService extends Service {
          */
         public Builder setBlocking(boolean blocking) {
             mConfig.blocking = blocking;
+            return this;
+        }
+
+        /**
+         * Sets the underlying networks used by the VPN for its upstream connections.
+         *
+         * @see VpnService#setUnderlyingNetworks
+         *
+         * @param networks An array of networks the VPN uses to tunnel traffic to/from its servers.
+         *
+         * @return this {@link Builder} object to facilitate chaining method calls.
+         */
+        public Builder setUnderlyingNetworks(Network[] networks) {
+            mConfig.underlyingNetworks = networks != null ? networks.clone() : null;
             return this;
         }
 

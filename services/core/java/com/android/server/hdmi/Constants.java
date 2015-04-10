@@ -16,12 +16,12 @@
 
 package com.android.server.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 
 /**
  * Defines constants related to HDMI-CEC protocol internal implementation.
  * If a constant will be used in the public api, it should be located in
- * {@link android.hardware.hdmi.HdmiCec}.
+ * {@link android.hardware.hdmi.HdmiControlManager}.
  */
 final class Constants {
 
@@ -80,7 +80,7 @@ final class Constants {
     public static final int ADDR_INVALID = -1;
 
     /** Logical address used to indicate the source comes from internal device. */
-    public static final int ADDR_INTERNAL = HdmiCecDeviceInfo.ADDR_INTERNAL;
+    public static final int ADDR_INTERNAL = HdmiDeviceInfo.ADDR_INTERNAL;
 
     static final int MESSAGE_FEATURE_ABORT = 0x00;
     static final int MESSAGE_IMAGE_VIEW_ON = 0x04;
@@ -159,10 +159,12 @@ final class Constants {
     static final int TRUE = 1;
     static final int FALSE = 0;
 
+    // Internal abort error code. It's the same as success.
+    static final int ABORT_NO_ERROR = -1;
     // Constants related to operands of HDMI CEC commands.
     // Refer to CEC Table 29 in HDMI Spec v1.4b.
     // [Abort Reason]
-    static final int ABORT_UNRECOGNIZED_MODE = 0;
+    static final int ABORT_UNRECOGNIZED_OPCODE = 0;
     static final int ABORT_NOT_IN_CORRECT_MODE = 1;
     static final int ABORT_CANNOT_PROVIDE_SOURCE = 2;
     static final int ABORT_INVALID_OPERAND = 3;
@@ -173,13 +175,18 @@ final class Constants {
     static final int SYSTEM_AUDIO_STATUS_OFF = 0;
     static final int SYSTEM_AUDIO_STATUS_ON = 1;
 
+    // [Menu State]
+    static final int MENU_STATE_ACTIVATED = 0;
+    static final int MENU_STATE_DEACTIVATED = 1;
+
     // Bit mask used to get the routing path of the top level device.
     // When &'d with the path 1.2.2.0 (0x1220), for instance, gives 1.0.0.0.
     static final int ROUTING_PATH_TOP_MASK = 0xF000;
     static final int ROUTING_PATH_TOP_SHIFT = 12;
 
-    static final int INVALID_PORT_ID = -1;
-    static final int INVALID_PHYSICAL_ADDRESS = 0xFFFF;
+    static final int INVALID_PORT_ID = HdmiDeviceInfo.PORT_INVALID;
+    static final int INVALID_PHYSICAL_ADDRESS = HdmiDeviceInfo.PATH_INVALID;
+    static final int PATH_INTERNAL = HdmiDeviceInfo.PATH_INTERNAL;
 
     // Send result codes. It should be consistent with hdmi_cec.h's send_message error code.
     static final int SEND_RESULT_SUCCESS = 0;
@@ -199,20 +206,56 @@ final class Constants {
 
     static final int UNKNOWN_VOLUME = -1;
 
-    // IRT(Initiator Repetition Time) in millisecond as recommended in the standard.
-    // Outgoing UCP commands, when in 'Press and Hold' mode, should be this much apart
-    // from the adjacent one so as not to place unnecessarily heavy load on the CEC line.
-    // TODO: This value might need tweaking per product basis. Consider putting it
-    //       in config.xml to allow customization.
-    static final int IRT_MS = 300;
+    static final String PROPERTY_PREFERRED_ADDRESS_PLAYBACK = "persist.sys.hdmi.addr.playback";
+    static final String PROPERTY_PREFERRED_ADDRESS_TV = "persist.sys.hdmi.addr.tv";
 
-    static final String PROPERTY_PREFERRED_ADDRESS_PLAYBACK = "hdmi_cec.prefaddr.playback";
-    static final String PROPERTY_PREFERRED_ADDRESS_TV = "hdmi_cec.prefaddr.tv";
+    // Property name for the local device configurations.
+    // TODO(OEM): OEM should provide this property, and the value is the comma separated integer
+    //     values which denotes the device type in HDMI Spec 1.4.
+    static final String PROPERTY_DEVICE_TYPE = "ro.hdmi.device_type";
 
     static final int RECORDING_TYPE_DIGITAL_RF = 1;
     static final int RECORDING_TYPE_ANALOGUE_RF = 2;
     static final int RECORDING_TYPE_EXTERNAL_PHYSICAL_ADDRESS = 3;
     static final int RECORDING_TYPE_OWN_SOURCE = 4;
+
+    // Definitions used for setOption(). These should be in sync with the definition
+    // in hardware/libhardware/include/hardware/{hdmi_cec.h,mhl.h}.
+
+    // TV gets turned on by incoming <Text/Image View On>. enabled by default.
+    // If set to disabled, TV won't turn on automatically.
+    static final int OPTION_CEC_AUTO_WAKEUP = 1;
+
+    // If set to disabled, all CEC commands are discarded.
+    static final int OPTION_CEC_ENABLE = 2;
+
+    // If set to disabled, system service yields control of CEC to sub-microcontroller.
+    // If enabled, it takes the control back.
+    static final int OPTION_CEC_SERVICE_CONTROL = 3;
+
+    // Put other devices to standby when TV goes to standby. enabled by default.
+    // If set to disabled, TV doesn't send <Standby> to other devices.
+    static final int OPTION_CEC_AUTO_DEVICE_OFF = 4;
+
+    // Passes the language used in the system when updated. The value to use is the 3 byte
+    // code as defined in ISO/FDIS 639-2.
+    static final int OPTION_CEC_SET_LANGUAGE = 5;
+
+    // If set to disabled, TV does not switch ports when mobile device is connected.
+    static final int OPTION_MHL_INPUT_SWITCHING = 101;
+
+    // If set to enabled, TV disables power charging for mobile device.
+    static final int OPTION_MHL_POWER_CHARGE = 102;
+
+    // If set to disabled, all MHL commands are discarded.
+    static final int OPTION_MHL_ENABLE = 103;
+
+    // If set to disabled, system service yields control of MHL to sub-microcontroller.
+    // If enabled, it takes the control back.
+    static final int OPTION_MHL_SERVICE_CONTROL = 104;
+
+    static final int DISABLED = 0;
+    static final int ENABLED = 1;
 
     private Constants() { /* cannot be instantiated */ }
 }

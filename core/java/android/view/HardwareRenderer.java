@@ -186,6 +186,18 @@ public abstract class HardwareRenderer {
         }
     }
 
+    public static boolean sTrimForeground = false;
+
+    /**
+     * Controls whether or not the hardware renderer should aggressively
+     * trim memory. Note that this must not be set for any process that
+     * uses WebView! This should be only used by system_process or similar
+     * that do not go into the background.
+     */
+    public static void enableForegroundTrimming() {
+        sTrimForeground = true;
+    }
+
     /**
      * Indicates whether hardware acceleration is available under any form for
      * the view hierarchy.
@@ -223,7 +235,7 @@ public abstract class HardwareRenderer {
      * or not the surface used by the HardwareRenderer will be changing. It
      * Suspends any rendering into the surface, but will not do any destruction
      */
-    abstract void pauseSurface(Surface surface);
+    abstract boolean pauseSurface(Surface surface);
 
     /**
      * Destroys all hardware rendering resources associated with the specified
@@ -348,6 +360,8 @@ public abstract class HardwareRenderer {
      * @return A hardware layer
      */
     abstract HardwareLayer createTextureLayer();
+
+    abstract void buildLayer(RenderNode node);
 
     abstract boolean copyLayerInto(HardwareLayer layer, Bitmap bitmap);
 
@@ -483,4 +497,6 @@ public abstract class HardwareRenderer {
      * Called by {@link ViewRootImpl} when a new performTraverals is scheduled.
      */
     abstract void notifyFramePending();
+
+    abstract void registerAnimatingRenderNode(RenderNode animator);
 }

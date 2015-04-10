@@ -16,6 +16,7 @@
 
 package android.service.notification;
 
+import android.annotation.SystemApi;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Parcel;
@@ -28,6 +29,7 @@ import java.util.Objects;
  *
  * @hide
  */
+@SystemApi
 public class Condition implements Parcelable {
 
     public static final String SCHEME = "condition";
@@ -158,7 +160,7 @@ public class Condition implements Parcelable {
     }
 
     public static boolean isValidId(Uri id, String pkg) {
-        return id != null && id.getScheme().equals(SCHEME) && id.getAuthority().equals(pkg);
+        return id != null && SCHEME.equals(id.getScheme()) && pkg.equals(id.getAuthority());
     }
 
     public static final Parcelable.Creator<Condition> CREATOR

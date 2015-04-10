@@ -36,15 +36,16 @@ import android.view.Surface;
  */
 interface IWindowSession {
     int add(IWindow window, int seq, in WindowManager.LayoutParams attrs,
-            in int viewVisibility, out Rect outContentInsets,
+            in int viewVisibility, out Rect outContentInsets, out Rect outStableInsets,
             out InputChannel outInputChannel);
     int addToDisplay(IWindow window, int seq, in WindowManager.LayoutParams attrs,
             in int viewVisibility, in int layerStackId, out Rect outContentInsets,
-            out InputChannel outInputChannel);
+            out Rect outStableInsets, out InputChannel outInputChannel);
     int addWithoutInputChannel(IWindow window, int seq, in WindowManager.LayoutParams attrs,
-            in int viewVisibility, out Rect outContentInsets);
+            in int viewVisibility, out Rect outContentInsets, out Rect outStableInsets);
     int addToDisplayWithoutInputChannel(IWindow window, int seq, in WindowManager.LayoutParams attrs,
-            in int viewVisibility, in int layerStackId, out Rect outContentInsets);
+            in int viewVisibility, in int layerStackId, out Rect outContentInsets,
+            out Rect outStableInsets);
     void remove(IWindow window);
 
     /**
@@ -176,6 +177,11 @@ interface IWindowSession {
     void setWallpaperPosition(IBinder windowToken, float x, float y, float xstep, float ystep);
 
     void wallpaperOffsetsComplete(IBinder window);
+
+    /**
+     * Apply a raw offset to the wallpaper service when shown behind this window.
+     */
+    void setWallpaperDisplayOffset(IBinder windowToken, int x, int y);
 
     Bundle sendWallpaperCommand(IBinder window, String action, int x, int y,
             int z, in Bundle extras, boolean sync);

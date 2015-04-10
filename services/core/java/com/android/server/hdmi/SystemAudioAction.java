@@ -17,7 +17,7 @@
 package com.android.server.hdmi;
 
 import android.annotation.Nullable;
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.hardware.hdmi.HdmiControlManager;
 import android.hardware.hdmi.IHdmiControlCallback;
 import android.os.RemoteException;
@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Base feature action class for SystemAudioActionFromTv and SystemAudioActionFromAvr.
  */
-abstract class SystemAudioAction extends FeatureAction {
+abstract class SystemAudioAction extends HdmiCecFeatureAction {
     private static final String TAG = "SystemAudioAction";
 
     // Transient state to differentiate with STATE_NONE where the on-finished callback
@@ -65,7 +65,7 @@ abstract class SystemAudioAction extends FeatureAction {
     SystemAudioAction(HdmiCecLocalDevice source, int avrAddress, boolean targetStatus,
             IHdmiControlCallback callback) {
         super(source);
-        HdmiUtils.verifyAddressType(avrAddress, HdmiCecDeviceInfo.DEVICE_AUDIO_SYSTEM);
+        HdmiUtils.verifyAddressType(avrAddress, HdmiDeviceInfo.DEVICE_AUDIO_SYSTEM);
         mAvrLogicalAddress = avrAddress;
         mTargetAudioStatus = targetStatus;
         mCallback = callback;
@@ -73,9 +73,9 @@ abstract class SystemAudioAction extends FeatureAction {
 
     // Seq #27
     protected void sendSystemAudioModeRequest() {
-        mState = STATE_CHECK_ROUTING_IN_PRGRESS;
         List<RoutingControlAction> routingActions = getActions(RoutingControlAction.class);
         if (!routingActions.isEmpty()) {
+            mState = STATE_CHECK_ROUTING_IN_PRGRESS;
             // Should have only one Routing Control Action
             RoutingControlAction routingAction = routingActions.get(0);
             routingAction.addOnFinishedCallback(this, new Runnable() {
@@ -90,27 +90,41 @@ abstract class SystemAudioAction extends FeatureAction {
     }
 
     private void sendSystemAudioModeRequestInternal() {
-        int avrPhysicalAddress = tv().getAvrDeviceInfo().getPhysicalAddress();
         HdmiCecMessage command = HdmiCecMessageBuilder.buildSystemAudioModeRequest(
                 getSourceAddress(),
-                mAvrLogicalAddress, avrPhysicalAddress, mTargetAudioStatus);
+                mAvrLogicalAddress, getSystemAudioModeRequestParam(), mTargetAudioStatus);
         sendCommand(command, new HdmiControlService.SendMessageCallback() {
             @Override
             public void onSendCompleted(int error) {
-                if (error == Constants.SEND_RESULT_SUCCESS) {
-                    mState = STATE_WAIT_FOR_SET_SYSTEM_AUDIO_MODE;
-                    addTimer(mState, mTargetAudioStatus ? ON_TIMEOUT_MS : OFF_TIMEOUT_MS);
-                } else {
+                if (error != Constants.SEND_RESULT_SUCCESS) {
+                    HdmiLogger.debug("Failed to send <System Audio Mode Request>:" + error);
                     setSystemAudioMode(false);
                     finishWithCallback(HdmiControlManager.RESULT_COMMUNICATION_FAILED);
                 }
             }
         });
+        mState = STATE_WAIT_FOR_SET_SYSTEM_AUDIO_MODE;
+        addTimer(mState, mTargetAudioStatus ? ON_TIMEOUT_MS : OFF_TIMEOUT_MS);
+    }
+
+    private int getSystemAudioModeRequestParam() {
+        // <System Audio Mode Request> takes the physical address of the source device
+        // as a parameter. Get it from following candidates, in the order listed below:
+        // 1) physical address of the active source
+        // 2) active routing path
+        // 3) physical address of TV
+        if (tv().getActiveSource().isValid()) {
+            return tv().getActiveSource().physicalAddress;
+        }
+        int param = tv().getActivePath();
+        return param != Constants.INVALID_PHYSICAL_ADDRESS
+                ? param : Constants.PATH_INTERNAL;
     }
 
     private void handleSendSystemAudioModeRequestTimeout() {
         if (!mTargetAudioStatus  // Don't retry for Off case.
                 || mSendRetryCount++ >= MAX_SEND_RETRY_COUNT) {
+            HdmiLogger.debug("[T]:wait for <Set System Audio Mode>.");
             setSystemAudioMode(false);
             finishWithCallback(HdmiControlManager.RESULT_TIMEOUT);
             return;
@@ -124,10 +138,15 @@ abstract class SystemAudioAction extends FeatureAction {
 
     @Override
     final boolean processCommand(HdmiCecMessage cmd) {
+        if (cmd.getSource() != mAvrLogicalAddress) {
+            return false;
+        }
         switch (mState) {
             case STATE_WAIT_FOR_SET_SYSTEM_AUDIO_MODE:
                 if (cmd.getOpcode() == Constants.MESSAGE_FEATURE_ABORT
-                        && cmd.getParams()[0] == Constants.MESSAGE_SYSTEM_AUDIO_MODE_REQUEST) {
+                        && (cmd.getParams()[0] & 0xFF)
+                                == Constants.MESSAGE_SYSTEM_AUDIO_MODE_REQUEST) {
+                    HdmiLogger.debug("Failed to start system audio mode request.");
                     setSystemAudioMode(false);
                     finishWithCallback(HdmiControlManager.RESULT_EXCEPTION);
                     return true;
@@ -142,6 +161,7 @@ abstract class SystemAudioAction extends FeatureAction {
                     startAudioStatusAction();
                     return true;
                 } else {
+                    HdmiLogger.debug("Unexpected system audio mode request:" + receivedStatus);
                     // Unexpected response, consider the request is newly initiated by AVR.
                     // To return 'false' will initiate new SystemAudioActionFromAvr by the control
                     // service.

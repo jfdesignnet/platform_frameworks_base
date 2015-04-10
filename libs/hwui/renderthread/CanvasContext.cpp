@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "CanvasContext"
-
 #include "CanvasContext.h"
 
+#include <algorithm>
 #include <private/hwui/DrawGlInfo.h>
 #include <strings.h>
 
 #include "EglManager.h"
 #include "RenderThread.h"
+#include "../AnimationContext.h"
 #include "../Caches.h"
 #include "../DeferredLayerUpdater.h"
 #include "../RenderState.h"
@@ -37,31 +37,42 @@ namespace android {
 namespace uirenderer {
 namespace renderthread {
 
-CanvasContext::CanvasContext(RenderThread& thread, bool translucent, RenderNode* rootRenderNode)
+CanvasContext::CanvasContext(RenderThread& thread, bool translucent,
+        RenderNode* rootRenderNode, IContextFactory* contextFactory)
         : mRenderThread(thread)
         , mEglManager(thread.eglManager())
         , mEglSurface(EGL_NO_SURFACE)
-        , mDirtyRegionsEnabled(false)
+        , mBufferPreserved(false)
+        , mSwapBehavior(kSwap_default)
         , mOpaque(!translucent)
         , mCanvas(NULL)
         , mHaveNewSurface(false)
         , mRootRenderNode(rootRenderNode) {
+    mAnimationContext = contextFactory->createAnimationContext(mRenderThread.timeLord());
+    mRenderThread.renderState().registerCanvasContext(this);
 }
 
 CanvasContext::~CanvasContext() {
-    destroyCanvasAndSurface();
-    mRenderThread.removeFrameCallback(this);
+    destroy();
+    delete mAnimationContext;
+    mRenderThread.renderState().unregisterCanvasContext(this);
 }
 
-void CanvasContext::destroyCanvasAndSurface() {
+void CanvasContext::destroy() {
+    stopDrawing();
+    setSurface(NULL);
+    freePrefetechedLayers();
+    destroyHardwareResources();
+    mAnimationContext->destroy();
     if (mCanvas) {
         delete mCanvas;
         mCanvas = 0;
     }
-    setSurface(NULL);
 }
 
 void CanvasContext::setSurface(ANativeWindow* window) {
+    ATRACE_CALL();
+
     mNativeWindow = window;
 
     if (mEglSurface != EGL_NO_SURFACE) {
@@ -74,7 +85,8 @@ void CanvasContext::setSurface(ANativeWindow* window) {
     }
 
     if (mEglSurface != EGL_NO_SURFACE) {
-        mDirtyRegionsEnabled = mEglManager.enableDirtyRegions(mEglSurface);
+        const bool preserveBuffer = (mSwapBehavior != kSwap_discardBuffer);
+        mBufferPreserved = mEglManager.setPreserveBuffer(mEglSurface, preserveBuffer);
         mHaveNewSurface = true;
         makeCurrent();
     } else {
@@ -83,7 +95,9 @@ void CanvasContext::setSurface(ANativeWindow* window) {
 }
 
 void CanvasContext::swapBuffers() {
-    mEglManager.swapBuffers(mEglSurface);
+    if (CC_UNLIKELY(!mEglManager.swapBuffers(mEglSurface))) {
+        setSurface(NULL);
+    }
     mHaveNewSurface = false;
 }
 
@@ -93,9 +107,13 @@ void CanvasContext::requireSurface() {
     makeCurrent();
 }
 
+void CanvasContext::setSwapBehavior(SwapBehavior swapBehavior) {
+    mSwapBehavior = swapBehavior;
+}
+
 bool CanvasContext::initialize(ANativeWindow* window) {
-    if (mCanvas) return false;
     setSurface(window);
+    if (mCanvas) return false;
     mCanvas = new OpenGLRenderer(mRenderThread.renderState());
     mCanvas->initProperties();
     return true;
@@ -105,15 +123,14 @@ void CanvasContext::updateSurface(ANativeWindow* window) {
     setSurface(window);
 }
 
-void CanvasContext::pauseSurface(ANativeWindow* window) {
-    // TODO: For now we just need a fence, in the future suspend any animations
-    // and such to prevent from trying to render into this surface
+bool CanvasContext::pauseSurface(ANativeWindow* window) {
+    return mRenderThread.removeFrameCallback(this);
 }
 
+// TODO: don't pass viewport size, it's automatic via EGL
 void CanvasContext::setup(int width, int height, const Vector3& lightCenter, float lightRadius,
         uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha) {
     if (!mCanvas) return;
-    mCanvas->setViewport(width, height);
     mCanvas->initLight(lightCenter, lightRadius, ambientShadowAlpha, spotShadowAlpha);
 }
 
@@ -138,10 +155,23 @@ void CanvasContext::processLayerUpdate(DeferredLayerUpdater* layerUpdater) {
 void CanvasContext::prepareTree(TreeInfo& info) {
     mRenderThread.removeFrameCallback(this);
 
-    info.frameTimeMs = mRenderThread.timeLord().frameTimeMs();
     info.damageAccumulator = &mDamageAccumulator;
     info.renderer = mCanvas;
+    if (mPrefetechedLayers.size() && info.mode == TreeInfo::MODE_FULL) {
+        info.canvasContext = this;
+    }
+    mAnimationContext->startFrame(info.mode);
     mRootRenderNode->prepareTree(info);
+    mAnimationContext->runRemainingAnimations(info);
+
+    if (info.canvasContext) {
+        freePrefetechedLayers();
+    }
+
+    if (CC_UNLIKELY(!mNativeWindow.get())) {
+        info.out.canDrawThisFrame = false;
+        return;
+    }
 
     int runningBehind = 0;
     // TODO: This query is moderately expensive, investigate adding some sort
@@ -183,7 +213,7 @@ void CanvasContext::draw() {
     if (width != mCanvas->getViewportWidth() || height != mCanvas->getViewportHeight()) {
         mCanvas->setViewport(width, height);
         dirty.setEmpty();
-    } else if (!mDirtyRegionsEnabled || mHaveNewSurface) {
+    } else if (!mBufferPreserved || mHaveNewSurface) {
         dirty.setEmpty();
     } else {
         if (!dirty.isEmpty() && !dirty.intersect(0, 0, width, height)) {
@@ -213,6 +243,8 @@ void CanvasContext::draw() {
 
     if (status & DrawGlInfo::kStatusDrew) {
         swapBuffers();
+    } else {
+        mEglManager.cancelFrame();
     }
 
     profiler().finishFrame();
@@ -246,6 +278,53 @@ void CanvasContext::invokeFunctor(RenderThread& thread, Functor* functor) {
     thread.renderState().invokeFunctor(functor, mode, NULL);
 }
 
+void CanvasContext::markLayerInUse(RenderNode* node) {
+    if (mPrefetechedLayers.erase(node)) {
+        node->decStrong(0);
+    }
+}
+
+static void destroyPrefetechedNode(RenderNode* node) {
+    ALOGW("Incorrectly called buildLayer on View: %s, destroying layer...", node->getName());
+    node->destroyHardwareResources();
+    node->decStrong(0);
+}
+
+void CanvasContext::freePrefetechedLayers() {
+    if (mPrefetechedLayers.size()) {
+        requireGlContext();
+        std::for_each(mPrefetechedLayers.begin(), mPrefetechedLayers.end(), destroyPrefetechedNode);
+        mPrefetechedLayers.clear();
+    }
+}
+
+void CanvasContext::buildLayer(RenderNode* node) {
+    ATRACE_CALL();
+    if (!mEglManager.hasEglContext() || !mCanvas) {
+        return;
+    }
+    requireGlContext();
+    // buildLayer() will leave the tree in an unknown state, so we must stop drawing
+    stopDrawing();
+
+    TreeInfo info(TreeInfo::MODE_FULL, mRenderThread.renderState());
+    info.damageAccumulator = &mDamageAccumulator;
+    info.renderer = mCanvas;
+    info.runAnimations = false;
+    node->prepareTree(info);
+    SkRect ignore;
+    mDamageAccumulator.finish(&ignore);
+    // Tickle the GENERIC property on node to mark it as dirty for damaging
+    // purposes when the frame is actually drawn
+    node->setPropertyFieldsDirty(RenderNode::GENERIC);
+
+    mCanvas->markLayersAsBuildLayers();
+    mCanvas->flushLayerUpdates();
+
+    node->incStrong(0);
+    mPrefetechedLayers.insert(node);
+}
+
 bool CanvasContext::copyLayerInto(DeferredLayerUpdater* layer, SkBitmap* bitmap) {
     requireGlContext();
     layer->apply();
@@ -256,6 +335,7 @@ void CanvasContext::destroyHardwareResources() {
     stopDrawing();
     if (mEglManager.hasEglContext()) {
         requireGlContext();
+        freePrefetechedLayers();
         mRootRenderNode->destroyHardwareResources();
         Caches::getInstance().flush(Caches::kFlushMode_Layers);
     }
@@ -265,6 +345,7 @@ void CanvasContext::trimMemory(RenderThread& thread, int level) {
     // No context means nothing to free
     if (!thread.eglManager().hasEglContext()) return;
 
+    ATRACE_CALL();
     thread.eglManager().requireGlContext();
     if (level >= TRIM_MEMORY_COMPLETE) {
         Caches::getInstance().flush(Caches::kFlushMode_Full);
@@ -277,11 +358,6 @@ void CanvasContext::trimMemory(RenderThread& thread, int level) {
 void CanvasContext::runWithGlContext(RenderTask* task) {
     requireGlContext();
     task->run();
-}
-
-Layer* CanvasContext::createRenderLayer(int width, int height) {
-    requireSurface();
-    return LayerRenderer::createRenderLayer(mRenderThread.renderState(), width, height);
 }
 
 Layer* CanvasContext::createTextureLayer() {

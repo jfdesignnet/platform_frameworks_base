@@ -16,6 +16,7 @@
 
 package com.android.server.wm;
 
+import static android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
 import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_STARTING;
 import static com.android.server.wm.WindowManagerService.DEBUG_ANIM;
 import static com.android.server.wm.WindowManagerService.DEBUG_LAYERS;
@@ -39,6 +40,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Region;
 import android.os.Debug;
+import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.Slog;
 import android.view.Display;
@@ -51,10 +53,13 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.WindowManagerPolicy;
 import android.view.WindowManager.LayoutParams;
+import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
+import android.view.animation.AnimationSet;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Transformation;
 
+import com.android.internal.R;
 import com.android.server.wm.WindowManagerService.H;
 
 import java.io.PrintWriter;
@@ -95,6 +100,8 @@ class WindowStateAnimator {
     boolean mWasAnimating;      // Were we animating going into the most recent animation step?
     int mAnimLayer;
     int mLastLayer;
+    long mAnimationStartTime;
+    long mLastAnimationTime;
 
     SurfaceControl mSurfaceControl;
     SurfaceControl mPendingDestroySurface;
@@ -140,6 +147,13 @@ class WindowStateAnimator {
     // an enter animation.
     boolean mEnterAnimationPending;
 
+    /** Used to indicate that this window is undergoing an enter animation. Used for system
+     * windows to make the callback to View.dispatchOnWindowShownCallback(). Set when the
+     * window is first added or shown, cleared when the callback has been made. */
+    boolean mEnteringAnimation;
+
+    boolean mKeyguardGoingAwayAnimation;
+
     /** This is set when there is no Surface */
     static final int NO_SURFACE = 0;
     /** This is set after the Surface has been created but before the window has been drawn. During
@@ -158,14 +172,14 @@ class WindowStateAnimator {
     private static final int SYSTEM_UI_FLAGS_LAYOUT_STABLE_FULLSCREEN =
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
 
-    static String drawStateToString(int state) {
-        switch (state) {
+    String drawStateToString() {
+        switch (mDrawState) {
             case NO_SURFACE: return "NO_SURFACE";
             case DRAW_PENDING: return "DRAW_PENDING";
             case COMMIT_DRAW_PENDING: return "COMMIT_DRAW_PENDING";
             case READY_TO_SHOW: return "READY_TO_SHOW";
             case HAS_DRAWN: return "HAS_DRAWN";
-            default: return Integer.toString(state);
+            default: return Integer.toString(mDrawState);
         }
     }
     int mDrawState;
@@ -201,7 +215,7 @@ class WindowStateAnimator {
         mIsWallpaper = win.mIsWallpaper;
     }
 
-    public void setAnimation(Animation anim) {
+    public void setAnimation(Animation anim, long startTime) {
         if (localLOGV) Slog.v(TAG, "Setting animation in " + this + ": " + anim);
         mAnimating = false;
         mLocalAnimating = false;
@@ -212,6 +226,11 @@ class WindowStateAnimator {
         mTransformation.clear();
         mTransformation.setAlpha(mLastHidden ? 0 : 1);
         mHasLocalTransformation = true;
+        mAnimationStartTime = startTime;
+    }
+
+    public void setAnimation(Animation anim) {
+        setAnimation(anim, -1);
     }
 
     public void clearAnimation() {
@@ -220,6 +239,7 @@ class WindowStateAnimator {
             mLocalAnimating = false;
             mAnimation.cancel();
             mAnimation = null;
+            mKeyguardGoingAwayAnimation = false;
         }
     }
 
@@ -289,11 +309,14 @@ class WindowStateAnimator {
                     final DisplayInfo displayInfo = displayContent.getDisplayInfo();
                     mAnimDw = displayInfo.appWidth;
                     mAnimDh = displayInfo.appHeight;
-                    mAnimation.setStartTime(currentTime);
+                    mAnimation.setStartTime(mAnimationStartTime != -1
+                            ? mAnimationStartTime
+                            : currentTime);
                     mLocalAnimating = true;
                     mAnimating = true;
                 }
                 if ((mAnimation != null) && mLocalAnimating) {
+                    mLastAnimationTime = currentTime;
                     if (stepAnimation(currentTime)) {
                         return true;
                     }
@@ -341,6 +364,7 @@ class WindowStateAnimator {
             + (mWin.mAppToken != null ? mWin.mAppToken.reportedVisible : false));
 
         mAnimating = false;
+        mKeyguardGoingAwayAnimation = false;
         mLocalAnimating = false;
         if (mAnimation != null) {
             mAnimation.cancel();
@@ -423,6 +447,22 @@ class WindowStateAnimator {
             mWin.mChildWindows.get(i).mWinAnimator.finishExit();
         }
 
+        if (mEnteringAnimation && mWin.mAppToken == null) {
+            try {
+                mEnteringAnimation = false;
+                mWin.mClient.dispatchWindowShown();
+            } catch (RemoteException e) {
+            }
+        }
+
+        if (!isWindowAnimating()) {
+            //TODO (multidisplay): Accessibility is supported only for the default display.
+            if (mService.mAccessibilityController != null
+                    && mWin.getDisplayId() == Display.DEFAULT_DISPLAY) {
+                mService.mAccessibilityController.onSomeWindowResizedOrMovedLocked();
+            }
+        }
+
         if (!mWin.mExiting) {
             return;
         }
@@ -467,17 +507,17 @@ class WindowStateAnimator {
     }
 
     boolean finishDrawingLocked() {
-        if (DEBUG_STARTING_WINDOW &&
-                mWin.mAttrs.type == WindowManager.LayoutParams.TYPE_APPLICATION_STARTING) {
+        final boolean startingWindow =
+                mWin.mAttrs.type == WindowManager.LayoutParams.TYPE_APPLICATION_STARTING;
+        if (DEBUG_STARTING_WINDOW && startingWindow) {
             Slog.v(TAG, "Finishing drawing window " + mWin + ": mDrawState="
-                    + drawStateToString(mDrawState));
+                    + drawStateToString());
         }
         if (mDrawState == DRAW_PENDING) {
             if (DEBUG_SURFACE_TRACE || DEBUG_ANIM || SHOW_TRANSACTIONS || DEBUG_ORIENTATION)
                 Slog.v(TAG, "finishDrawingLocked: mDrawState=COMMIT_DRAW_PENDING " + this + " in "
                         + mSurfaceControl);
-            if (DEBUG_STARTING_WINDOW &&
-                    mWin.mAttrs.type == WindowManager.LayoutParams.TYPE_APPLICATION_STARTING) {
+            if (DEBUG_STARTING_WINDOW && startingWindow) {
                 Slog.v(TAG, "Draw state now committed in " + mWin);
             }
             mDrawState = COMMIT_DRAW_PENDING;
@@ -491,18 +531,17 @@ class WindowStateAnimator {
         if (DEBUG_STARTING_WINDOW &&
                 mWin.mAttrs.type == WindowManager.LayoutParams.TYPE_APPLICATION_STARTING) {
             Slog.i(TAG, "commitFinishDrawingLocked: " + mWin + " cur mDrawState="
-                    + drawStateToString(mDrawState));
+                    + drawStateToString());
         }
-        if (mDrawState != COMMIT_DRAW_PENDING) {
+        if (mDrawState != COMMIT_DRAW_PENDING && mDrawState != READY_TO_SHOW) {
             return false;
         }
         if (DEBUG_SURFACE_TRACE || DEBUG_ANIM) {
             Slog.i(TAG, "commitFinishDrawingLocked: mDrawState=READY_TO_SHOW " + mSurfaceControl);
         }
         mDrawState = READY_TO_SHOW;
-        final boolean starting = mWin.mAttrs.type == TYPE_APPLICATION_STARTING;
         final AppWindowToken atoken = mWin.mAppToken;
-        if (atoken == null || atoken.allDrawn || starting) {
+        if (atoken == null || atoken.allDrawn || mWin.mAttrs.type == TYPE_APPLICATION_STARTING) {
             performShowLocked();
         }
         return true;
@@ -510,6 +549,7 @@ class WindowStateAnimator {
 
     static class SurfaceTrace extends SurfaceControl {
         private final static String SURFACE_TAG = "SurfaceTrace";
+        private final static boolean logSurfaceTrace = DEBUG_SURFACE_TRACE;
         final static ArrayList<SurfaceTrace> sSurfaces = new ArrayList<SurfaceTrace>();
 
         private float mSurfaceTraceAlpha = 0;
@@ -520,6 +560,7 @@ class WindowStateAnimator {
         private boolean mShown = false;
         private int mLayerStack;
         private boolean mIsOpaque;
+        private float mDsdx, mDtdx, mDsdy, mDtdy;
         private final String mName;
 
         public SurfaceTrace(SurfaceSession s,
@@ -528,15 +569,18 @@ class WindowStateAnimator {
             super(s, name, w, h, format, flags);
             mName = name != null ? name : "Not named";
             mSize.set(w, h);
-            Slog.v(SURFACE_TAG, "ctor: " + this + ". Called by "
+            if (logSurfaceTrace) Slog.v(SURFACE_TAG, "ctor: " + this + ". Called by "
                     + Debug.getCallers(3));
+            synchronized (sSurfaces) {
+                sSurfaces.add(0, this);
+            }
         }
 
         @Override
         public void setAlpha(float alpha) {
             if (mSurfaceTraceAlpha != alpha) {
-                Slog.v(SURFACE_TAG, "setAlpha(" + alpha + "): OLD:" + this + ". Called by "
-                        + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setAlpha(" + alpha + "): OLD:" + this +
+                        ". Called by " + Debug.getCallers(3));
                 mSurfaceTraceAlpha = alpha;
             }
             super.setAlpha(alpha);
@@ -545,28 +589,30 @@ class WindowStateAnimator {
         @Override
         public void setLayer(int zorder) {
             if (zorder != mLayer) {
-                Slog.v(SURFACE_TAG, "setLayer(" + zorder + "): OLD:" + this + ". Called by "
-                        + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setLayer(" + zorder + "): OLD:" + this
+                        + ". Called by " + Debug.getCallers(3));
                 mLayer = zorder;
             }
             super.setLayer(zorder);
 
-            sSurfaces.remove(this);
-            int i;
-            for (i = sSurfaces.size() - 1; i >= 0; i--) {
-                SurfaceTrace s = sSurfaces.get(i);
-                if (s.mLayer < zorder) {
-                    break;
+            synchronized (sSurfaces) {
+                sSurfaces.remove(this);
+                int i;
+                for (i = sSurfaces.size() - 1; i >= 0; i--) {
+                    SurfaceTrace s = sSurfaces.get(i);
+                    if (s.mLayer < zorder) {
+                        break;
+                    }
                 }
+                sSurfaces.add(i + 1, this);
             }
-            sSurfaces.add(i + 1, this);
         }
 
         @Override
         public void setPosition(float x, float y) {
             if (x != mPosition.x || y != mPosition.y) {
-                Slog.v(SURFACE_TAG, "setPosition(" + x + "," + y + "): OLD:" + this
-                        + ". Called by " + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setPosition(" + x + "," + y + "): OLD:"
+                        + this + ". Called by " + Debug.getCallers(3));
                 mPosition.set(x, y);
             }
             super.setPosition(x, y);
@@ -575,8 +621,8 @@ class WindowStateAnimator {
         @Override
         public void setSize(int w, int h) {
             if (w != mSize.x || h != mSize.y) {
-                Slog.v(SURFACE_TAG, "setSize(" + w + "," + h + "): OLD:" + this + ". Called by "
-                        + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setSize(" + w + "," + h + "): OLD:"
+                        + this + ". Called by " + Debug.getCallers(3));
                 mSize.set(w, h);
             }
             super.setSize(w, h);
@@ -586,8 +632,9 @@ class WindowStateAnimator {
         public void setWindowCrop(Rect crop) {
             if (crop != null) {
                 if (!crop.equals(mWindowCrop)) {
-                    Slog.v(SURFACE_TAG, "setWindowCrop(" + crop.toShortString() + "): OLD:" + this
-                            + ". Called by " + Debug.getCallers(3));
+                    if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setWindowCrop("
+                            + crop.toShortString() + "): OLD:" + this + ". Called by "
+                            + Debug.getCallers(3));
                     mWindowCrop.set(crop);
                 }
             }
@@ -597,8 +644,8 @@ class WindowStateAnimator {
         @Override
         public void setLayerStack(int layerStack) {
             if (layerStack != mLayerStack) {
-                Slog.v(SURFACE_TAG, "setLayerStack(" + layerStack + "): OLD:" + this
-                        + ". Called by " + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setLayerStack(" + layerStack + "): OLD:"
+                        + this + ". Called by " + Debug.getCallers(3));
                 mLayerStack = layerStack;
             }
             super.setLayerStack(layerStack);
@@ -607,17 +654,32 @@ class WindowStateAnimator {
         @Override
         public void setOpaque(boolean isOpaque) {
             if (isOpaque != mIsOpaque) {
-                Slog.v(SURFACE_TAG, "setOpaque(" + isOpaque + "): OLD:" + this
-                        + ". Called by " + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setOpaque(" + isOpaque + "): OLD:"
+                        + this + ". Called by " + Debug.getCallers(3));
                 mIsOpaque = isOpaque;
             }
             super.setOpaque(isOpaque);
         }
 
         @Override
+        public void setMatrix(float dsdx, float dtdx, float dsdy, float dtdy) {
+            if (dsdx != mDsdx || dtdx != mDtdx || dsdy != mDsdy || dtdy != mDtdy) {
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setMatrix(" + dsdx + "," + dtdx + ","
+                        + dsdy + "," + dtdy + "): OLD:" + this + ". Called by "
+                        + Debug.getCallers(3));
+                mDsdx = dsdx;
+                mDtdx = dtdx;
+                mDsdy = dsdy;
+                mDtdy = dtdy;
+            }
+            super.setMatrix(dsdx, dtdx, dsdy, dtdy);
+        }
+
+        @Override
         public void hide() {
             if (mShown) {
-                Slog.v(SURFACE_TAG, "hide: OLD:" + this + ". Called by " + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "hide: OLD:" + this + ". Called by "
+                        + Debug.getCallers(3));
                 mShown = false;
             }
             super.hide();
@@ -626,7 +688,8 @@ class WindowStateAnimator {
         @Override
         public void show() {
             if (!mShown) {
-                Slog.v(SURFACE_TAG, "show: OLD:" + this + ". Called by " + Debug.getCallers(3));
+                if (logSurfaceTrace) Slog.v(SURFACE_TAG, "show: OLD:" + this + ". Called by "
+                        + Debug.getCallers(3));
                 mShown = true;
             }
             super.show();
@@ -635,22 +698,52 @@ class WindowStateAnimator {
         @Override
         public void destroy() {
             super.destroy();
-            Slog.v(SURFACE_TAG, "destroy: " + this + ". Called by " + Debug.getCallers(3));
-            sSurfaces.remove(this);
+            if (logSurfaceTrace) Slog.v(SURFACE_TAG, "destroy: " + this + ". Called by "
+                    + Debug.getCallers(3));
+            synchronized (sSurfaces) {
+                sSurfaces.remove(this);
+            }
         }
 
         @Override
         public void release() {
             super.release();
-            Slog.v(SURFACE_TAG, "release: " + this + ". Called by "
+            if (logSurfaceTrace) Slog.v(SURFACE_TAG, "release: " + this + ". Called by "
                     + Debug.getCallers(3));
-            sSurfaces.remove(this);
+            synchronized (sSurfaces) {
+                sSurfaces.remove(this);
+            }
         }
 
-        static void dumpAllSurfaces() {
-            final int N = sSurfaces.size();
-            for (int i = 0; i < N; i++) {
-                Slog.i(TAG, "SurfaceDump: " + sSurfaces.get(i));
+        static void dumpAllSurfaces(PrintWriter pw, String header) {
+            synchronized (sSurfaces) {
+                final int N = sSurfaces.size();
+                if (N <= 0) {
+                    return;
+                }
+                if (header != null) {
+                    pw.println(header);
+                }
+                pw.println("WINDOW MANAGER SURFACES (dumpsys window surfaces)");
+                for (int i = 0; i < N; i++) {
+                    SurfaceTrace s = sSurfaces.get(i);
+                    pw.print("  Surface #"); pw.print(i); pw.print(": #");
+                            pw.print(Integer.toHexString(System.identityHashCode(s)));
+                            pw.print(" "); pw.println(s.mName);
+                    pw.print("    mLayerStack="); pw.print(s.mLayerStack);
+                            pw.print(" mLayer="); pw.println(s.mLayer);
+                    pw.print("    mShown="); pw.print(s.mShown); pw.print(" mAlpha=");
+                            pw.print(s.mSurfaceTraceAlpha); pw.print(" mIsOpaque=");
+                            pw.println(s.mIsOpaque);
+                    pw.print("    mPosition="); pw.print(s.mPosition.x); pw.print(",");
+                            pw.print(s.mPosition.y);
+                            pw.print(" mSize="); pw.print(s.mSize.x); pw.print("x");
+                            pw.println(s.mSize.y);
+                    pw.print("    mCrop="); s.mWindowCrop.printShortString(pw); pw.println();
+                    pw.print("    Transform: ("); pw.print(s.mDsdx); pw.print(", ");
+                            pw.print(s.mDtdx); pw.print(", "); pw.print(s.mDsdy);
+                            pw.print(", "); pw.print(s.mDtdy); pw.println(")");
+                }
             }
         }
 
@@ -661,7 +754,8 @@ class WindowStateAnimator {
                     + " alpha=" + mSurfaceTraceAlpha + " " + mPosition.x + "," + mPosition.y
                     + " " + mSize.x + "x" + mSize.y
                     + " crop=" + mWindowCrop.toShortString()
-                    + " opaque=" + mIsOpaque;
+                    + " opaque=" + mIsOpaque
+                    + " (" + mDsdx + "," + mDtdx + "," + mDsdy + "," + mDtdy + ")";
         }
     }
 
@@ -750,7 +844,11 @@ class WindowStateAnimator {
                 final boolean isHwAccelerated = (attrs.flags &
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED) != 0;
                 final int format = isHwAccelerated ? PixelFormat.TRANSLUCENT : attrs.format;
-                if (!PixelFormat.formatHasAlpha(attrs.format)) {
+                if (!PixelFormat.formatHasAlpha(attrs.format)
+                        && attrs.surfaceInsets.left == 0
+                        && attrs.surfaceInsets.top == 0
+                        && attrs.surfaceInsets.right == 0
+                        && attrs.surfaceInsets.bottom  == 0) {
                     flags |= SurfaceControl.OPAQUE;
                 }
 
@@ -1055,6 +1153,14 @@ class WindowStateAnimator {
                     mShownAlpha *= appTransformation.getAlpha();
                     if (appTransformation.hasClipRect()) {
                         mClipRect.set(appTransformation.getClipRect());
+                        if (mWin.mHScale > 0) {
+                            mClipRect.left /= mWin.mHScale;
+                            mClipRect.right /= mWin.mHScale;
+                        }
+                        if (mWin.mVScale > 0) {
+                            mClipRect.top /= mWin.mVScale;
+                            mClipRect.bottom /= mWin.mVScale;
+                        }
                         mHasClipRect = true;
                     }
                 }
@@ -1207,6 +1313,12 @@ class WindowStateAnimator {
                 || w.mDecorFrame.isEmpty()) {
             // The universe background isn't cropped, nor windows without policy decor.
             w.mSystemDecorRect.set(0, 0, w.mCompatFrame.width(), w.mCompatFrame.height());
+        } else if (w.mAttrs.type == LayoutParams.TYPE_WALLPAPER && mAnimator.mAnimating) {
+            // If we're animating, the wallpaper crop should only be updated at the end of the
+            // animation.
+            mTmpClipRect.set(w.mSystemDecorRect);
+            applyDecorRect(w.mDecorFrame);
+            w.mSystemDecorRect.union(mTmpClipRect);
         } else {
             // Crop to the system decor specified by policy.
             applyDecorRect(w.mDecorFrame);
@@ -1229,9 +1341,10 @@ class WindowStateAnimator {
             // not always reporting the correct system decor rect. In such
             // cases, we take into account the specified content insets as well.
             if ((w.mSystemUiVisibility & SYSTEM_UI_FLAGS_LAYOUT_STABLE_FULLSCREEN)
-                    == SYSTEM_UI_FLAGS_LAYOUT_STABLE_FULLSCREEN) {
+                    == SYSTEM_UI_FLAGS_LAYOUT_STABLE_FULLSCREEN
+                    || (w.mAttrs.flags & FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0) {
                 // Don't apply the workaround to apps explicitly requesting
-                // fullscreen layout.
+                // fullscreen layout or when the bars are transparent.
                 clipRect.intersect(mClipRect);
             } else {
                 final int offsetTop = Math.max(clipRect.top, w.mContentInsets.top);
@@ -1326,7 +1439,10 @@ class WindowStateAnimator {
                 mAnimator.setPendingLayoutChanges(w.getDisplayId(),
                         WindowManagerPolicy.FINISH_LAYOUT_REDO_WALLPAPER);
                 if ((w.mAttrs.flags & LayoutParams.FLAG_DIM_BEHIND) != 0) {
-                    w.getStack().startDimmingIfNeeded(this);
+                    final TaskStack stack = w.getStack();
+                    if (stack != null) {
+                        stack.startDimmingIfNeeded(this);
+                    }
                 }
             } catch (RuntimeException e) {
                 // If something goes wrong with the surface (such
@@ -1399,10 +1515,10 @@ class WindowStateAnimator {
             w.mLastVScale = w.mVScale;
             if (WindowManagerService.SHOW_TRANSACTIONS) WindowManagerService.logSurface(w,
                     "alpha=" + mShownAlpha + " layer=" + mAnimLayer
-                    + " matrix=[" + (mDsDx*w.mHScale)
-                    + "," + (mDtDx*w.mVScale)
-                    + "][" + (mDsDy*w.mHScale)
-                    + "," + (mDtDy*w.mVScale) + "]", null);
+                    + " matrix=[" + mDsDx + "*" + w.mHScale
+                    + "," + mDtDx + "*" + w.mVScale
+                    + "][" + mDsDy + "*" + w.mHScale
+                    + "," + mDtDy + "*" + w.mVScale + "]", null);
             if (mSurfaceControl != null) {
                 try {
                     mSurfaceAlpha = mShownAlpha;
@@ -1484,8 +1600,9 @@ class WindowStateAnimator {
     }
 
     void setWallpaperOffset(RectF shownFrame) {
-        final int left = (int) shownFrame.left;
-        final int top = (int) shownFrame.top;
+        final LayoutParams attrs = mWin.getAttrs();
+        final int left = ((int) shownFrame.left) - attrs.surfaceInsets.left;
+        final int top = ((int) shownFrame.top) - attrs.surfaceInsets.top;
         if (mSurfaceX != left || mSurfaceY != top) {
             mSurfaceX = left;
             mSurfaceY = top;
@@ -1514,11 +1631,11 @@ class WindowStateAnimator {
         }
     }
 
-    void setOpaque(boolean isOpaque) {
+    void setOpaqueLocked(boolean isOpaque) {
         if (mSurfaceControl == null) {
             return;
         }
-        if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setOpaque");
+        if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setOpaqueLocked");
         SurfaceControl.openTransaction();
         try {
             if (SHOW_TRANSACTIONS) WindowManagerService.logSurface(mWin, "isOpaque=" + isOpaque,
@@ -1526,15 +1643,13 @@ class WindowStateAnimator {
             mSurfaceControl.setOpaque(isOpaque);
         } finally {
             SurfaceControl.closeTransaction();
-            if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, "<<< CLOSE TRANSACTION setOpaque");
+            if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, "<<< CLOSE TRANSACTION setOpaqueLocked");
         }
     }
 
     // This must be called while inside a transaction.
     boolean performShowLocked() {
         if (mWin.isHiddenFromUserLocked()) {
-            Slog.w(TAG, "current user violation " + mService.mCurrentUserId + " trying to display "
-                    + this + ", type " + mWin.mAttrs.type + ", belonging to " + mWin.mOwnerUid);
             return false;
         }
         if (DEBUG_VISIBILITY || (DEBUG_STARTING_WINDOW &&
@@ -1689,9 +1804,17 @@ class WindowStateAnimator {
      * @return true if an animation has been loaded.
      */
     boolean applyAnimationLocked(int transit, boolean isEntrance) {
-        if (mLocalAnimating && mAnimationIsEntrance == isEntrance) {
+        if ((mLocalAnimating && mAnimationIsEntrance == isEntrance)
+                || mKeyguardGoingAwayAnimation) {
             // If we are trying to apply an animation, but already running
             // an animation of the same type, then just leave that one alone.
+
+            // If we are in a keyguard exit animation, and the window should animate away, modify
+            // keyguard exit animation such that it also fades out.
+            if (mAnimation != null && mKeyguardGoingAwayAnimation
+                    && transit == WindowManagerPolicy.TRANSIT_PREVIEW_DONE) {
+                applyFadeoutDuringKeyguardExitAnimation();
+            }
             return true;
         }
 
@@ -1749,6 +1872,28 @@ class WindowStateAnimator {
         return mAnimation != null;
     }
 
+    private void applyFadeoutDuringKeyguardExitAnimation() {
+        long startTime = mAnimation.getStartTime();
+        long duration = mAnimation.getDuration();
+        long elapsed = mLastAnimationTime - startTime;
+        long fadeDuration = duration - elapsed;
+        if (fadeDuration <= 0) {
+            // Never mind, this would be no visible animation, so abort the animation change.
+            return;
+        }
+        AnimationSet newAnimation = new AnimationSet(false /* shareInterpolator */);
+        newAnimation.setDuration(duration);
+        newAnimation.setStartTime(startTime);
+        newAnimation.addAnimation(mAnimation);
+        Animation fadeOut = AnimationUtils.loadAnimation(
+                mContext, com.android.internal.R.anim.app_starting_exit);
+        fadeOut.setDuration(fadeDuration);
+        fadeOut.setStartOffset(elapsed);
+        newAnimation.addAnimation(fadeOut);
+        newAnimation.initialize(mWin.mFrame.width(), mWin.mFrame.height(), mAnimDw, mAnimDh);
+        mAnimation = newAnimation;
+    }
+
     public void dump(PrintWriter pw, String prefix, boolean dumpAll) {
         if (mAnimating || mLocalAnimating || mAnimationIsEntrance
                 || mAnimation != null) {
@@ -1768,7 +1913,7 @@ class WindowStateAnimator {
             if (dumpAll) {
                 pw.print(prefix); pw.print("mSurface="); pw.println(mSurfaceControl);
                 pw.print(prefix); pw.print("mDrawState=");
-                pw.print(drawStateToString(mDrawState));
+                pw.print(drawStateToString());
                 pw.print(" mLastHidden="); pw.println(mLastHidden);
             }
             pw.print(prefix); pw.print("Surface: shown="); pw.print(mSurfaceShown);

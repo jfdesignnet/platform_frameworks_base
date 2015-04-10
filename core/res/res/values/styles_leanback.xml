@@ -15,16 +15,18 @@
 -->
 <resources>
     <style name="AlertDialog.Leanback" parent="AlertDialog.Material">
-        <item name="layout">@android:layout/alert_dialog_leanback</item>
-        <item name="buttonPanelSideLayout">@android:layout/alert_dialog_leanback_button_panel_right</item>
+        <item name="buttonPanelSideLayout">@android:layout/alert_dialog_leanback_button_panel_side</item>
     </style>
 
     <style name="AlertDialog.Leanback.Light">
     </style>
 
     <style name="Widget.Leanback.TimePicker" parent="Widget.Material.TimePicker">
-        <item name="legacyMode">true</item>
-        <item name="legacyLayout">@layout/time_picker_legacy_leanback</item>
+        <item name="timePickerMode">spinner</item>
+    </style>
+
+    <style name="Widget.Leanback.DatePicker" parent="Widget.Material.DatePicker">
+        <item name="datePickerMode">spinner</item>
     </style>
 
     <style name="Widget.Leanback.NumberPicker" parent="Widget.Material.NumberPicker">
@@ -34,27 +36,41 @@
     <!-- Setup and form wizard themes -->
     <style name="TextAppearance.Leanback.FormWizard" parent="@style/TextAppearance.Material">
         <item name="textSize">18sp</item>
+        <item name="lineSpacingExtra">24sp</item>
         <item name="fontFamily">sans-serif-light</item>
+        <item name="textColor">?attr/textColorPrimary</item>
     </style>
 
     <style name="TextAppearance.Leanback.FormWizard.Small" parent="@style/TextAppearance.Material.Small">
-        <item name="textSize">18sp</item>
+        <item name="textSize">14sp</item>
+        <item name="lineSpacingExtra">24sp</item>
         <item name="fontFamily">sans-serif-light</item>
+        <item name="textColor">?attr/textColorPrimary</item>
     </style>
 
     <style name="TextAppearance.Leanback.FormWizard.Medium" parent="@style/TextAppearance.Material.Medium">
         <item name="textSize">36sp</item>
+        <item name="lineSpacingExtra">40sp</item>
         <item name="fontFamily">sans-serif-thin</item>
+        <item name="textColor">?attr/textColorPrimary</item>
     </style>
 
     <style name="TextAppearance.Leanback.FormWizard.Large" parent="@style/TextAppearance.Material.Large">
-        <item name="textSize">56sp</item>
+        <item name="textSize">42sp</item>
+        <item name="lineSpacingExtra">48sp</item>
         <item name="fontFamily">sans-serif-thin</item>
+        <item name="textColor">?attr/textColorPrimary</item>
     </style>
 
     <style name="TextAppearance.Leanback.FormWizard.ListItem" parent="@style/TextAppearance.Material.Subhead">
-        <item name="textSize">18sp</item>
+        <item name="textSize">16sp</item>
         <item name="fontFamily">sans-serif-condensed</item>
     </style>
 
+    <style name="WindowAnimationStyle.Leanback.Setup" parent="@style/Animation.Material.Activity">
+        <item name="android:fragmentOpenEnterAnimation">@animator/leanback_setup_fragment_open_enter</item>
+        <item name="android:fragmentOpenExitAnimation">@animator/leanback_setup_fragment_open_exit</item>
+        <item name="android:fragmentCloseEnterAnimation">@animator/leanback_setup_fragment_close_enter</item>
+        <item name="android:fragmentCloseExitAnimation">@animator/leanback_setup_fragment_close_exit</item>
+    </style>
 </resources>

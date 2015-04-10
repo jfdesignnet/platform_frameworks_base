@@ -26,6 +26,7 @@ import android.content.res.XmlResourceParser;
 import android.os.Bundle;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
+import android.service.restrictions.RestrictionsReceiver;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
@@ -107,7 +108,7 @@ import java.util.List;
  * </pre>
  *
  * @see RestrictionEntry
- * @see AbstractRestrictionsProvider
+ * @see RestrictionsReceiver
  * @see DevicePolicyManager#setRestrictionsProvider(ComponentName, ComponentName)
  * @see DevicePolicyManager#setApplicationRestrictions(ComponentName, String, Bundle)
  */
@@ -154,7 +155,7 @@ public class RestrictionsManager {
      * The intent must contain {@link #EXTRA_REQUEST_BUNDLE} as an extra and the bundle must
      * contain at least {@link #REQUEST_KEY_MESSAGE} for the activity to display.
      * <p>
-     * @see #getLocalApprovalIntent()
+     * @see #createLocalApprovalIntent()
      */
     public static final String ACTION_REQUEST_LOCAL_APPROVAL =
             "android.content.action.REQUEST_LOCAL_APPROVAL";
@@ -472,10 +473,10 @@ public class RestrictionsManager {
         }
     }
 
-    public Intent getLocalApprovalIntent() {
+    public Intent createLocalApprovalIntent() {
         try {
             if (mService != null) {
-                return mService.getLocalApprovalIntent();
+                return mService.createLocalApprovalIntent();
             }
         } catch (RemoteException re) {
             Log.w(TAG, "Couldn't reach service");

@@ -21,8 +21,12 @@ import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.impl.CameraDeviceImpl;
 import android.hardware.camera2.impl.CaptureResultExtras;
 import android.hardware.camera2.ICameraDeviceCallbacks;
+import android.hardware.camera2.params.StreamConfigurationMap;
+import android.hardware.camera2.utils.ArrayUtils;
+import android.hardware.camera2.utils.CameraBinderDecorator;
 import android.hardware.camera2.utils.LongParcelable;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.utils.CameraRuntimeException;
@@ -31,10 +35,12 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.RemoteException;
 import android.util.Log;
+import android.util.Pair;
 import android.util.Size;
 import android.view.Surface;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -56,11 +62,13 @@ public class LegacyCameraDevice implements AutoCloseable {
     public static final String DEBUG_PROP = "HAL1ShimLogging";
     private final String TAG;
 
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = Log.isLoggable(LegacyCameraDevice.DEBUG_PROP, Log.DEBUG);
     private final int mCameraId;
+    private final CameraCharacteristics mStaticCharacteristics;
     private final ICameraDeviceCallbacks mDeviceCallbacks;
     private final CameraDeviceState mDeviceState = new CameraDeviceState();
     private List<Surface> mConfiguredSurfaces;
+    private boolean mClosed = false;
 
     private final ConditionVariable mIdle = new ConditionVariable(/*open*/true);
 
@@ -69,6 +77,15 @@ public class LegacyCameraDevice implements AutoCloseable {
     private final Handler mCallbackHandler;
     private final Handler mResultHandler;
     private static final int ILLEGAL_VALUE = -1;
+
+    // Keep up to date with values in hardware/libhardware/include/hardware/gralloc.h
+    private static final int GRALLOC_USAGE_RENDERSCRIPT = 0x00100000;
+    private static final int GRALLOC_USAGE_SW_READ_OFTEN = 0x00000003;
+    private static final int GRALLOC_USAGE_HW_TEXTURE = 0x00000100;
+    private static final int GRALLOC_USAGE_HW_COMPOSER = 0x00000800;
+    private static final int GRALLOC_USAGE_HW_VIDEO_ENCODER = 0x00010000;
+
+    public static final int MAX_DIMEN_FOR_ROUNDING = 1080; // maximum allowed width for rounding
 
     private CaptureResultExtras getExtrasFromRequest(RequestHolder holder) {
         if (holder == null) {
@@ -87,17 +104,36 @@ public class LegacyCameraDevice implements AutoCloseable {
     private final CameraDeviceState.CameraDeviceStateListener mStateListener =
             new CameraDeviceState.CameraDeviceStateListener() {
         @Override
-        public void onError(final int errorCode, RequestHolder holder) {
-            mIdle.open();
+        public void onError(final int errorCode, final RequestHolder holder) {
+            if (DEBUG) {
+                Log.d(TAG, "onError called, errorCode = " + errorCode);
+            }
+            switch (errorCode) {
+                /*
+                 * Only be considered idle if we hit a fatal error
+                 * and no further requests can be processed.
+                 */
+                case CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DISCONNECTED:
+                case CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_SERVICE:
+                case CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE: {
+                    mIdle.open();
+
+                    if (DEBUG) {
+                        Log.d(TAG, "onError - opening idle");
+                    }
+                }
+            }
+
             final CaptureResultExtras extras = getExtrasFromRequest(holder);
             mResultHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     if (DEBUG) {
-                        Log.d(TAG, "doing onError callback.");
+                        Log.d(TAG, "doing onError callback for request " + holder.getRequestId() +
+                                ", with error code " + errorCode);
                     }
                     try {
-                        mDeviceCallbacks.onCameraError(errorCode, extras);
+                        mDeviceCallbacks.onDeviceError(errorCode, extras);
                     } catch (RemoteException e) {
                         throw new IllegalStateException(
                                 "Received remote exception during onCameraError callback: ", e);
@@ -116,6 +152,10 @@ public class LegacyCameraDevice implements AutoCloseable {
 
         @Override
         public void onIdle() {
+            if (DEBUG) {
+                Log.d(TAG, "onIdle called");
+            }
+
             mIdle.open();
 
             mResultHandler.post(new Runnable() {
@@ -125,7 +165,7 @@ public class LegacyCameraDevice implements AutoCloseable {
                         Log.d(TAG, "doing onIdle callback.");
                     }
                     try {
-                        mDeviceCallbacks.onCameraIdle();
+                        mDeviceCallbacks.onDeviceIdle();
                     } catch (RemoteException e) {
                         throw new IllegalStateException(
                                 "Received remote exception during onCameraIdle callback: ", e);
@@ -135,14 +175,24 @@ public class LegacyCameraDevice implements AutoCloseable {
         }
 
         @Override
-        public void onCaptureStarted(RequestHolder holder, final long timestamp) {
+        public void onBusy() {
+            mIdle.close();
+
+            if (DEBUG) {
+                Log.d(TAG, "onBusy called");
+            }
+        }
+
+        @Override
+        public void onCaptureStarted(final RequestHolder holder, final long timestamp) {
             final CaptureResultExtras extras = getExtrasFromRequest(holder);
 
             mResultHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     if (DEBUG) {
-                        Log.d(TAG, "doing onCaptureStarted callback.");
+                        Log.d(TAG, "doing onCaptureStarted callback for request " +
+                                holder.getRequestId());
                     }
                     try {
                         mDeviceCallbacks.onCaptureStarted(extras, timestamp);
@@ -155,14 +205,15 @@ public class LegacyCameraDevice implements AutoCloseable {
         }
 
         @Override
-        public void onCaptureResult(final CameraMetadataNative result, RequestHolder holder) {
+        public void onCaptureResult(final CameraMetadataNative result, final RequestHolder holder) {
             final CaptureResultExtras extras = getExtrasFromRequest(holder);
 
             mResultHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     if (DEBUG) {
-                        Log.d(TAG, "doing onCaptureResult callback.");
+                        Log.d(TAG, "doing onCaptureResult callback for request " +
+                                holder.getRequestId());
                     }
                     try {
                         mDeviceCallbacks.onResultReceived(result, extras);
@@ -216,6 +267,7 @@ public class LegacyCameraDevice implements AutoCloseable {
         mCallbackHandlerThread.start();
         mCallbackHandler = new Handler(mCallbackHandlerThread.getLooper());
         mDeviceState.setCameraDeviceCallbacks(mCallbackHandler, mStateListener);
+        mStaticCharacteristics = characteristics;
         mRequestThreadManager =
                 new RequestThreadManager(cameraId, camera, characteristics, mDeviceState);
         mRequestThreadManager.start();
@@ -233,27 +285,72 @@ public class LegacyCameraDevice implements AutoCloseable {
      *          on success.
      */
     public int configureOutputs(List<Surface> outputs) {
+        List<Pair<Surface, Size>> sizedSurfaces = new ArrayList<>();
         if (outputs != null) {
             for (Surface output : outputs) {
                 if (output == null) {
                     Log.e(TAG, "configureOutputs - null outputs are not allowed");
                     return BAD_VALUE;
                 }
+                StreamConfigurationMap streamConfigurations = mStaticCharacteristics.
+                        get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+
+                // Validate surface size and format.
+                try {
+                    Size s = getSurfaceSize(output);
+                    int surfaceType = detectSurfaceType(output);
+
+                    boolean flexibleConsumer = isFlexibleConsumer(output);
+
+                    Size[] sizes = streamConfigurations.getOutputSizes(surfaceType);
+                    if (sizes == null) {
+                        // WAR: Override default format to IMPLEMENTATION_DEFINED for b/9487482
+                        if ((surfaceType >= LegacyMetadataMapper.HAL_PIXEL_FORMAT_RGBA_8888 &&
+                            surfaceType <= LegacyMetadataMapper.HAL_PIXEL_FORMAT_BGRA_8888)) {
+
+                            // YUV_420_888 is always present in LEGACY for all
+                            // IMPLEMENTATION_DEFINED output sizes, and is publicly visible in the
+                            // API (i.e. {@code #getOutputSizes} works here).
+                            sizes = streamConfigurations.getOutputSizes(ImageFormat.YUV_420_888);
+                        } else if (surfaceType == LegacyMetadataMapper.HAL_PIXEL_FORMAT_BLOB) {
+                            sizes = streamConfigurations.getOutputSizes(ImageFormat.JPEG);
+                        }
+                    }
+
+                    if (!ArrayUtils.contains(sizes, s)) {
+                        if (flexibleConsumer && (s = findClosestSize(s, sizes)) != null) {
+                            sizedSurfaces.add(new Pair<>(output, s));
+                        } else {
+                            String reason = (sizes == null) ? "format is invalid." :
+                                    ("size not in valid set: " + Arrays.toString(sizes));
+                            Log.e(TAG, String.format("Surface with size (w=%d, h=%d) and format " +
+                                    "0x%x is not valid, %s", s.getWidth(), s.getHeight(),
+                                    surfaceType, reason));
+                            return BAD_VALUE;
+                        }
+                    } else {
+                        sizedSurfaces.add(new Pair<>(output, s));
+                    }
+                } catch (BufferQueueAbandonedException e) {
+                    Log.e(TAG, "Surface bufferqueue is abandoned, cannot configure as output: ", e);
+                    return BAD_VALUE;
+                }
+
             }
         }
 
-        int error = mDeviceState.setConfiguring();
-        if (error == NO_ERROR) {
-            mRequestThreadManager.configure(outputs);
-            error = mDeviceState.setIdle();
+        boolean success = false;
+        if (mDeviceState.setConfiguring()) {
+            mRequestThreadManager.configure(sizedSurfaces);
+            success = mDeviceState.setIdle();
         }
 
-        // TODO: May also want to check the surfaces more deeply (e.g. state, formats, sizes..)
-        if (error == NO_ERROR) {
+        if (success) {
             mConfiguredSurfaces = outputs != null ? new ArrayList<>(outputs) : null;
+        } else {
+            return CameraBinderDecorator.INVALID_OPERATION;
         }
-
-        return error;
+        return CameraBinderDecorator.NO_ERROR;
     }
 
     /**
@@ -342,6 +439,24 @@ public class LegacyCameraDevice implements AutoCloseable {
         mIdle.block();
     }
 
+    /**
+     * Flush any pending requests.
+     *
+     * @return the last frame number.
+     */
+    public long flush() {
+        long lastFrame = mRequestThreadManager.flush();
+        waitUntilIdle();
+        return lastFrame;
+    }
+
+    /**
+     * Return {@code true} if the device has been closed.
+     */
+    public boolean isClosed() {
+        return mClosed;
+    }
+
     @Override
     public void close() {
         mRequestThreadManager.quit();
@@ -362,7 +477,7 @@ public class LegacyCameraDevice implements AutoCloseable {
                     mResultThread.getName(), mResultThread.getId()));
         }
 
-        // TODO: throw IllegalStateException in every method after close has been called
+        mClosed = true;
     }
 
     @Override
@@ -376,6 +491,31 @@ public class LegacyCameraDevice implements AutoCloseable {
         }
     }
 
+    static long findEuclidDistSquare(Size a, Size b) {
+        long d0 = a.getWidth() - b.getWidth();
+        long d1 = a.getHeight() - b.getHeight();
+        return d0 * d0 + d1 * d1;
+    }
+
+    // Keep up to date with rounding behavior in
+    // frameworks/av/services/camera/libcameraservice/api2/CameraDeviceClient.cpp
+    static Size findClosestSize(Size size, Size[] supportedSizes) {
+        if (size == null || supportedSizes == null) {
+            return null;
+        }
+        Size bestSize = null;
+        for (Size s : supportedSizes) {
+            if (s.equals(size)) {
+                return size;
+            } else if (s.getWidth() <= MAX_DIMEN_FOR_ROUNDING && (bestSize == null ||
+                    LegacyCameraDevice.findEuclidDistSquare(size, s) <
+                    LegacyCameraDevice.findEuclidDistSquare(bestSize, s))) {
+                bestSize = s;
+            }
+        }
+        return bestSize;
+    }
+
     /**
      * Query the surface for its currently configured default buffer size.
      * @param surface a non-{@code null} {@code Surface}
@@ -384,7 +524,7 @@ public class LegacyCameraDevice implements AutoCloseable {
      * @throws NullPointerException if the {@code surface} was {@code null}
      * @throws IllegalStateException if the {@code surface} was invalid
      */
-    static Size getSurfaceSize(Surface surface) throws BufferQueueAbandonedException {
+    public static Size getSurfaceSize(Surface surface) throws BufferQueueAbandonedException {
         checkNotNull(surface);
 
         int[] dimens = new int[2];
@@ -393,7 +533,31 @@ public class LegacyCameraDevice implements AutoCloseable {
         return new Size(dimens[0], dimens[1]);
     }
 
-    static int detectSurfaceType(Surface surface) throws BufferQueueAbandonedException {
+    public static boolean isFlexibleConsumer(Surface output) {
+        int usageFlags = detectSurfaceUsageFlags(output);
+
+        // Keep up to date with allowed consumer types in
+        // frameworks/av/services/camera/libcameraservice/api2/CameraDeviceClient.cpp
+        int disallowedFlags = GRALLOC_USAGE_HW_VIDEO_ENCODER | GRALLOC_USAGE_RENDERSCRIPT;
+        int allowedFlags = GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_SW_READ_OFTEN |
+            GRALLOC_USAGE_HW_COMPOSER;
+        boolean flexibleConsumer = ((usageFlags & disallowedFlags) == 0 &&
+                (usageFlags & allowedFlags) != 0);
+        return flexibleConsumer;
+    }
+
+    /**
+     * Query the surface for its currently configured usage flags
+     */
+    static int detectSurfaceUsageFlags(Surface surface) {
+        checkNotNull(surface);
+        return nativeDetectSurfaceUsageFlags(surface);
+    }
+
+    /**
+     * Query the surface for its currently configured format
+     */
+    public static int detectSurfaceType(Surface surface) throws BufferQueueAbandonedException {
         checkNotNull(surface);
         return LegacyExceptionUtils.throwOnError(nativeDetectSurfaceType(surface));
     }
@@ -457,7 +621,7 @@ public class LegacyCameraDevice implements AutoCloseable {
         return surfaceIds;
     }
 
-    static boolean containsSurfaceId(Surface s, List<Long> ids) {
+    static boolean containsSurfaceId(Surface s, Collection<Long> ids) {
         long id = getSurfaceId(s);
         return ids.contains(id);
     }
@@ -510,4 +674,8 @@ public class LegacyCameraDevice implements AutoCloseable {
             /*out*/int[/*2*/] dimens);
 
     private static native int nativeSetNextTimestamp(Surface surface, long timestamp);
+
+    private static native int nativeDetectSurfaceUsageFlags(Surface surface);
+
+    static native int nativeGetJpegFooterSize();
 }

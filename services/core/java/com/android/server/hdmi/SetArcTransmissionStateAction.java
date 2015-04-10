@@ -16,7 +16,7 @@
 
 package com.android.server.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.util.Slog;
 
 /**
@@ -24,7 +24,7 @@ import android.util.Slog;
  * Once TV gets &lt;Initiate ARC&gt;, TV sends &lt;Report ARC Initiated&gt; to AV Receiver.
  * If it fails or it gets &lt;Terminate ARC&gt;, TV just disables ARC.
  */
-final class SetArcTransmissionStateAction extends FeatureAction {
+final class SetArcTransmissionStateAction extends HdmiCecFeatureAction {
     private static final String TAG = "SetArcTransmissionStateAction";
 
     // State in which the action sent <Rerpot Arc Initiated> and
@@ -44,8 +44,8 @@ final class SetArcTransmissionStateAction extends FeatureAction {
     SetArcTransmissionStateAction(HdmiCecLocalDevice source, int avrAddress,
             boolean enabled) {
         super(source);
-        HdmiUtils.verifyAddressType(getSourceAddress(), HdmiCecDeviceInfo.DEVICE_TV);
-        HdmiUtils.verifyAddressType(avrAddress, HdmiCecDeviceInfo.DEVICE_AUDIO_SYSTEM);
+        HdmiUtils.verifyAddressType(getSourceAddress(), HdmiDeviceInfo.DEVICE_TV);
+        HdmiUtils.verifyAddressType(avrAddress, HdmiDeviceInfo.DEVICE_AUDIO_SYSTEM);
         mAvrAddress = avrAddress;
         mEnabled = enabled;
     }
@@ -53,6 +53,18 @@ final class SetArcTransmissionStateAction extends FeatureAction {
     @Override
     boolean start() {
         if (mEnabled) {
+            // Enable ARC status immediately after sending <Report Arc Initiated>.
+            // If AVR responds with <Feature Abort>, disable ARC status again.
+            // This is different from spec that says that turns ARC status to
+            // "Enabled" if <Report ARC Initiated> is acknowledged and no
+            // <Feature Abort> is received.
+            // But implemented this way to save the time having to wait for
+            // <Feature Abort>.
+            setArcStatus(true);
+            // If succeeds to send <Report ARC Initiated>, wait general timeout
+            // to check whether there is no <Feature Abort> for <Report ARC Initiated>.
+            mState = STATE_WAITING_TIMEOUT;
+            addTimer(mState, HdmiConfig.TIMEOUT_MS);
             sendReportArcInitiated();
         } else {
             setArcStatus(false);
@@ -67,23 +79,11 @@ final class SetArcTransmissionStateAction extends FeatureAction {
         sendCommand(command, new HdmiControlService.SendMessageCallback() {
             @Override
             public void onSendCompleted(int error) {
-                if (error == Constants.SEND_RESULT_SUCCESS) {
-                    // Enable ARC status immediately after sending <Report Arc Initiated>.
-                    // If AVR responds with <Feature Abort>, disable ARC status again.
-                    // This is different from spec that says that turns ARC status to
-                    // "Enabled" if <Report ARC Initiated> is acknowledged and no
-                    // <Feature Abort> is received.
-                    // But implemented this way to save the time having to wait for
-                    // <Feature Abort>.
-                    setArcStatus(true);
-                    // If succeeds to send <Report ARC Initiated>, wait general timeout
-                    // to check whether there is no <Feature Abort> for <Report ARC Initiated>.
-                    mState = STATE_WAITING_TIMEOUT;
-                    addTimer(mState, HdmiConfig.TIMEOUT_MS);
-                } else {
+                if (error != Constants.SEND_RESULT_SUCCESS) {
                     // If fails to send <Report ARC Initiated>, disable ARC and
                     // send <Report ARC Terminated> directly.
                     setArcStatus(false);
+                    HdmiLogger.debug("Failed to send <Report Arc Initiated>.");
                     finish();
                 }
             }
@@ -92,7 +92,7 @@ final class SetArcTransmissionStateAction extends FeatureAction {
 
     private void setArcStatus(boolean enabled) {
         boolean wasEnabled = tv().setArcStatus(enabled);
-        Slog.i(TAG, "Change arc status [old:" + wasEnabled + " ,new:" + enabled);
+        Slog.i(TAG, "Change arc status [old:" + wasEnabled + ", new:" + enabled + "]");
 
         // If enabled before and set to "disabled" and send <Report Arc Terminated> to
         // av reciever.
@@ -110,10 +110,15 @@ final class SetArcTransmissionStateAction extends FeatureAction {
 
         int opcode = cmd.getOpcode();
         if (opcode == Constants.MESSAGE_FEATURE_ABORT) {
-            setArcStatus(false);
+            int originalOpcode = cmd.getParams()[0] & 0xFF;
+            if (originalOpcode == Constants.MESSAGE_REPORT_ARC_INITIATED) {
+                HdmiLogger.debug("Feature aborted for <Report Arc Initiated>");
+                setArcStatus(false);
+                finish();
+                return true;
+            }
         }
-        finish();
-        return true;
+        return false;
     }
 
     @Override

@@ -39,7 +39,7 @@ public class SurfaceControl {
 
     private static native Bitmap nativeScreenshot(IBinder displayToken,
             Rect sourceCrop, int width, int height, int minLayer, int maxLayer,
-            boolean allLayers, boolean useIdentityTransform);
+            boolean allLayers, boolean useIdentityTransform, int rotation);
     private static native void nativeScreenshot(IBinder displayToken, Surface consumer,
             Rect sourceCrop, int width, int height, int minLayer, int maxLayer,
             boolean allLayers, boolean useIdentityTransform);
@@ -74,6 +74,7 @@ public class SurfaceControl {
             IBinder displayToken, int orientation,
             int l, int t, int r, int b,
             int L, int T, int R, int B);
+    private static native void nativeSetDisplaySize(IBinder displayToken, int width, int height);
     private static native SurfaceControl.PhysicalDisplayInfo[] nativeGetDisplayConfigs(
             IBinder displayToken);
     private static native int nativeGetActiveConfig(IBinder displayToken);
@@ -155,6 +156,11 @@ public class SurfaceControl {
     public static final int PROTECTED_APP = 0x00000800;
 
     // 0x1000 is reserved for an independent DRM protected flag in framework
+
+    /**
+     * Surface creation flag: Window represents a cursor glyph.
+     */
+    public static final int CURSOR_WINDOW = 0x00002000;
 
     /**
      * Surface creation flag: Creates a normal surface.
@@ -583,6 +589,17 @@ public class SurfaceControl {
         }
     }
 
+    public static void setDisplaySize(IBinder displayToken, int width, int height) {
+        if (displayToken == null) {
+            throw new IllegalArgumentException("displayToken must not be null");
+        }
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("width and height must be positive");
+        }
+
+        nativeSetDisplaySize(displayToken, width, height);
+    }
+
     public static IBinder createDisplay(String name, boolean secure) {
         if (name == null) {
             throw new IllegalArgumentException("name must not be null");
@@ -671,17 +688,23 @@ public class SurfaceControl {
      * @param useIdentityTransform Replace whatever transformation (rotation,
      * scaling, translation) the surface layers are currently using with the
      * identity transformation while taking the screenshot.
+     * @param rotation Apply a custom clockwise rotation to the screenshot, i.e.
+     * Surface.ROTATION_0,90,180,270. Surfaceflinger will always take
+     * screenshots in its native portrait orientation by default, so this is
+     * useful for returning screenshots that are independent of device
+     * orientation.
      * @return Returns a Bitmap containing the screen contents, or null
      * if an error occurs. Make sure to call Bitmap.recycle() as soon as
      * possible, once its content is not needed anymore.
      */
     public static Bitmap screenshot(Rect sourceCrop, int width, int height,
-            int minLayer, int maxLayer, boolean useIdentityTransform) {
+            int minLayer, int maxLayer, boolean useIdentityTransform,
+            int rotation) {
         // TODO: should take the display as a parameter
         IBinder displayToken = SurfaceControl.getBuiltInDisplay(
                 SurfaceControl.BUILT_IN_DISPLAY_ID_MAIN);
         return nativeScreenshot(displayToken, sourceCrop, width, height,
-                minLayer, maxLayer, false, useIdentityTransform);
+                minLayer, maxLayer, false, useIdentityTransform, rotation);
     }
 
     /**
@@ -700,7 +723,8 @@ public class SurfaceControl {
         // TODO: should take the display as a parameter
         IBinder displayToken = SurfaceControl.getBuiltInDisplay(
                 SurfaceControl.BUILT_IN_DISPLAY_ID_MAIN);
-        return nativeScreenshot(displayToken, new Rect(), width, height, 0, 0, true, false);
+        return nativeScreenshot(displayToken, new Rect(), width, height, 0, 0, true,
+                false, Surface.ROTATION_0);
     }
 
     private static void screenshot(IBinder display, Surface consumer, Rect sourceCrop,

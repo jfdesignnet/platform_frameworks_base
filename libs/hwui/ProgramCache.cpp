@@ -46,7 +46,7 @@ const char* gVS_Header_Attributes_TexCoords =
         "attribute vec2 texCoords;\n";
 const char* gVS_Header_Attributes_Colors =
         "attribute vec4 colors;\n";
-const char* gVS_Header_Attributes_AAVertexShapeParameters =
+const char* gVS_Header_Attributes_VertexAlphaParameters =
         "attribute float vtxAlpha;\n";
 const char* gVS_Header_Uniforms_TextureTransform =
         "uniform mat4 mainTextureTransform;\n";
@@ -64,7 +64,7 @@ const char* gVS_Header_Varyings_HasTexture =
         "varying vec2 outTexCoords;\n";
 const char* gVS_Header_Varyings_HasColors =
         "varying vec4 outColors;\n";
-const char* gVS_Header_Varyings_IsAAVertexShape =
+const char* gVS_Header_Varyings_HasVertexAlpha =
         "varying float alpha;\n";
 const char* gVS_Header_Varyings_HasBitmap =
         "varying highp vec2 outBitmapTexCoords;\n";
@@ -88,7 +88,7 @@ const char* gVS_Header_Varyings_HasGradient[6] = {
         "varying vec2 ditherTexCoords;\n",
 };
 const char* gVS_Header_Varyings_HasRoundRectClip =
-        "varying vec2 roundRectPos;\n";
+        "varying highp vec2 roundRectPos;\n";
 const char* gVS_Main =
         "\nvoid main(void) {\n";
 const char* gVS_Main_OutTexCoords =
@@ -121,8 +121,10 @@ const char* gVS_Main_OutBitmapTexCoords =
 const char* gVS_Main_Position =
         "    vec4 transformedPosition = projection * transform * position;\n"
         "    gl_Position = transformedPosition;\n";
-const char* gVS_Main_AAVertexShape =
+
+const char* gVS_Main_VertexAlpha =
         "    alpha = vtxAlpha;\n";
+
 const char* gVS_Main_HasRoundRectClip =
         "    roundRectPos = (roundRectInvTransform * transformedPosition).xy;\n";
 const char* gVS_Footer =
@@ -235,8 +237,10 @@ const char* gFS_Main_FetchColor =
         "    fragColor = color;\n";
 const char* gFS_Main_ModulateColor =
         "    fragColor *= color.a;\n";
-const char* gFS_Main_AccountForAAVertexShape =
+const char* gFS_Main_ApplyVertexAlphaLinearInterp =
         "    fragColor *= alpha;\n";
+const char* gFS_Main_ApplyVertexAlphaShadowInterp =
+        "    fragColor *= (1.0 - cos(alpha)) / 2.0;\n";
 
 const char* gFS_Main_FetchTexture[2] = {
         // Don't modulate
@@ -323,9 +327,10 @@ const char* gFS_Main_ApplyColorOp[3] = {
         // None
         "",
         // Matrix
+        "    fragColor.rgb /= (fragColor.a + 0.0019);\n" // un-premultiply
         "    fragColor *= colorMatrix;\n"
         "    fragColor += colorMatrixVector;\n"
-        "    fragColor.rgb *= fragColor.a;\n",
+        "    fragColor.rgb *= (fragColor.a + 0.0019);\n", // re-premultiply
         // PorterDuff
         "    fragColor = blendColors(colorBlend, fragColor);\n"
 };
@@ -334,18 +339,14 @@ const char* gFS_Main_ApplyColorOp[3] = {
 const char* gFS_Main_FragColor_HasRoundRectClip =
         "    mediump vec2 fragToLT = roundRectInnerRectLTRB.xy - roundRectPos;\n"
         "    mediump vec2 fragFromRB = roundRectPos - roundRectInnerRectLTRB.zw;\n"
-        "    mediump vec2 dist = max(max(fragToLT, fragFromRB), vec2(0.0, 0.0));\n"
-        "    mediump float linearDist = roundRectRadius - length(dist);\n"
+
+        // divide + multiply by 128 to avoid falling out of range in length() function
+        "    mediump vec2 dist = max(max(fragToLT, fragFromRB), vec2(0.0, 0.0)) / 128.0;\n"
+        "    mediump float linearDist = roundRectRadius - (length(dist) * 128.0);\n"
         "    gl_FragColor *= clamp(linearDist, 0.0, 1.0);\n";
 
 const char* gFS_Main_DebugHighlight =
         "    gl_FragColor.rgb = vec3(0.0, gl_FragColor.a, 0.0);\n";
-const char* gFS_Main_EmulateStencil =
-        "    gl_FragColor.rgba = vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 1.0);\n"
-        "    return;\n"
-        "    /*\n";
-const char* gFS_Footer_EmulateStencil =
-        "    */\n";
 const char* gFS_Footer =
         "}\n\n";
 
@@ -465,8 +466,8 @@ String8 ProgramCache::generateVertexShader(const ProgramDescription& description
     if (description.hasTexture || description.hasExternalTexture) {
         shader.append(gVS_Header_Attributes_TexCoords);
     }
-    if (description.isAA) {
-        shader.append(gVS_Header_Attributes_AAVertexShapeParameters);
+    if (description.hasVertexAlpha) {
+        shader.append(gVS_Header_Attributes_VertexAlphaParameters);
     }
     if (description.hasColors) {
         shader.append(gVS_Header_Attributes_Colors);
@@ -489,8 +490,8 @@ String8 ProgramCache::generateVertexShader(const ProgramDescription& description
     if (description.hasTexture || description.hasExternalTexture) {
         shader.append(gVS_Header_Varyings_HasTexture);
     }
-    if (description.isAA) {
-        shader.append(gVS_Header_Varyings_IsAAVertexShape);
+    if (description.hasVertexAlpha) {
+        shader.append(gVS_Header_Varyings_HasVertexAlpha);
     }
     if (description.hasColors) {
         shader.append(gVS_Header_Varyings_HasColors);
@@ -512,8 +513,8 @@ String8 ProgramCache::generateVertexShader(const ProgramDescription& description
         } else if (description.hasTexture || description.hasExternalTexture) {
             shader.append(gVS_Main_OutTexCoords);
         }
-        if (description.isAA) {
-            shader.append(gVS_Main_AAVertexShape);
+        if (description.hasVertexAlpha) {
+            shader.append(gVS_Main_VertexAlpha);
         }
         if (description.hasColors) {
             shader.append(gVS_Main_OutColors);
@@ -563,8 +564,8 @@ String8 ProgramCache::generateFragmentShader(const ProgramDescription& descripti
     if (description.hasTexture || description.hasExternalTexture) {
         shader.append(gVS_Header_Varyings_HasTexture);
     }
-    if (description.isAA) {
-        shader.append(gVS_Header_Varyings_IsAAVertexShape);
+    if (description.hasVertexAlpha) {
+        shader.append(gVS_Header_Varyings_HasVertexAlpha);
     }
     if (description.hasColors) {
         shader.append(gVS_Header_Varyings_HasColors);
@@ -605,12 +606,11 @@ String8 ProgramCache::generateFragmentShader(const ProgramDescription& descripti
     }
 
     // Optimization for common cases
-    if (!description.isAA
+    if (!description.hasVertexAlpha
             && !blendFramebuffer
             && !description.hasColors
             && description.colorOp == ProgramDescription::kColorNone
             && !description.hasDebugHighlight
-            && !description.emulateStencil
             && !description.hasRoundRectClip) {
         bool fast = false;
 
@@ -691,9 +691,6 @@ String8 ProgramCache::generateFragmentShader(const ProgramDescription& descripti
 
     // Begin the shader
     shader.append(gFS_Main); {
-        if (description.emulateStencil) {
-            shader.append(gFS_Main_EmulateStencil);
-        }
         // Stores the result in fragColor directly
         if (description.hasTexture || description.hasExternalTexture) {
             if (description.hasAlpha8Texture) {
@@ -747,8 +744,12 @@ String8 ProgramCache::generateFragmentShader(const ProgramDescription& descripti
         // Apply the color op if needed
         shader.append(gFS_Main_ApplyColorOp[description.colorOp]);
 
-        if (description.isAA) {
-            shader.append(gFS_Main_AccountForAAVertexShape);
+        if (description.hasVertexAlpha) {
+            if (description.useShadowAlphaInterp) {
+                shader.append(gFS_Main_ApplyVertexAlphaShadowInterp);
+            } else {
+                shader.append(gFS_Main_ApplyVertexAlphaLinearInterp);
+            }
         }
 
         // Output the fragment
@@ -767,9 +768,6 @@ String8 ProgramCache::generateFragmentShader(const ProgramDescription& descripti
         if (description.hasDebugHighlight) {
             shader.append(gFS_Main_DebugHighlight);
         }
-    }
-    if (description.emulateStencil) {
-        shader.append(gFS_Footer_EmulateStencil);
     }
     // End the shader
     shader.append(gFS_Footer);

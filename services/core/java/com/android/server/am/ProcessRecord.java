@@ -17,6 +17,8 @@
 package com.android.server.am;
 
 import android.util.ArraySet;
+import android.util.EventLog;
+import android.util.Slog;
 import com.android.internal.app.ProcessStats;
 import com.android.internal.os.BatteryStatsImpl;
 
@@ -62,6 +64,9 @@ final class ProcessRecord {
     ProcessStats.ProcessState baseProcessTracker;
     BatteryStatsImpl.Uid.Proc curProcBatteryStats;
     int pid;                    // The process of this application; 0 if none
+    int[] gids;                 // The gids this process was launched with
+    String requiredAbi;         // The ABI this process was launched with
+    String instructionSet;      // The instruction set this process was launched with
     boolean starting;           // True if the process is being started
     long lastActivityTime;      // For managing the LRU list
     long lastPssTime;           // Last time we retrieved PSS data
@@ -98,6 +103,7 @@ final class ProcessRecord {
     boolean treatLikeActivity;  // Bound using BIND_TREAT_LIKE_ACTIVITY
     boolean bad;                // True if disabled in the bad process list
     boolean killedByAm;         // True when proc has been killed by activity manager, not for RAM
+    boolean killed;             // True once we know the process has been killed
     boolean procStateChanged;   // Keep track of whether we changed 'setAdj'.
     String waitingToKill;       // Process is waiting to be killed when in the bg, and reason
     IBinder forcingToForeground;// Token that is forcing this process to be foreground
@@ -127,7 +133,8 @@ final class ProcessRecord {
     Object adjSource;           // Debugging: option dependent object.
     int adjSourceProcState;     // Debugging: proc state of adjSource's process.
     Object adjTarget;           // Debugging: target component impacting oom_adj.
-    
+    Runnable crashHandler;      // Optional local handler to be invoked in the process crash.
+
     // contains HistoryRecord objects
     final ArrayList<ActivityRecord> activities = new ArrayList<ActivityRecord>();
     // all ServiceRecord running in this process
@@ -179,7 +186,17 @@ final class ProcessRecord {
         if (uid != info.uid) {
             pw.print(" ISOLATED uid="); pw.print(uid);
         }
-        pw.println();
+        pw.print(" gids={");
+        if (gids != null) {
+            for (int gi=0; gi<gids.length; gi++) {
+                if (gi != 0) pw.print(", ");
+                pw.print(gids[gi]);
+
+            }
+        }
+        pw.println("}");
+        pw.print(prefix); pw.print("requiredAbi="); pw.print(requiredAbi);
+                pw.print(" instructionSet="); pw.println(instructionSet);
         if (info.className != null) {
             pw.print(prefix); pw.print("class="); pw.println(info.className);
         }
@@ -300,8 +317,9 @@ final class ProcessRecord {
                 pw.print(" lastLowMemory=");
                 TimeUtils.formatDuration(lastLowMemory, now, pw);
                 pw.print(" reportLowMemory="); pw.println(reportLowMemory);
-        if (killedByAm || waitingToKill != null) {
-            pw.print(prefix); pw.print("killedByAm="); pw.print(killedByAm);
+        if (killed || killedByAm || waitingToKill != null) {
+            pw.print(prefix); pw.print("killed="); pw.print(killed);
+                    pw.print(" killedByAm="); pw.print(killedByAm);
                     pw.print(" waitingToKill="); pw.println(waitingToKill);
         }
         if (debugging || crashing || crashDialog != null || notResponding
@@ -499,6 +517,22 @@ final class ProcessRecord {
             }
         }
         return adj;
+    }
+
+    void kill(String reason, boolean noisy) {
+        if (!killedByAm) {
+            if (noisy) {
+                Slog.i(ActivityManagerService.TAG, "Killing " + toShortString() + " (adj " + setAdj
+                        + "): " + reason);
+            }
+            EventLog.writeEvent(EventLogTags.AM_KILL, userId, pid, processName, setAdj, reason);
+            Process.killProcessQuiet(pid);
+            Process.killProcessGroup(info.uid, pid);
+            if (!persistent) {
+                killed = true;
+                killedByAm = true;
+            }
+        }
     }
 
     public String toShortString() {

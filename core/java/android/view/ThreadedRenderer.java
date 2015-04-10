@@ -37,6 +37,7 @@ import android.view.View.AttachInfo;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.HashSet;
 
 /**
@@ -66,6 +67,8 @@ public class ThreadedRenderer extends HardwareRenderer {
     private static final int SYNC_OK = 0;
     // Needs a ViewRoot invalidate
     private static final int SYNC_INVALIDATE_REQUIRED = 1 << 0;
+    // Spoiler: the reward is GPU-accelerated drawing, better find that Surface!
+    private static final int SYNC_LOST_SURFACE_REWARD_IF_FOUND = 1 << 1;
 
     private static final String[] VISUALIZERS = {
         PROFILE_PROPERTY_VISUALIZE_BARS,
@@ -99,15 +102,13 @@ public class ThreadedRenderer extends HardwareRenderer {
     private boolean mRootNodeNeedsUpdate;
 
     ThreadedRenderer(Context context, boolean translucent) {
-        final TypedArray a = context.obtainStyledAttributes(
-                null, R.styleable.Lighting, R.attr.lightingStyle, 0);
+        final TypedArray a = context.obtainStyledAttributes(null, R.styleable.Lighting, 0, 0);
         mLightY = a.getDimension(R.styleable.Lighting_lightY, 0);
         mLightZ = a.getDimension(R.styleable.Lighting_lightZ, 0);
         mLightRadius = a.getDimension(R.styleable.Lighting_lightRadius, 0);
-        mAmbientShadowAlpha = Math.round(
-                255 * a.getFloat(R.styleable.Lighting_ambientShadowAlpha, 0));
-        mSpotShadowAlpha = Math.round(
-                255 * a.getFloat(R.styleable.Lighting_spotShadowAlpha, 0));
+        mAmbientShadowAlpha =
+                (int) (255 * a.getFloat(R.styleable.Lighting_ambientShadowAlpha, 0) + 0.5f);
+        mSpotShadowAlpha = (int) (255 * a.getFloat(R.styleable.Lighting_spotShadowAlpha, 0) + 0.5f);
         a.recycle();
 
         long rootNodePtr = nCreateRootRenderNode();
@@ -128,7 +129,7 @@ public class ThreadedRenderer extends HardwareRenderer {
     void destroy() {
         mInitialized = false;
         updateEnabledState(null);
-        nDestroyCanvasAndSurface(mNativeProxy);
+        nDestroy(mNativeProxy);
     }
 
     private void updateEnabledState(Surface surface) {
@@ -155,8 +156,8 @@ public class ThreadedRenderer extends HardwareRenderer {
     }
 
     @Override
-    void pauseSurface(Surface surface) {
-        nPauseSurface(mNativeProxy, surface);
+    boolean pauseSurface(Surface surface) {
+        return nPauseSurface(mNativeProxy, surface);
     }
 
     @Override
@@ -193,7 +194,8 @@ public class ThreadedRenderer extends HardwareRenderer {
         final float lightX = width / 2.0f;
         mWidth = width;
         mHeight = height;
-        if (surfaceInsets != null && !surfaceInsets.isEmpty()) {
+        if (surfaceInsets != null && (surfaceInsets.left != 0 || surfaceInsets.right != 0
+                || surfaceInsets.top != 0 || surfaceInsets.bottom != 0)) {
             mHasInsets = true;
             mInsetLeft = surfaceInsets.left;
             mInsetTop = surfaceInsets.top;
@@ -257,6 +259,9 @@ public class ThreadedRenderer extends HardwareRenderer {
             mProfilingEnabled = wantProfiling;
             changed = true;
         }
+        if (changed) {
+            invalidateRoot();
+        }
         return changed;
     }
 
@@ -270,18 +275,22 @@ public class ThreadedRenderer extends HardwareRenderer {
     }
 
     private void updateRootDisplayList(View view, HardwareDrawCallbacks callbacks) {
-        Trace.traceBegin(Trace.TRACE_TAG_VIEW, "getDisplayList");
+        Trace.traceBegin(Trace.TRACE_TAG_VIEW, "Record View#draw()");
         updateViewTreeDisplayList(view);
 
         if (mRootNodeNeedsUpdate || !mRootNode.isValid()) {
             HardwareCanvas canvas = mRootNode.start(mSurfaceWidth, mSurfaceHeight);
             try {
-                canvas.save();
+                final int saveCount = canvas.save();
                 canvas.translate(mInsetLeft, mInsetTop);
                 callbacks.onHardwarePreDraw(canvas);
+
+                canvas.insertReorderBarrier();
                 canvas.drawRenderNode(view.getDisplayList());
+                canvas.insertInorderBarrier();
+
                 callbacks.onHardwarePostDraw(canvas);
-                canvas.restore();
+                canvas.restoreToCount(saveCount);
                 mRootNodeNeedsUpdate = false;
             } finally {
                 mRootNode.end(canvas);
@@ -314,8 +323,29 @@ public class ThreadedRenderer extends HardwareRenderer {
 
         attachInfo.mIgnoreDirtyState = false;
 
+        // register animating rendernodes which started animating prior to renderer
+        // creation, which is typical for animators started prior to first draw
+        if (attachInfo.mPendingAnimatingRenderNodes != null) {
+            final int count = attachInfo.mPendingAnimatingRenderNodes.size();
+            for (int i = 0; i < count; i++) {
+                registerAnimatingRenderNode(
+                        attachInfo.mPendingAnimatingRenderNodes.get(i));
+            }
+            attachInfo.mPendingAnimatingRenderNodes.clear();
+            // We don't need this anymore as subsequent calls to
+            // ViewRootImpl#attachRenderNodeAnimator will go directly to us.
+            attachInfo.mPendingAnimatingRenderNodes = null;
+        }
+
         int syncResult = nSyncAndDrawFrame(mNativeProxy, frameTimeNanos,
                 recordDuration, view.getResources().getDisplayMetrics().density);
+        if ((syncResult & SYNC_LOST_SURFACE_REWARD_IF_FOUND) != 0) {
+            setEnabled(false);
+            attachInfo.mViewRootImpl.mSurface.release();
+            // Invalidate since we failed to draw. This should fetch a Surface
+            // if it is still needed or do nothing if we are no longer drawing
+            attachInfo.mViewRootImpl.invalidate();
+        }
         if ((syncResult & SYNC_INVALIDATE_REQUIRED) != 0) {
             attachInfo.mViewRootImpl.invalidate();
         }
@@ -329,6 +359,11 @@ public class ThreadedRenderer extends HardwareRenderer {
     HardwareLayer createTextureLayer() {
         long layer = nCreateTextureLayer(mNativeProxy);
         return HardwareLayer.adoptTextureLayer(this, layer);
+    }
+
+    @Override
+    void buildLayer(RenderNode node) {
+        nBuildLayer(mNativeProxy, node.getNativeDisplayList());
     }
 
     @Override
@@ -364,6 +399,11 @@ public class ThreadedRenderer extends HardwareRenderer {
     @Override
     public void notifyFramePending() {
         nNotifyFramePending(mNativeProxy);
+    }
+
+    @Override
+    void registerAnimatingRenderNode(RenderNode animator) {
+        nRegisterAnimatingRenderNode(mRootNode.mNativeRenderNode, animator.mNativeRenderNode);
     }
 
     @Override
@@ -426,11 +466,13 @@ public class ThreadedRenderer extends HardwareRenderer {
             final LongSparseArray<Drawable.ConstantState> drawables = resources.getPreloadedDrawables();
 
             final int count = drawables.size();
+            ArrayList<Bitmap> tmpList = new ArrayList<Bitmap>();
             for (int i = 0; i < count; i++) {
-                final Bitmap bitmap = drawables.valueAt(i).getBitmap();
-                if (bitmap != null && bitmap.getConfig() == Bitmap.Config.ARGB_8888) {
-                    preloadedPointers.add(bitmap.mNativeBitmap);
+                drawables.valueAt(i).addAtlasableBitmaps(tmpList);
+                for (int j = 0; j < tmpList.size(); j++) {
+                    preloadedPointers.add(tmpList.get(j).mNativeBitmap);
                 }
+                tmpList.clear();
             }
 
             for (int i = 0; i < map.length; i += 4) {
@@ -455,19 +497,20 @@ public class ThreadedRenderer extends HardwareRenderer {
 
     private static native boolean nInitialize(long nativeProxy, Surface window);
     private static native void nUpdateSurface(long nativeProxy, Surface window);
-    private static native void nPauseSurface(long nativeProxy, Surface window);
+    private static native boolean nPauseSurface(long nativeProxy, Surface window);
     private static native void nSetup(long nativeProxy, int width, int height,
             float lightX, float lightY, float lightZ, float lightRadius,
             int ambientShadowAlpha, int spotShadowAlpha);
     private static native void nSetOpaque(long nativeProxy, boolean opaque);
     private static native int nSyncAndDrawFrame(long nativeProxy,
             long frameTimeNanos, long recordDuration, float density);
-    private static native void nDestroyCanvasAndSurface(long nativeProxy);
+    private static native void nDestroy(long nativeProxy);
+    private static native void nRegisterAnimatingRenderNode(long rootRenderNode, long animatingNode);
 
     private static native void nInvokeFunctor(long functor, boolean waitForCompletion);
 
-    private static native long nCreateDisplayListLayer(long nativeProxy, int width, int height);
     private static native long nCreateTextureLayer(long nativeProxy);
+    private static native void nBuildLayer(long nativeProxy, long node);
     private static native boolean nCopyLayerInto(long nativeProxy, long layer, long bitmap);
     private static native void nPushLayerUpdate(long nativeProxy, long layer);
     private static native void nCancelLayerUpdate(long nativeProxy, long layer);

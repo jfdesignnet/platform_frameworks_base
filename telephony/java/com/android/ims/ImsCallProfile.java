@@ -19,7 +19,9 @@ package com.android.ims;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telecomm.VideoCallProfile;
+import android.telecom.VideoProfile;
+
+import com.android.internal.telephony.PhoneConstants;
 
 /**
  * Parcelable object to handle IMS call profile.
@@ -112,6 +114,10 @@ public class ImsCallProfile implements Parcelable {
     public static final String EXTRA_CALL_MODE_CHANGEABLE = "call_mode_changeable";
     public static final String EXTRA_CONFERENCE_AVAIL = "conference_avail";
 
+    // Extra string for internal use only. OEMs should not use
+    // this for packing extras.
+    public static final String EXTRA_OEM_EXTRAS = "OemCallExtras";
+
     /**
      * Integer extra properties
      *  oir : Rule for originating identity (number) presentation, MO/MT.
@@ -149,6 +155,18 @@ public class ImsCallProfile implements Parcelable {
     public static final int DIALSTRING_USSD = 2;
 
     /**
+     * Values for causes that restrict call types
+     */
+    // Default cause not restricted at peer and HD is supported
+    public static final int CALL_RESTRICT_CAUSE_NONE = 0;
+    // Service not supported by RAT at peer
+    public static final int CALL_RESTRICT_CAUSE_RAT = 1;
+    // Service Disabled at peer
+    public static final int CALL_RESTRICT_CAUSE_DISABLED = 2;
+    // HD is not supported
+    public static final int CALL_RESTRICT_CAUSE_HD = 3;
+
+    /**
      * String extra properties
      *  oi : Originating identity (number), MT only
      *  cna : Calling name
@@ -162,10 +180,9 @@ public class ImsCallProfile implements Parcelable {
 
     public int mServiceType;
     public int mCallType;
+    public int mRestrictCause = CALL_RESTRICT_CAUSE_NONE;
     public Bundle mCallExtras;
     public ImsStreamMediaProfile mMediaProfile;
-
-
 
     public ImsCallProfile(Parcel in) {
         readFromParcel(in);
@@ -252,6 +269,7 @@ public class ImsCallProfile implements Parcelable {
     public String toString() {
         return "{ serviceType=" + mServiceType +
                 ", callType=" + mCallType +
+                ", restrictCause=" + mRestrictCause +
                 ", callExtras=" + mCallExtras.toString() +
                 ", mediaProfile=" + mMediaProfile.toString() + " }";
     }
@@ -290,7 +308,7 @@ public class ImsCallProfile implements Parcelable {
 
     /**
      * Converts from the call types defined in {@link com.android.ims.ImsCallProfile} to the
-     * video state values defined in {@link android.telecomm.VideoCallProfile}.
+     * video state values defined in {@link VideoProfile}.
      *
      * @param callType The call type.
      * @return The video state.
@@ -298,32 +316,32 @@ public class ImsCallProfile implements Parcelable {
     public static int getVideoStateFromCallType(int callType) {
         switch (callType) {
             case CALL_TYPE_VT_NODIR:
-                return VideoCallProfile.VIDEO_STATE_PAUSED |
-                        VideoCallProfile.VIDEO_STATE_BIDIRECTIONAL;
+                return VideoProfile.VideoState.PAUSED |
+                        VideoProfile.VideoState.BIDIRECTIONAL;
             case CALL_TYPE_VT_TX:
-                return VideoCallProfile.VIDEO_STATE_TX_ENABLED;
+                return VideoProfile.VideoState.TX_ENABLED;
             case CALL_TYPE_VT_RX:
-                return VideoCallProfile.VIDEO_STATE_RX_ENABLED;
+                return VideoProfile.VideoState.RX_ENABLED;
             case CALL_TYPE_VT:
-                return VideoCallProfile.VIDEO_STATE_BIDIRECTIONAL;
+                return VideoProfile.VideoState.BIDIRECTIONAL;
             case CALL_TYPE_VOICE:
-                return VideoCallProfile.VIDEO_STATE_AUDIO_ONLY;
+                return VideoProfile.VideoState.AUDIO_ONLY;
             default:
-                return VideoCallProfile.VIDEO_STATE_AUDIO_ONLY;
+                return VideoProfile.VideoState.AUDIO_ONLY;
         }
     }
 
     /**
-     * Converts from the video state values defined in {@link android.telecomm.VideoCallProfile}
+     * Converts from the video state values defined in {@link VideoProfile}
      * to the call types defined in {@link ImsCallProfile}.
      *
      * @param videoState The video state.
      * @return The call type.
      */
     public static int getCallTypeFromVideoState(int videoState) {
-        boolean videoTx = isVideoStateSet(videoState, VideoCallProfile.VIDEO_STATE_TX_ENABLED);
-        boolean videoRx = isVideoStateSet(videoState, VideoCallProfile.VIDEO_STATE_RX_ENABLED);
-        boolean isPaused = isVideoStateSet(videoState, VideoCallProfile.VIDEO_STATE_PAUSED);
+        boolean videoTx = isVideoStateSet(videoState, VideoProfile.VideoState.TX_ENABLED);
+        boolean videoRx = isVideoStateSet(videoState, VideoProfile.VideoState.RX_ENABLED);
+        boolean isPaused = isVideoStateSet(videoState, VideoProfile.VideoState.PAUSED);
         if (isPaused) {
             return ImsCallProfile.CALL_TYPE_VT_NODIR;
         } else if (videoTx && !videoRx) {
@@ -334,6 +352,38 @@ public class ImsCallProfile implements Parcelable {
             return ImsCallProfile.CALL_TYPE_VT;
         }
         return ImsCallProfile.CALL_TYPE_VOICE;
+    }
+
+    /**
+     * Translate presentation value to OIR value
+     * @param presentation
+     * @return OIR valuse
+     */
+    public static int presentationToOIR(int presentation) {
+        switch (presentation) {
+            case PhoneConstants.PRESENTATION_RESTRICTED:
+                return ImsCallProfile.OIR_PRESENTATION_RESTRICTED;
+            case PhoneConstants.PRESENTATION_ALLOWED:
+                return ImsCallProfile.OIR_PRESENTATION_NOT_RESTRICTED;
+            default:
+                return ImsCallProfile.OIR_DEFAULT;
+        }
+    }
+
+    /**
+     * Translate OIR value to presentation value
+     * @param oir value
+     * @return presentation value
+     */
+    public static int OIRToPresentation(int oir) {
+        switch(oir) {
+            case ImsCallProfile.OIR_PRESENTATION_RESTRICTED:
+                return PhoneConstants.PRESENTATION_RESTRICTED;
+            case ImsCallProfile.OIR_PRESENTATION_NOT_RESTRICTED:
+                return PhoneConstants.PRESENTATION_ALLOWED;
+            default:
+                return PhoneConstants.PRESENTATION_UNKNOWN;
+        }
     }
 
     /**

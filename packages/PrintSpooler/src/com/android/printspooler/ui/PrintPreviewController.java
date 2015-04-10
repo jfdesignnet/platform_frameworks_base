@@ -24,11 +24,10 @@ import android.print.PageRange;
 import android.print.PrintAttributes.MediaSize;
 import android.print.PrintAttributes.Margins;
 import android.print.PrintDocumentInfo;
-import android.support.v7.widget.OrientationHelper;
+import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.RecyclerView.ViewHolder;
 import android.support.v7.widget.RecyclerView.LayoutManager;
-import android.support.v7.widget.StaggeredGridLayoutManager;
 import android.view.View;
 import com.android.internal.os.SomeArgs;
 import com.android.printspooler.R;
@@ -51,7 +50,7 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
     private final MyHandler mHandler;
 
     private final PageAdapter mPageAdapter;
-    private final StaggeredGridLayoutManager mLayoutManger;
+    private final GridLayoutManager mLayoutManger;
 
     private final PrintOptionsLayout mPrintOptionsLayout;
     private final RecyclerView mRecyclerView;
@@ -73,11 +72,12 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
         final int columnCount = mActivity.getResources().getInteger(
                 R.integer.preview_page_per_row_count);
 
-        mLayoutManger = new StaggeredGridLayoutManager(columnCount, OrientationHelper.VERTICAL);
+        mLayoutManger = new GridLayoutManager(mActivity, columnCount);
 
         mRecyclerView = (RecyclerView) activity.findViewById(R.id.preview_content);
         mRecyclerView.setLayoutManager(mLayoutManger);
         mRecyclerView.setAdapter(mPageAdapter);
+        mRecyclerView.setItemViewCacheSize(0);
         mPreloadController = new PreloadController(mRecyclerView);
         mRecyclerView.setOnScrollListener(mPreloadController);
 
@@ -131,7 +131,7 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
     public void onContentUpdated(boolean documentChanged, int documentPageCount,
             PageRange[] writtenPages, PageRange[] selectedPages, MediaSize mediaSize,
             Margins minMargins) {
-                boolean contentChanged = false;
+        boolean contentChanged = false;
 
         if (documentChanged) {
             contentChanged = true;
@@ -152,7 +152,7 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
 
         // The content changed. In this case we have to invalidate
         // all rendered pages and reopen the file...
-        if (contentChanged && writtenPages != null) {
+        if ((contentChanged || !mPageAdapter.isOpened()) && writtenPages != null) {
             Message operation = mHandler.obtainMessage(MyHandler.MSG_OPEN);
             mHandler.enqueueOperation(operation);
         }
@@ -184,14 +184,18 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
             public void run() {
                 // At this point the other end will write to the file, hence
                 // we have to close it and reopen after the write completes.
-                Message operation = mHandler.obtainMessage(MyHandler.MSG_CLOSE);
-                mHandler.enqueueOperation(operation);
+                if (mPageAdapter.isOpened()) {
+                    Message operation = mHandler.obtainMessage(MyHandler.MSG_CLOSE);
+                    mHandler.enqueueOperation(operation);
+                }
             }
         });
     }
 
-    public void destroy() {
-        mPageAdapter.destroy();
+    public void destroy(Runnable callback) {
+        mHandler.cancelQueuedOperations();
+        mRecyclerView.setAdapter(null);
+        mPageAdapter.destroy(callback);
     }
 
     @Override
@@ -217,7 +221,6 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
     private final class MyHandler extends Handler {
         public static final int MSG_OPEN = 1;
         public static final int MSG_CLOSE = 2;
-        public static final int MSG_DESTROY = 3;
         public static final int MSG_UPDATE = 4;
         public static final int MSG_START_PRELOAD = 5;
 
@@ -235,6 +238,10 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
 
         public MyHandler(Looper looper) {
             super(looper, null, false);
+        }
+
+        public void cancelQueuedOperations() {
+            mPendingOperations.clear();
         }
 
         public void enqueueOperation(Message message) {
@@ -283,11 +290,6 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
                             mOnAsyncOperationDoneCallback.run();
                         }
                     });
-                } break;
-
-                case MSG_DESTROY: {
-                    mPageAdapter.destroy();
-                    handleNextOperation();
                 } break;
 
                 case MSG_UPDATE: {
@@ -343,8 +345,7 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
 
         public void startPreloadContent() {
             PageAdapter pageAdapter = (PageAdapter) mRecyclerView.getAdapter();
-
-            if (pageAdapter.isOpened()) {
+            if (pageAdapter != null && pageAdapter.isOpened()) {
                 PageRange shownPages = computeShownPages();
                 if (shownPages != null) {
                     pageAdapter.startPreloadContent(shownPages);
@@ -354,8 +355,7 @@ class PrintPreviewController implements MutexFileProvider.OnReleaseRequestCallba
 
         public void stopPreloadContent() {
             PageAdapter pageAdapter = (PageAdapter) mRecyclerView.getAdapter();
-
-            if (pageAdapter.isOpened()) {
+            if (pageAdapter != null && pageAdapter.isOpened()) {
                 pageAdapter.stopPreloadContent();
             }
         }

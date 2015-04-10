@@ -260,9 +260,18 @@
          released, or define it however else you want, as long as each
          successive version has a higher number.  This is not a version
          number generally shown to the user, that is usually supplied 
-         with {@link android.R.attr#versionName}. -->
+         with {@link android.R.attr#versionName}.  When an app is delivered
+         as multiple split APKs, each APK must have the exact same versionCode. -->
     <attr name="versionCode" format="integer" />
-    
+
+    <!-- Internal revision code.  This number is the number used to determine
+         whether one APK is more recent than another: it has no other meaning
+         than that higher numbers are more recent.  This value is only meaningful
+         when the two {@link android.R.attr#versionCode} values are already
+         identical.  When an app is delivered as multiple split APKs, each
+         APK may have a different revisionCode value. -->
+    <attr name="revisionCode" format="integer" />
+
     <!-- The text shown to the user to indicate the version they have.  This
          is used for no other purpose than display to the user; the actual
          significant version number is given by {@link android.R.attr#versionCode}. -->
@@ -276,17 +285,6 @@
     <!-- Flag to specify if this application needs to be present for all users. Only pre-installed
          applications can request this feature. Default value is false. -->
     <attr name="requiredForAllUsers" format="boolean" />
-
-    <!-- Flag to specifiy for which types of profile this application needs to be present.
-         Only pre-installed applications can request this feature. Default is none. -->
-    <attr name="requiredForProfile">
-        <!-- This application needs to be present for restricted profiles -->
-        <flag name="restricted" value="0x0001" />
-        <!-- This application needs to be present for managed profiles -->
-        <flag name="managed" value="0x0002" />
-        <!-- This application needs to be present for all types of profiles -->
-        <flag name="all" value="0xFFFF" />
-    </attr>
 
     <!-- Flag indicating whether the application can be debugged, even when
          running on a device that is running in user mode. -->
@@ -950,7 +948,7 @@
          {@link android.content.Intent#FLAG_ACTIVITY_MULTIPLE_TASK
          Intent.FLAG_ACTIVITY_MULTIPLE_TASK}. If the value of
          documentLaunchModes is <code>never</code> then any use of
-.........{@link android.content.Intent#FLAG_ACTIVITY_NEW_DOCUMENT
+         {@link android.content.Intent#FLAG_ACTIVITY_NEW_DOCUMENT
          Intent.FLAG_ACTIVITY_NEW_DOCUMENT} to launch this activity will be ignored. -->
     <attr name="documentLaunchMode">
         <!-- The default mode, which will create a new task only when
@@ -1005,6 +1003,15 @@
          TaskDescription to change labels, colors and icons in the recent task list. -->
     <attr name="relinquishTaskIdentity" format="boolean" />
 
+    <!-- Indicate that it is okay for this activity be resumed while the previous
+         activity is in the process of pausing, without waiting for the previous pause
+         to complete.  Use this with caution: your activity can not acquire any exclusive
+         resources (such as opening the camera or recording audio) when it launches, or it
+         may conflict with the previous activity and fail.
+
+         <p>The default value of this attribute is <code>false</code>. -->
+    <attr name="resumeWhilePausing" format="boolean" />
+
     <!-- The <code>manifest</code> tag is the root of an
          <code>AndroidManifest.xml</code> file,
          describing the contents of an Android package (.apk) file.  One
@@ -1027,6 +1034,7 @@
     <declare-styleable name="AndroidManifest">
         <attr name="versionCode" />
         <attr name="versionName" />
+        <attr name="revisionCode" />
         <attr name="sharedUserId" />
         <attr name="sharedUserLabel" />
         <attr name="installLocation" />
@@ -1073,7 +1081,6 @@
         <attr name="hasCode" format="boolean" />
         <attr name="persistent" />
         <attr name="requiredForAllUsers" />
-        <attr name="requiredForProfile" />
         <!-- Specify whether the components in this application are enabled or not (that is, can be
              instantiated by the system).
              If "false", it overrides any component specific values (a value of "true" will not
@@ -1250,7 +1257,9 @@
          application.
 
          <p>This appears as a child tag of the root
-         {@link #AndroidManifest manifest} tag. -->
+         {@link #AndroidManifest manifest} tag.
+
+         @deprecated Use <code>feature-group</code> instead.-->
     <declare-styleable name="AndroidManifestUsesConfiguration" parent="AndroidManifest">
         <!-- The type of touch screen used by an application. -->
         <attr name="reqTouchScreen" />
@@ -1688,6 +1697,7 @@
         <attr name="maxRecents" />
         <attr name="autoRemoveFromRecents" />
         <attr name="relinquishTaskIdentity" />
+        <attr name="resumeWhilePausing" />
     </declare-styleable>
     
     <!-- The <code>activity-alias</code> tag declares a new

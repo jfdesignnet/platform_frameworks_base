@@ -21,20 +21,23 @@ import android.annotation.NonNull;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
+import android.app.PackageDeleteObserver;
 import android.app.PackageInstallObserver;
+import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.IntentSender;
-import android.content.pm.PackageInstaller.CommitCallback;
 import android.content.pm.PackageParser.PackageParserException;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.AndroidException;
 
@@ -176,9 +179,9 @@ public abstract class PackageManager {
     /**
      * {@link PackageInfo} flag: return information about
      * hardware preferences in
-     * {@link PackageInfo#configPreferences PackageInfo.configPreferences} and
-     * requested features in {@link PackageInfo#reqFeatures
-     * PackageInfo.reqFeatures}.
+     * {@link PackageInfo#configPreferences PackageInfo.configPreferences},
+     * and requested features in {@link PackageInfo#reqFeatures} and
+     * {@link PackageInfo#featureGroups}.
      */
     public static final int GET_CONFIGURATIONS = 0x00004000;
 
@@ -197,19 +200,6 @@ public abstract class PackageManager {
      * supplied Intent.
      */
     public static final int MATCH_DEFAULT_ONLY   = 0x00010000;
-
-    /**
-     * Resolution and querying flag: do not resolve intents cross-profile.
-     * @hide
-     */
-    public static final int NO_CROSS_PROFILE = 0x00020000;
-
-    /**
-     * Flag for {@link addCrossProfileIntentFilter}: if the cross-profile intent has been set by the
-     * profile owner.
-     * @hide
-     */
-    public static final int SET_BY_PROFILE_OWNER= 0x00000001;
 
     /**
      * Flag for {@link addCrossProfileIntentFilter}: if this flag is set:
@@ -777,6 +767,9 @@ public abstract class PackageManager {
      */
     public static final int NO_NATIVE_LIBRARIES = -114;
 
+    /** {@hide} */
+    public static final int INSTALL_FAILED_ABORTED = -115;
+
     /**
      * Flag parameter for {@link #deletePackage} to indicate that you don't want to delete the
      * package's data directory.
@@ -849,7 +842,10 @@ public abstract class PackageManager {
      *
      * @hide
      */
-    public static final int DELETE_FAILED_OWNER_BLOCKED= -4;
+    public static final int DELETE_FAILED_OWNER_BLOCKED = -4;
+
+    /** {@hide} */
+    public static final int DELETE_FAILED_ABORTED = -5;
 
     /**
      * Return code that is passed to the {@link IPackageMoveObserver} by
@@ -972,6 +968,14 @@ public abstract class PackageManager {
      */
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_AUDIO_LOW_LATENCY = "android.hardware.audio.low_latency";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device includes at least one form of audio
+     * output, such as speakers, audio jack or streaming over bluetooth
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_AUDIO_OUTPUT = "android.hardware.audio.output";
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
@@ -1217,6 +1221,14 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The heart rate sensor on this device is an Electrocargiogram.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_SENSOR_HEART_RATE_ECG =
+            "android.hardware.sensor.heartrate.ecg";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: The device includes a relative humidity sensor.
      */
     @SdkConstant(SdkConstantType.FEATURE)
@@ -1284,11 +1296,17 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The Connection Service API is enabled on the device.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_CONNECTION_SERVICE = "android.software.connectionservice";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: The device's display has a touch screen.
      */
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_TOUCHSCREEN = "android.hardware.touchscreen";
-
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
@@ -1448,6 +1466,15 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device supports live TV and can display
+     * contents from TV inputs implemented with the
+     * {@link android.media.tv.TvInputService} API.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_LIVE_TV = "android.software.live_tv";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: The device supports WiFi (802.11) networking.
      */
     @SdkConstant(SdkConstantType.FEATURE)
@@ -1498,10 +1525,33 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}:
-     * The device supports managed profiles for enterprise users.
+     * The device supports creating secondary users and managed profiles via
+     * {@link DevicePolicyManager}.
      */
     @SdkConstant(SdkConstantType.FEATURE)
-    public static final String FEATURE_MANAGED_PROFILES = "android.software.managed_profiles";
+    public static final String FEATURE_MANAGED_USERS = "android.software.managed_users";
+
+    /**
+     * @hide
+     * TODO: Remove after dependencies updated b/17392243
+     */
+    public static final String FEATURE_MANAGED_PROFILES = "android.software.managed_users";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}:
+     * The device supports verified boot.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_VERIFIED_BOOT = "android.software.verified_boot";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}:
+     * The device supports secure removal of users. When a user is deleted the data associated
+     * with that user is securely deleted and no longer available.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_SECURELY_REMOVES_USERS
+            = "android.software.securely_removes_users";
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}:
@@ -1526,6 +1576,15 @@ public abstract class PackageManager {
      */
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_HDMI_CEC = "android.hardware.hdmi.cec";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}:
+     * The device has all of the inputs necessary to be considered a compatible game controller, or
+     * includes a compatible game controller in the box.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_GAMEPAD = "android.hardware.gamepad";
+
 
     /**
      * Action to external storage service to clean out removed apps.
@@ -1701,7 +1760,7 @@ public abstract class PackageManager {
      * @return A fully-qualified {@link Intent} that can be used to launch the
      * main activity in the package. Returns <code>null</code> if the package
      * does not contain such an activity, or if <em>packageName</em> is not
-     * recognized. 
+     * recognized.
      */
     public abstract Intent getLaunchIntentForPackage(String packageName);
 
@@ -2405,7 +2464,6 @@ public abstract class PackageManager {
      * @see #MATCH_DEFAULT_ONLY
      * @see #GET_INTENT_FILTERS
      * @see #GET_RESOLVED_FILTER
-     * @see #NO_CROSS_PROFILE
      * @hide
      */
     public abstract List<ResolveInfo> queryIntentActivitiesAsUser(Intent intent,
@@ -2863,6 +2921,79 @@ public abstract class PackageManager {
      */
     public abstract Drawable getApplicationLogo(String packageName)
             throws NameNotFoundException;
+
+    /**
+     * If the target user is a managed profile of the calling user or the caller
+     * is itself a managed profile, then this returns a badged copy of the given
+     * icon to be able to distinguish it from the original icon. For badging an
+     * arbitrary drawable use {@link #getUserBadgedDrawableForDensity(
+     * android.graphics.drawable.Drawable, UserHandle, android.graphics.Rect, int)}.
+     * <p>
+     * If the original drawable is a BitmapDrawable and the backing bitmap is
+     * mutable as per {@link android.graphics.Bitmap#isMutable()}, the badging
+     * is performed in place and the original drawable is returned.
+     * </p>
+     *
+     * @param icon The icon to badge.
+     * @param user The target user.
+     * @return A drawable that combines the original icon and a badge as
+     *         determined by the system.
+     */
+    public abstract Drawable getUserBadgedIcon(Drawable icon, UserHandle user);
+
+    /**
+     * If the target user is a managed profile of the calling user or the caller
+     * is itself a managed profile, then this returns a badged copy of the given
+     * drawable allowing the user to distinguish it from the original drawable.
+     * The caller can specify the location in the bounds of the drawable to be
+     * badged where the badge should be applied as well as the density of the
+     * badge to be used.
+     * <p>
+     * If the original drawable is a BitmapDrawable and the backing bitmap is
+     * mutable as per {@link android.graphics.Bitmap#isMutable()}, the bading
+     * is performed in place and the original drawable is returned.
+     * </p>
+     *
+     * @param drawable The drawable to badge.
+     * @param user The target user.
+     * @param badgeLocation Where in the bounds of the badged drawable to place
+     *         the badge. If not provided, the badge is applied on top of the entire
+     *         drawable being badged.
+     * @param badgeDensity The optional desired density for the badge as per
+     *         {@link android.util.DisplayMetrics#densityDpi}. If not provided,
+     *         the density of the display is used.
+     * @return A drawable that combines the original drawable and a badge as
+     *         determined by the system.
+     */
+    public abstract Drawable getUserBadgedDrawableForDensity(Drawable drawable,
+            UserHandle user, Rect badgeLocation, int badgeDensity);
+
+    /**
+     * If the target user is a managed profile of the calling user or the caller
+     * is itself a managed profile, then this returns a drawable to use as a small
+     * icon to include in a view to distinguish it from the original icon.
+     *
+     * @param user The target user.
+     * @param density The optional desired density for the badge as per
+     *         {@link android.util.DisplayMetrics#densityDpi}. If not provided
+     *         the density of the current display is used.
+     * @return the drawable or null if no drawable is required.
+     * @hide
+     */
+    public abstract Drawable getUserBadgeForDensity(UserHandle user, int density);
+
+    /**
+     * If the target user is a managed profile of the calling user or the caller
+     * is itself a managed profile, then this returns a copy of the label with
+     * badging for accessibility services like talkback. E.g. passing in "Email"
+     * and it might return "Work Email" for Email in the work profile.
+     *
+     * @param label The label to change.
+     * @param user The target user.
+     * @return A label that combines the original label and a badge as
+     *         determined by the system.
+     */
+    public abstract CharSequence getUserBadgedLabel(CharSequence label, UserHandle user);
 
     /**
      * Retrieve text from a package.  This is a low-level API used by
@@ -3530,6 +3661,15 @@ public abstract class PackageManager {
             ComponentName[] set, ComponentName activity);
 
     /**
+     * @hide
+     */
+    @Deprecated
+    public void replacePreferredActivityAsUser(IntentFilter filter, int match,
+           ComponentName[] set, ComponentName activity, int userId) {
+        throw new RuntimeException("Not implemented. Must override in a subclass.");
+    }
+
+    /**
      * Remove all preferred activity mappings, previously added with
      * {@link #addPreferredActivity}, from the
      * system whose activities are implemented in the given package name.
@@ -3672,10 +3812,13 @@ public abstract class PackageManager {
      *
      * @param alias The alias for a given {@link KeySet} as defined in the
      *        application's AndroidManifest.xml.
+     * @hide
      */
     public abstract KeySet getKeySetByAlias(String packageName, String alias);
 
-    /** Return the signing {@link KeySet} for this application. */
+    /** Return the signing {@link KeySet} for this application.
+     * @hide
+     */
     public abstract KeySet getSigningKeySet(String packageName);
 
     /**
@@ -3683,6 +3826,7 @@ public abstract class PackageManager {
      * of the keys specified by the {@link KeySet} ks.  This will return true if
      * the package has been signed by additional keys (a superset) as well.
      * Compare to {@link #isSignedByExactly(String packageName, KeySet ks)}.
+     * @hide
      */
     public abstract boolean isSignedBy(String packageName, KeySet ks);
 
@@ -3690,6 +3834,7 @@ public abstract class PackageManager {
      * Return whether the package denoted by packageName has been signed by all
      * of, and only, the keys specified by the {@link KeySet} ks. Compare to
      * {@link #isSignedBy(String packageName, KeySet ks)}.
+     * @hide
      */
     public abstract boolean isSignedByExactly(String packageName, KeySet ks);
 
@@ -3722,6 +3867,13 @@ public abstract class PackageManager {
     public abstract VerifierDeviceIdentity getVerifierDeviceIdentity();
 
     /**
+     * Returns true if the device is upgrading, such as first boot after OTA.
+     *
+     * @hide
+     */
+    public abstract boolean isUpgrade();
+
+    /**
      * Return interface that offers the ability to install, upgrade, and remove
      * applications on the device.
      */
@@ -3744,9 +3896,10 @@ public abstract class PackageManager {
      * Adds a {@link CrossProfileIntentFilter}. After calling this method all intents sent from the
      * user with id sourceUserId can also be be resolved by activities in the user with id
      * targetUserId if they match the specified intent filter.
-     * @param filter the {@link IntentFilter} the intent has to match
-     * @param removable if set to false, {@link clearCrossProfileIntentFilters} will not remove this
-     * {@link CrossProfileIntentFilter}
+     * @param filter The {@link IntentFilter} the intent has to match
+     * @param sourceUserId The source user id.
+     * @param targetUserId The target user id.
+     * @param flags The only possible value is {@link SKIP_CURRENT_PROFILE}
      * @hide
      */
     public abstract void addCrossProfileIntentFilter(IntentFilter filter, int sourceUserId,
@@ -3754,26 +3907,34 @@ public abstract class PackageManager {
 
     /**
      * Clearing {@link CrossProfileIntentFilter}s which have the specified user as their
-     * source, and have been set by the profile owner
-     * @param sourceUserId
+     * source, and have been set by the app calling this method.
+     * @param sourceUserId The source user id.
      * @hide
      */
     public abstract void clearCrossProfileIntentFilters(int sourceUserId);
 
     /**
-     * Forwards all intents for {@link packageName} for user {@link sourceUserId} to user
-     * {@link targetUserId}.
-     * @hide
-     */
-    public abstract void addCrossProfileIntentsForPackage(String packageName,
-            int sourceUserId, int targetUserId);
-    /**
      * @hide
      */
     public abstract Drawable loadItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo);
 
+    /**
+     * @hide
+     */
+    public abstract Drawable loadUnbadgedItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo);
+
     /** {@hide} */
     public abstract boolean isPackageAvailable(String packageName);
+
+    /** {@hide} */
+    public static String installStatusToString(int status, String msg) {
+        final String str = installStatusToString(status);
+        if (msg != null) {
+            return str + ": " + msg;
+        } else {
+            return str;
+        }
+    }
 
     /** {@hide} */
     public static String installStatusToString(int status) {
@@ -3818,53 +3979,66 @@ public abstract class PackageManager {
             case INSTALL_FAILED_USER_RESTRICTED: return "INSTALL_FAILED_USER_RESTRICTED";
             case INSTALL_FAILED_DUPLICATE_PERMISSION: return "INSTALL_FAILED_DUPLICATE_PERMISSION";
             case INSTALL_FAILED_NO_MATCHING_ABIS: return "INSTALL_FAILED_NO_MATCHING_ABIS";
+            case INSTALL_FAILED_ABORTED: return "INSTALL_FAILED_ABORTED";
             default: return Integer.toString(status);
         }
     }
 
     /** {@hide} */
-    public static int installStatusToFailureReason(int status) {
+    public static int installStatusToPublicStatus(int status) {
         switch (status) {
-            case INSTALL_FAILED_ALREADY_EXISTS: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_INVALID_APK: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_FAILED_INVALID_URI: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_FAILED_INSUFFICIENT_STORAGE: return CommitCallback.FAILURE_STORAGE;
-            case INSTALL_FAILED_DUPLICATE_PACKAGE: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_NO_SHARED_USER: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_UPDATE_INCOMPATIBLE: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_SHARED_USER_INCOMPATIBLE: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_MISSING_SHARED_LIBRARY: return CommitCallback.FAILURE_INCOMPATIBLE;
-            case INSTALL_FAILED_REPLACE_COULDNT_DELETE: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_DEXOPT: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_FAILED_OLDER_SDK: return CommitCallback.FAILURE_INCOMPATIBLE;
-            case INSTALL_FAILED_CONFLICTING_PROVIDER: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_NEWER_SDK: return CommitCallback.FAILURE_INCOMPATIBLE;
-            case INSTALL_FAILED_TEST_ONLY: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_FAILED_CPU_ABI_INCOMPATIBLE: return CommitCallback.FAILURE_INCOMPATIBLE;
-            case INSTALL_FAILED_MISSING_FEATURE: return CommitCallback.FAILURE_INCOMPATIBLE;
-            case INSTALL_FAILED_CONTAINER_ERROR: return CommitCallback.FAILURE_STORAGE;
-            case INSTALL_FAILED_INVALID_INSTALL_LOCATION: return CommitCallback.FAILURE_STORAGE;
-            case INSTALL_FAILED_MEDIA_UNAVAILABLE: return CommitCallback.FAILURE_STORAGE;
-            case INSTALL_FAILED_VERIFICATION_TIMEOUT: return CommitCallback.FAILURE_UNKNOWN;
-            case INSTALL_FAILED_VERIFICATION_FAILURE: return CommitCallback.FAILURE_UNKNOWN;
-            case INSTALL_FAILED_PACKAGE_CHANGED: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_FAILED_UID_CHANGED: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_FAILED_VERSION_DOWNGRADE: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_NOT_APK: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_BAD_MANIFEST: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_UNEXPECTED_EXCEPTION: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_NO_CERTIFICATES: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_CERTIFICATE_ENCODING: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_BAD_PACKAGE_NAME: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_BAD_SHARED_USER_ID: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_MANIFEST_MALFORMED: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_PARSE_FAILED_MANIFEST_EMPTY: return CommitCallback.FAILURE_INVALID;
-            case INSTALL_FAILED_INTERNAL_ERROR: return CommitCallback.FAILURE_UNKNOWN;
-            case INSTALL_FAILED_USER_RESTRICTED: return CommitCallback.FAILURE_INCOMPATIBLE;
-            case INSTALL_FAILED_DUPLICATE_PERMISSION: return CommitCallback.FAILURE_CONFLICT;
-            case INSTALL_FAILED_NO_MATCHING_ABIS: return CommitCallback.FAILURE_INCOMPATIBLE;
-            default: return CommitCallback.FAILURE_UNKNOWN;
+            case INSTALL_SUCCEEDED: return PackageInstaller.STATUS_SUCCESS;
+            case INSTALL_FAILED_ALREADY_EXISTS: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_INVALID_APK: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_INVALID_URI: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_INSUFFICIENT_STORAGE: return PackageInstaller.STATUS_FAILURE_STORAGE;
+            case INSTALL_FAILED_DUPLICATE_PACKAGE: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_NO_SHARED_USER: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_UPDATE_INCOMPATIBLE: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_SHARED_USER_INCOMPATIBLE: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_MISSING_SHARED_LIBRARY: return PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+            case INSTALL_FAILED_REPLACE_COULDNT_DELETE: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_DEXOPT: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_OLDER_SDK: return PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+            case INSTALL_FAILED_CONFLICTING_PROVIDER: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_NEWER_SDK: return PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+            case INSTALL_FAILED_TEST_ONLY: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_CPU_ABI_INCOMPATIBLE: return PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+            case INSTALL_FAILED_MISSING_FEATURE: return PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+            case INSTALL_FAILED_CONTAINER_ERROR: return PackageInstaller.STATUS_FAILURE_STORAGE;
+            case INSTALL_FAILED_INVALID_INSTALL_LOCATION: return PackageInstaller.STATUS_FAILURE_STORAGE;
+            case INSTALL_FAILED_MEDIA_UNAVAILABLE: return PackageInstaller.STATUS_FAILURE_STORAGE;
+            case INSTALL_FAILED_VERIFICATION_TIMEOUT: return PackageInstaller.STATUS_FAILURE_ABORTED;
+            case INSTALL_FAILED_VERIFICATION_FAILURE: return PackageInstaller.STATUS_FAILURE_ABORTED;
+            case INSTALL_FAILED_PACKAGE_CHANGED: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_UID_CHANGED: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_VERSION_DOWNGRADE: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_NOT_APK: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_BAD_MANIFEST: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_UNEXPECTED_EXCEPTION: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_NO_CERTIFICATES: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_CERTIFICATE_ENCODING: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_BAD_PACKAGE_NAME: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_BAD_SHARED_USER_ID: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_MANIFEST_MALFORMED: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_PARSE_FAILED_MANIFEST_EMPTY: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_INTERNAL_ERROR: return PackageInstaller.STATUS_FAILURE;
+            case INSTALL_FAILED_USER_RESTRICTED: return PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+            case INSTALL_FAILED_DUPLICATE_PERMISSION: return PackageInstaller.STATUS_FAILURE_CONFLICT;
+            case INSTALL_FAILED_NO_MATCHING_ABIS: return PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+            case INSTALL_FAILED_ABORTED: return PackageInstaller.STATUS_FAILURE_ABORTED;
+            default: return PackageInstaller.STATUS_FAILURE;
+        }
+    }
+
+    /** {@hide} */
+    public static String deleteStatusToString(int status, String msg) {
+        final String str = deleteStatusToString(status);
+        if (msg != null) {
+            return str + ": " + msg;
+        } else {
+            return str;
         }
     }
 
@@ -3876,7 +4050,58 @@ public abstract class PackageManager {
             case DELETE_FAILED_DEVICE_POLICY_MANAGER: return "DELETE_FAILED_DEVICE_POLICY_MANAGER";
             case DELETE_FAILED_USER_RESTRICTED: return "DELETE_FAILED_USER_RESTRICTED";
             case DELETE_FAILED_OWNER_BLOCKED: return "DELETE_FAILED_OWNER_BLOCKED";
+            case DELETE_FAILED_ABORTED: return "DELETE_FAILED_ABORTED";
             default: return Integer.toString(status);
+        }
+    }
+
+    /** {@hide} */
+    public static int deleteStatusToPublicStatus(int status) {
+        switch (status) {
+            case DELETE_SUCCEEDED: return PackageInstaller.STATUS_SUCCESS;
+            case DELETE_FAILED_INTERNAL_ERROR: return PackageInstaller.STATUS_FAILURE;
+            case DELETE_FAILED_DEVICE_POLICY_MANAGER: return PackageInstaller.STATUS_FAILURE_BLOCKED;
+            case DELETE_FAILED_USER_RESTRICTED: return PackageInstaller.STATUS_FAILURE_BLOCKED;
+            case DELETE_FAILED_OWNER_BLOCKED: return PackageInstaller.STATUS_FAILURE_BLOCKED;
+            case DELETE_FAILED_ABORTED: return PackageInstaller.STATUS_FAILURE_ABORTED;
+            default: return PackageInstaller.STATUS_FAILURE;
+        }
+    }
+
+    /** {@hide} */
+    public static class LegacyPackageInstallObserver extends PackageInstallObserver {
+        private final IPackageInstallObserver mLegacy;
+
+        public LegacyPackageInstallObserver(IPackageInstallObserver legacy) {
+            mLegacy = legacy;
+        }
+
+        @Override
+        public void onPackageInstalled(String basePackageName, int returnCode, String msg,
+                Bundle extras) {
+            if (mLegacy == null) return;
+            try {
+                mLegacy.packageInstalled(basePackageName, returnCode);
+            } catch (RemoteException ignored) {
+            }
+        }
+    }
+
+    /** {@hide} */
+    public static class LegacyPackageDeleteObserver extends PackageDeleteObserver {
+        private final IPackageDeleteObserver mLegacy;
+
+        public LegacyPackageDeleteObserver(IPackageDeleteObserver legacy) {
+            mLegacy = legacy;
+        }
+
+        @Override
+        public void onPackageDeleted(String basePackageName, int returnCode, String msg) {
+            if (mLegacy == null) return;
+            try {
+                mLegacy.packageDeleted(basePackageName, returnCode);
+            } catch (RemoteException ignored) {
+            }
         }
     }
 }

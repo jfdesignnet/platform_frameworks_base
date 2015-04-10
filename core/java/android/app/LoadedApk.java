@@ -40,6 +40,7 @@ import android.os.StrictMode;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.util.AndroidRuntimeException;
+import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.view.DisplayAdjustments;
@@ -50,8 +51,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -199,9 +200,10 @@ public final class LoadedApk {
     /**
      * Sets application info about the system package.
      */
-    void installSystemApplicationInfo(ApplicationInfo info) {
+    void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
         assert info.packageName.equals("android");
         mApplicationInfo = info;
+        mClassLoader = classLoader;
     }
 
     public String getPackageName() {
@@ -262,10 +264,6 @@ public final class LoadedApk {
                 if (!Objects.equals(mPackageName, ActivityThread.currentPackageName())) {
                     final String isa = VMRuntime.getRuntime().vmInstructionSet();
                     try {
-                        // TODO: We can probably do away with the isa argument since
-                        // the AM and PM have enough information to figure this out
-                        // themselves. If we do need it, we should match it against the
-                        // list of devices ISAs before sending it down to installd.
                         ActivityThread.getPackageManager().performDexOptIfNeeded(mPackageName, isa);
                     } catch (RemoteException re) {
                         // Ignored.
@@ -362,7 +360,6 @@ public final class LoadedApk {
 
                 mClassLoader = ApplicationLoaders.getDefault().getClassLoader(zip, lib,
                         mBaseClassLoader);
-                initializeJavaContextClassLoader();
 
                 StrictMode.setThreadPolicy(oldPolicy);
             } else {
@@ -554,6 +551,9 @@ public final class LoadedApk {
 
         try {
             java.lang.ClassLoader cl = getClassLoader();
+            if (!mPackageName.equals("android")) {
+                initializeJavaContextClassLoader();
+            }
             ContextImpl appContext = ContextImpl.createAppContext(mActivityThread, this);
             app = mActivityThread.mInstrumentation.newApplication(
                     cl, appClass, appContext);
@@ -596,136 +596,96 @@ public final class LoadedApk {
         return app;
     }
 
-    private void rewriteIntField(Field field, int packageId) throws IllegalAccessException {
-        int requiredModifiers = Modifier.STATIC | Modifier.PUBLIC;
-        int bannedModifiers = Modifier.FINAL;
-
-        int mod = field.getModifiers();
-        if ((mod & requiredModifiers) != requiredModifiers ||
-                (mod & bannedModifiers) != 0) {
-            throw new IllegalArgumentException("Field " + field.getName() +
-                    " is not rewritable");
-        }
-
-        if (field.getType() != int.class && field.getType() != Integer.class) {
-            throw new IllegalArgumentException("Field " + field.getName() +
-                    " is not an integer");
-        }
-
-        try {
-            int resId = field.getInt(null);
-            field.setInt(null, (resId & 0x00ffffff) | (packageId << 24));
-        } catch (IllegalAccessException e) {
-            // This should not occur (we check above if we can write to it)
-            throw new IllegalArgumentException(e);
-        }
-    }
-
-    private void rewriteIntArrayField(Field field, int packageId) {
-        int requiredModifiers = Modifier.STATIC | Modifier.PUBLIC;
-
-        if ((field.getModifiers() & requiredModifiers) != requiredModifiers) {
-            throw new IllegalArgumentException("Field " + field.getName() +
-                    " is not rewritable");
-        }
-
-        if (field.getType() != int[].class) {
-            throw new IllegalArgumentException("Field " + field.getName() +
-                    " is not an integer array");
-        }
-
-        try {
-            int[] array = (int[]) field.get(null);
-            for (int i = 0; i < array.length; i++) {
-                array[i] = (array[i] & 0x00ffffff) | (packageId << 24);
-            }
-        } catch (IllegalAccessException e) {
-            // This should not occur (we check above if we can write to it)
-            throw new IllegalArgumentException(e);
-        }
-    }
-
     private void rewriteRValues(ClassLoader cl, String packageName, int id) {
+        final Class<?> rClazz;
         try {
-            final Class<?> rClazz = cl.loadClass(packageName + ".R");
-            Class<?>[] declaredClasses = rClazz.getDeclaredClasses();
-            for (Class<?> clazz : declaredClasses) {
-                try {
-                    if (clazz.getSimpleName().equals("styleable")) {
-                        for (Field field : clazz.getDeclaredFields()) {
-                            if (field.getType() == int[].class) {
-                                rewriteIntArrayField(field, id);
-                            }
-                        }
-
-                    } else {
-                        for (Field field : clazz.getDeclaredFields()) {
-                            rewriteIntField(field, id);
-                        }
-                    }
-                } catch (Exception e) {
-                    throw new IllegalArgumentException("Failed to rewrite R values for " +
-                            clazz.getName(), e);
-                }
-            }
-
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to rewrite R values", e);
+            rClazz = cl.loadClass(packageName + ".R");
+        } catch (ClassNotFoundException e) {
+            // This is not necessarily an error, as some packages do not ship with resources
+            // (or they do not need rewriting).
+            Log.i(TAG, "No resource references to update in package " + packageName);
+            return;
         }
+
+        final Method callback;
+        try {
+            callback = rClazz.getMethod("onResourcesLoaded", int.class);
+        } catch (NoSuchMethodException e) {
+            // No rewriting to be done.
+            return;
+        }
+
+        Throwable cause;
+        try {
+            callback.invoke(null, id);
+            return;
+        } catch (IllegalAccessException e) {
+            cause = e;
+        } catch (InvocationTargetException e) {
+            cause = e.getCause();
+        }
+
+        throw new RuntimeException("Failed to rewrite resource references for " + packageName,
+                cause);
     }
 
     public void removeContextRegistrations(Context context,
             String who, String what) {
         final boolean reportRegistrationLeaks = StrictMode.vmRegistrationLeaksEnabled();
-        ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher> rmap =
-                mReceivers.remove(context);
-        if (rmap != null) {
-            for (int i=0; i<rmap.size(); i++) {
-                LoadedApk.ReceiverDispatcher rd = rmap.valueAt(i);
-                IntentReceiverLeaked leak = new IntentReceiverLeaked(
-                        what + " " + who + " has leaked IntentReceiver "
-                        + rd.getIntentReceiver() + " that was " +
-                        "originally registered here. Are you missing a " +
-                        "call to unregisterReceiver()?");
-                leak.setStackTrace(rd.getLocation().getStackTrace());
-                Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
-                if (reportRegistrationLeaks) {
-                    StrictMode.onIntentReceiverLeaked(leak);
-                }
-                try {
-                    ActivityManagerNative.getDefault().unregisterReceiver(
-                            rd.getIIntentReceiver());
-                } catch (RemoteException e) {
-                    // system crashed, nothing we can do
+        synchronized (mReceivers) {
+            ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher> rmap =
+                    mReceivers.remove(context);
+            if (rmap != null) {
+                for (int i = 0; i < rmap.size(); i++) {
+                    LoadedApk.ReceiverDispatcher rd = rmap.valueAt(i);
+                    IntentReceiverLeaked leak = new IntentReceiverLeaked(
+                            what + " " + who + " has leaked IntentReceiver "
+                            + rd.getIntentReceiver() + " that was " +
+                            "originally registered here. Are you missing a " +
+                            "call to unregisterReceiver()?");
+                    leak.setStackTrace(rd.getLocation().getStackTrace());
+                    Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
+                    if (reportRegistrationLeaks) {
+                        StrictMode.onIntentReceiverLeaked(leak);
+                    }
+                    try {
+                        ActivityManagerNative.getDefault().unregisterReceiver(
+                                rd.getIIntentReceiver());
+                    } catch (RemoteException e) {
+                        // system crashed, nothing we can do
+                    }
                 }
             }
+            mUnregisteredReceivers.remove(context);
         }
-        mUnregisteredReceivers.remove(context);
-        //Slog.i(TAG, "Receiver registrations: " + mReceivers);
-        ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> smap =
-            mServices.remove(context);
-        if (smap != null) {
-            for (int i=0; i<smap.size(); i++) {
-                LoadedApk.ServiceDispatcher sd = smap.valueAt(i);
-                ServiceConnectionLeaked leak = new ServiceConnectionLeaked(
-                        what + " " + who + " has leaked ServiceConnection "
-                        + sd.getServiceConnection() + " that was originally bound here");
-                leak.setStackTrace(sd.getLocation().getStackTrace());
-                Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
-                if (reportRegistrationLeaks) {
-                    StrictMode.onServiceConnectionLeaked(leak);
+
+        synchronized (mServices) {
+            //Slog.i(TAG, "Receiver registrations: " + mReceivers);
+            ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> smap =
+                    mServices.remove(context);
+            if (smap != null) {
+                for (int i = 0; i < smap.size(); i++) {
+                    LoadedApk.ServiceDispatcher sd = smap.valueAt(i);
+                    ServiceConnectionLeaked leak = new ServiceConnectionLeaked(
+                            what + " " + who + " has leaked ServiceConnection "
+                            + sd.getServiceConnection() + " that was originally bound here");
+                    leak.setStackTrace(sd.getLocation().getStackTrace());
+                    Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
+                    if (reportRegistrationLeaks) {
+                        StrictMode.onServiceConnectionLeaked(leak);
+                    }
+                    try {
+                        ActivityManagerNative.getDefault().unbindService(
+                                sd.getIServiceConnection());
+                    } catch (RemoteException e) {
+                        // system crashed, nothing we can do
+                    }
+                    sd.doForget();
                 }
-                try {
-                    ActivityManagerNative.getDefault().unbindService(
-                            sd.getIServiceConnection());
-                } catch (RemoteException e) {
-                    // system crashed, nothing we can do
-                }
-                sd.doForget();
             }
+            mUnboundServices.remove(context);
+            //Slog.i(TAG, "Service registrations: " + mServices);
         }
-        mUnboundServices.remove(context);
-        //Slog.i(TAG, "Service registrations: " + mServices);
     }
 
     public IIntentReceiver getReceiverDispatcher(BroadcastReceiver r,

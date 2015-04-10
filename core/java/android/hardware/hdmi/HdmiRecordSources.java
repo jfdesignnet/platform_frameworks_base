@@ -55,23 +55,25 @@ public final class HdmiRecordSources {
 
     /**
      * Base class for each record source.
+     * @hide
      */
-    static abstract class RecordSource {
-        protected final int mSourceType;
-        protected final int mExtraDataSize;
+    @SystemApi
+    public static abstract class RecordSource {
+        /* package */ final int mSourceType;
+        /* package */ final int mExtraDataSize;
 
-        protected RecordSource(int sourceType, int extraDataSize) {
+        /* package */ RecordSource(int sourceType, int extraDataSize) {
             mSourceType = sourceType;
             mExtraDataSize = extraDataSize;
         }
 
-        abstract int extraParamToByteArray(byte[] data, int index);
+        /* package */ abstract int extraParamToByteArray(byte[] data, int index);
 
-        final int getDataSize(boolean includeType)  {
+        /* package */ final int getDataSize(boolean includeType)  {
             return includeType ? mExtraDataSize + 1 : mExtraDataSize;
         }
 
-        public final int toByteArray(boolean includeType, byte[] data, int index) {
+        /* package */ final int toByteArray(boolean includeType, byte[] data, int index) {
             if (includeType) {
                 // 1 to 8 bytes (depends on source).
                 // {[Record Source Type]} |
@@ -92,7 +94,7 @@ public final class HdmiRecordSources {
     // ---- Own source -----------------------------------------------------------------------------
     // ---------------------------------------------------------------------------------------------
     /**
-     * Create {@link OwnSource} of own source.
+     * Creates {@link OwnSource} of own source.
      */
     public static OwnSource ofOwnSource() {
         return new OwnSource();
@@ -161,7 +163,7 @@ public final class HdmiRecordSources {
      * Interface for digital source identification.
      */
     private interface DigitalServiceIdentification {
-        void toByteArray(byte[] data, int index);
+        int toByteArray(byte[] data, int index);
     }
 
     /**
@@ -193,8 +195,9 @@ public final class HdmiRecordSources {
         }
 
         @Override
-        public void toByteArray(byte[] data, int index) {
-            threeFieldsToSixBytes(mTransportStreamId, mServiceId, mOriginalNetworkId, data, index);
+        public int toByteArray(byte[] data, int index) {
+            return threeFieldsToSixBytes(mTransportStreamId, mServiceId, mOriginalNetworkId, data,
+                    index);
         }
     }
 
@@ -221,8 +224,8 @@ public final class HdmiRecordSources {
         }
 
         @Override
-        public void toByteArray(byte[] data, int index) {
-            threeFieldsToSixBytes(mTransportStreamId, mProgramNumber, 0, data, index);
+        public int toByteArray(byte[] data, int index) {
+            return threeFieldsToSixBytes(mTransportStreamId, mProgramNumber, 0, data, index);
         }
     }
 
@@ -255,8 +258,9 @@ public final class HdmiRecordSources {
         }
 
         @Override
-        public void toByteArray(byte[] data, int index) {
-            threeFieldsToSixBytes(mTransportStreamId, mServiceId, mOriginalNetworkId, data, index);
+        public int toByteArray(byte[] data, int index) {
+            return threeFieldsToSixBytes(mTransportStreamId, mServiceId, mOriginalNetworkId, data,
+                    index);
         }
     }
 
@@ -283,12 +287,13 @@ public final class HdmiRecordSources {
             mMinorChannelNumber = minorNumer;
         }
 
-        private void toByteArray(byte[] data, int index) {
+        private int toByteArray(byte[] data, int index) {
             // The first 6 bits for format, the 10 bits for major number.
             data[index] = (byte) (((mChannelNumberFormat << 2) | (mMajorChannelNumber >>> 8) & 0x3));
             data[index + 1] = (byte) (mMajorChannelNumber & 0xFF);
             // Minor number uses the next 16 bits.
             shortToByteArray((short) mMinorChannelNumber, data, index + 2);
+            return 4;
         }
     }
 
@@ -306,7 +311,7 @@ public final class HdmiRecordSources {
      */
     public static final class DigitalChannelData implements DigitalServiceIdentification {
         /** Identifies the logical or virtual channel number of a service. */
-        private ChannelIdentifier mChannelIdentifier;
+        private final ChannelIdentifier mChannelIdentifier;
 
         public static DigitalChannelData ofTwoNumbers(int majorNumber, int minorNumber) {
             return new DigitalChannelData(
@@ -323,16 +328,17 @@ public final class HdmiRecordSources {
         }
 
         @Override
-        public void toByteArray(byte[] data, int index) {
+        public int toByteArray(byte[] data, int index) {
             mChannelIdentifier.toByteArray(data, index);
             // The last 2 bytes is reserved for future use.
             data[index + 4] = 0;
             data[index + 5] = 0;
+            return 6;
         }
     }
 
     /**
-     * Create {@link DigitalServiceSource} with channel type.
+     * Creates {@link DigitalServiceSource} with channel type.
      *
      * @param broadcastSystem digital broadcast system. It should be one of
      *            <ul>
@@ -383,7 +389,7 @@ public final class HdmiRecordSources {
     }
 
     /**
-     * Create {@link DigitalServiceSource} of ARIB type.
+     * Creates {@link DigitalServiceSource} of ARIB type.
      *
      * @param aribType ARIB type. It should be one of
      *            <ul>
@@ -414,7 +420,7 @@ public final class HdmiRecordSources {
     }
 
     /**
-     * Create {@link DigitalServiceSource} of ATSC type.
+     * Creates {@link DigitalServiceSource} of ATSC type.
      *
      * @param atscType ATSC type. It should be one of
      *            <ul>
@@ -445,7 +451,7 @@ public final class HdmiRecordSources {
     }
 
     /**
-     * Create {@link DigitalServiceSource} of ATSC type.
+     * Creates {@link DigitalServiceSource} of ATSC type.
      *
      * @param dvbType DVB type. It should be one of
      *            <ul>
@@ -566,7 +572,7 @@ public final class HdmiRecordSources {
     public static final int BROADCAST_SYSTEM_PAL_OTHER_SYSTEM = 31;
 
     /**
-     * Create {@link AnalogueServiceSource} of analogue service.
+     * Creates {@link AnalogueServiceSource} of analogue service.
      *
      * @param broadcastType
      * @param frequency
@@ -609,7 +615,7 @@ public final class HdmiRecordSources {
      */
     @SystemApi
     public static final class AnalogueServiceSource extends RecordSource {
-        static final int EXTRA_DATA_SIZE = 4;
+        /* package */ static final int EXTRA_DATA_SIZE = 4;
 
         /** Indicates the Analogue broadcast type. */
         private final int mBroadcastType;
@@ -629,7 +635,7 @@ public final class HdmiRecordSources {
         }
 
         @Override
-        protected int extraParamToByteArray(byte[] data, int index) {
+        /* package */ int extraParamToByteArray(byte[] data, int index) {
             // [Analogue Broadcast Type] - 1 byte
             data[index] = (byte) mBroadcastType;
             // [Analogue Frequency] - 2 bytes
@@ -645,7 +651,7 @@ public final class HdmiRecordSources {
     // ---- External plug data ---------------------------------------------------------------------
     // ---------------------------------------------------------------------------------------------
     /**
-     * Create {@link ExternalPlugData} of external plug type.
+     * Creates {@link ExternalPlugData} of external plug type.
      *
      * @param plugNumber plug number. It should be in range of [1, 255]
      * @hide
@@ -689,7 +695,7 @@ public final class HdmiRecordSources {
     // ---- External physical address --------------------------------------------------------------
     // ---------------------------------------------------------------------------------------------
     /**
-     * Create {@link ExternalPhysicalAddress} of external physical address.
+     * Creates {@link ExternalPhysicalAddress} of external physical address.
      *
      * @param physicalAddress
      * @hide
@@ -748,11 +754,13 @@ public final class HdmiRecordSources {
     }
 
     /**
-     * Check the byte array of record source.
+     * Checks the byte array of record source.
      * @hide
      */
     @SystemApi
     public static boolean checkRecordSource(byte[] recordSource) {
+        if (recordSource == null || recordSource.length == 0) return false;
+
         int recordSourceType = recordSource[0];
         int extraDataSize = recordSource.length - 1;
         switch (recordSourceType) {

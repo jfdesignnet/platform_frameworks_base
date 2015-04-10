@@ -18,7 +18,10 @@ package android.media.tv;
 
 import android.annotation.SystemApi;
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
+import android.graphics.Region;
 import android.media.tv.TvInputManager.Session;
 import android.media.tv.TvInputManager.Session.FinishedInputEventCallback;
 import android.media.tv.TvInputManager.SessionCallback;
@@ -38,57 +41,76 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewRootImpl;
 
+import java.lang.ref.WeakReference;
 import java.util.List;
 
 /**
- * View playing TV
+ * Displays TV contents. The TvView class provides a high level interface for applications to show
+ * TV programs from various TV sources that implement {@link TvInputService}. (Note that the list of
+ * TV inputs available on the system can be obtained by calling
+ * {@link TvInputManager#getTvInputList() TvInputManager.getTvInputList()}.)
+ * <p>
+ * Once the application supplies the URI for a specific TV channel to {@link #tune(String, Uri)}
+ * method, it takes care of underlying service binding (and unbinding if the current TvView is
+ * already bound to a service) and automatically allocates/deallocates resources needed. In addition
+ * to a few essential methods to control how the contents are presented, it also provides a way to
+ * dispatch input events to the connected TvInputService in order to enable custom key actions for
+ * the TV input.
+ * </p>
  */
 public class TvView extends ViewGroup {
     private static final String TAG = "TvView";
-    // STOPSHIP: Turn debugging off.
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
 
-    /**
-     * Passed with {@link TvInputListener#onError(String, int)}. Indicates that the requested TV
-     * input is busy and unable to handle the request.
-     */
-    public static final int ERROR_BUSY = 0;
+    private static final int ZORDER_MEDIA = 0;
+    private static final int ZORDER_MEDIA_OVERLAY = 1;
+    private static final int ZORDER_ON_TOP = 2;
 
-    /**
-     * Passed with {@link TvInputListener#onError(String, int)}. Indicates that the underlying TV
-     * input has been disconnected.
-     */
-    public static final int ERROR_TV_INPUT_DISCONNECTED = 1;
+    private static final int CAPTION_DEFAULT = 0;
+    private static final int CAPTION_ENABLED = 1;
+    private static final int CAPTION_DISABLED = 2;
 
-    private static final int VIDEO_SIZE_VALUE_UNKNOWN = 0;
+    private static final WeakReference<TvView> NULL_TV_VIEW = new WeakReference<>(null);
 
     private static final Object sMainTvViewLock = new Object();
-    private static TvView sMainTvView;
+    private static WeakReference<TvView> sMainTvView = NULL_TV_VIEW;
 
     private final Handler mHandler = new Handler();
     private Session mSession;
-    private final SurfaceView mSurfaceView;
+    private SurfaceView mSurfaceView;
     private Surface mSurface;
     private boolean mOverlayViewCreated;
     private Rect mOverlayViewFrame;
     private final TvInputManager mTvInputManager;
     private MySessionCallback mSessionCallback;
-    private TvInputListener mListener;
+    private TvInputCallback mCallback;
     private OnUnhandledInputEventListener mOnUnhandledInputEventListener;
     private boolean mHasStreamVolume;
     private float mStreamVolume;
-    private int mVideoWidth = VIDEO_SIZE_VALUE_UNKNOWN;
-    private int mVideoHeight = VIDEO_SIZE_VALUE_UNKNOWN;
+    private int mCaptionEnabled;
+    private String mAppPrivateCommandAction;
+    private Bundle mAppPrivateCommandData;
+
     private boolean mSurfaceChanged;
     private int mSurfaceFormat;
     private int mSurfaceWidth;
     private int mSurfaceHeight;
+    private final AttributeSet mAttrs;
+    private final int mDefStyleAttr;
+    private int mWindowZOrder;
+    private boolean mUseRequestedSurfaceLayout;
+    private int mSurfaceViewLeft;
+    private int mSurfaceViewRight;
+    private int mSurfaceViewTop;
+    private int mSurfaceViewBottom;
 
     private final SurfaceHolder.Callback mSurfaceHolderCallback = new SurfaceHolder.Callback() {
         @Override
         public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            Log.d(TAG, "surfaceChanged(holder=" + holder + ", format=" + format + ", width=" + width
-                    + ", height=" + height + ")");
+            if (DEBUG) {
+                Log.d(TAG, "surfaceChanged(holder=" + holder + ", format=" + format + ", width="
+                    + width + ", height=" + height + ")");
+            }
             mSurfaceFormat = format;
             mSurfaceWidth = width;
             mSurfaceHeight = height;
@@ -142,49 +164,92 @@ public class TvView extends ViewGroup {
 
     public TvView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        mSurfaceView = new SurfaceView(context, attrs, defStyleAttr) {
-                @Override
-                protected void updateWindow(boolean force, boolean redrawNeeded) {
-                    super.updateWindow(force, redrawNeeded);
-                    relayoutSessionOverlayView();
-                }};
-        mSurfaceView.getHolder().addCallback(mSurfaceHolderCallback);
-        addView(mSurfaceView);
+        mAttrs = attrs;
+        mDefStyleAttr = defStyleAttr;
+        resetSurfaceView();
         mTvInputManager = (TvInputManager) getContext().getSystemService(Context.TV_INPUT_SERVICE);
     }
 
     /**
-     * Sets a listener for events in this TvView.
+     * Sets the callback to be invoked when an event is dispatched to this TvView.
      *
-     * @param listener The listener to be called with events. A value of {@code null} removes any
-     *         existing listener.
+     * @param callback The callback to receive events. A value of {@code null} removes any existing
+     *            callbacks.
      */
-    public void setTvInputListener(TvInputListener listener) {
-        mListener = listener;
+    public void setCallback(TvInputCallback callback) {
+        mCallback = callback;
     }
 
     /**
-     * Set this as main TvView.
+     * Sets this as the main {@link TvView}.
      * <p>
-     * Main TvView is the TvView which user is watching and interacting mainly.  It is used for
-     * determining internal behavior of hardware TV input devices. For example, this influences
-     * how HDMI-CEC active source will be managed.
+     * The main {@link TvView} is a {@link TvView} whose corresponding TV input determines the
+     * HDMI-CEC active source device. For an HDMI port input, one of source devices that is
+     * connected to that HDMI port becomes the active source. For an HDMI-CEC logical device input,
+     * the corresponding HDMI-CEC logical device becomes the active source. For any non-HDMI input
+     * (including the tuner, composite, S-Video, etc.), the internal device (= TV itself) becomes
+     * the active source.
      * </p><p>
-     * First tuned TvView becomes main automatically, and keeps to be main until setMainTvView() is
-     * called for other TvView. Note that main TvView won't be reset even when current main TvView
-     * is removed from view hierarchy.
+     * First tuned {@link TvView} becomes main automatically, and keeps to be main until either
+     * {@link #reset} is called for the main {@link TvView} or {@link #setMain} is called for other
+     * {@link TvView}.
      * </p>
      * @hide
      */
     @SystemApi
-    public void setMainTvView() {
+    public void setMain() {
         synchronized (sMainTvViewLock) {
-            sMainTvView = this;
+            sMainTvView = new WeakReference<>(this);
             if (hasWindowFocus() && mSession != null) {
-                mSession.setMainSession();
+                mSession.setMain();
             }
         }
     }
+
+    /**
+     * Sets the Z order of a window owning the surface of this TvView above the normal TvView
+     * but below an application.
+     *
+     * @see SurfaceView#setZOrderMediaOverlay
+     * @hide
+     */
+    @SystemApi
+    public void setZOrderMediaOverlay(boolean isMediaOverlay) {
+        if (isMediaOverlay) {
+            mWindowZOrder = ZORDER_MEDIA_OVERLAY;
+            removeSessionOverlayView();
+        } else {
+            mWindowZOrder = ZORDER_MEDIA;
+            createSessionOverlayView();
+        }
+        if (mSurfaceView != null) {
+            // ZOrderOnTop(false) removes WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+            // from WindowLayoutParam as well as changes window type.
+            mSurfaceView.setZOrderOnTop(false);
+            mSurfaceView.setZOrderMediaOverlay(isMediaOverlay);
+        }
+    }
+
+    /**
+     * Sets the Z order of a window owning the surface of this TvView on top of an application.
+     *
+     * @see SurfaceView#setZOrderOnTop
+     * @hide
+     */
+    @SystemApi
+    public void setZOrderOnTop(boolean onTop) {
+        if (onTop) {
+            mWindowZOrder = ZORDER_ON_TOP;
+            removeSessionOverlayView();
+        } else {
+            mWindowZOrder = ZORDER_MEDIA;
+            createSessionOverlayView();
+        }
+        if (mSurfaceView != null) {
+            mSurfaceView.setZOrderMediaOverlay(false);
+            mSurfaceView.setZOrderOnTop(onTop);
+        }
+     }
 
     /**
      * Sets the relative stream volume of this session to handle a change of audio focus.
@@ -205,38 +270,52 @@ public class TvView extends ViewGroup {
     /**
      * Tunes to a given channel.
      *
-     * @param inputId the id of TV input which will play the given channel.
+     * @param inputId The ID of TV input which will play the given channel.
      * @param channelUri The URI of a channel.
      */
     public void tune(String inputId, Uri channelUri) {
+        tune(inputId, channelUri, null);
+    }
+
+    /**
+     * Tunes to a given channel.
+     *
+     * @param inputId The ID of TV input which will play the given channel.
+     * @param channelUri The URI of a channel.
+     * @param params Extra parameters which might be handled with the tune event.
+     * @hide
+     */
+    @SystemApi
+    public void tune(String inputId, Uri channelUri, Bundle params) {
         if (DEBUG) Log.d(TAG, "tune(" + channelUri + ")");
         if (TextUtils.isEmpty(inputId)) {
             throw new IllegalArgumentException("inputId cannot be null or an empty string");
         }
         synchronized (sMainTvViewLock) {
-            if (sMainTvView == null) {
-                sMainTvView = this;
+            if (sMainTvView.get() == null) {
+                sMainTvView = new WeakReference<>(this);
             }
         }
         if (mSessionCallback != null && mSessionCallback.mInputId.equals(inputId)) {
             if (mSession != null) {
-                mSession.tune(channelUri);
+                mSession.tune(channelUri, params);
             } else {
                 // Session is not created yet. Replace the channel which will be set once the
                 // session is made.
                 mSessionCallback.mChannelUri = channelUri;
+                mSessionCallback.mTuneParams = params;
             }
         } else {
-            if (mSession != null) {
-                release();
-            }
+            resetInternal();
             // When createSession() is called multiple times before the callback is called,
             // only the callback of the last createSession() call will be actually called back.
             // The previous callbacks will be ignored. For the logic, mSessionCallback
             // is newly assigned for every createSession request and compared with
             // MySessionCreateCallback.this.
-            mSessionCallback = new MySessionCallback(inputId, channelUri);
-            mTvInputManager.createSession(inputId, mSessionCallback, mHandler);
+            mSessionCallback = new MySessionCallback(inputId, channelUri, params);
+            if (mTvInputManager != null) {
+                mTvInputManager.createSession(inputId, mSessionCallback, mHandler);
+            }
         }
     }
 
@@ -246,8 +325,19 @@ public class TvView extends ViewGroup {
      * This method is primarily used to un-tune the current TvView.
      */
     public void reset() {
+        if (DEBUG) Log.d(TAG, "reset()");
+        synchronized (sMainTvViewLock) {
+            if (this == sMainTvView.get()) {
+                sMainTvView = NULL_TV_VIEW;
+            }
+        }
+        resetInternal();
+    }
+
+    private void resetInternal() {
         if (mSession != null) {
             release();
+            resetSurfaceView();
         }
     }
 
@@ -258,7 +348,7 @@ public class TvView extends ViewGroup {
      * </p>
      *
      * @param unblockedRating A TvContentRating to unblock.
-     * @see TvInputService.Session#dispatchContentBlocked(TvContentRating)
+     * @see TvInputService.Session#notifyContentBlocked(TvContentRating)
      * @hide
      */
     @SystemApi
@@ -276,61 +366,67 @@ public class TvView extends ViewGroup {
      * @param enabled {@code true} to enable, {@code false} to disable.
      */
     public void setCaptionEnabled(boolean enabled) {
+        mCaptionEnabled = enabled ? CAPTION_ENABLED : CAPTION_DISABLED;
         if (mSession != null) {
             mSession.setCaptionEnabled(enabled);
         }
     }
 
     /**
-     * Select a track.
-     * <p>
-     * If it is called multiple times on the same type of track (ie. Video, Audio, Text), the track
-     * selected in previous will be unselected. Note that this method does not take any effect
-     * unless the current TvView is tuned.
-     * </p>
+     * Selects a track.
      *
-     * @param track the track to be selected.
-     * @see #getTracks()
+     * @param type The type of the track to select. The type can be {@link TvTrackInfo#TYPE_AUDIO},
+     *            {@link TvTrackInfo#TYPE_VIDEO} or {@link TvTrackInfo#TYPE_SUBTITLE}.
+     * @param trackId The ID of the track to select. {@code null} means to unselect the current
+     *            track for a given type.
+     * @see #getTracks
+     * @see #getSelectedTrack
      */
-    public void selectTrack(TvTrackInfo track) {
+    public void selectTrack(int type, String trackId) {
         if (mSession != null) {
-            mSession.selectTrack(track);
+            mSession.selectTrack(type, trackId);
         }
     }
 
     /**
-     * Unselect a track.
-     * <p>
-     * Note that this method does not take any effect unless the current TvView is tuned.
+     * Returns the list of tracks. Returns {@code null} if the information is not available.
      *
-     * @param track the track to be unselected.
-     * @see #getTracks()
+     * @param type The type of the tracks. The type can be {@link TvTrackInfo#TYPE_AUDIO},
+     *            {@link TvTrackInfo#TYPE_VIDEO} or {@link TvTrackInfo#TYPE_SUBTITLE}.
+     * @see #selectTrack
+     * @see #getSelectedTrack
      */
-    public void unselectTrack(TvTrackInfo track) {
-        if (mSession != null) {
-            mSession.unselectTrack(track);
-        }
-    }
-
-    /**
-     * Returns a list which includes of track information. May return {@code null} if the
-     * information is not available.
-     */
-    public List<TvTrackInfo> getTracks() {
+    public List<TvTrackInfo> getTracks(int type) {
         if (mSession == null) {
             return null;
         }
-        return mSession.getTracks();
+        return mSession.getTracks(type);
     }
 
     /**
-     * Call {@link TvInputService.Session#appPrivateCommand(String, Bundle)
+     * Returns the ID of the selected track for a given type. Returns {@code null} if the
+     * information is not available or the track is not selected.
+     *
+     * @param type The type of the selected tracks. The type can be {@link TvTrackInfo#TYPE_AUDIO},
+     *            {@link TvTrackInfo#TYPE_VIDEO} or {@link TvTrackInfo#TYPE_SUBTITLE}.
+     * @see #selectTrack
+     * @see #getTracks
+     */
+    public String getSelectedTrack(int type) {
+        if (mSession == null) {
+            return null;
+        }
+        return mSession.getSelectedTrack(type);
+    }
+
+    /**
+     * Calls {@link TvInputService.Session#appPrivateCommand(String, Bundle)
      * TvInputService.Session.appPrivateCommand()} on the current TvView.
      *
-     * @param action Name of the command to be performed. This <em>must</em> be a scoped name, i.e.
-     *            prefixed with a package name you own, so that different developers will not create
-     *            conflicting commands.
-     * @param data Any data to include with the command.
+     * @param action The name of the private command to send. This <em>must</em> be a scoped name,
+     *            i.e. prefixed with a package name you own, so that different developers will not
+     *            create conflicting commands.
+     * @param data An optional bundle to send with the command.
      * @hide
      */
     @SystemApi
@@ -340,6 +436,13 @@ public class TvView extends ViewGroup {
         }
         if (mSession != null) {
             mSession.sendAppPrivateCommand(action, data);
+        } else {
+            Log.w(TAG, "sendAppPrivateCommand - session not created (action " + action + " cached)");
+            if (mAppPrivateCommandAction != null) {
+                Log.w(TAG, "previous cached action " + action + " removed");
+            }
+            mAppPrivateCommandAction = action;
+            mAppPrivateCommandData = data;
         }
     }
 
@@ -363,8 +466,8 @@ public class TvView extends ViewGroup {
     }
 
     /**
-     * Called when an unhandled input event was also not handled by the user provided callback. This
-     * is the last chance to handle the unhandled input event in the TvView.
+     * Called when an unhandled input event also has not been handled by the user provided
+     * callback. This is the last chance to handle the unhandled input event in the TvView.
      *
      * @param event The input event.
      * @return If you handled the event, return {@code true}. If you want to allow the event to be
@@ -375,9 +478,9 @@ public class TvView extends ViewGroup {
     }
 
     /**
-     * Registers a callback to be invoked when an input event was not handled by the bound TV input.
+     * Registers a callback to be invoked when an input event is not handled by the bound TV input.
      *
-     * @param listener The callback to invoke when the unhandled input event was received.
+     * @param listener The callback to be invoked when the unhandled input event is received.
      */
     public void setOnUnhandledInputEventListener(OnUnhandledInputEventListener listener) {
         mOnUnhandledInputEventListener = listener;
@@ -449,8 +552,8 @@ public class TvView extends ViewGroup {
         // Other app may have shown its own main TvView.
         // Set main again to regain main session.
         synchronized (sMainTvViewLock) {
-            if (hasFocus && this == sMainTvView && mSession != null) {
-                mSession.setMainSession();
+            if (hasFocus && this == sMainTvView.get() && mSession != null) {
+                mSession.setMain();
             }
         }
     }
@@ -469,7 +572,16 @@ public class TvView extends ViewGroup {
 
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        mSurfaceView.layout(0, 0, right - left, bottom - top);
+        if (DEBUG) {
+            Log.d(TAG, "onLayout (left=" + left + ", top=" + top + ", right=" + right
+                    + ", bottom=" + bottom + ",)");
+        }
+        if (mUseRequestedSurfaceLayout) {
+            mSurfaceView.layout(mSurfaceViewLeft, mSurfaceViewTop, mSurfaceViewRight,
+                    mSurfaceViewBottom);
+        } else {
+            mSurfaceView.layout(0, 0, right - left, bottom - top);
+        }
     }
 
     @Override
@@ -484,8 +596,44 @@ public class TvView extends ViewGroup {
     }
 
     @Override
-    public void setVisibility(int visibility) {
-        super.setVisibility(visibility);
+    public boolean gatherTransparentRegion(Region region) {
+        if (mWindowZOrder != ZORDER_ON_TOP) {
+            if (region != null) {
+                int width = getWidth();
+                int height = getHeight();
+                if (width > 0 && height > 0) {
+                    int location[] = new int[2];
+                    getLocationInWindow(location);
+                    int left = location[0];
+                    int top = location[1];
+                    region.op(left, top, left + width, top + height, Region.Op.UNION);
+                }
+            }
+        }
+        return super.gatherTransparentRegion(region);
+    }
+
+    @Override
+    public void draw(Canvas canvas) {
+        if (mWindowZOrder != ZORDER_ON_TOP) {
+            // Punch a hole so that the underlying overlay view and surface can be shown.
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        }
+        super.draw(canvas);
+    }
+
+    @Override
+    protected void dispatchDraw(Canvas canvas) {
+        if (mWindowZOrder != ZORDER_ON_TOP) {
+            // Punch a hole so that the underlying overlay view and surface can be shown.
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        }
+        super.dispatchDraw(canvas);
+    }
+
+    @Override
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
         mSurfaceView.setVisibility(visibility);
         if (visibility == View.VISIBLE) {
             createSessionOverlayView();
@@ -494,9 +642,34 @@ public class TvView extends ViewGroup {
         }
     }
 
+    private void resetSurfaceView() {
+        if (mSurfaceView != null) {
+            mSurfaceView.getHolder().removeCallback(mSurfaceHolderCallback);
+            removeView(mSurfaceView);
+        }
+        mSurface = null;
+        mSurfaceView = new SurfaceView(getContext(), mAttrs, mDefStyleAttr) {
+            @Override
+            protected void updateWindow(boolean force, boolean redrawNeeded) {
+                super.updateWindow(force, redrawNeeded);
+                relayoutSessionOverlayView();
+            }};
+        mSurfaceView.getHolder().addCallback(mSurfaceHolderCallback);
+        if (mWindowZOrder == ZORDER_MEDIA_OVERLAY) {
+            mSurfaceView.setZOrderMediaOverlay(true);
+        } else if (mWindowZOrder == ZORDER_ON_TOP) {
+            mSurfaceView.setZOrderOnTop(true);
+        }
+        addView(mSurfaceView);
+    }
+
     private void release() {
+        mAppPrivateCommandAction = null;
+        mAppPrivateCommandData = null;
+
         setSessionSurface(null);
         removeSessionOverlayView();
+        mUseRequestedSurfaceLayout = false;
         mSession.release();
         mSession = null;
         mSessionCallback = null;
@@ -518,7 +691,7 @@ public class TvView extends ViewGroup {
 
     private void createSessionOverlayView() {
         if (mSession == null || !isAttachedToWindow()
-                || mOverlayViewCreated) {
+                || mOverlayViewCreated || mWindowZOrder != ZORDER_MEDIA) {
             return;
         }
         mOverlayViewFrame = getViewFrameOnScreen();
@@ -536,8 +709,8 @@ public class TvView extends ViewGroup {
     }
 
     private void relayoutSessionOverlayView() {
-        if (mSession == null || !isAttachedToWindow()
-                || !mOverlayViewCreated) {
+        if (mSession == null || !isAttachedToWindow() || !mOverlayViewCreated
+                || mWindowZOrder != ZORDER_MEDIA) {
             return;
         }
         Rect viewFrame = getViewFrameOnScreen();
@@ -555,52 +728,31 @@ public class TvView extends ViewGroup {
                 location[0] + getWidth(), location[1] + getHeight());
     }
 
-    private void updateVideoSize(List<TvTrackInfo> tracks) {
-        for (TvTrackInfo track : tracks) {
-            if (track.getBoolean(TvTrackInfo.KEY_IS_SELECTED)
-                    && track.getInt(TvTrackInfo.KEY_TYPE) == TvTrackInfo.VALUE_TYPE_VIDEO) {
-                int width = track.getInt(TvTrackInfo.KEY_WIDTH);
-                int height = track.getInt(TvTrackInfo.KEY_HEIGHT);
-                if (width != mVideoWidth || height != mVideoHeight) {
-                    mVideoWidth = width;
-                    mVideoHeight = height;
-                    if (mListener != null) {
-                        mListener.onVideoSizeChanged(mSessionCallback.mInputId, width, height);
-                    }
-                }
-            }
-        }
-    }
-
     /**
-     * Interface used to receive various status updates on the {@link TvView}.
+     * Callback used to receive various status updates on the {@link TvView}.
      */
-    public abstract static class TvInputListener {
+    public abstract static class TvInputCallback {
 
         /**
-         * This is invoked when an error occurred while handling requested operation.
+         * This is invoked when an error occurred while establishing a connection to the underlying
+         * TV input.
          *
          * @param inputId The ID of the TV input bound to this view.
-         * @param errorCode The error code. For the details of error code, please see
-         *         {@link TvView}.
          */
-        public void onError(String inputId, int errorCode) {
+        public void onConnectionFailed(String inputId) {
         }
 
         /**
-         * This is invoked when the view is tuned to a specific channel and starts decoding video
-         * stream from there. It is also called later when the video size is changed.
+         * This is invoked when the existing connection to the underlying TV input is lost.
          *
          * @param inputId The ID of the TV input bound to this view.
-         * @param width The width of the video.
-         * @param height The height of the video.
          */
-        public void onVideoSizeChanged(String inputId, int width, int height) {
+        public void onDisconnected(String inputId) {
         }
 
         /**
          * This is invoked when the channel of this TvView is changed by the underlying TV input
-         * with out any {@link TvView#tune(String, Uri)} request.
+         * without any {@link TvView#tune(String, Uri)} request.
          *
          * @param inputId The ID of the TV input bound to this view.
          * @param channelUri The URI of a channel.
@@ -614,7 +766,31 @@ public class TvView extends ViewGroup {
          * @param inputId The ID of the TV input bound to this view.
          * @param tracks A list which includes track information.
          */
-        public void onTrackInfoChanged(String inputId, List<TvTrackInfo> tracks) {
+        public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
+        }
+
+        /**
+         * This is called when there is a change on the selected tracks.
+         *
+         * @param inputId The ID of the TV input bound to this view.
+         * @param type The type of the track selected. The type can be
+         *            {@link TvTrackInfo#TYPE_AUDIO}, {@link TvTrackInfo#TYPE_VIDEO} or
+         *            {@link TvTrackInfo#TYPE_SUBTITLE}.
+         * @param trackId The ID of the track selected.
+         */
+        public void onTrackSelected(String inputId, int type, String trackId) {
+        }
+
+        /**
+         * This is invoked when the video size has been changed. It is also called when the first
+         * time video size information becomes available after this view is tuned to a specific
+         * channel.
+         *
+         * @param inputId The ID of the TV input bound to this view.
+         * @param width The width of the video.
+         * @param height The height of the video.
+         */
+        public void onVideoSizeChanged(String inputId, int width, int height) {
         }
 
         /**
@@ -632,7 +808,7 @@ public class TvView extends ViewGroup {
          * @param reason The reason why the TV input stopped the playback:
          * <ul>
          * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_UNKNOWN}
-         * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_TUNE}
+         * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_TUNING}
          * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_WEAK_SIGNAL}
          * <li>{@link TvInputManager#VIDEO_UNAVAILABLE_REASON_BUFFERING}
          * </ul>
@@ -691,15 +867,21 @@ public class TvView extends ViewGroup {
     private class MySessionCallback extends SessionCallback {
         final String mInputId;
         Uri mChannelUri;
+        Bundle mTuneParams;
 
-        MySessionCallback(String inputId, Uri channelUri) {
+        MySessionCallback(String inputId, Uri channelUri, Bundle tuneParams) {
             mInputId = inputId;
             mChannelUri = channelUri;
+            mTuneParams = tuneParams;
         }
 
         @Override
         public void onSessionCreated(Session session) {
+            if (DEBUG) {
+                Log.d(TAG, "onSessionCreated()");
+            }
             if (this != mSessionCallback) {
+                Log.w(TAG, "onSessionCreated - session already created");
                 // This callback is obsolete.
                 if (session != null) {
                     session.release();
@@ -709,8 +891,8 @@ public class TvView extends ViewGroup {
             mSession = session;
             if (session != null) {
                 synchronized (sMainTvViewLock) {
-                    if (hasWindowFocus() && TvView.this == sMainTvView) {
-                        mSession.setMainSession();
+                    if (hasWindowFocus() && TvView.this == sMainTvView.get()) {
+                        mSession.setMain();
                     }
                 }
                 // mSurface may not be ready yet as soon as starting an application.
@@ -723,115 +905,186 @@ public class TvView extends ViewGroup {
                     }
                 }
                 createSessionOverlayView();
-                mSession.tune(mChannelUri);
+                if (mCaptionEnabled != CAPTION_DEFAULT) {
+                    mSession.setCaptionEnabled(mCaptionEnabled == CAPTION_ENABLED);
+                }
+                mSession.tune(mChannelUri, mTuneParams);
                 if (mHasStreamVolume) {
                     mSession.setStreamVolume(mStreamVolume);
                 }
+                if (mAppPrivateCommandAction != null) {
+                    mSession.sendAppPrivateCommand(
+                            mAppPrivateCommandAction, mAppPrivateCommandData);
+                    mAppPrivateCommandAction = null;
+                    mAppPrivateCommandData = null;
+                }
             } else {
-                if (mListener != null) {
-                    mListener.onError(mInputId, ERROR_BUSY);
+                mSessionCallback = null;
+                if (mCallback != null) {
+                    mCallback.onConnectionFailed(mInputId);
                 }
             }
         }
 
         @Override
         public void onSessionReleased(Session session) {
+            if (DEBUG) {
+                Log.d(TAG, "onSessionReleased()");
+            }
             if (this != mSessionCallback) {
+                Log.w(TAG, "onSessionReleased - session not created");
                 return;
             }
+            mOverlayViewCreated = false;
+            mOverlayViewFrame = null;
             mSessionCallback = null;
             mSession = null;
-            if (mListener != null) {
-                mListener.onError(mInputId, ERROR_TV_INPUT_DISCONNECTED);
+            if (mCallback != null) {
+                mCallback.onDisconnected(mInputId);
             }
         }
 
         @Override
         public void onChannelRetuned(Session session, Uri channelUri) {
-            if (this != mSessionCallback) {
-                return;
-            }
             if (DEBUG) {
                 Log.d(TAG, "onChannelChangedByTvInput(" + channelUri + ")");
             }
-            if (mListener != null) {
-                mListener.onChannelRetuned(mInputId, channelUri);
+            if (this != mSessionCallback) {
+                Log.w(TAG, "onChannelRetuned - session not created");
+                return;
+            }
+            if (mCallback != null) {
+                mCallback.onChannelRetuned(mInputId, channelUri);
             }
         }
 
         @Override
-        public void onTrackInfoChanged(Session session, List<TvTrackInfo> tracks) {
+        public void onTracksChanged(Session session, List<TvTrackInfo> tracks) {
+            if (DEBUG) {
+                Log.d(TAG, "onTracksChanged(" + tracks + ")");
+            }
             if (this != mSessionCallback) {
+                Log.w(TAG, "onTracksChanged - session not created");
                 return;
             }
-            if (DEBUG) {
-                Log.d(TAG, "onTrackInfoChanged()");
+            if (mCallback != null) {
+                mCallback.onTracksChanged(mInputId, tracks);
             }
-            updateVideoSize(tracks);
-            if (mListener != null) {
-                mListener.onTrackInfoChanged(mInputId, tracks);
+        }
+
+        @Override
+        public void onTrackSelected(Session session, int type, String trackId) {
+            if (DEBUG) {
+                Log.d(TAG, "onTrackSelected(type=" + type + ", trackId=" + trackId + ")");
+            }
+            if (this != mSessionCallback) {
+                Log.w(TAG, "onTrackSelected - session not created");
+                return;
+            }
+            if (mCallback != null) {
+                mCallback.onTrackSelected(mInputId, type, trackId);
+            }
+        }
+
+        @Override
+        public void onVideoSizeChanged(Session session, int width, int height) {
+            if (DEBUG) {
+                Log.d(TAG, "onVideoSizeChanged()");
+            }
+            if (this != mSessionCallback) {
+                Log.w(TAG, "onVideoSizeChanged - session not created");
+                return;
+            }
+            if (mCallback != null) {
+                mCallback.onVideoSizeChanged(mInputId, width, height);
             }
         }
 
         @Override
         public void onVideoAvailable(Session session) {
-            if (this != mSessionCallback) {
-                return;
-            }
             if (DEBUG) {
                 Log.d(TAG, "onVideoAvailable()");
             }
-            if (mListener != null) {
-                mListener.onVideoAvailable(mInputId);
+            if (this != mSessionCallback) {
+                Log.w(TAG, "onVideoAvailable - session not created");
+                return;
+            }
+            if (mCallback != null) {
+                mCallback.onVideoAvailable(mInputId);
             }
         }
 
         @Override
         public void onVideoUnavailable(Session session, int reason) {
+            if (DEBUG) {
+                Log.d(TAG, "onVideoUnavailable(reason=" + reason + ")");
+            }
             if (this != mSessionCallback) {
+                Log.w(TAG, "onVideoUnavailable - session not created");
                 return;
             }
-            if (DEBUG) {
-                Log.d(TAG, "onVideoUnavailable(" + reason + ")");
-            }
-            if (mListener != null) {
-                mListener.onVideoUnavailable(mInputId, reason);
+            if (mCallback != null) {
+                mCallback.onVideoUnavailable(mInputId, reason);
             }
         }
 
         @Override
         public void onContentAllowed(Session session) {
-            if (this != mSessionCallback) {
-                return;
-            }
             if (DEBUG) {
                 Log.d(TAG, "onContentAllowed()");
             }
-            if (mListener != null) {
-                mListener.onContentAllowed(mInputId);
+            if (this != mSessionCallback) {
+                Log.w(TAG, "onContentAllowed - session not created");
+                return;
+            }
+            if (mCallback != null) {
+                mCallback.onContentAllowed(mInputId);
             }
         }
 
         @Override
         public void onContentBlocked(Session session, TvContentRating rating) {
             if (DEBUG) {
-                Log.d(TAG, "onContentBlocked()");
+                Log.d(TAG, "onContentBlocked(rating=" + rating + ")");
             }
-            if (mListener != null) {
-                mListener.onContentBlocked(mInputId, rating);
+            if (this != mSessionCallback) {
+                Log.w(TAG, "onContentBlocked - session not created");
+                return;
+            }
+            if (mCallback != null) {
+                mCallback.onContentBlocked(mInputId, rating);
             }
         }
 
         @Override
-        public void onSessionEvent(Session session, String eventType, Bundle eventArgs) {
+        public void onLayoutSurface(Session session, int left, int top, int right, int bottom) {
+            if (DEBUG) {
+                Log.d(TAG, "onLayoutSurface (left=" + left + ", top=" + top + ", right="
+                        + right + ", bottom=" + bottom + ",)");
+            }
             if (this != mSessionCallback) {
+                Log.w(TAG, "onLayoutSurface - session not created");
                 return;
             }
+            mSurfaceViewLeft = left;
+            mSurfaceViewTop = top;
+            mSurfaceViewRight = right;
+            mSurfaceViewBottom = bottom;
+            mUseRequestedSurfaceLayout = true;
+            requestLayout();
+        }
+
+        @Override
+        public void onSessionEvent(Session session, String eventType, Bundle eventArgs) {
             if (DEBUG) {
                 Log.d(TAG, "onSessionEvent(" + eventType + ")");
             }
-            if (mListener != null) {
-                mListener.onEvent(mInputId, eventType, eventArgs);
+            if (this != mSessionCallback) {
+                Log.w(TAG, "onSessionEvent - session not created");
+                return;
+            }
+            if (mCallback != null) {
+                mCallback.onEvent(mInputId, eventType, eventArgs);
             }
         }
     }

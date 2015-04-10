@@ -27,6 +27,7 @@ import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Parcel;
+import android.os.ParcelFileDescriptor;
 import android.os.PowerManagerInternal;
 import android.os.Process;
 import android.os.ServiceManager;
@@ -38,11 +39,15 @@ import android.telephony.TelephonyManager;
 import android.util.Slog;
 
 import com.android.internal.app.IBatteryStats;
+import com.android.internal.os.BatteryStatsHelper;
 import com.android.internal.os.BatteryStatsImpl;
 import com.android.internal.os.PowerProfile;
 import com.android.server.LocalServices;
 
+import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
 
@@ -62,8 +67,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     private BluetoothHeadset mBluetoothHeadset;
     PowerManagerInternal mPowerManagerInternal;
 
-    BatteryStatsService(String filename, Handler handler) {
-        mStats = new BatteryStatsImpl(filename, handler);
+    BatteryStatsService(File systemDir, Handler handler) {
+        mStats = new BatteryStatsImpl(systemDir, handler);
     }
     
     public void publish(Context context) {
@@ -117,7 +122,53 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     public BatteryStatsImpl getActiveStatistics() {
         return mStats;
     }
-    
+
+    // These are for direct use by the activity manager...
+
+    void addIsolatedUid(int isolatedUid, int appUid) {
+        synchronized (mStats) {
+            mStats.addIsolatedUidLocked(isolatedUid, appUid);
+        }
+    }
+
+    void removeIsolatedUid(int isolatedUid, int appUid) {
+        synchronized (mStats) {
+            mStats.removeIsolatedUidLocked(isolatedUid, appUid);
+        }
+    }
+
+    void noteProcessStart(String name, int uid) {
+        synchronized (mStats) {
+            mStats.noteProcessStartLocked(name, uid);
+        }
+    }
+
+    void noteProcessCrash(String name, int uid) {
+        synchronized (mStats) {
+            mStats.noteProcessCrashLocked(name, uid);
+        }
+    }
+
+    void noteProcessAnr(String name, int uid) {
+        synchronized (mStats) {
+            mStats.noteProcessAnrLocked(name, uid);
+        }
+    }
+
+    void noteProcessState(String name, int uid, int state) {
+        synchronized (mStats) {
+            mStats.noteProcessStateLocked(name, uid, state);
+        }
+    }
+
+    void noteProcessFinish(String name, int uid) {
+        synchronized (mStats) {
+            mStats.noteProcessFinishLocked(name, uid);
+        }
+    }
+
+    // Public interface...
+
     public byte[] getStatistics() {
         mContext.enforceCallingPermission(
                 android.Manifest.permission.BATTERY_STATS, null);
@@ -129,7 +180,24 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         out.recycle();
         return data;
     }
-    
+
+    public ParcelFileDescriptor getStatisticsStream() {
+        mContext.enforceCallingPermission(
+                android.Manifest.permission.BATTERY_STATS, null);
+        //Slog.i("foo", "SENDING BATTERY INFO:");
+        //mStats.dumpLocked(new LogPrinter(Log.INFO, "foo", Log.LOG_ID_SYSTEM));
+        Parcel out = Parcel.obtain();
+        mStats.writeToParcel(out, 0);
+        byte[] data = out.marshall();
+        out.recycle();
+        try {
+            return ParcelFileDescriptor.fromData(data, "battery-stats");
+        } catch (IOException e) {
+            Slog.w(TAG, "Unable to create shared memory", e);
+            return null;
+        }
+    }
+
     public long computeBatteryTimeRemaining() {
         synchronized (mStats) {
             long time = mStats.computeBatteryTimeRemaining(SystemClock.elapsedRealtime());
@@ -144,45 +212,10 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
-    public void addIsolatedUid(int isolatedUid, int appUid) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.addIsolatedUidLocked(isolatedUid, appUid);
-        }
-    }
-
-    public void removeIsolatedUid(int isolatedUid, int appUid) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.removeIsolatedUidLocked(isolatedUid, appUid);
-        }
-    }
-
     public void noteEvent(int code, String name, int uid) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteEventLocked(code, name, uid);
-        }
-    }
-
-    public void noteProcessStart(String name, int uid) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.noteProcessStartLocked(name, uid);
-        }
-    }
-
-    public void noteProcessState(String name, int uid, int state) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.noteProcessStateLocked(name, uid, state);
-        }
-    }
-
-    public void noteProcessFinish(String name, int uid) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.noteProcessFinishLocked(name, uid);
         }
     }
 
@@ -325,6 +358,13 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteInteractiveLocked(interactive);
+        }
+    }
+
+    public void noteConnectivityChanged(int type, String extra) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteConnectivityChangedLocked(type, extra);
         }
     }
 
@@ -726,7 +766,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         pw.println("  enable|disable <option>");
         pw.println("    Enable or disable a running option.  Option state is not saved across boots.");
         pw.println("    Options are:");
-        pw.println("      full-wake-history: include wake_lock_in battery history, full wake details.");
+        pw.println("      full-history: include additional detailed events in battery history:");
+        pw.println("          wake_lock_in and proc events");
         pw.println("      no-auto-reset: don't automatically reset stats when unplugged");
     }
 
@@ -737,9 +778,9 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             dumpHelp(pw);
             return -1;
         }
-        if ("full-wake-history".equals(args[i])) {
+        if ("full-wake-history".equals(args[i]) || "full-history".equals(args[i])) {
             synchronized (mStats) {
-                mStats.setRecordAllWakeLocksLocked(enable);
+                mStats.setRecordAllHistoryLocked(enable);
             }
         } else if ("no-auto-reset".equals(args[i])) {
             synchronized (mStats) {
@@ -764,7 +805,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
 
         int flags = 0;
-        boolean isCheckin = false;
+        boolean useCheckinFormat = false;
+        boolean isRealCheckin = false;
         boolean noOutput = false;
         boolean writeData = false;
         long historyStart = -1;
@@ -773,7 +815,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             for (int i=0; i<args.length; i++) {
                 String arg = args[i];
                 if ("--checkin".equals(arg)) {
-                    isCheckin = true;
+                    useCheckinFormat = true;
+                    isRealCheckin = true;
                 } else if ("--history".equals(arg)) {
                     flags |= BatteryStats.DUMP_HISTORY_ONLY;
                 } else if ("--history-start".equals(arg)) {
@@ -787,7 +830,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                     historyStart = Long.parseLong(args[i]);
                     writeData = true;
                 } else if ("-c".equals(arg)) {
-                    isCheckin = true;
+                    useCheckinFormat = true;
                     flags |= BatteryStats.DUMP_INCLUDE_HISTORY;
                 } else if ("--unplugged".equals(arg)) {
                     flags |= BatteryStats.DUMP_UNPLUGGED_ONLY;
@@ -844,8 +887,48 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         if (noOutput) {
             return;
         }
-        if (isCheckin) {
+        if (BatteryStatsHelper.checkWifiOnly(mContext)) {
+            flags |= BatteryStats.DUMP_DEVICE_WIFI_ONLY;
+        }
+        if (reqUid >= 0) {
+            // By default, if the caller is only interested in a specific package, then
+            // we only dump the aggregated data since charged.
+            if ((flags&(BatteryStats.DUMP_HISTORY_ONLY|BatteryStats.DUMP_UNPLUGGED_ONLY
+                    |BatteryStats.DUMP_CHARGED_ONLY)) == 0) {
+                flags |= BatteryStats.DUMP_CHARGED_ONLY;
+                // Also if they are doing -c, we don't want history.
+                flags &= ~BatteryStats.DUMP_INCLUDE_HISTORY;
+            }
+        }
+        if (useCheckinFormat) {
             List<ApplicationInfo> apps = mContext.getPackageManager().getInstalledApplications(0);
+            if (isRealCheckin) {
+                // For a real checkin, first we want to prefer to use the last complete checkin
+                // file if there is one.
+                synchronized (mStats.mCheckinFile) {
+                    if (mStats.mCheckinFile.exists()) {
+                        try {
+                            byte[] raw = mStats.mCheckinFile.readFully();
+                            if (raw != null) {
+                                Parcel in = Parcel.obtain();
+                                in.unmarshall(raw, 0, raw.length);
+                                in.setDataPosition(0);
+                                BatteryStatsImpl checkinStats = new BatteryStatsImpl(
+                                        null, mStats.mHandler);
+                                checkinStats.readSummaryFromParcel(in);
+                                in.recycle();
+                                checkinStats.dumpCheckinLocked(mContext, pw, apps, flags,
+                                        historyStart);
+                                mStats.mCheckinFile.delete();
+                                return;
+                            }
+                        } catch (IOException e) {
+                            Slog.w(TAG, "Failure reading checkin file "
+                                    + mStats.mCheckinFile.getBaseFile(), e);
+                        }
+                    }
+                }
+            }
             synchronized (mStats) {
                 mStats.dumpCheckinLocked(mContext, pw, apps, flags, historyStart);
                 if (writeData) {

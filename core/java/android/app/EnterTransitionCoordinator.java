@@ -18,21 +18,18 @@ package android.app;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
-import android.graphics.Matrix;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Message;
 import android.os.ResultReceiver;
+import android.text.TextUtils;
 import android.transition.Transition;
 import android.transition.TransitionManager;
 import android.util.ArrayMap;
-import android.util.Pair;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroupOverlay;
 import android.view.ViewTreeObserver;
-import android.widget.ImageView;
+import android.view.Window;
 
 import java.util.ArrayList;
 
@@ -44,13 +41,11 @@ import java.util.ArrayList;
 class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     private static final String TAG = "EnterTransitionCoordinator";
 
-    private static final long MAX_WAIT_MS = 1000;
     private static final int MIN_ANIMATION_FRAMES = 2;
 
     private boolean mSharedElementTransitionStarted;
     private Activity mActivity;
     private boolean mHasStopped;
-    private Handler mHandler;
     private boolean mIsCanceled;
     private ObjectAnimator mBackgroundAnimator;
     private boolean mIsExitTransitionComplete;
@@ -59,6 +54,9 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     private boolean mWasOpaque;
     private boolean mAreViewsReady;
     private boolean mIsViewsTransitionStarted;
+    private boolean mIsViewsTransitionComplete;
+    private boolean mIsSharedElementTransitionComplete;
+    private Transition mEnterViewsTransition;
 
     public EnterTransitionCoordinator(Activity activity, ResultReceiver resultReceiver,
             ArrayList<String> sharedElementNames, boolean isReturning) {
@@ -70,43 +68,59 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         Bundle resultReceiverBundle = new Bundle();
         resultReceiverBundle.putParcelable(KEY_REMOTE_RECEIVER, this);
         mResultReceiver.send(MSG_SET_REMOTE_RECEIVER, resultReceiverBundle);
-        getDecor().getViewTreeObserver().addOnPreDrawListener(
-                new ViewTreeObserver.OnPreDrawListener() {
-                    @Override
-                    public boolean onPreDraw() {
-                        if (mIsReadyForTransition) {
-                            getDecor().getViewTreeObserver().removeOnPreDrawListener(this);
+        final View decorView = getDecor();
+        if (decorView != null) {
+            decorView.getViewTreeObserver().addOnPreDrawListener(
+                    new ViewTreeObserver.OnPreDrawListener() {
+                        @Override
+                        public boolean onPreDraw() {
+                            if (mIsReadyForTransition) {
+                                decorView.getViewTreeObserver().removeOnPreDrawListener(this);
+                            }
+                            return mIsReadyForTransition;
                         }
-                        return mIsReadyForTransition;
-                    }
-                });
+                    });
+        }
     }
 
-    public void viewInstancesReady(ArrayList<String> accepted, ArrayList<View> localViews) {
-        triggerViewsReady(mapSharedElements(accepted, localViews));
+    public void viewInstancesReady(ArrayList<String> accepted, ArrayList<String> localNames,
+            ArrayList<View> localViews) {
+        boolean remap = false;
+        for (int i = 0; i < localViews.size(); i++) {
+            View view = localViews.get(i);
+            if (!TextUtils.equals(view.getTransitionName(), localNames.get(i))
+                    || !view.isAttachedToWindow()) {
+                remap = true;
+                break;
+            }
+        }
+        if (remap) {
+            triggerViewsReady(mapNamedElements(accepted, localNames));
+        } else {
+            triggerViewsReady(mapSharedElements(accepted, localViews));
+        }
     }
 
     public void namedViewsReady(ArrayList<String> accepted, ArrayList<String> localNames) {
         triggerViewsReady(mapNamedElements(accepted, localNames));
     }
 
+    public Transition getEnterViewsTransition() {
+        return mEnterViewsTransition;
+    }
+
     @Override
     protected void viewsReady(ArrayMap<String, View> sharedElements) {
         super.viewsReady(sharedElements);
         mIsReadyForTransition = true;
-        if (mIsReturning) {
-            mHandler = new Handler() {
-                @Override
-                public void handleMessage(Message msg) {
-                    cancel();
-                }
-            };
-            mHandler.sendEmptyMessageDelayed(MSG_CANCEL, MAX_WAIT_MS);
-            send(MSG_SEND_SHARED_ELEMENT_DESTINATION, null);
+        hideViews(mSharedElements);
+        if (getViewsTransition() != null && mTransitioningViews != null) {
+            hideViews(mTransitioningViews);
         }
-        setTransitionAlpha(mSharedElements, 0);
-        if (getViewsTransition() != null) {
-            setTransitionAlpha(mTransitioningViews, 0);
+        if (mIsReturning) {
+            sendSharedElementDestination();
+        } else {
+            moveSharedElementsToOverlay();
         }
         if (mSharedElementsBundle != null) {
             onTakeSharedElements();
@@ -118,15 +132,17 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
             return;
         }
         mAreViewsReady = true;
+        final ViewGroup decor = getDecor();
         // Ensure the views have been laid out before capturing the views -- we need the epicenter.
-        if (sharedElements.isEmpty() || !sharedElements.valueAt(0).isLayoutRequested()) {
+        if (decor == null || (decor.isAttachedToWindow() &&
+                (sharedElements.isEmpty() || !sharedElements.valueAt(0).isLayoutRequested()))) {
             viewsReady(sharedElements);
         } else {
-            sharedElements.valueAt(0).getViewTreeObserver()
+            decor.getViewTreeObserver()
                     .addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
                 @Override
                 public boolean onPreDraw() {
-                    sharedElements.valueAt(0).getViewTreeObserver().removeOnPreDrawListener(this);
+                    decor.getViewTreeObserver().removeOnPreDrawListener(this);
                     viewsReady(sharedElements);
                     return true;
                 }
@@ -137,7 +153,10 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     private ArrayMap<String, View> mapNamedElements(ArrayList<String> accepted,
             ArrayList<String> localNames) {
         ArrayMap<String, View> sharedElements = new ArrayMap<String, View>();
-        getDecor().findNamedViews(sharedElements);
+        ViewGroup decorView = getDecor();
+        if (decorView != null) {
+            decorView.findNamedViews(sharedElements);
+        }
         if (accepted != null) {
             for (int i = 0; i < localNames.size(); i++) {
                 String localName = localNames.get(i);
@@ -154,27 +173,38 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     }
 
     private void sendSharedElementDestination() {
-        ViewGroup decor = getDecor();
-        boolean allReady = !decor.isLayoutRequested();
-        if (allReady) {
-            for (int i = 0; i < mSharedElements.size(); i++) {
-                if (mSharedElements.get(i).isLayoutRequested()) {
-                    allReady = false;
-                    break;
+        boolean allReady;
+        final View decorView = getDecor();
+        if (allowOverlappingTransitions() && getEnterViewsTransition() != null) {
+            allReady = false;
+        } else if (decorView == null) {
+            allReady = true;
+        } else {
+            allReady = !decorView.isLayoutRequested();
+            if (allReady) {
+                for (int i = 0; i < mSharedElements.size(); i++) {
+                    if (mSharedElements.get(i).isLayoutRequested()) {
+                        allReady = false;
+                        break;
+                    }
                 }
             }
         }
         if (allReady) {
             Bundle state = captureSharedElementState();
+            moveSharedElementsToOverlay();
             mResultReceiver.send(MSG_SHARED_ELEMENT_DESTINATION, state);
-        } else {
-            getDecor().getViewTreeObserver()
+        } else if (decorView != null) {
+            decorView.getViewTreeObserver()
                     .addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
                         @Override
                         public boolean onPreDraw() {
-                            getDecor().getViewTreeObserver().removeOnPreDrawListener(this);
-                            Bundle state = captureSharedElementState();
-                            mResultReceiver.send(MSG_SHARED_ELEMENT_DESTINATION, state);
+                            decorView.getViewTreeObserver().removeOnPreDrawListener(this);
+                            if (mResultReceiver != null) {
+                                Bundle state = captureSharedElementState();
+                                moveSharedElementsToOverlay();
+                                mResultReceiver.send(MSG_SHARED_ELEMENT_DESTINATION, state);
+                            }
                             return true;
                         }
                     });
@@ -184,7 +214,7 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         }
     }
 
-    private static SharedElementListener getListener(Activity activity, boolean isReturning) {
+    private static SharedElementCallback getListener(Activity activity, boolean isReturning) {
         return isReturning ? activity.mExitTransitionListener : activity.mEnterTransitionListener;
     }
 
@@ -193,9 +223,6 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         switch (resultCode) {
             case MSG_TAKE_SHARED_ELEMENTS:
                 if (!mIsCanceled) {
-                    if (mHandler != null) {
-                        mHandler.removeMessages(MSG_CANCEL);
-                    }
                     mSharedElementsBundle = resultData;
                     onTakeSharedElements();
                 }
@@ -211,9 +238,6 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
             case MSG_CANCEL:
                 cancel();
                 break;
-            case MSG_SEND_SHARED_ELEMENT_DESTINATION:
-                sendSharedElementDestination();
-                break;
         }
     }
 
@@ -221,8 +245,8 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         if (!mIsCanceled) {
             mIsCanceled = true;
             if (getViewsTransition() == null || mIsViewsTransitionStarted) {
-                setTransitionAlpha(mSharedElements, 1);
-            } else {
+                showViews(mSharedElements, true);
+            } else if (mTransitioningViews != null) {
                 mTransitioningViews.addAll(mSharedElements);
             }
             mSharedElementNames.clear();
@@ -238,10 +262,14 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     }
 
     protected void prepareEnter() {
+        ViewGroup decorView = getDecor();
+        if (mActivity == null || decorView == null) {
+            return;
+        }
         mActivity.overridePendingTransition(0, 0);
         if (!mIsReturning) {
             mWasOpaque = mActivity.convertToTranslucent(null, null);
-            Drawable background = getDecor().getBackground();
+            Drawable background = decorView.getBackground();
             if (background != null) {
                 getWindow().setBackgroundDrawable(null);
                 background = background.mutate();
@@ -255,40 +283,61 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
 
     @Override
     protected Transition getViewsTransition() {
+        Window window = getWindow();
+        if (window == null) {
+            return null;
+        }
         if (mIsReturning) {
-            return getWindow().getExitTransition();
+            return window.getReenterTransition();
         } else {
-            return getWindow().getEnterTransition();
+            return window.getEnterTransition();
         }
     }
 
     protected Transition getSharedElementTransition() {
+        Window window = getWindow();
+        if (window == null) {
+            return null;
+        }
         if (mIsReturning) {
-            return getWindow().getSharedElementExitTransition();
+            return window.getSharedElementReenterTransition();
         } else {
-            return getWindow().getSharedElementEnterTransition();
+            return window.getSharedElementEnterTransition();
         }
     }
 
     private void startSharedElementTransition(Bundle sharedElementState) {
+        ViewGroup decorView = getDecor();
+        if (decorView == null) {
+            return;
+        }
         // Remove rejected shared elements
         ArrayList<String> rejectedNames = new ArrayList<String>(mAllSharedElementNames);
         rejectedNames.removeAll(mSharedElementNames);
         ArrayList<View> rejectedSnapshots = createSnapshots(sharedElementState, rejectedNames);
-        mListener.handleRejectedSharedElements(rejectedSnapshots);
+        if (mListener != null) {
+            mListener.onRejectSharedElements(rejectedSnapshots);
+        }
+        removeNullViews(rejectedSnapshots);
         startRejectedAnimations(rejectedSnapshots);
 
         // Now start shared element transition
         ArrayList<View> sharedElementSnapshots = createSnapshots(sharedElementState,
                 mSharedElementNames);
-        setTransitionAlpha(mSharedElements, 1);
+        showViews(mSharedElements, true);
+        scheduleSetSharedElementEnd(sharedElementSnapshots);
         ArrayList<SharedElementOriginalState> originalImageViewState =
                 setSharedElementState(sharedElementState, sharedElementSnapshots);
         requestLayoutForSharedElements();
 
         boolean startEnterTransition = allowOverlappingTransitions() && !mIsReturning;
         boolean startSharedElementTransition = true;
-        Transition transition = beginTransition(startEnterTransition, startSharedElementTransition);
+        setGhostVisibility(View.INVISIBLE);
+        scheduleGhostVisibilityChange(View.INVISIBLE);
+        Transition transition = beginTransition(decorView, startEnterTransition,
+                startSharedElementTransition);
+        scheduleGhostVisibilityChange(View.VISIBLE);
+        setGhostVisibility(View.VISIBLE);
 
         if (startEnterTransition) {
             startEnterTransition(transition);
@@ -299,18 +348,32 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         if (mResultReceiver != null) {
             // We can't trust that the view will disappear on the same frame that the shared
             // element appears here. Assure that we get at least 2 frames for double-buffering.
-            getDecor().postOnAnimation(new Runnable() {
+            decorView.postOnAnimation(new Runnable() {
                 int mAnimations;
+
                 @Override
                 public void run() {
                     if (mAnimations++ < MIN_ANIMATION_FRAMES) {
-                        getDecor().postOnAnimation(this);
-                    } else {
+                        View decorView = getDecor();
+                        if (decorView != null) {
+                            decorView.postOnAnimation(this);
+                        }
+                    } else if (mResultReceiver != null) {
                         mResultReceiver.send(MSG_HIDE_SHARED_ELEMENTS, null);
                         mResultReceiver = null; // all done sending messages.
                     }
                 }
             });
+        }
+    }
+
+    private static void removeNullViews(ArrayList<View> views) {
+        if (views != null) {
+            for (int i = views.size() - 1; i >= 0; i--) {
+                if (views.get(i) == null) {
+                    views.remove(i);
+                }
+            }
         }
     }
 
@@ -320,21 +383,24 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         }
         final Bundle sharedElementState = mSharedElementsBundle;
         mSharedElementsBundle = null;
-        getDecor().getViewTreeObserver()
-                .addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-                    @Override
-                    public boolean onPreDraw() {
-                        getDecor().getViewTreeObserver().removeOnPreDrawListener(this);
-                        startTransition(new Runnable() {
-                            @Override
-                            public void run() {
-                                startSharedElementTransition(sharedElementState);
-                            }
-                        });
-                        return false;
-                    }
-                });
-        getDecor().invalidate();
+        final View decorView = getDecor();
+        if (decorView != null) {
+            decorView.getViewTreeObserver()
+                    .addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+                        @Override
+                        public boolean onPreDraw() {
+                            decorView.getViewTreeObserver().removeOnPreDrawListener(this);
+                            startTransition(new Runnable() {
+                                @Override
+                                public void run() {
+                                    startSharedElementTransition(sharedElementState);
+                                }
+                            });
+                            return false;
+                        }
+                    });
+            decorView.invalidate();
+        }
     }
 
     private void requestLayoutForSharedElements() {
@@ -344,52 +410,94 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         }
     }
 
-    private Transition beginTransition(boolean startEnterTransition,
+    private Transition beginTransition(ViewGroup decorView, boolean startEnterTransition,
             boolean startSharedElementTransition) {
         Transition sharedElementTransition = null;
-        if (startSharedElementTransition && !mSharedElementNames.isEmpty()) {
-            sharedElementTransition = configureTransition(getSharedElementTransition(), false);
-        }
-        Transition viewsTransition = null;
-        if (startEnterTransition && !mTransitioningViews.isEmpty()) {
-            viewsTransition = configureTransition(getViewsTransition(), true);
-            if (viewsTransition != null) {
-                stripOffscreenViews();
-                viewsTransition.forceVisibility(View.INVISIBLE, true);
-                setTransitionAlpha(mTransitioningViews, 1);
-            }
-        }
-        mIsViewsTransitionStarted = mIsViewsTransitionStarted || startEnterTransition;
-
-        Transition transition = mergeTransitions(sharedElementTransition, viewsTransition);
         if (startSharedElementTransition) {
-            if (transition == null) {
+            if (!mSharedElementNames.isEmpty()) {
+                sharedElementTransition = configureTransition(getSharedElementTransition(), false);
+            }
+            if (sharedElementTransition == null) {
                 sharedElementTransitionStarted();
+                sharedElementTransitionComplete();
             } else {
-                transition.addListener(new ContinueTransitionListener() {
+                sharedElementTransition.addListener(new Transition.TransitionListenerAdapter() {
                     @Override
                     public void onTransitionStart(Transition transition) {
-                        super.onTransitionStart(transition);
-                        transition.removeListener(this);
                         sharedElementTransitionStarted();
+                    }
+
+                    @Override
+                    public void onTransitionEnd(Transition transition) {
+                        transition.removeListener(this);
+                        sharedElementTransitionComplete();
                     }
                 });
             }
         }
-        if (transition != null) {
-            if (sharedElementTransition == null) {
-                transition.addListener(new ContinueTransitionListener());
+        Transition viewsTransition = null;
+        if (startEnterTransition) {
+            mIsViewsTransitionStarted = true;
+            if (mTransitioningViews != null && !mTransitioningViews.isEmpty()) {
+                viewsTransition = configureTransition(getViewsTransition(), true);
+                if (viewsTransition != null && !mIsReturning) {
+                    stripOffscreenViews();
+                }
             }
-            TransitionManager.beginDelayedTransition(getDecor(), transition);
+            if (viewsTransition == null) {
+                viewTransitionComplete();
+            } else {
+                viewsTransition.forceVisibility(View.INVISIBLE, true);
+                final ArrayList<View> transitioningViews = mTransitioningViews;
+                viewsTransition.addListener(new ContinueTransitionListener() {
+                    @Override
+                    public void onTransitionStart(Transition transition) {
+                        mEnterViewsTransition = transition;
+                        if (transitioningViews != null) {
+                            showViews(transitioningViews, false);
+                        }
+                        super.onTransitionStart(transition);
+                    }
+
+                    @Override
+                    public void onTransitionEnd(Transition transition) {
+                        mEnterViewsTransition = null;
+                        transition.removeListener(this);
+                        viewTransitionComplete();
+                        super.onTransitionEnd(transition);
+                    }
+                });
+            }
+        }
+
+        Transition transition = mergeTransitions(sharedElementTransition, viewsTransition);
+        if (transition != null) {
+            transition.addListener(new ContinueTransitionListener());
+            TransitionManager.beginDelayedTransition(decorView, transition);
             if (startSharedElementTransition && !mSharedElementNames.isEmpty()) {
                 mSharedElements.get(0).invalidate();
-            } else if (startEnterTransition && !mTransitioningViews.isEmpty()) {
+            } else if (startEnterTransition && mTransitioningViews != null &&
+                    !mTransitioningViews.isEmpty()) {
                 mTransitioningViews.get(0).invalidate();
             }
         } else {
             transitionStarted();
         }
         return transition;
+    }
+
+    private void viewTransitionComplete() {
+        mIsViewsTransitionComplete = true;
+        if (mIsSharedElementTransitionComplete) {
+            moveSharedElementsFromOverlay();
+        }
+    }
+
+    private void sharedElementTransitionComplete() {
+        mIsSharedElementTransitionComplete = true;
+        if (mIsViewsTransitionComplete) {
+            moveSharedElementsFromOverlay();
+        }
     }
 
     private void sharedElementTransitionStarted() {
@@ -400,10 +508,12 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     }
 
     private void startEnterTransition(Transition transition) {
-        if (!mIsReturning) {
-            Drawable background = getDecor().getBackground();
+        ViewGroup decorView = getDecor();
+        if (!mIsReturning && decorView != null) {
+            Drawable background = decorView.getBackground();
             if (background != null) {
                 background = background.mutate();
+                getWindow().setBackgroundDrawable(background);
                 mBackgroundAnimator = ObjectAnimator.ofInt(background, "alpha", 255);
                 mBackgroundAnimator.setDuration(getFadeDuration());
                 mBackgroundAnimator.addListener(new AnimatorListenerAdapter() {
@@ -428,18 +538,39 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     }
 
     public void stop() {
-        makeOpaque();
-        mIsCanceled = true;
-        mResultReceiver = null;
+        // Restore the background to its previous state since the
+        // Activity is stopping.
         if (mBackgroundAnimator != null) {
             mBackgroundAnimator.end();
             mBackgroundAnimator = null;
+        } else if (mWasOpaque) {
+            ViewGroup decorView = getDecor();
+            if (decorView != null) {
+                Drawable drawable = decorView.getBackground();
+                if (drawable != null) {
+                    drawable.setAlpha(1);
+                }
+            }
         }
+        makeOpaque();
+        mIsCanceled = true;
+        mResultReceiver = null;
         mActivity = null;
+        moveSharedElementsFromOverlay();
+        if (mTransitioningViews != null) {
+            showViews(mTransitioningViews, true);
+        }
+        showViews(mSharedElements, true);
         clearState();
     }
 
-    public void cancelEnter() {
+    /**
+     * Cancels the enter transition.
+     * @return True if the enter transition is still pending capturing the target state. If so,
+     * any transition started on the decor will do nothing.
+     */
+    public boolean cancelEnter() {
+        setGhostVisibility(View.INVISIBLE);
         mHasStopped = true;
         mIsCanceled = true;
         mResultReceiver = null;
@@ -449,6 +580,7 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         }
         mActivity = null;
         clearState();
+        return super.cancelPendingTransitions();
     }
 
     private void makeOpaque() {
@@ -469,25 +601,28 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         if (rejectedSnapshots == null || rejectedSnapshots.isEmpty()) {
             return;
         }
-        ViewGroupOverlay overlay = getDecor().getOverlay();
-        ObjectAnimator animator = null;
-        int numRejected = rejectedSnapshots.size();
-        for (int i = 0; i < numRejected; i++) {
-            View snapshot = rejectedSnapshots.get(i);
-            overlay.add(snapshot);
-            animator = ObjectAnimator.ofFloat(snapshot, View.ALPHA, 1, 0);
-            animator.start();
-        }
-        animator.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                ViewGroupOverlay overlay = getDecor().getOverlay();
-                int numRejected = rejectedSnapshots.size();
-                for (int i = 0; i < numRejected; i++) {
-                    overlay.remove(rejectedSnapshots.get(i));
-                }
+        final ViewGroup decorView = getDecor();
+        if (decorView != null) {
+            ViewGroupOverlay overlay = decorView.getOverlay();
+            ObjectAnimator animator = null;
+            int numRejected = rejectedSnapshots.size();
+            for (int i = 0; i < numRejected; i++) {
+                View snapshot = rejectedSnapshots.get(i);
+                overlay.add(snapshot);
+                animator = ObjectAnimator.ofFloat(snapshot, View.ALPHA, 1, 0);
+                animator.start();
             }
-        });
+            animator.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    ViewGroupOverlay overlay = decorView.getOverlay();
+                    int numRejected = rejectedSnapshots.size();
+                    for (int i = 0; i < numRejected; i++) {
+                        overlay.remove(rejectedSnapshots.get(i));
+                    }
+                }
+            });
+        }
     }
 
     protected void onRemoteExitTransitionComplete() {
@@ -502,10 +637,14 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
             public void run() {
                 boolean startEnterTransition = true;
                 boolean startSharedElementTransition = false;
-                Transition transition = beginTransition(startEnterTransition,
-                        startSharedElementTransition);
-                startEnterTransition(transition);
+                ViewGroup decorView = getDecor();
+                if (decorView != null) {
+                    Transition transition = beginTransition(decorView, startEnterTransition,
+                            startSharedElementTransition);
+                    startEnterTransition(transition);
+                }
             }
         });
     }
+
 }

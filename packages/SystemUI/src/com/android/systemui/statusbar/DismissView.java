@@ -17,113 +17,63 @@
 package com.android.systemui.statusbar;
 
 import android.content.Context;
+import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.View;
-import android.view.animation.AnimationUtils;
-import android.view.animation.Interpolator;
-import android.view.animation.PathInterpolator;
-import android.widget.Button;
-import android.widget.TextView;
+
 import com.android.systemui.R;
 
-public class DismissView extends ExpandableView {
-
-    private Button mClearAllText;
-    private boolean mIsVisible;
-    private final Interpolator mAppearInterpolator = new PathInterpolator(0f, 0.2f, 1f, 1f);
-    private final Interpolator mDisappearInterpolator = new PathInterpolator(0f, 0f, 0.8f, 1f);
+public class DismissView extends StackScrollerDecorView {
+    private boolean mDismissAllInProgress;
+    private DismissViewButton mDismissButton;
 
     public DismissView(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
 
     @Override
+    protected View findContentView() {
+        return findViewById(R.id.dismiss_text);
+    }
+
+    @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mClearAllText = (Button) findViewById(R.id.dismiss_text);
-        setInvisible();
+        mDismissButton = (DismissViewButton) findContentView();
     }
 
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        setOutlineProvider(null);
+    public void setOnButtonClickListener(OnClickListener listener) {
+        mContent.setOnClickListener(listener);
     }
 
-    @Override
-    public boolean isTransparent() {
-        return true;
+    public boolean isOnEmptySpace(float touchX, float touchY) {
+        return touchX < mContent.getX()
+                || touchX > mContent.getX() + mContent.getWidth()
+                || touchY < mContent.getY()
+                || touchY > mContent.getY() + mContent.getHeight();
     }
 
-    public void performVisibilityAnimation(boolean nowVisible) {
-        animateText(nowVisible, null /* onFinishedRunnable */);
+    public void showClearButton() {
+        mDismissButton.showButton();
     }
 
-    public void performVisibilityAnimation(boolean nowVisible, Runnable onFinishedRunnable) {
-        animateText(nowVisible, onFinishedRunnable);
-    }
-
-    /**
-     * Animate the text to a new visibility.
-     *
-     * @param nowVisible should it now be visible
-     * @param onFinishedRunnable A runnable which should be run when the animation is
-     *        finished.
-     */
-    public void animateText(boolean nowVisible, Runnable onFinishedRunnable) {
-        if (nowVisible != mIsVisible) {
-            // Animate text
-            float endValue = nowVisible ? 1.0f : 0.0f;
-            Interpolator interpolator;
-            if (nowVisible) {
-                interpolator = mAppearInterpolator;
-            } else {
-                interpolator = mDisappearInterpolator;
-            }
-            mClearAllText.animate()
-                    .alpha(endValue)
-                    .setInterpolator(interpolator)
-                    .withEndAction(onFinishedRunnable)
-                    .setDuration(260)
-                    .withLayer();
-            mIsVisible = nowVisible;
-        } else {
-            if (onFinishedRunnable != null) {
-                onFinishedRunnable.run();
-            }
+    public void setDismissAllInProgress(boolean dismissAllInProgress) {
+        if (dismissAllInProgress) {
+            setClipBounds(null);
         }
-    }
-
-    public void setInvisible() {
-        mClearAllText.setAlpha(0.0f);
-        mIsVisible = false;
+        mDismissAllInProgress = dismissAllInProgress;
     }
 
     @Override
-    public void performRemoveAnimation(float translationDirection, Runnable onFinishedRunnable) {
-        performVisibilityAnimation(false);
+    public void setClipBounds(Rect clipBounds) {
+        if (mDismissAllInProgress) {
+            // we don't want any clipping to happen!
+            return;
+        }
+        super.setClipBounds(clipBounds);
     }
 
-    @Override
-    public void performAddAnimation(long delay) {
-        performVisibilityAnimation(true);
-    }
-
-    @Override
-    public void setScrimAmount(float scrimAmount) {
-        // We don't need to scrim the dismissView
-    }
-
-    public void setOnButtonClickListener(OnClickListener onClickListener) {
-        mClearAllText.setOnClickListener(onClickListener);
-    }
-
-    @Override
-    public boolean hasOverlappingRendering() {
-        return false;
-    }
-
-    public void cancelAnimation() {
-        mClearAllText.animate().cancel();
+    public boolean isButtonVisible() {
+        return mDismissButton.isButtonStatic();
     }
 }

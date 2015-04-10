@@ -194,6 +194,14 @@ static void android_os_Parcel_writeBlob(JNIEnv* env, jclass clazz, jlong nativeP
         return;
     }
 
+    if (data == NULL) {
+        const status_t err = parcel->writeInt32(-1);
+        if (err != NO_ERROR) {
+            signalExceptionForError(env, clazz, err);
+        }
+        return;
+    }
+
     const status_t err = parcel->writeInt32(length);
     if (err != NO_ERROR) {
         signalExceptionForError(env, clazz, err);
@@ -680,6 +688,16 @@ static void android_os_Parcel_enforceInterface(JNIEnv* env, jclass clazz, jlong 
             "Binder invocation to an incorrect interface");
 }
 
+static jlong android_os_Parcel_getGlobalAllocSize(JNIEnv* env, jclass clazz)
+{
+    return Parcel::getGlobalAllocSize();
+}
+
+static jlong android_os_Parcel_getGlobalAllocCount(JNIEnv* env, jclass clazz)
+{
+    return Parcel::getGlobalAllocCount();
+}
+
 // ----------------------------------------------------------------------------
 
 static const JNINativeMethod gParcelMethods[] = {
@@ -729,6 +747,9 @@ static const JNINativeMethod gParcelMethods[] = {
     {"nativeHasFileDescriptors",  "(J)Z", (void*)android_os_Parcel_hasFileDescriptors},
     {"nativeWriteInterfaceToken", "(JLjava/lang/String;)V", (void*)android_os_Parcel_writeInterfaceToken},
     {"nativeEnforceInterface",    "(JLjava/lang/String;)V", (void*)android_os_Parcel_enforceInterface},
+
+    {"getGlobalAllocSize",        "()J", (void*)android_os_Parcel_getGlobalAllocSize},
+    {"getGlobalAllocCount",       "()J", (void*)android_os_Parcel_getGlobalAllocCount},
 };
 
 const char* const kParcelPathName = "android/os/Parcel";

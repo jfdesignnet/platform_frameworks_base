@@ -53,7 +53,6 @@ import android.view.WindowManager.BadTokenException;
 import android.view.animation.AnimationUtils;
 import android.view.inputmethod.CompletionInfo;
 import android.view.inputmethod.CursorAnchorInfo;
-import android.view.inputmethod.CursorAnchorInfoRequest;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
@@ -640,10 +639,13 @@ public class InputMethodService extends AbstractInputMethodService {
      * You can call this to try to enable hardware accelerated drawing for
      * your IME. This must be set before {@link #onCreate}, so you
      * will typically call it in your constructor.  It is not always possible
-     * to use hardware acclerated drawing in an IME (for example on low-end
+     * to use hardware accelerated drawing in an IME (for example on low-end
      * devices that do not have the resources to support this), so the call
      * returns true if it succeeds otherwise false if you will need to draw
      * in software.  You must be able to handle either case.
+     *
+     * @deprecated Starting in API 21, hardware acceleration is always enabled
+     *             on capable devices.
      */
     public boolean enableHardwareAcceleration() {
         if (mWindow != null) {
@@ -1708,13 +1710,12 @@ public class InputMethodService extends AbstractInputMethodService {
     }
 
     /**
-     * Called when the application has reported a new location of its text cursor.  This is only
-     * called if explicitly requested by the input method.  The default implementation does nothing.
-     * @param newCursor The new cursor position, in screen coordinates if the input method calls
-     * {@link InputConnection#requestCursorAnchorInfo(CursorAnchorInfoRequest)} with
-     * {@link CursorAnchorInfoRequest#FLAG_CURSOR_RECT_IN_SCREEN_COORDINATES}. Otherwise,
-     * this is in local coordinates.
+     * Called when the application has reported a new location of its text
+     * cursor.  This is only called if explicitly requested by the input method.
+     * The default implementation does nothing.
+     * @deprecated Use {#link onUpdateCursorAnchorInfo(CursorAnchorInfo)} instead.
      */
+    @Deprecated
     public void onUpdateCursor(Rect newCursor) {
         // Intentionally empty
     }

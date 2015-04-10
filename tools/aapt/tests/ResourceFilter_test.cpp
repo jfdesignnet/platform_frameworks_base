@@ -75,6 +75,17 @@ TEST(WeakResourceFilterTest, MatchesConfigWithSameValueAxisAndOtherUnrelatedAxis
     EXPECT_TRUE(filter.match(config));
 }
 
+TEST(WeakResourceFilterTest, MatchesConfigWithOneMatchingAxis) {
+    WeakResourceFilter filter;
+    ASSERT_EQ(NO_ERROR, filter.parse(String8("fr_FR,sw360dp,normal,en_US")));
+
+    ConfigDescription config;
+    config.language[0] = 'e';
+    config.language[1] = 'n';
+
+    EXPECT_TRUE(filter.match(config));
+}
+
 TEST(WeakResourceFilterTest, DoesNotMatchConfigWithDifferentValueAxis) {
     WeakResourceFilter filter;
     ASSERT_EQ(NO_ERROR, filter.parse(String8("fr")));
@@ -84,6 +95,32 @@ TEST(WeakResourceFilterTest, DoesNotMatchConfigWithDifferentValueAxis) {
     config.language[1] = 'e';
 
     EXPECT_FALSE(filter.match(config));
+}
+
+TEST(WeakResourceFilterTest, DoesNotMatchWhenOneQualifierIsExplicitlyNotMatched) {
+    WeakResourceFilter filter;
+    ASSERT_EQ(NO_ERROR, filter.parse(String8("fr_FR,en_US,normal,large,xxhdpi,sw320dp")));
+
+    ConfigDescription config;
+    config.language[0] = 'f';
+    config.language[1] = 'r';
+    config.smallestScreenWidthDp = 600;
+    config.version = 13;
+
+    EXPECT_FALSE(filter.match(config));
+}
+
+TEST(WeakResourceFilterTest, MatchesSmallestWidthWhenSmaller) {
+    WeakResourceFilter filter;
+    ASSERT_EQ(NO_ERROR, filter.parse(String8("sw600dp")));
+
+    ConfigDescription config;
+    config.language[0] = 'f';
+    config.language[1] = 'r';
+    config.smallestScreenWidthDp = 320;
+    config.version = 13;
+
+    EXPECT_TRUE(filter.match(config));
 }
 
 TEST(WeakResourceFilterTest, MatchesConfigWithSameLanguageButNoRegionSpecified) {
@@ -126,3 +163,38 @@ TEST(WeakResourceFilterTest, MatchesConfigWithRegion) {
     EXPECT_TRUE(filter.match(config));
 }
 
+TEST(StrongResourceFilterTest, MatchesDensities) {
+    ConfigDescription config;
+    config.density = 160;
+    config.version = 4;
+    std::set<ConfigDescription> configs;
+    configs.insert(config);
+
+    StrongResourceFilter filter(configs);
+
+    ConfigDescription expectedConfig;
+    expectedConfig.density = 160;
+    expectedConfig.version = 4;
+    ASSERT_TRUE(filter.match(expectedConfig));
+}
+
+TEST(StrongResourceFilterTest, MatchOnlyMdpiAndExcludeAllOthers) {
+    std::set<ConfigDescription> configsToMatch;
+    ConfigDescription config;
+    config.density = 160;
+    config.version = 4;
+    configsToMatch.insert(config);
+
+    std::set<ConfigDescription> configsToNotMatch;
+    config.density = 480;
+    configsToNotMatch.insert(config);
+
+    AndResourceFilter filter;
+    filter.addFilter(new InverseResourceFilter(new StrongResourceFilter(configsToNotMatch)));
+    filter.addFilter(new StrongResourceFilter(configsToMatch));
+
+    ConfigDescription expectedConfig;
+    expectedConfig.density = 160;
+    expectedConfig.version = 4;
+    ASSERT_TRUE(filter.match(expectedConfig));
+}

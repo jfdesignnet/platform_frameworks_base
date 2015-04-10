@@ -431,6 +431,11 @@ public class WindowDecorActionBar extends ActionBar implements
         mDecorToolbar.setTitle(title);
     }
 
+    @Override
+    public void setWindowTitle(CharSequence title) {
+        mDecorToolbar.setWindowTitle(title);
+    }
+
     public void setSubtitle(CharSequence subtitle) {
         mDecorToolbar.setSubtitle(subtitle);
     }
@@ -491,7 +496,7 @@ public class WindowDecorActionBar extends ActionBar implements
 
         mOverlayLayout.setHideOnContentScrollEnabled(false);
         mContextView.killMode();
-        ActionModeImpl mode = new ActionModeImpl(callback);
+        ActionModeImpl mode = new ActionModeImpl(mContextView.getContext(), callback);
         if (mode.dispatchOnCreate()) {
             mode.invalidate();
             mContextView.initForMode(mode);
@@ -861,14 +866,7 @@ public class WindowDecorActionBar extends ActionBar implements
 
         mDecorToolbar.animateToVisibility(toActionMode ? View.GONE : View.VISIBLE);
         mContextView.animateToVisibility(toActionMode ? View.VISIBLE : View.GONE);
-        if (mTabScrollView != null && !mDecorToolbar.hasEmbeddedTabs() &&
-                isCollapsed(mDecorToolbar.getViewGroup())) {
-            mTabScrollView.animateToVisibility(toActionMode ? View.GONE : View.VISIBLE);
-        }
-    }
-
-    private boolean isCollapsed(View view) {
-        return view == null || view.getVisibility() == View.GONE || view.getMeasuredHeight() == 0;
+        // mTabScrollView's visibility is not affected by action mode.
     }
 
     public Context getThemedContext() {
@@ -878,7 +876,7 @@ public class WindowDecorActionBar extends ActionBar implements
             currentTheme.resolveAttribute(com.android.internal.R.attr.actionBarWidgetTheme,
                     outValue, true);
             final int targetThemeRes = outValue.resourceId;
-            
+
             if (targetThemeRes != 0 && mContext.getThemeResId() != targetThemeRes) {
                 mThemedContext = new ContextThemeWrapper(mContext, targetThemeRes);
             } else {
@@ -887,7 +885,7 @@ public class WindowDecorActionBar extends ActionBar implements
         }
         return mThemedContext;
     }
-    
+
     @Override
     public boolean isTitleTruncated() {
         return mDecorToolbar != null && mDecorToolbar.isTitleTruncated();
@@ -925,24 +923,36 @@ public class WindowDecorActionBar extends ActionBar implements
     public void onContentScrollStopped() {
     }
 
+    @Override
+    public boolean collapseActionView() {
+        if (mDecorToolbar != null && mDecorToolbar.hasExpandedActionView()) {
+            mDecorToolbar.collapseActionView();
+            return true;
+        }
+        return false;
+    }
+
     /**
-     * @hide 
+     * @hide
      */
     public class ActionModeImpl extends ActionMode implements MenuBuilder.Callback {
+        private final Context mActionModeContext;
+        private final MenuBuilder mMenu;
+
         private ActionMode.Callback mCallback;
-        private MenuBuilder mMenu;
         private WeakReference<View> mCustomView;
-        
-        public ActionModeImpl(ActionMode.Callback callback) {
+
+        public ActionModeImpl(Context context, ActionMode.Callback callback) {
+            mActionModeContext = context;
             mCallback = callback;
-            mMenu = new MenuBuilder(getThemedContext())
+            mMenu = new MenuBuilder(context)
                     .setDefaultShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
             mMenu.setCallback(this);
         }
 
         @Override
         public MenuInflater getMenuInflater() {
-            return new MenuInflater(getThemedContext());
+            return new MenuInflater(mActionModeContext);
         }
 
         @Override
@@ -983,6 +993,13 @@ public class WindowDecorActionBar extends ActionBar implements
 
         @Override
         public void invalidate() {
+            if (mActionMode != this) {
+                // Not the active action mode - no-op. It's possible we are
+                // currently deferring onDestroy, so the app doesn't yet know we
+                // are going away and is trying to use us. That's also a no-op.
+                return;
+            }
+
             mMenu.stopDispatchingItemsChanged();
             try {
                 mCallback.onPrepareActionMode(this, mMenu);
@@ -1035,7 +1052,7 @@ public class WindowDecorActionBar extends ActionBar implements
         public CharSequence getSubtitle() {
             return mContextView.getSubtitle();
         }
-        
+
         @Override
         public void setTitleOptionalHint(boolean titleOptional) {
             super.setTitleOptionalHint(titleOptional);

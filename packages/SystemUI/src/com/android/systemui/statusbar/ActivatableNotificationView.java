@@ -25,8 +25,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.ColorMatrix;
-import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
@@ -43,7 +41,6 @@ import android.view.animation.LinearInterpolator;
 import android.view.animation.PathInterpolator;
 
 import com.android.systemui.R;
-import com.android.systemui.statusbar.stack.StackStateAnimator;
 
 /**
  * Base class for both {@link ExpandableNotificationRow} and {@link NotificationOverflowContainer}
@@ -54,6 +51,7 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     private static final long DOUBLETAP_TIMEOUT_MS = 1200;
     private static final int BACKGROUND_ANIMATION_LENGTH_MS = 220;
     private static final int ACTIVATE_ANIMATION_LENGTH = 220;
+    private static final int DARK_ANIMATION_LENGTH = 170;
 
     /**
      * The amount of width, which is kept in the end when performing a disappear animation (also
@@ -85,14 +83,21 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
      */
     private static final float VERTICAL_ANIMATION_START = 1.0f;
 
+    /**
+     * Scale for the background to animate from when exiting dark mode.
+     */
+    private static final float DARK_EXIT_SCALE_START = 0.93f;
+
     private static final Interpolator ACTIVATE_INVERSE_INTERPOLATOR
             = new PathInterpolator(0.6f, 0, 0.5f, 1);
     private static final Interpolator ACTIVATE_INVERSE_ALPHA_INTERPOLATOR
             = new PathInterpolator(0, 0, 0.5f, 1);
+    private final int mTintedRippleColor;
+    private final int mLowPriorityRippleColor;
+    private final int mNormalRippleColor;
 
     private boolean mDimmed;
     private boolean mDark;
-    private final Paint mDarkPaint = createDarkPaint();
 
     private int mBgTint = 0;
     private final int mRoundedRectCornerRadius;
@@ -119,7 +124,6 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
 
     private NotificationBackgroundView mBackgroundNormal;
     private NotificationBackgroundView mBackgroundDimmed;
-    private NotificationScrimView mScrimView;
     private ObjectAnimator mBackgroundAnimator;
     private RectF mAppearAnimationRect = new RectF();
     private PorterDuffColorFilter mAppearAnimationFilter;
@@ -154,6 +158,12 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         mNormalColor = getResources().getColor(R.color.notification_material_background_color);
         mLowPriorityColor = getResources().getColor(
                 R.color.notification_material_background_low_priority_color);
+        mTintedRippleColor = context.getResources().getColor(
+                R.color.notification_ripple_tinted_color);
+        mLowPriorityRippleColor = context.getResources().getColor(
+                R.color.notification_ripple_color_low_priority);
+        mNormalRippleColor = context.getResources().getColor(
+                R.color.notification_ripple_untinted_color);
     }
 
     @Override
@@ -165,8 +175,6 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         mBackgroundDimmed.setCustomBackground(R.drawable.notification_material_bg_dim);
         updateBackground();
         updateBackgroundTint();
-        mScrimView = (NotificationScrimView) findViewById(R.id.scrim_view);
-        setScrimAmount(0);
     }
 
     private final Runnable mTapTimeoutRunnable = new Runnable() {
@@ -189,6 +197,16 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     public void drawableHotspotChanged(float x, float y) {
         if (!mDimmed){
             mBackgroundNormal.drawableHotspotChanged(x, y);
+        }
+    }
+
+    @Override
+    protected void drawableStateChanged() {
+        super.drawableStateChanged();
+        if (mDimmed) {
+            mBackgroundDimmed.setState(getDrawableState());
+        } else {
+            mBackgroundNormal.setState(getDrawableState());
         }
     }
 
@@ -241,12 +259,20 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     }
 
     private void startActivateAnimation(boolean reverse) {
+        if (!isAttachedToWindow()) {
+            return;
+        }
         int widthHalf = mBackgroundNormal.getWidth()/2;
         int heightHalf = mBackgroundNormal.getActualHeight()/2;
         float radius = (float) Math.sqrt(widthHalf*widthHalf + heightHalf*heightHalf);
-        Animator animator =
-                ViewAnimationUtils.createCircularReveal(mBackgroundNormal,
-                        widthHalf, heightHalf, 0, radius);
+        Animator animator;
+        if (reverse) {
+            animator = ViewAnimationUtils.createCircularReveal(mBackgroundNormal,
+                    widthHalf, heightHalf, radius, 0);
+        } else {
+            animator = ViewAnimationUtils.createCircularReveal(mBackgroundNormal,
+                    widthHalf, heightHalf, 0, radius);
+        }
         mBackgroundNormal.setVisibility(View.VISIBLE);
         Interpolator interpolator;
         Interpolator alphaInterpolator;
@@ -264,10 +290,12 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
             animator.addListener(new AnimatorListenerAdapter() {
                 @Override
                 public void onAnimationEnd(Animator animation) {
-                    mBackgroundNormal.setVisibility(View.INVISIBLE);
+                    if (mDimmed) {
+                        mBackgroundNormal.setVisibility(View.INVISIBLE);
+                    }
                 }
             });
-            animator.reverse();
+            animator.start();
         } else {
             mBackgroundNormal.setAlpha(0.4f);
             animator.start();
@@ -307,40 +335,35 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         if (mDimmed != dimmed) {
             mDimmed = dimmed;
             if (fade) {
-                fadeBackground();
+                fadeDimmedBackground();
             } else {
                 updateBackground();
             }
         }
     }
 
-    public void setDark(boolean dark, boolean fade) {
-        // TODO implement fade
-        if (mDark != dark) {
-            mDark = dark;
-            if (mDark) {
-                setLayerType(View.LAYER_TYPE_HARDWARE, mDarkPaint);
-            } else {
-                setLayerType(View.LAYER_TYPE_NONE, null);
-            }
+    public void setDark(boolean dark, boolean fade, long delay) {
+        super.setDark(dark, fade, delay);
+        if (mDark == dark) {
+            return;
         }
-    }
-
-    private static Paint createDarkPaint() {
-        final Paint p = new Paint();
-        final float[] invert = {
-            -1f,  0f,  0f, 1f, 1f,
-             0f, -1f,  0f, 1f, 1f,
-             0f,  0f, -1f, 1f, 1f,
-             0f,  0f,  0f, 1f, 0f
-        };
-        final ColorMatrix m = new ColorMatrix(invert);
-        final ColorMatrix grayscale = new ColorMatrix();
-        grayscale.setSaturation(0);
-        m.preConcat(grayscale);
-        p.setColorFilter(new ColorMatrixColorFilter(m));
-        return p;
-    }
+        mDark = dark;
+        if (!dark && fade) {
+            if (mActivated) {
+                mBackgroundDimmed.setVisibility(View.VISIBLE);
+                mBackgroundNormal.setVisibility(View.VISIBLE);
+            } else if (mDimmed) {
+                mBackgroundDimmed.setVisibility(View.VISIBLE);
+                mBackgroundNormal.setVisibility(View.INVISIBLE);
+            } else {
+                mBackgroundDimmed.setVisibility(View.INVISIBLE);
+                mBackgroundNormal.setVisibility(View.VISIBLE);
+            }
+            fadeInFromDark(delay);
+        } else {
+            updateBackground();
+        }
+     }
 
     public void setShowingLegacyBackground(boolean showing) {
         mShowingLegacyBackground = showing;
@@ -366,15 +389,52 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
 
     private void updateBackgroundTint() {
         int color = getBackgroundColor();
+        int rippleColor = getRippleColor();
         if (color == mNormalColor) {
             // We don't need to tint a normal notification
             color = 0;
         }
         mBackgroundDimmed.setTint(color);
         mBackgroundNormal.setTint(color);
+        mBackgroundDimmed.setRippleColor(rippleColor);
+        mBackgroundNormal.setRippleColor(rippleColor);
     }
 
-    private void fadeBackground() {
+    /**
+     * Fades in the background when exiting dark mode.
+     */
+    private void fadeInFromDark(long delay) {
+        final View background = mDimmed ? mBackgroundDimmed : mBackgroundNormal;
+        background.setAlpha(0f);
+        background.setPivotX(mBackgroundDimmed.getWidth() / 2f);
+        background.setPivotY(getActualHeight() / 2f);
+        background.setScaleX(DARK_EXIT_SCALE_START);
+        background.setScaleY(DARK_EXIT_SCALE_START);
+        background.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(DARK_ANIMATION_LENGTH)
+                .setStartDelay(delay)
+                .setInterpolator(mLinearOutSlowInInterpolator)
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationCancel(Animator animation) {
+                        // Jump state if we are cancelled
+                        background.setScaleX(1f);
+                        background.setScaleY(1f);
+                        background.setAlpha(1f);
+                    }
+                })
+                .start();
+    }
+
+    /**
+     * Fades the background when the dimmed state changes.
+     */
+    private void fadeDimmedBackground() {
+        mBackgroundDimmed.animate().cancel();
+        mBackgroundNormal.animate().cancel();
         if (mDimmed) {
             mBackgroundDimmed.setVisibility(View.VISIBLE);
         } else {
@@ -414,7 +474,11 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     }
 
     private void updateBackground() {
-        if (mDimmed) {
+        cancelFadeAnimations();
+        if (mDark) {
+            mBackgroundDimmed.setVisibility(View.INVISIBLE);
+            mBackgroundNormal.setVisibility(View.INVISIBLE);
+        } else if (mDimmed) {
             mBackgroundDimmed.setVisibility(View.VISIBLE);
             mBackgroundNormal.setVisibility(View.INVISIBLE);
         } else {
@@ -423,6 +487,14 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
             mBackgroundNormal.setAlpha(1f);
             removeCallbacks(mTapTimeoutRunnable);
         }
+    }
+
+    private void cancelFadeAnimations() {
+        if (mBackgroundAnimator != null) {
+            mBackgroundAnimator.cancel();
+        }
+        mBackgroundDimmed.animate().cancel();
+        mBackgroundNormal.animate().cancel();
     }
 
     @Override
@@ -437,7 +509,6 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         setPivotY(actualHeight / 2);
         mBackgroundNormal.setActualHeight(actualHeight);
         mBackgroundDimmed.setActualHeight(actualHeight);
-        mScrimView.setActualHeight(actualHeight);
     }
 
     @Override
@@ -445,37 +516,34 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         super.setClipTopAmount(clipTopAmount);
         mBackgroundNormal.setClipTopAmount(clipTopAmount);
         mBackgroundDimmed.setClipTopAmount(clipTopAmount);
-        mScrimView.setClipTopAmount(clipTopAmount);
     }
 
     @Override
-    public void performRemoveAnimation(float translationDirection, Runnable onFinishedRunnable) {
+    public void performRemoveAnimation(long duration, float translationDirection,
+            Runnable onFinishedRunnable) {
         enableAppearDrawing(true);
         if (mDrawingAppearAnimation) {
             startAppearAnimation(false /* isAppearing */, translationDirection,
-                    0, onFinishedRunnable);
+                    0, duration, onFinishedRunnable);
+        } else if (onFinishedRunnable != null) {
+            onFinishedRunnable.run();
         }
     }
 
     @Override
-    public void performAddAnimation(long delay) {
+    public void performAddAnimation(long delay, long duration) {
         enableAppearDrawing(true);
         if (mDrawingAppearAnimation) {
-            startAppearAnimation(true /* isAppearing */, -1.0f, delay, null);
+            startAppearAnimation(true /* isAppearing */, -1.0f, delay, duration, null);
         }
     }
 
-    @Override
-    public void setScrimAmount(float scrimAmount) {
-        mScrimView.setAlpha(scrimAmount);
-    }
-
-    private void startAppearAnimation(boolean isAppearing,
-            float translationDirection, long delay, final Runnable onFinishedRunnable) {
+    private void startAppearAnimation(boolean isAppearing, float translationDirection, long delay,
+            long duration, final Runnable onFinishedRunnable) {
         if (mAppearAnimator != null) {
             mAppearAnimator.cancel();
         }
-        mAnimationTranslationY = translationDirection * mActualHeight;
+        mAnimationTranslationY = translationDirection * getActualHeight();
         if (mAppearAnimationFraction == -1.0f) {
             // not initialized yet, we start anew
             if (isAppearing) {
@@ -501,8 +569,7 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
                 targetValue);
         mAppearAnimator.setInterpolator(mLinearInterpolator);
         mAppearAnimator.setDuration(
-                (long) (StackStateAnimator.ANIMATION_DURATION_APPEAR_DISAPPEAR
-                        * Math.abs(mAppearAnimationFraction - targetValue)));
+                (long) (duration * Math.abs(mAppearAnimationFraction - targetValue)));
         mAppearAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
@@ -569,14 +636,15 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
 
         float top;
         float bottom;
+        final int actualHeight = getActualHeight();
         if (mAnimationTranslationY > 0.0f) {
-            bottom = mActualHeight - heightFraction * mAnimationTranslationY * 0.1f
+            bottom = actualHeight - heightFraction * mAnimationTranslationY * 0.1f
                     - translateYTotalAmount;
             top = bottom * heightFraction;
         } else {
-            top = heightFraction * (mActualHeight + mAnimationTranslationY) * 0.1f -
+            top = heightFraction * (actualHeight + mAnimationTranslationY) * 0.1f -
                     translateYTotalAmount;
-            bottom = mActualHeight * (1 - heightFraction) + top * heightFraction;
+            bottom = actualHeight * (1 - heightFraction) + top * heightFraction;
         }
         mAppearAnimationRect.set(left, top, right, bottom);
         setOutlineRect(left, top + mAppearAnimationTranslation, right,
@@ -607,6 +675,18 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
             return mLowPriorityColor;
         } else {
             return mNormalColor;
+        }
+    }
+
+    private int getRippleColor() {
+        if (mBgTint != 0) {
+            return mTintedRippleColor;
+        } else if (mShowingLegacyBackground) {
+            return mTintedRippleColor;
+        } else if (mIsBelowSpeedBump) {
+            return mLowPriorityRippleColor;
+        } else {
+            return mNormalRippleColor;
         }
     }
 
@@ -658,6 +738,12 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
 
     public void setOnActivatedListener(OnActivatedListener onActivatedListener) {
         mOnActivatedListener = onActivatedListener;
+    }
+
+    public void reset() {
+        setTintColor(0);
+        setShowingLegacyBackground(false);
+        setBelowSpeedBump(false);
     }
 
     public interface OnActivatedListener {

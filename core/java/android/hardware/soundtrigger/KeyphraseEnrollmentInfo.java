@@ -25,6 +25,8 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.service.voice.AlwaysOnHotwordDetector;
+import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.AttributeSet;
 import android.util.Slog;
 import android.util.Xml;
@@ -33,7 +35,9 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Enrollment information about the different available keyphrases.
@@ -73,6 +77,7 @@ public class KeyphraseEnrollmentInfo {
             "com.android.intent.extra.VOICE_KEYPHRASE_HINT_TEXT";
     /**
      * Intent extra: The voice locale to use while managing the keyphrase.
+     * This is a BCP-47 language tag.
      */
     public static final String EXTRA_VOICE_KEYPHRASE_LOCALE =
             "com.android.intent.extra.VOICE_KEYPHRASE_LOCALE";
@@ -150,33 +155,8 @@ public class KeyphraseEnrollmentInfo {
 
             TypedArray array = res.obtainAttributes(attrs,
                     com.android.internal.R.styleable.VoiceEnrollmentApplication);
-            int searchKeyphraseId = array.getInt(
-                    com.android.internal.R.styleable.VoiceEnrollmentApplication_searchKeyphraseId,
-                    -1);
-            if (searchKeyphraseId != -1) {
-                String searchKeyphrase = array.getString(com.android.internal.R.styleable
-                        .VoiceEnrollmentApplication_searchKeyphrase);
-                if (searchKeyphrase == null) {
-                    searchKeyphrase = "";
-                }
-                String searchKeyphraseSupportedLocales =
-                        array.getString(com.android.internal.R.styleable
-                                .VoiceEnrollmentApplication_searchKeyphraseSupportedLocales);
-                String[] supportedLocales = new String[0];
-                // Get all the supported locales from the comma-delimted string.
-                if (searchKeyphraseSupportedLocales != null
-                        && !searchKeyphraseSupportedLocales.isEmpty()) {
-                    supportedLocales = searchKeyphraseSupportedLocales.split(",");
-                }
-                int recognitionModes = array.getInt(com.android.internal.R.styleable
-                        .VoiceEnrollmentApplication_searchKeyphraseRecognitionFlags, 0);
-                mKeyphrases = new KeyphraseMetadata[1];
-                mKeyphrases[0] = new KeyphraseMetadata(
-                        searchKeyphraseId, searchKeyphrase, supportedLocales, recognitionModes);
-            } else {
-                mParseError = "searchKeyphraseId not specified in meta-data";
-                return;
-            }
+            initializeKeyphrasesFromTypedArray(array);
+            array.recycle();
         } catch (XmlPullParserException e) {
             mParseError = "Error parsing keyphrase enrollment meta-data: " + e;
             Slog.w(TAG, "error parsing keyphrase enrollment meta-data", e);
@@ -192,6 +172,65 @@ public class KeyphraseEnrollmentInfo {
         } finally {
             if (parser != null) parser.close();
         }
+    }
+
+    private void initializeKeyphrasesFromTypedArray(TypedArray array) {
+        // Get the keyphrase ID.
+        int searchKeyphraseId = array.getInt(
+                com.android.internal.R.styleable.VoiceEnrollmentApplication_searchKeyphraseId, -1);
+        if (searchKeyphraseId <= 0) {
+            mParseError = "No valid searchKeyphraseId specified in meta-data";
+            Slog.w(TAG, mParseError);
+            return;
+        }
+
+        // Get the keyphrase text.
+        String searchKeyphrase = array.getString(
+                com.android.internal.R.styleable.VoiceEnrollmentApplication_searchKeyphrase);
+        if (searchKeyphrase == null) {
+            mParseError = "No valid searchKeyphrase specified in meta-data";
+            Slog.w(TAG, mParseError);
+            return;
+        }
+
+        // Get the supported locales.
+        String searchKeyphraseSupportedLocales = array.getString(
+                com.android.internal.R.styleable
+                        .VoiceEnrollmentApplication_searchKeyphraseSupportedLocales);
+        if (searchKeyphraseSupportedLocales == null) {
+            mParseError = "No valid searchKeyphraseSupportedLocales specified in meta-data";
+            Slog.w(TAG, mParseError);
+            return;
+        }
+        ArraySet<Locale> locales = new ArraySet<>();
+        // Try adding locales if the locale string is non-empty.
+        if (!TextUtils.isEmpty(searchKeyphraseSupportedLocales)) {
+            try {
+                String[] supportedLocalesDelimited = searchKeyphraseSupportedLocales.split(",");
+                for (int i = 0; i < supportedLocalesDelimited.length; i++) {
+                    locales.add(Locale.forLanguageTag(supportedLocalesDelimited[i]));
+                }
+            } catch (Exception ex) {
+                // We catch a generic exception here because we don't want the system service
+                // to be affected by a malformed metadata because invalid locales were specified
+                // by the system application.
+                mParseError = "Error reading searchKeyphraseSupportedLocales from meta-data";
+                Slog.w(TAG, mParseError, ex);
+                return;
+            }
+        }
+
+        // Get the supported recognition modes.
+        int recognitionModes = array.getInt(com.android.internal.R.styleable
+                .VoiceEnrollmentApplication_searchKeyphraseRecognitionFlags, -1);
+        if (recognitionModes < 0) {
+            mParseError = "No valid searchKeyphraseRecognitionFlags specified in meta-data";
+            Slog.w(TAG, mParseError);
+            return;
+        }
+        mKeyphrases = new KeyphraseMetadata[1];
+        mKeyphrases[0] = new KeyphraseMetadata(searchKeyphraseId, searchKeyphrase, locales,
+                recognitionModes);
     }
 
     public String getParseError() {
@@ -216,11 +255,10 @@ public class KeyphraseEnrollmentInfo {
      *        or {@link AlwaysOnHotwordDetector#MANAGE_ACTION_UN_ENROLL}
      * @param keyphrase The keyphrase that the user needs to be enrolled to.
      * @param locale The locale for which the enrollment needs to be performed.
-     *        This is a Java locale, for example "en_US".
      * @return An {@link Intent} to manage the keyphrase. This can be null if managing the
      *         given keyphrase/locale combination isn't possible.
      */
-    public Intent getManageKeyphraseIntent(int action, String keyphrase, String locale) {
+    public Intent getManageKeyphraseIntent(int action, String keyphrase, Locale locale) {
         if (mEnrollmentPackage == null || mEnrollmentPackage.isEmpty()) {
             Slog.w(TAG, "No enrollment application exists");
             return null;
@@ -230,7 +268,7 @@ public class KeyphraseEnrollmentInfo {
             Intent intent = new Intent(ACTION_MANAGE_VOICE_KEYPHRASES)
                     .setPackage(mEnrollmentPackage)
                     .putExtra(EXTRA_VOICE_KEYPHRASE_HINT_TEXT, keyphrase)
-                    .putExtra(EXTRA_VOICE_KEYPHRASE_LOCALE, locale)
+                    .putExtra(EXTRA_VOICE_KEYPHRASE_LOCALE, locale.toLanguageTag())
                     .putExtra(EXTRA_VOICE_KEYPHRASE_ACTION, action);
             return intent;
         }
@@ -247,7 +285,7 @@ public class KeyphraseEnrollmentInfo {
      * @return The metadata, if the enrollment client supports the given keyphrase
      *         and locale, null otherwise.
      */
-    public KeyphraseMetadata getKeyphraseMetadata(String keyphrase, String locale) {
+    public KeyphraseMetadata getKeyphraseMetadata(String keyphrase, Locale locale) {
         if (mKeyphrases == null || mKeyphrases.length == 0) {
             Slog.w(TAG, "Enrollment application doesn't support keyphrases");
             return null;
@@ -262,5 +300,12 @@ public class KeyphraseEnrollmentInfo {
         }
         Slog.w(TAG, "Enrollment application doesn't support the given keyphrase/locale");
         return null;
+    }
+
+    @Override
+    public String toString() {
+        return "KeyphraseEnrollmentInfo [Keyphrases=" + Arrays.toString(mKeyphrases)
+                + ", EnrollmentPackage=" + mEnrollmentPackage + ", ParseError=" + mParseError
+                + "]";
     }
 }

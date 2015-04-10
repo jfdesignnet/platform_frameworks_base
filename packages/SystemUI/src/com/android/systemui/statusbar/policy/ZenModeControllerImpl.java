@@ -16,19 +16,23 @@
 
 package com.android.systemui.statusbar.policy;
 
-import android.app.AlarmClockInfo;
 import android.app.AlarmManager;
 import android.app.INotificationManager;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
 import android.provider.Settings.Global;
+import android.provider.Settings.Secure;
 import android.service.notification.Condition;
 import android.service.notification.IConditionListener;
 import android.service.notification.ZenModeConfig;
@@ -52,6 +56,7 @@ public class ZenModeControllerImpl implements ZenModeController {
     private final INotificationManager mNoMan;
     private final LinkedHashMap<Uri, Condition> mConditions = new LinkedHashMap<Uri, Condition>();
     private final AlarmManager mAlarmManager;
+    private final SetupObserver mSetupObserver;
 
     private int mUserId;
     private boolean mRequesting;
@@ -76,6 +81,8 @@ public class ZenModeControllerImpl implements ZenModeController {
         mNoMan = INotificationManager.Stub.asInterface(
                 ServiceManager.getService(Context.NOTIFICATION_SERVICE));
         mAlarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        mSetupObserver = new SetupObserver(handler);
+        mSetupObserver.register();
     }
 
     @Override
@@ -99,6 +106,11 @@ public class ZenModeControllerImpl implements ZenModeController {
     }
 
     @Override
+    public boolean isZenAvailable() {
+        return mSetupObserver.isDeviceProvisioned() && mSetupObserver.isUserSetup();
+    }
+
+    @Override
     public void requestConditions(boolean request) {
         mRequesting = request;
         try {
@@ -112,20 +124,20 @@ public class ZenModeControllerImpl implements ZenModeController {
     }
 
     @Override
-    public void setExitConditionId(Uri exitConditionId) {
+    public void setExitCondition(Condition exitCondition) {
         try {
-            mNoMan.setZenModeCondition(exitConditionId);
+            mNoMan.setZenModeCondition(exitCondition);
         } catch (RemoteException e) {
             // noop
         }
     }
 
     @Override
-    public Uri getExitConditionId() {
+    public Condition getExitCondition() {
         try {
             final ZenModeConfig config = mNoMan.getZenModeConfig();
             if (config != null) {
-                return config.exitConditionId;
+                return config.exitCondition;
             }
         } catch (RemoteException e) {
             // noop
@@ -135,7 +147,7 @@ public class ZenModeControllerImpl implements ZenModeController {
 
     @Override
     public long getNextAlarm() {
-        final AlarmClockInfo info = mAlarmManager.getNextAlarmClock(mUserId);
+        final AlarmManager.AlarmClockInfo info = mAlarmManager.getNextAlarmClock(mUserId);
         return info != null ? info.getTriggerTime() : 0;
     }
 
@@ -145,9 +157,16 @@ public class ZenModeControllerImpl implements ZenModeController {
         if (mRegistered) {
             mContext.unregisterReceiver(mReceiver);
         }
-        mContext.registerReceiverAsUser(mReceiver, new UserHandle(mUserId),
-                new IntentFilter(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED), null, null);
+        final IntentFilter filter = new IntentFilter(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED);
+        filter.addAction(NotificationManager.ACTION_EFFECTS_SUPPRESSOR_CHANGED);
+        mContext.registerReceiverAsUser(mReceiver, new UserHandle(mUserId), filter, null, null);
         mRegistered = true;
+        mSetupObserver.register();
+    }
+
+    @Override
+    public ComponentName getEffectsSuppressor() {
+        return NotificationManager.from(mContext).getEffectsSuppressor();
     }
 
     private void fireNextAlarmChanged() {
@@ -156,9 +175,21 @@ public class ZenModeControllerImpl implements ZenModeController {
         }
     }
 
+    private void fireEffectsSuppressorChanged() {
+        for (Callback cb : mCallbacks) {
+            cb.onEffectsSupressorChanged();
+        }
+    }
+
     private void fireZenChanged(int zen) {
         for (Callback cb : mCallbacks) {
             cb.onZenChanged(zen);
+        }
+    }
+
+    private void fireZenAvailableChanged(boolean available) {
+        for (Callback cb : mCallbacks) {
+            cb.onZenAvailableChanged(available);
         }
     }
 
@@ -169,10 +200,10 @@ public class ZenModeControllerImpl implements ZenModeController {
     }
 
     private void fireExitConditionChanged() {
-        final Uri exitConditionId = getExitConditionId();
-        if (DEBUG) Slog.d(TAG, "exitConditionId changed: " + exitConditionId);
+        final Condition exitCondition = getExitCondition();
+        if (DEBUG) Slog.d(TAG, "exitCondition changed: " + exitCondition);
         for (Callback cb : mCallbacks) {
-            cb.onExitConditionChanged(exitConditionId);
+            cb.onExitConditionChanged(exitCondition);
         }
     }
 
@@ -202,6 +233,47 @@ public class ZenModeControllerImpl implements ZenModeController {
             if (AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED.equals(intent.getAction())) {
                 fireNextAlarmChanged();
             }
+            if (NotificationManager.ACTION_EFFECTS_SUPPRESSOR_CHANGED.equals(intent.getAction())) {
+                fireEffectsSuppressorChanged();
+            }
         }
     };
+
+    private final class SetupObserver extends ContentObserver {
+        private final ContentResolver mResolver;
+
+        private boolean mRegistered;
+
+        public SetupObserver(Handler handler) {
+            super(handler);
+            mResolver = mContext.getContentResolver();
+        }
+
+        public boolean isUserSetup() {
+            return Secure.getIntForUser(mResolver, Secure.USER_SETUP_COMPLETE, 0, mUserId) != 0;
+        }
+
+        public boolean isDeviceProvisioned() {
+            return Global.getInt(mResolver, Global.DEVICE_PROVISIONED, 0) != 0;
+        }
+
+        public void register() {
+            if (mRegistered) {
+                mResolver.unregisterContentObserver(this);
+            }
+            mResolver.registerContentObserver(
+                    Global.getUriFor(Global.DEVICE_PROVISIONED), false, this);
+            mResolver.registerContentObserver(
+                    Secure.getUriFor(Secure.USER_SETUP_COMPLETE), false, this, mUserId);
+            fireZenAvailableChanged(isZenAvailable());
+        }
+
+        @Override
+        public void onChange(boolean selfChange, Uri uri) {
+            if (Global.getUriFor(Global.DEVICE_PROVISIONED).equals(uri)
+                    || Secure.getUriFor(Secure.USER_SETUP_COMPLETE).equals(uri)) {
+                fireZenAvailableChanged(isZenAvailable());
+            }
+        }
+    }
 }

@@ -29,6 +29,7 @@ import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 
 import com.android.systemui.R;
+import com.android.systemui.statusbar.policy.BrightnessMirrorController;
 
 public class ToggleSlider extends RelativeLayout {
     public interface Listener {
@@ -42,6 +43,9 @@ public class ToggleSlider extends RelativeLayout {
     private CompoundButton mToggle;
     private SeekBar mSlider;
     private TextView mLabel;
+
+    private ToggleSlider mMirror;
+    private BrightnessMirrorController mMirrorController;
 
     public ToggleSlider(Context context) {
         this(context, null);
@@ -72,6 +76,19 @@ public class ToggleSlider extends RelativeLayout {
         a.recycle();
     }
 
+    public void setMirror(ToggleSlider toggleSlider) {
+        mMirror = toggleSlider;
+        if (mMirror != null) {
+            mMirror.setChecked(mToggle.isChecked());
+            mMirror.setMax(mSlider.getMax());
+            mMirror.setValue(mSlider.getProgress());
+        }
+    }
+
+    public void setMirrorController(BrightnessMirrorController c) {
+        mMirrorController = c;
+    }
+
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
@@ -94,10 +111,16 @@ public class ToggleSlider extends RelativeLayout {
 
     public void setMax(int max) {
         mSlider.setMax(max);
+        if (mMirror != null) {
+            mMirror.setMax(max);
+        }
     }
 
     public void setValue(int value) {
         mSlider.setProgress(value);
+        if (mMirror != null) {
+            mMirror.setValue(value);
+        }
     }
 
     private final OnCheckedChangeListener mCheckListener = new OnCheckedChangeListener() {
@@ -109,6 +132,10 @@ public class ToggleSlider extends RelativeLayout {
                 mListener.onChanged(
                         ToggleSlider.this, mTracking, checked, mSlider.getProgress());
             }
+
+            if (mMirror != null) {
+                mMirror.mToggle.setChecked(checked);
+            }
         }
     };
 
@@ -118,6 +145,10 @@ public class ToggleSlider extends RelativeLayout {
             if (mListener != null) {
                 mListener.onChanged(
                         ToggleSlider.this, mTracking, mToggle.isChecked(), progress);
+            }
+
+            if (mMirror != null) {
+                mMirror.setValue(progress);
             }
         }
 
@@ -131,6 +162,15 @@ public class ToggleSlider extends RelativeLayout {
             }
 
             mToggle.setChecked(false);
+
+            if (mMirror != null) {
+                mMirror.mSlider.setPressed(true);
+            }
+
+            if (mMirrorController != null) {
+                mMirrorController.showMirror();
+                mMirrorController.setLocation((View) getParent());
+            }
         }
 
         @Override
@@ -140,6 +180,14 @@ public class ToggleSlider extends RelativeLayout {
             if (mListener != null) {
                 mListener.onChanged(
                         ToggleSlider.this, mTracking, mToggle.isChecked(), mSlider.getProgress());
+            }
+
+            if (mMirror != null) {
+                mMirror.mSlider.setPressed(false);
+            }
+
+            if (mMirrorController != null) {
+                mMirrorController.hideMirror();
             }
         }
     };

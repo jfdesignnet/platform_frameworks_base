@@ -19,41 +19,33 @@ package com.android.systemui.statusbar.phone;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
+import android.content.Context;
 import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.util.Log;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.view.animation.AnimationUtils;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Interpolator;
 
 import com.android.systemui.R;
+import com.android.systemui.statusbar.BackDropView;
+import com.android.systemui.statusbar.ScrimView;
 
 /**
  * Controls both the scrim behind the notifications and in front of the notifications (when a
  * security method gets shown).
  */
 public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
-    private static final String TAG = "ScrimController";
-    private static final boolean DEBUG = false;
+    public static final long ANIMATION_DURATION = 220;
 
     private static final float SCRIM_BEHIND_ALPHA = 0.62f;
-    private static final float SCRIM_BEHIND_ALPHA_KEYGUARD = 0.5f;
+    private static final float SCRIM_BEHIND_ALPHA_KEYGUARD = 0.55f;
+    private static final float SCRIM_BEHIND_ALPHA_UNLOCKING = 0.2f;
     private static final float SCRIM_IN_FRONT_ALPHA = 0.75f;
-    private static final long ANIMATION_DURATION = 220;
     private static final int TAG_KEY_ANIM = R.id.scrim;
 
-    private static final int NUM_TEASES = 3;
-    private static final long TEASE_IN_ANIMATION_DURATION = 1000;
-    private static final long TEASE_VISIBLE_DURATION = 2000;
-    private static final long TEASE_OUT_ANIMATION_DURATION = 1000;
-    private static final long TEASE_INVISIBLE_DURATION = 1000;
-    private static final long TEASE_DURATION = TEASE_IN_ANIMATION_DURATION
-            + TEASE_VISIBLE_DURATION + TEASE_OUT_ANIMATION_DURATION + TEASE_INVISIBLE_DURATION;
-    private static final long PRE_TEASE_DELAY = 1000;
-
-    private final View mScrimBehind;
-    private final View mScrimInFront;
+    private final ScrimView mScrimBehind;
+    private final ScrimView mScrimInFront;
     private final UnlockMethodCache mUnlockMethodCache;
 
     private boolean mKeyguardShowing;
@@ -69,14 +61,24 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
     private long mAnimationDelay;
     private Runnable mOnAnimationFinished;
     private boolean mAnimationStarted;
-    private boolean mDozing;
-    private int mTeasesRemaining;
     private final Interpolator mInterpolator = new DecelerateInterpolator();
+    private final Interpolator mLinearOutSlowInInterpolator;
+    private BackDropView mBackDropView;
+    private boolean mScrimSrcEnabled;
+    private boolean mDozing;
+    private float mDozeInFrontAlpha;
+    private float mDozeBehindAlpha;
+    private float mCurrentInFrontAlpha;
+    private float mCurrentBehindAlpha;
 
-    public ScrimController(View scrimBehind, View scrimInFront) {
+    public ScrimController(ScrimView scrimBehind, ScrimView scrimInFront, boolean scrimSrcEnabled) {
         mScrimBehind = scrimBehind;
         mScrimInFront = scrimInFront;
-        mUnlockMethodCache = UnlockMethodCache.getInstance(scrimBehind.getContext());
+        final Context context = scrimBehind.getContext();
+        mUnlockMethodCache = UnlockMethodCache.getInstance(context);
+        mLinearOutSlowInInterpolator = AnimationUtils.loadInterpolator(context,
+                android.R.interpolator.linear_out_slow_in);
+        mScrimSrcEnabled = scrimSrcEnabled;
     }
 
     public void setKeyguardShowing(boolean showing) {
@@ -86,7 +88,7 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
 
     public void onTrackingStarted() {
         mExpanding = true;
-        mDarkenWhileDragging = !mUnlockMethodCache.isMethodInsecure();
+        mDarkenWhileDragging = !mUnlockMethodCache.isCurrentlyInsecure();
     }
 
     public void onExpandingFinished() {
@@ -115,27 +117,34 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
         scheduleUpdate();
     }
 
-    public void setDozing(boolean dozing) {
-        if (mDozing == dozing) return;
-        mDozing = dozing;
-        if (!mDozing) {
-            cancelTeasing();
-        }
+    public void animateGoingToFullShade(long delay, long duration) {
+        mDurationOverride = duration;
+        mAnimationDelay = delay;
+        mAnimateChange = true;
         scheduleUpdate();
     }
 
-    /** When dozing, fade screen contents in and out a few times using the front scrim. */
-    public long tease() {
-        if (!mDozing) return 0;
-        mTeasesRemaining = NUM_TEASES;
-        mScrimInFront.postDelayed(mTeaseIn, PRE_TEASE_DELAY);
-        return PRE_TEASE_DELAY + NUM_TEASES * TEASE_DURATION;
+    public void setDozing(boolean dozing) {
+        mDozing = dozing;
+        scheduleUpdate();
     }
 
-    private void cancelTeasing() {
-        mTeasesRemaining = 0;
-        mScrimInFront.removeCallbacks(mTeaseIn);
-        mScrimInFront.removeCallbacks(mTeaseOut);
+    public void setDozeInFrontAlpha(float alpha) {
+        mDozeInFrontAlpha = alpha;
+        updateScrimColor(mScrimInFront);
+    }
+
+    public void setDozeBehindAlpha(float alpha) {
+        mDozeBehindAlpha = alpha;
+        updateScrimColor(mScrimBehind);
+    }
+
+    public float getDozeBehindAlpha() {
+        return mDozeBehindAlpha;
+    }
+
+    public float getDozeInFrontAlpha() {
+        return mDozeInFrontAlpha;
     }
 
     private void scheduleUpdate() {
@@ -151,7 +160,7 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
         if (mAnimateKeyguardFadingOut) {
             setScrimInFrontColor(0f);
             setScrimBehindColor(0f);
-        }else if (!mKeyguardShowing && !mBouncerShowing) {
+        } else if (!mKeyguardShowing && !mBouncerShowing) {
             updateScrimNormal();
             setScrimInFrontColor(0);
         } else {
@@ -164,16 +173,19 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
         if (mExpanding && mDarkenWhileDragging) {
             float behindFraction = Math.max(0, Math.min(mFraction, 1));
             float fraction = 1 - behindFraction;
+            fraction = (float) Math.pow(fraction, 0.8f);
+            behindFraction = (float) Math.pow(behindFraction, 0.8f);
             setScrimInFrontColor(fraction * SCRIM_IN_FRONT_ALPHA);
             setScrimBehindColor(behindFraction * SCRIM_BEHIND_ALPHA_KEYGUARD);
         } else if (mBouncerShowing) {
             setScrimInFrontColor(SCRIM_IN_FRONT_ALPHA);
             setScrimBehindColor(0f);
-        } else if (mDozing) {
-            setScrimInFrontColor(1);
         } else {
+            float fraction = Math.max(0, Math.min(mFraction, 1));
             setScrimInFrontColor(0f);
-            setScrimBehindColor(SCRIM_BEHIND_ALPHA_KEYGUARD);
+            setScrimBehindColor(fraction
+                    * (SCRIM_BEHIND_ALPHA_KEYGUARD - SCRIM_BEHIND_ALPHA_UNLOCKING)
+                    + SCRIM_BEHIND_ALPHA_UNLOCKING);
         }
     }
 
@@ -200,43 +212,63 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
             mScrimInFront.setClickable(false);
         } else {
 
-            // Eat touch events.
-            mScrimInFront.setClickable(true);
+            // Eat touch events (unless dozing).
+            mScrimInFront.setClickable(!mDozing);
         }
     }
 
-    private void setScrimColor(View scrim, float alpha) {
-        int color = Color.argb((int) (alpha * 255), 0, 0, 0);
-        if (mAnimateChange) {
-            startScrimAnimation(scrim, color);
-        } else {
-            scrim.setBackgroundColor(color);
-        }
-    }
-
-    private void startScrimAnimation(final View scrim, int targetColor) {
-        int current = getBackgroundAlpha(scrim);
-        int target = Color.alpha(targetColor);
-        if (current == targetColor) {
-            return;
-        }
+    private void setScrimColor(ScrimView scrim, float alpha) {
         Object runningAnim = scrim.getTag(TAG_KEY_ANIM);
         if (runningAnim instanceof ValueAnimator) {
             ((ValueAnimator) runningAnim).cancel();
+            scrim.setTag(TAG_KEY_ANIM, null);
         }
-        ValueAnimator anim = ValueAnimator.ofInt(current, target);
+        if (mAnimateChange) {
+            startScrimAnimation(scrim, alpha);
+        } else {
+            setCurrentScrimAlpha(scrim, alpha);
+            updateScrimColor(scrim);
+        }
+    }
+
+    private float getDozeAlpha(View scrim) {
+        return scrim == mScrimBehind ? mDozeBehindAlpha : mDozeInFrontAlpha;
+    }
+
+    private float getCurrentScrimAlpha(View scrim) {
+        return scrim == mScrimBehind ? mCurrentBehindAlpha : mCurrentInFrontAlpha;
+    }
+
+    private void setCurrentScrimAlpha(View scrim, float alpha) {
+        if (scrim == mScrimBehind) {
+            mCurrentBehindAlpha = alpha;
+        } else {
+            mCurrentInFrontAlpha = alpha;
+        }
+    }
+
+    private void updateScrimColor(ScrimView scrim) {
+        float alpha1 = getCurrentScrimAlpha(scrim);
+        float alpha2 = getDozeAlpha(scrim);
+        float alpha = 1 - (1 - alpha1) * (1 - alpha2);
+        scrim.setScrimColor(Color.argb((int) (alpha * 255), 0, 0, 0));
+    }
+
+    private void startScrimAnimation(final ScrimView scrim, float target) {
+        float current = getCurrentScrimAlpha(scrim);
+        ValueAnimator anim = ValueAnimator.ofFloat(current, target);
         anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
-                int value = (int) animation.getAnimatedValue();
-                scrim.setBackgroundColor(Color.argb(value, 0, 0, 0));
+                float alpha = (float) animation.getAnimatedValue();
+                setCurrentScrimAlpha(scrim, alpha);
+                updateScrimColor(scrim);
             }
         });
-        anim.setInterpolator(mInterpolator);
+        anim.setInterpolator(getInterpolator());
         anim.setStartDelay(mAnimationDelay);
         anim.setDuration(mDurationOverride != -1 ? mDurationOverride : ANIMATION_DURATION);
         anim.addListener(new AnimatorListenerAdapter() {
-
             @Override
             public void onAnimationEnd(Animator animation) {
                 if (mOnAnimationFinished != null) {
@@ -251,13 +283,8 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
         mAnimationStarted = true;
     }
 
-    private int getBackgroundAlpha(View scrim) {
-        if (scrim.getBackground() instanceof ColorDrawable) {
-            ColorDrawable drawable = (ColorDrawable) scrim.getBackground();
-            return Color.alpha(drawable.getColor());
-        } else {
-            return 0;
-        }
+    private Interpolator getInterpolator() {
+        return mAnimateKeyguardFadingOut ? mLinearOutSlowInInterpolator : mInterpolator;
     }
 
     @Override
@@ -278,50 +305,19 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener {
         return true;
     }
 
-    private final Runnable mTeaseIn = new Runnable() {
-        @Override
-        public void run() {
-            if (DEBUG) Log.d(TAG, "Tease in, mDozing=" + mDozing
-                    + " mTeasesRemaining=" + mTeasesRemaining);
-            if (!mDozing || mTeasesRemaining == 0) return;
-            mTeasesRemaining--;
-            mDurationOverride = TEASE_IN_ANIMATION_DURATION;
-            mAnimationDelay = 0;
-            mAnimateChange = true;
-            mOnAnimationFinished = mTeaseInFinished;
-            setScrimColor(mScrimInFront, 0);
-        }
-    };
-
-    private final Runnable mTeaseInFinished = new Runnable() {
-        @Override
-        public void run() {
-            if (DEBUG) Log.d(TAG, "Tease in finished, mDozing=" + mDozing);
-            if (!mDozing) return;
-            mScrimInFront.postDelayed(mTeaseOut, TEASE_VISIBLE_DURATION);
-        }
-    };
-
-    private final Runnable mTeaseOut = new Runnable() {
-        @Override
-        public void run() {
-            if (DEBUG) Log.d(TAG, "Tease in finished, mDozing=" + mDozing);
-            if (!mDozing) return;
-            mDurationOverride = TEASE_OUT_ANIMATION_DURATION;
-            mAnimationDelay = 0;
-            mAnimateChange = true;
-            mOnAnimationFinished = mTeaseOutFinished;
-            setScrimColor(mScrimInFront, 1);
-        }
-    };
-
-    private final Runnable mTeaseOutFinished = new Runnable() {
-        @Override
-        public void run() {
-            if (DEBUG) Log.d(TAG, "Tease out finished, mTeasesRemaining=" + mTeasesRemaining);
-            if (mTeasesRemaining > 0) {
-                mScrimInFront.postDelayed(mTeaseIn, TEASE_INVISIBLE_DURATION);
+    public void setBackDropView(BackDropView backDropView) {
+        mBackDropView = backDropView;
+        mBackDropView.setOnVisibilityChangedRunnable(new Runnable() {
+            @Override
+            public void run() {
+                updateScrimBehindDrawingMode();
             }
-        }
-    };
+        });
+        updateScrimBehindDrawingMode();
+    }
+
+    private void updateScrimBehindDrawingMode() {
+        boolean asSrc = mBackDropView.getVisibility() != View.VISIBLE && mScrimSrcEnabled;
+        mScrimBehind.setDrawAsSrc(asSrc);
+    }
 }

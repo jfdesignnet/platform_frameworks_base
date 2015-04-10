@@ -29,18 +29,21 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowCallbackWrapper;
 import android.widget.SpinnerAdapter;
 import android.widget.Toolbar;
 import com.android.internal.view.menu.MenuBuilder;
+import com.android.internal.view.menu.MenuPresenter;
 import com.android.internal.widget.DecorToolbar;
 import com.android.internal.widget.ToolbarWidgetWrapper;
 
 import java.util.ArrayList;
 
 public class ToolbarActionBar extends ActionBar {
-    private Toolbar mToolbar;
     private DecorToolbar mDecorToolbar;
+    private boolean mToolbarMenuPrepared;
     private Window.Callback mWindowCallback;
+    private boolean mMenuCallbackSet;
 
     private boolean mLastMenuVisibility;
     private ArrayList<OnMenuVisibilityListener> mMenuVisibilityListeners =
@@ -62,12 +65,15 @@ public class ToolbarActionBar extends ActionBar {
     };
 
     public ToolbarActionBar(Toolbar toolbar, CharSequence title, Window.Callback windowCallback) {
-        mToolbar = toolbar;
         mDecorToolbar = new ToolbarWidgetWrapper(toolbar, false);
-        mWindowCallback = windowCallback;
+        mWindowCallback = new ToolbarCallbackWrapper(windowCallback);
         mDecorToolbar.setWindowCallback(mWindowCallback);
         toolbar.setOnMenuItemClickListener(mMenuClicker);
         mDecorToolbar.setWindowTitle(title);
+    }
+
+    public Window.Callback getWrappedWindowCallback() {
+        return mWindowCallback;
     }
 
     @Override
@@ -83,8 +89,8 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public void setCustomView(int resId) {
-        final LayoutInflater inflater = LayoutInflater.from(mToolbar.getContext());
-        setCustomView(inflater.inflate(resId, mToolbar, false));
+        final LayoutInflater inflater = LayoutInflater.from(mDecorToolbar.getContext());
+        setCustomView(inflater.inflate(resId, mDecorToolbar.getViewGroup(), false));
     }
 
     @Override
@@ -124,17 +130,17 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public void setElevation(float elevation) {
-        mToolbar.setElevation(elevation);
+        mDecorToolbar.getViewGroup().setElevation(elevation);
     }
 
     @Override
     public float getElevation() {
-        return mToolbar.getElevation();
+        return mDecorToolbar.getViewGroup().getElevation();
     }
 
     @Override
     public Context getThemedContext() {
-        return mToolbar.getContext();
+        return mDecorToolbar.getContext();
     }
 
     @Override
@@ -144,17 +150,17 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public void setHomeAsUpIndicator(Drawable indicator) {
-        mToolbar.setNavigationIcon(indicator);
+        mDecorToolbar.setNavigationIcon(indicator);
     }
 
     @Override
     public void setHomeAsUpIndicator(int resId) {
-        mToolbar.setNavigationIcon(resId);
+        mDecorToolbar.setNavigationIcon(resId);
     }
 
     @Override
     public void setHomeActionContentDescription(CharSequence description) {
-        mToolbar.setNavigationContentDescription(description);
+        mDecorToolbar.setNavigationContentDescription(description);
     }
 
     @Override
@@ -164,7 +170,7 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public void setHomeActionContentDescription(int resId) {
-        mToolbar.setNavigationContentDescription(resId);
+        mDecorToolbar.setNavigationContentDescription(resId);
     }
 
     @Override
@@ -179,7 +185,7 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public ActionMode startActionMode(ActionMode.Callback callback) {
-        return mToolbar.startActionMode(callback);
+        return null;
     }
 
     @Override
@@ -220,6 +226,11 @@ public class ToolbarActionBar extends ActionBar {
     }
 
     @Override
+    public void setWindowTitle(CharSequence title) {
+        mDecorToolbar.setWindowTitle(title);
+    }
+
+    @Override
     public void setSubtitle(CharSequence subtitle) {
         mDecorToolbar.setSubtitle(subtitle);
     }
@@ -236,8 +247,8 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public void setDisplayOptions(@DisplayOptions int options, @DisplayOptions int mask) {
-        mDecorToolbar.setDisplayOptions((options & mask) |
-                mDecorToolbar.getDisplayOptions() & ~mask);
+        final int currentOptions = mDecorToolbar.getDisplayOptions();
+        mDecorToolbar.setDisplayOptions(options & mask | currentOptions & ~mask);
     }
 
     @Override
@@ -267,7 +278,7 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public void setBackgroundDrawable(@Nullable Drawable d) {
-        mToolbar.setBackground(d);
+        mDecorToolbar.setBackgroundDrawable(d);
     }
 
     @Override
@@ -277,12 +288,12 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public CharSequence getTitle() {
-        return mToolbar.getTitle();
+        return mDecorToolbar.getTitle();
     }
 
     @Override
     public CharSequence getSubtitle() {
-        return mToolbar.getSubtitle();
+        return mDecorToolbar.getSubtitle();
     }
 
     @Override
@@ -376,51 +387,55 @@ public class ToolbarActionBar extends ActionBar {
 
     @Override
     public int getHeight() {
-        return mToolbar.getHeight();
+        return mDecorToolbar.getHeight();
     }
 
     @Override
     public void show() {
         // TODO: Consider a better transition for this.
         // Right now use no automatic transition so that the app can supply one if desired.
-        mToolbar.setVisibility(View.VISIBLE);
+        mDecorToolbar.setVisibility(View.VISIBLE);
     }
 
     @Override
     public void hide() {
         // TODO: Consider a better transition for this.
         // Right now use no automatic transition so that the app can supply one if desired.
-        mToolbar.setVisibility(View.GONE);
+        mDecorToolbar.setVisibility(View.GONE);
     }
 
     @Override
     public boolean isShowing() {
-        return mToolbar.getVisibility() == View.VISIBLE;
+        return mDecorToolbar.getVisibility() == View.VISIBLE;
     }
 
     @Override
     public boolean openOptionsMenu() {
-        return mToolbar.showOverflowMenu();
+        return mDecorToolbar.showOverflowMenu();
     }
 
     @Override
     public boolean invalidateOptionsMenu() {
-        mToolbar.removeCallbacks(mMenuInvalidator);
-        mToolbar.postOnAnimation(mMenuInvalidator);
+        mDecorToolbar.getViewGroup().removeCallbacks(mMenuInvalidator);
+        mDecorToolbar.getViewGroup().postOnAnimation(mMenuInvalidator);
         return true;
     }
 
     @Override
     public boolean collapseActionView() {
-        if (mToolbar.hasExpandedActionView()) {
-            mToolbar.collapseActionView();
+        if (mDecorToolbar.hasExpandedActionView()) {
+            mDecorToolbar.collapseActionView();
             return true;
         }
         return false;
     }
 
     void populateOptionsMenu() {
-        final Menu menu = mToolbar.getMenu();
+        if (!mMenuCallbackSet) {
+            mDecorToolbar.setMenuCallbacks(new ActionMenuPresenterCallback(), new MenuBuilderCallback());
+            mMenuCallbackSet = true;
+        }
+        final Menu menu = mDecorToolbar.getMenu();
         final MenuBuilder mb = menu instanceof MenuBuilder ? (MenuBuilder) menu : null;
         if (mb != null) {
             mb.stopDispatchingItemsChanged();
@@ -463,6 +478,69 @@ public class ToolbarActionBar extends ActionBar {
         final int count = mMenuVisibilityListeners.size();
         for (int i = 0; i < count; i++) {
             mMenuVisibilityListeners.get(i).onMenuVisibilityChanged(isVisible);
+        }
+    }
+
+    private class ToolbarCallbackWrapper extends WindowCallbackWrapper {
+        public ToolbarCallbackWrapper(Window.Callback wrapped) {
+            super(wrapped);
+        }
+
+        @Override
+        public boolean onPreparePanel(int featureId, View view, Menu menu) {
+            final boolean result = super.onPreparePanel(featureId, view, menu);
+            if (result && !mToolbarMenuPrepared) {
+                mDecorToolbar.setMenuPrepared();
+                mToolbarMenuPrepared = true;
+            }
+            return result;
+        }
+    }
+
+    private final class ActionMenuPresenterCallback implements MenuPresenter.Callback {
+        private boolean mClosingActionMenu;
+
+        @Override
+        public boolean onOpenSubMenu(MenuBuilder subMenu) {
+            if (mWindowCallback != null) {
+                mWindowCallback.onMenuOpened(Window.FEATURE_ACTION_BAR, subMenu);
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void onCloseMenu(MenuBuilder menu, boolean allMenusAreClosing) {
+            if (mClosingActionMenu) {
+                return;
+            }
+
+            mClosingActionMenu = true;
+            mDecorToolbar.dismissPopupMenus();
+            if (mWindowCallback != null) {
+                mWindowCallback.onPanelClosed(Window.FEATURE_ACTION_BAR, menu);
+            }
+            mClosingActionMenu = false;
+        }
+    }
+
+    private final class MenuBuilderCallback implements MenuBuilder.Callback {
+
+        @Override
+        public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item) {
+            return false;
+        }
+
+        @Override
+        public void onMenuModeChange(MenuBuilder menu) {
+            if (mWindowCallback != null) {
+                if (mDecorToolbar.isOverflowMenuShowing()) {
+                    mWindowCallback.onPanelClosed(Window.FEATURE_ACTION_BAR, menu);
+                } else if (mWindowCallback.onPreparePanel(Window.FEATURE_OPTIONS_PANEL,
+                        null, menu)) {
+                    mWindowCallback.onMenuOpened(Window.FEATURE_ACTION_BAR, menu);
+                }
+            }
         }
     }
 }

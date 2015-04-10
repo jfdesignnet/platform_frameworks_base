@@ -21,8 +21,8 @@ package android.media;
  * An AudioPatch describes a connection between audio sources and audio sinks.
  * An audio source can be an output mix (playback AudioBus) or an input device (microphone).
  * An audio sink can be an output device (speaker) or an input mix (capture AudioBus).
- * An AudioPatch is created by AudioManager.connectAudioPatch() and released by
- * AudioManager.disconnectAudioPatch()
+ * An AudioPatch is created by AudioManager.createAudioPatch() and released by
+ * AudioManager.releaseAudioPatch()
  * It contains the list of source and sink AudioPortConfig showing audio port configurations
  * being connected.
  * @hide
@@ -51,5 +51,26 @@ public class AudioPatch {
      */
     public AudioPortConfig[] sinks() {
         return mSinks;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder s = new StringBuilder();
+        s.append("mHandle: ");
+        s.append(mHandle.toString());
+
+        s.append(" mSources: {");
+        for (AudioPortConfig source : mSources) {
+            s.append(source.toString());
+            s.append(", ");
+        }
+        s.append("} mSinks: {");
+        for (AudioPortConfig sink : mSinks) {
+            s.append(sink.toString());
+            s.append(", ");
+        }
+        s.append("}");
+
+        return s.toString();
     }
 }

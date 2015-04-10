@@ -16,10 +16,14 @@
 
 package com.android.internal.widget;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
+import android.graphics.Outline;
+import android.graphics.PixelFormat;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.ActionMode;
@@ -27,6 +31,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+
+import java.util.List;
 
 /**
  * This class acts as a container for the action bar view and action mode context views.
@@ -37,6 +43,7 @@ public class ActionBarContainer extends FrameLayout {
     private boolean mIsTransitioning;
     private View mTabContainer;
     private View mActionBarView;
+    private View mActionContextView;
 
     private Drawable mBackground;
     private Drawable mStackedBackground;
@@ -77,6 +84,7 @@ public class ActionBarContainer extends FrameLayout {
     public void onFinishInflate() {
         super.onFinishInflate();
         mActionBarView = findViewById(com.android.internal.R.id.action_bar);
+        mActionContextView = findViewById(com.android.internal.R.id.action_context_bar);
     }
 
     public void setPrimaryBackground(Drawable bg) {
@@ -251,8 +259,13 @@ public class ActionBarContainer extends FrameLayout {
         return null;
     }
 
-    private boolean isCollapsed(View view) {
+    private static boolean isCollapsed(View view) {
         return view == null || view.getVisibility() == GONE || view.getMeasuredHeight() == 0;
+    }
+
+    private int getMeasuredHeightWithMargins(View view) {
+        final LayoutParams lp = (LayoutParams) view.getLayoutParams();
+        return view.getMeasuredHeight() + lp.topMargin + lp.bottomMargin;
     }
 
     @Override
@@ -266,18 +279,23 @@ public class ActionBarContainer extends FrameLayout {
 
         if (mActionBarView == null) return;
 
-        final LayoutParams lp = (LayoutParams) mActionBarView.getLayoutParams();
-        final int actionBarViewHeight = isCollapsed(mActionBarView) ? 0 :
-                mActionBarView.getMeasuredHeight() + lp.topMargin + lp.bottomMargin;
-
         if (mTabContainer != null && mTabContainer.getVisibility() != GONE) {
-            final int mode = MeasureSpec.getMode(heightMeasureSpec);
-            if (mode == MeasureSpec.AT_MOST) {
-                final int maxHeight = MeasureSpec.getSize(heightMeasureSpec);
-                setMeasuredDimension(getMeasuredWidth(),
-                        Math.min(actionBarViewHeight + mTabContainer.getMeasuredHeight(),
-                                maxHeight));
+            int nonTabMaxHeight = 0;
+            final int childCount = getChildCount();
+            for (int i = 0; i < childCount; i++) {
+                final View child = getChildAt(i);
+                if (child == mTabContainer) {
+                    continue;
+                }
+                nonTabMaxHeight = Math.max(nonTabMaxHeight, isCollapsed(child) ? 0 :
+                        getMeasuredHeightWithMargins(child));
             }
+            final int mode = MeasureSpec.getMode(heightMeasureSpec);
+            final int maxHeight = mode == MeasureSpec.AT_MOST ?
+                    MeasureSpec.getSize(heightMeasureSpec) : Integer.MAX_VALUE;
+            setMeasuredDimension(getMeasuredWidth(),
+                    Math.min(nonTabMaxHeight + getMeasuredHeightWithMargins(mTabContainer),
+                            maxHeight));
         }
     }
 
@@ -290,8 +308,10 @@ public class ActionBarContainer extends FrameLayout {
 
         if (tabContainer != null && tabContainer.getVisibility() != GONE) {
             final int containerHeight = getMeasuredHeight();
+            final LayoutParams lp = (LayoutParams) tabContainer.getLayoutParams();
             final int tabHeight = tabContainer.getMeasuredHeight();
-            tabContainer.layout(l, containerHeight - tabHeight, r, containerHeight);
+            tabContainer.layout(l, containerHeight - tabHeight - lp.bottomMargin, r,
+                    containerHeight - lp.bottomMargin);
         }
 
         boolean needsInvalidate = false;
@@ -302,8 +322,16 @@ public class ActionBarContainer extends FrameLayout {
             }
         } else {
             if (mBackground != null) {
-                mBackground.setBounds(mActionBarView.getLeft(), mActionBarView.getTop(),
-                        mActionBarView.getRight(), mActionBarView.getBottom());
+                if (mActionBarView.getVisibility() == View.VISIBLE) {
+                    mBackground.setBounds(mActionBarView.getLeft(), mActionBarView.getTop(),
+                            mActionBarView.getRight(), mActionBarView.getBottom());
+                } else if (mActionContextView != null &&
+                        mActionContextView.getVisibility() == View.VISIBLE) {
+                    mBackground.setBounds(mActionContextView.getLeft(), mActionContextView.getTop(),
+                            mActionContextView.getRight(), mActionContextView.getBottom());
+                } else {
+                    mBackground.setBounds(0, 0, 0, 0);
+                }
                 needsInvalidate = true;
             }
             mIsStacked = hasTabs;
@@ -327,13 +355,29 @@ public class ActionBarContainer extends FrameLayout {
         @Override
         public void draw(Canvas canvas) {
             if (mIsSplit) {
-                if (mSplitBackground != null) mSplitBackground.draw(canvas);
+                if (mSplitBackground != null) {
+                    mSplitBackground.draw(canvas);
+                }
             } else {
                 if (mBackground != null) {
                     mBackground.draw(canvas);
                 }
                 if (mStackedBackground != null && mIsStacked) {
                     mStackedBackground.draw(canvas);
+                }
+            }
+        }
+
+        @Override
+        public void getOutline(@NonNull Outline outline) {
+            if (mIsSplit) {
+                if (mSplitBackground != null) {
+                    mSplitBackground.getOutline(outline);
+                }
+            } else {
+                // ignore the stacked background for shadow casting
+                if (mBackground != null) {
+                    mBackground.getOutline(outline);
                 }
             }
         }
@@ -348,7 +392,23 @@ public class ActionBarContainer extends FrameLayout {
 
         @Override
         public int getOpacity() {
-            return 0;
+            if (mIsSplit) {
+                if (mSplitBackground != null
+                        && mSplitBackground.getOpacity() == PixelFormat.OPAQUE) {
+                    return PixelFormat.OPAQUE;
+                }
+            } else {
+                if (mIsStacked && (mStackedBackground == null
+                        || mStackedBackground.getOpacity() != PixelFormat.OPAQUE)) {
+                    return PixelFormat.UNKNOWN;
+                }
+                if (!isCollapsed(mActionBarView) && mBackground != null
+                        && mBackground.getOpacity() == PixelFormat.OPAQUE) {
+                    return PixelFormat.OPAQUE;
+                }
+            }
+
+            return PixelFormat.UNKNOWN;
         }
     }
 }

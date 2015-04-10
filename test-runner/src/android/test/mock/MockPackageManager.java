@@ -46,7 +46,7 @@ import android.content.pm.VerificationParams;
 import android.content.pm.VerifierDeviceIdentity;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
-import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.UserHandle;
@@ -403,6 +403,29 @@ public class MockPackageManager extends PackageManager {
     }
 
     @Override
+    public Drawable getUserBadgedIcon(Drawable icon, UserHandle user) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Drawable getUserBadgedDrawableForDensity(Drawable drawable, UserHandle user,
+            Rect badgeLocation,
+            int badgeDensity) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public Drawable getUserBadgeForDensity(UserHandle user, int density) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public CharSequence getUserBadgedLabel(CharSequence label, UserHandle user) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public CharSequence getText(String packageName, int resid, ApplicationInfo appInfo) {
         throw new UnsupportedOperationException();
     }
@@ -617,21 +640,25 @@ public class MockPackageManager extends PackageManager {
         throw new UnsupportedOperationException();
     }
 
+    /** @hide */
     @Override
     public KeySet getKeySetByAlias(String packageName, String alias) {
         throw new UnsupportedOperationException();
     }
 
+    /** @hide */
     @Override
     public KeySet getSigningKeySet(String packageName) {
         throw new UnsupportedOperationException();
     }
 
+    /** @hide */
     @Override
     public boolean isSignedBy(String packageName, KeySet ks) {
         throw new UnsupportedOperationException();
     }
 
+    /** @hide */
     @Override
     public boolean isSignedByExactly(String packageName, KeySet ks) {
         throw new UnsupportedOperationException();
@@ -706,6 +733,14 @@ public class MockPackageManager extends PackageManager {
      * @hide
      */
     @Override
+    public boolean isUpgrade() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @hide
+     */
+    @Override
     public void installPackage(Uri packageURI, PackageInstallObserver observer,
             int flags, String installerPackageName) {
         throw new UnsupportedOperationException();
@@ -763,16 +798,14 @@ public class MockPackageManager extends PackageManager {
     /**
      * @hide
      */
-    @Override
-    public void addCrossProfileIntentsForPackage(String packageName, int sourceUserId,
-            int targetUserId) {
+    public Drawable loadItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo) {
         throw new UnsupportedOperationException();
     }
 
     /**
      * @hide
      */
-    public Drawable loadItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo) {
+    public Drawable loadUnbadgedItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo) {
         throw new UnsupportedOperationException();
     }
 }

@@ -43,12 +43,15 @@
 #include <utils/String8.h>
 #include <selinux/android.h>
 #include <processgroup/processgroup.h>
+#include <inttypes.h>
 
 #include "android_runtime/AndroidRuntime.h"
 #include "JNIHelp.h"
 #include "ScopedLocalRef.h"
 #include "ScopedPrimitiveArray.h"
 #include "ScopedUtfChars.h"
+
+#include "nativebridge/native_bridge.h"
 
 namespace {
 
@@ -248,19 +251,23 @@ static void SetSchedulerPolicy(JNIEnv* env) {
 
 // Create a private mount namespace and bind mount appropriate emulated
 // storage for the given user.
-static bool MountEmulatedStorage(uid_t uid, jint mount_mode) {
-  if (mount_mode == MOUNT_EXTERNAL_NONE) {
+static bool MountEmulatedStorage(uid_t uid, jint mount_mode, bool force_mount_namespace) {
+  if (mount_mode == MOUNT_EXTERNAL_NONE && !force_mount_namespace) {
     return true;
   }
-
-  // See storage config details at http://source.android.com/tech/storage/
-  userid_t user_id = multiuser_get_user_id(uid);
 
   // Create a second private mount namespace for our process
   if (unshare(CLONE_NEWNS) == -1) {
       ALOGW("Failed to unshare(): %d", errno);
       return false;
   }
+
+  if (mount_mode == MOUNT_EXTERNAL_NONE) {
+    return true;
+  }
+
+  // See storage config details at http://source.android.com/tech/storage/
+  userid_t user_id = multiuser_get_user_id(uid);
 
   // Create bind mounts to expose external storage
   if (mount_mode == MOUNT_EXTERNAL_MULTIUSER || mount_mode == MOUNT_EXTERNAL_MULTIUSER_ALL) {
@@ -398,14 +405,33 @@ void SetThreadName(const char* thread_name) {
   }
 }
 
+  // Temporary timing check.
+uint64_t MsTime() {
+  timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return static_cast<uint64_t>(now.tv_sec) * UINT64_C(1000) + now.tv_nsec / UINT64_C(1000000);
+}
+
+
+void ckTime(uint64_t start, const char* where) {
+  uint64_t now = MsTime();
+  if ((now-start) > 1000) {
+    // If we are taking more than a second, log about it.
+    ALOGW("Slow operation: %"PRIu64" ms in %s", (uint64_t)(now-start), where);
+  }
+}
+
 // Utility routine to fork zygote and specialize the child process.
 static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArray javaGids,
                                      jint debug_flags, jobjectArray javaRlimits,
                                      jlong permittedCapabilities, jlong effectiveCapabilities,
                                      jint mount_external,
                                      jstring java_se_info, jstring java_se_name,
-                                     bool is_system_server, jintArray fdsToClose) {
+                                     bool is_system_server, jintArray fdsToClose,
+                                     jstring instructionSet, jstring dataDir) {
+  uint64_t start = MsTime();
   SetSigChldHandler();
+  ckTime(start, "ForkAndSpecializeCommon:SetSigChldHandler");
 
   pid_t pid = fork();
 
@@ -413,8 +439,11 @@ static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArra
     // The child process.
     gMallocLeakZygoteChild = 1;
 
+
     // Clean up any descriptors which must be closed immediately
     DetachDescriptors(env, fdsToClose);
+
+    ckTime(start, "ForkAndSpecializeCommon:Fork and detach");
 
     // Keep capabilities across UID change, unless we're staying root.
     if (uid != 0) {
@@ -423,8 +452,23 @@ static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArra
 
     DropCapabilitiesBoundingSet(env);
 
-    if (!MountEmulatedStorage(uid, mount_external)) {
-      ALOGW("Failed to mount emulated storage: %d", errno);
+    bool use_native_bridge = !is_system_server && (instructionSet != NULL)
+        && android::NativeBridgeAvailable();
+    if (use_native_bridge) {
+      ScopedUtfChars isa_string(env, instructionSet);
+      use_native_bridge = android::NeedsNativeBridge(isa_string.c_str());
+    }
+    if (use_native_bridge && dataDir == NULL) {
+      // dataDir should never be null if we need to use a native bridge.
+      // In general, dataDir will never be null for normal applications. It can only happen in
+      // special cases (for isolated processes which are not associated with any app). These are
+      // launched by the framework and should not be emulated anyway.
+      use_native_bridge = false;
+      ALOGW("Native bridge will not be used because dataDir == NULL.");
+    }
+
+    if (!MountEmulatedStorage(uid, mount_external, use_native_bridge)) {
+      ALOGW("Failed to mount emulated storage: %s", strerror(errno));
       if (errno == ENOTCONN || errno == EROFS) {
         // When device is actively encrypting, we get ENOTCONN here
         // since FUSE was mounted before the framework restarted.
@@ -451,6 +495,12 @@ static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArra
     SetGids(env, javaGids);
 
     SetRLimits(env, javaRlimits);
+
+    if (use_native_bridge) {
+      ScopedUtfChars isa_string(env, instructionSet);
+      ScopedUtfChars data_dir(env, dataDir);
+      android::PreInitializeNativeBridge(data_dir.c_str(), isa_string.c_str());
+    }
 
     int rc = setresgid(gid, gid, gid);
     if (rc == -1) {
@@ -518,7 +568,11 @@ static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArra
 
     UnsetSigChldHandler();
 
-    env->CallStaticVoidMethod(gZygoteClass, gCallPostForkChildHooks, debug_flags);
+    ckTime(start, "ForkAndSpecializeCommon:child process setup");
+
+    env->CallStaticVoidMethod(gZygoteClass, gCallPostForkChildHooks, debug_flags,
+                              is_system_server ? NULL : instructionSet);
+    ckTime(start, "ForkAndSpecializeCommon:PostForkChildHooks returns");
     if (env->ExceptionCheck()) {
       ALOGE("Error calling post fork hooks.");
       RuntimeAbort(env);
@@ -536,7 +590,7 @@ static jint com_android_internal_os_Zygote_nativeForkAndSpecialize(
         JNIEnv* env, jclass, jint uid, jint gid, jintArray gids,
         jint debug_flags, jobjectArray rlimits,
         jint mount_external, jstring se_info, jstring se_name,
-        jintArray fdsToClose) {
+        jintArray fdsToClose, jstring instructionSet, jstring appDataDir) {
     // Grant CAP_WAKE_ALARM to the Bluetooth process.
     jlong capabilities = 0;
     if (uid == AID_BLUETOOTH) {
@@ -545,7 +599,7 @@ static jint com_android_internal_os_Zygote_nativeForkAndSpecialize(
 
     return ForkAndSpecializeCommon(env, uid, gid, gids, debug_flags,
             rlimits, capabilities, capabilities, mount_external, se_info,
-            se_name, false, fdsToClose);
+            se_name, false, fdsToClose, instructionSet, appDataDir);
 }
 
 static jint com_android_internal_os_Zygote_nativeForkSystemServer(
@@ -555,7 +609,8 @@ static jint com_android_internal_os_Zygote_nativeForkSystemServer(
   pid_t pid = ForkAndSpecializeCommon(env, uid, gid, gids,
                                       debug_flags, rlimits,
                                       permittedCapabilities, effectiveCapabilities,
-                                      MOUNT_EXTERNAL_NONE, NULL, NULL, true, NULL);
+                                      MOUNT_EXTERNAL_NONE, NULL, NULL, true, NULL,
+                                      NULL, NULL);
   if (pid > 0) {
       // The zygote process checks whether the child process has died or not.
       ALOGI("System server process %d has been created", pid);
@@ -573,7 +628,8 @@ static jint com_android_internal_os_Zygote_nativeForkSystemServer(
 }
 
 static JNINativeMethod gMethods[] = {
-    { "nativeForkAndSpecialize", "(II[II[[IILjava/lang/String;Ljava/lang/String;[I)I",
+    { "nativeForkAndSpecialize",
+      "(II[II[[IILjava/lang/String;Ljava/lang/String;[ILjava/lang/String;Ljava/lang/String;)I",
       (void *) com_android_internal_os_Zygote_nativeForkAndSpecialize },
     { "nativeForkSystemServer", "(II[II[[IJJ)I",
       (void *) com_android_internal_os_Zygote_nativeForkSystemServer }
@@ -584,7 +640,8 @@ int register_com_android_internal_os_Zygote(JNIEnv* env) {
   if (gZygoteClass == NULL) {
     RuntimeAbort(env);
   }
-  gCallPostForkChildHooks = env->GetStaticMethodID(gZygoteClass, "callPostForkChildHooks", "(I)V");
+  gCallPostForkChildHooks = env->GetStaticMethodID(gZygoteClass, "callPostForkChildHooks",
+                                                   "(ILjava/lang/String;)V");
 
   return AndroidRuntime::registerNativeMethods(env, "com/android/internal/os/Zygote",
       gMethods, NELEM(gMethods));

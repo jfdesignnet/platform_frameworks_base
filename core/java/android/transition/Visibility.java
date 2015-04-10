@@ -43,7 +43,7 @@ import android.view.ViewGroup;
  */
 public abstract class Visibility extends Transition {
 
-    private static final String PROPNAME_VISIBILITY = "android:visibility:visibility";
+    static final String PROPNAME_VISIBILITY = "android:visibility:visibility";
     private static final String PROPNAME_PARENT = "android:visibility:parent";
     private static final String PROPNAME_SCREEN_LOCATION = "android:visibility:screenLocation";
 
@@ -64,7 +64,6 @@ public abstract class Visibility extends Transition {
     private static final String[] sTransitionProperties = {
             PROPNAME_VISIBILITY,
             PROPNAME_PARENT,
-            PROPNAME_SCREEN_LOCATION,
     };
 
     private static class VisibilityInfo {
@@ -86,7 +85,7 @@ public abstract class Visibility extends Transition {
     public Visibility(Context context, AttributeSet attrs) {
         super(context, attrs);
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.VisibilityTransition);
-        int mode = a.getInt(R.styleable.VisibilityTransition_visibilityMode, 0);
+        int mode = a.getInt(R.styleable.VisibilityTransition_transitionVisibilityMode, 0);
         a.recycle();
         if (mode != 0) {
             setMode(mode);
@@ -99,7 +98,7 @@ public abstract class Visibility extends Transition {
      *
      * @param mode The behavior supported by this transition, a combination of
      *             {@link #MODE_IN} and {@link #MODE_OUT}.
-     * @attr ref android.R.styleable#VisibilityTransition_visibilityMode
+     * @attr ref android.R.styleable#VisibilityTransition_transitionVisibilityMode
      */
     public void setMode(int mode) {
         if ((mode & ~(MODE_IN | MODE_OUT)) != 0) {
@@ -113,7 +112,7 @@ public abstract class Visibility extends Transition {
      *
      * Returns whether appearing and/or disappearing Views are supported. A combination of
      *         {@link #MODE_IN} and {@link #MODE_OUT}.
-     * @attr ref android.R.styleable#VisibilityTransition_visibilityMode
+     * @attr ref android.R.styleable#VisibilityTransition_transitionVisibilityMode
      */
     public int getMode() {
         return mMode;
@@ -226,11 +225,10 @@ public abstract class Visibility extends Transition {
                     }
                 }
             }
-        }
-        if (startValues == null) {
+        } else if (startValues == null && visInfo.endVisibility == View.VISIBLE) {
             visInfo.fadeIn = true;
             visInfo.visibilityChange = true;
-        } else if (endValues == null) {
+        } else if (endValues == null && visInfo.startVisibility == View.VISIBLE) {
             visInfo.fadeIn = false;
             visInfo.visibilityChange = true;
         }
@@ -278,6 +276,18 @@ public abstract class Visibility extends Transition {
             TransitionValues endValues, int endVisibility) {
         if ((mMode & MODE_IN) != MODE_IN || endValues == null) {
             return null;
+        }
+        if (startValues == null) {
+            VisibilityInfo parentVisibilityInfo = null;
+            View endParent = (View) endValues.view.getParent();
+            TransitionValues startParentValues = getMatchedTransitionValues(endParent,
+                                                                            false);
+            TransitionValues endParentValues = getTransitionValues(endParent, false);
+            parentVisibilityInfo =
+                getVisibilityChangeInfo(startParentValues, endParentValues);
+            if (parentVisibilityInfo.visibilityChange) {
+                return null;
+            }
         }
         return onAppear(sceneRoot, endValues.view, startValues, endValues);
     }
@@ -360,12 +370,14 @@ public abstract class Visibility extends Transition {
                     overlayView = startView;
                 } else if (startView.getParent() instanceof View) {
                     View startParent = (View) startView.getParent();
-                    if (!isValidTarget(startParent)) {
-                        if (startView.isAttachedToWindow()) {
-                            overlayView = copyViewImage(startView);
-                        } else {
-                            overlayView = startView;
-                        }
+                    TransitionValues startParentValues = getTransitionValues(startParent, true);
+                    TransitionValues endParentValues = getMatchedTransitionValues(startParent,
+                            true);
+                    VisibilityInfo parentVisibilityInfo =
+                            getVisibilityChangeInfo(startParentValues, endParentValues);
+                    if (!parentVisibilityInfo.visibilityChange) {
+                        overlayView = TransitionUtils.copyViewImage(sceneRoot, startView,
+                                startParent);
                     } else if (startParent.getParent() == null) {
                         int id = startParent.getId();
                         if (id != View.NO_ID && sceneRoot.findViewById(id) != null
@@ -471,34 +483,21 @@ public abstract class Visibility extends Transition {
         return null;
     }
 
-    private View copyViewImage(View view) {
-        int width = view.getWidth();
-        int height = view.getHeight();
-        if (width <= 0 || height <= 0) {
-            return null;
-        }
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        view.draw(canvas);
-        final BitmapDrawable drawable = new BitmapDrawable(bitmap);
-
-        View overlayView = new View(view.getContext());
-        overlayView.setBackground(drawable);
-        int widthSpec = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY);
-        int heightSpec = View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY);
-        overlayView.measure(widthSpec, heightSpec);
-        overlayView.layout(0, 0, width, height);
-        return overlayView;
-    }
-
     @Override
     boolean areValuesChanged(TransitionValues oldValues, TransitionValues newValues) {
-        VisibilityInfo changeInfo = getVisibilityChangeInfo(oldValues, newValues);
         if (oldValues == null && newValues == null) {
             return false;
         }
+        if (oldValues != null && newValues != null &&
+                newValues.values.containsKey(PROPNAME_VISIBILITY) !=
+                        oldValues.values.containsKey(PROPNAME_VISIBILITY)) {
+            // The transition wasn't targeted in either the start or end, so it couldn't
+            // have changed.
+            return false;
+        }
+        VisibilityInfo changeInfo = getVisibilityChangeInfo(oldValues, newValues);
         return changeInfo.visibilityChange && (changeInfo.startVisibility == View.VISIBLE ||
-            changeInfo.endVisibility == View.VISIBLE);
+                changeInfo.endVisibility == View.VISIBLE);
     }
 
     /**

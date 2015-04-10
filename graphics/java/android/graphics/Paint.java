@@ -51,6 +51,7 @@ public class Paint {
     private float       mInvCompatScaling;
 
     private Locale      mLocale;
+    private String      mFontFeatureSettings;
 
     /**
      * @hide
@@ -474,6 +475,7 @@ public class Paint {
         mBidiFlags = BIDI_DEFAULT_LTR;
         setTextLocale(Locale.getDefault());
         setElegantTextHeight(false);
+        mFontFeatureSettings = null;
     }
 
     /**
@@ -513,6 +515,7 @@ public class Paint {
 
         mBidiFlags = paint.mBidiFlags;
         mLocale = paint.mLocale;
+        mFontFeatureSettings = paint.mFontFeatureSettings;
     }
 
     /** @hide */
@@ -1106,9 +1109,16 @@ public class Paint {
      * This draws a shadow layer below the main layer, with the specified
      * offset and color, and blur radius. If radius is 0, then the shadow
      * layer is removed.
+     * <p>
+     * Can be used to create a blurred shadow underneath text. Support for use
+     * with other drawing operations is constrained to the software rendering
+     * pipeline.
+     * <p>
+     * The alpha of the shadow will be the paint's alpha if the shadow color is
+     * opaque, or the alpha from the shadow color if not.
      */
-    public void setShadowLayer(float radius, float dx, float dy, int color) {
-      native_setShadowLayer(mNativePaint, radius, dx, dy, color);
+    public void setShadowLayer(float radius, float dx, float dy, int shadowColor) {
+      native_setShadowLayer(mNativePaint, radius, dx, dy, shadowColor);
     }
 
     /**
@@ -1264,7 +1274,6 @@ public class Paint {
      * is 0.
      *
      * @return         the paint's letter-spacing for drawing text.
-     * @hide
      */
     public float getLetterSpacing() {
         return native_getLetterSpacing(mNativePaint);
@@ -1276,10 +1285,38 @@ public class Paint {
      * expansion will be around 0.05.  Negative values tighten text.
      *
      * @param letterSpacing set the paint's letter-spacing for drawing text.
-     * @hide
      */
     public void setLetterSpacing(float letterSpacing) {
         native_setLetterSpacing(mNativePaint, letterSpacing);
+    }
+
+    /**
+     * Get font feature settings.  Default is null.
+     *
+     * @return the paint's currently set font feature settings.
+     */
+    public String getFontFeatureSettings() {
+        return mFontFeatureSettings;
+    }
+
+    /**
+     * Set font feature settings.
+     *
+     * The format is the same as the CSS font-feature-settings attribute:
+     * http://dev.w3.org/csswg/css-fonts/#propdef-font-feature-settings
+     *
+     * @param settings the font feature settings string to use, may be null.
+     */
+    public void setFontFeatureSettings(String settings) {
+        if (settings != null && settings.equals("")) {
+            settings = null;
+        }
+        if ((settings == null && mFontFeatureSettings == null)
+                || (settings != null && settings.equals(mFontFeatureSettings))) {
+            return;
+        }
+        mFontFeatureSettings = settings;
+        native_setFontFeatureSettings(mNativePaint, settings);
     }
 
     /**
@@ -2259,4 +2296,6 @@ public class Paint {
     private static native float native_getLetterSpacing(long native_object);
     private static native void native_setLetterSpacing(long native_object,
                                                        float letterSpacing);
+    private static native void native_setFontFeatureSettings(long native_object,
+                                                             String settings);
 }

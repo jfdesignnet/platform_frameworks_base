@@ -59,6 +59,7 @@ please see themes_device_defaults.xml.
         <item name="colorControlNormal">@color/legacy_control_normal</item>
         <item name="colorControlHighlight">@color/legacy_button_pressed</item>
         <item name="colorButtonNormal">@color/legacy_button_normal</item>
+        <item name="colorEdgeEffect">?attr/colorPrimary</item>
 
         <item name="disabledAlpha">0.5</item>
         <item name="backgroundDimAmount">0.6</item>
@@ -73,6 +74,8 @@ please see themes_device_defaults.xml.
         <item name="textColorPrimaryInverse">@color/primary_text_light</item>
         <item name="textColorSecondaryInverse">@color/secondary_text_light</item>
         <item name="textColorTertiaryInverse">@color/tertiary_text_light</item>
+        <item name="textColorPrimaryActivated">@color/primary_text_dark</item>
+        <item name="textColorSecondaryActivated">@color/secondary_text_dark</item>
         <item name="textColorPrimaryDisableOnly">@color/primary_text_dark_disable_only</item>
         <item name="textColorPrimaryInverseDisableOnly">@color/primary_text_light_disable_only</item>
         <item name="textColorPrimaryNoDisable">@color/primary_text_dark_nodisable</item>
@@ -116,11 +119,11 @@ please see themes_device_defaults.xml.
 
         <!-- Button styles -->
         <item name="buttonStyle">@style/Widget.Button</item>
-
         <item name="buttonStyleSmall">@style/Widget.Button.Small</item>
         <item name="buttonStyleInset">@style/Widget.Button.Inset</item>
-
         <item name="buttonStyleToggle">@style/Widget.Button.Toggle</item>
+
+        <item name="switchStyle">@style/Widget.CompoundButton.Switch</item>
 
         <item name="selectableItemBackground">@drawable/item_background</item>
         <item name="selectableItemBackgroundBorderless">?attr/selectableItemBackground</item>
@@ -169,6 +172,7 @@ please see themes_device_defaults.xml.
 
         <!-- Window attributes -->
         <item name="windowBackground">@drawable/screen_background_selector_dark</item>
+        <item name="windowBackgroundFallback">?attr/colorBackground</item>
         <item name="windowClipToOutline">false</item>
         <item name="windowFrame">@null</item>
         <item name="windowNoTitle">false</item>
@@ -192,6 +196,7 @@ please see themes_device_defaults.xml.
         <item name="navigationBarColor">@color/black</item>
         <item name="windowActionBarFullscreenDecorLayout">@layout/screen_action_bar</item>
         <item name="windowContentTransitions">false</item>
+        <item name="windowActivityTransitions">false</item>
 
         <!-- Define these here; ContextThemeWrappers around themes that define them should
              always clear these values. -->
@@ -205,6 +210,7 @@ please see themes_device_defaults.xml.
         <item name="dialogTitleIconsDecorLayout">@layout/dialog_title_icons</item>
         <item name="dialogCustomTitleDecorLayout">@layout/dialog_custom_title</item>
         <item name="dialogTitleDecorLayout">@layout/dialog_title</item>
+        <item name="dialogPreferredPadding">@dimen/dialog_padding</item>
 
         <!-- AlertDialog attributes -->
         <item name="alertDialogTheme">@style/Theme.Dialog.Alert</item>
@@ -314,6 +320,7 @@ please see themes_device_defaults.xml.
 
         <!-- Preference styles -->
         <item name="preferenceScreenStyle">@style/Preference.PreferenceScreen</item>
+        <item name="preferenceActivityStyle">@style/PreferenceActivity</item>
         <item name="preferenceFragmentStyle">@style/PreferenceFragment</item>
         <item name="preferenceCategoryStyle">@style/Preference.Category</item>
         <item name="preferenceStyle">@style/Preference</item>
@@ -396,52 +403,33 @@ please see themes_device_defaults.xml.
         <item name="timePickerStyle">@style/Widget.TimePicker</item>
 
         <!-- TimePicker dialog theme -->
-        <item name="timePickerDialogTheme">@style/Theme.Dialog.TimePicker</item>
+        <item name="timePickerDialogTheme">?attr/alertDialogTheme</item>
 
         <!-- DatePicker style -->
         <item name="datePickerStyle">@style/Widget.DatePicker</item>
 
-        <!-- DatePicker Header day of week label background color -->
-        <item name="datePickerHeaderDayOfWeekLabelBackgroundColor">@android:color/darker_gray</item>
-
-        <!-- DatePicker Header day of week label text appearance -->
-        <item name="datePickerHeaderDayOfWeekLabelTextAppearance">@style/TextAppearance.DatePicker.DayOfWeekLabel</item>
-
-        <!-- DatePicker Header selector background color -->
-        <item name="datePickerHeaderSelectorBackgroundColor">@android:color/darker_gray</item>
-
-        <!-- DatePicker Header selector month label text appearance -->
-        <item name="datePickerHeaderSelectorMonthLabelTextAppearance">@style/TextAppearance.DatePicker.Selector.MonthLabel</item>
-
-        <!-- DatePicker Header selector day of month label text appearance -->
-        <item name="datePickerHeaderSelectorDayOfMonthLabelTextAppearance">@style/TextAppearance.DatePicker.Selector.DayOfMonthLabel</item>
-
-        <!-- DatePicker Header selector year label text appearance -->
-        <item name="datePickerHeaderSelectorYearLabelTextAppearance">@style/TextAppearance.DatePicker.Selector.YearLabel</item>
-
-        <!-- DatePicker list year label text appearance -->
-        <item name="datePickerHeaderListYearLabelTextAppearance">@style/TextAppearance.DatePicker.List.YearLabel</item>
-
-        <!-- DatePicker list year label circle background color -->
-        <item name="datePickerHeaderListYearLabelCircleBackgroundColor">@android:color/darker_gray</item>
-
         <!-- DatePicker dialog theme -->
-        <item name="datePickerDialogTheme">@android:style/Theme.Dialog.DatePicker</item>
+        <item name="datePickerDialogTheme">?attr/alertDialogTheme</item>
 
-        <item name="fastScrollThumbDrawable">@android:drawable/scrollbar_handle_accelerated_anim2</item>
+        <item name="fastScrollThumbDrawable">@drawable/scrollbar_handle_accelerated_anim2</item>
         <item name="fastScrollTrackDrawable">@null</item>
         <item name="fastScrollPreviewBackgroundRight">@drawable/menu_submenu_background</item>
         <item name="fastScrollPreviewBackgroundLeft">@drawable/menu_submenu_background</item>
         <item name="fastScrollOverlayPosition">floating</item>
         <item name="fastScrollTextColor">@color/primary_text_dark</item>
+
         <!-- Pointer style -->
         <item name="pointerStyle">@style/Pointer</item>
 
-        <!-- Accessibility focused drawable. -->
+        <!-- Accessibility focused drawable -->
         <item name="accessibilityFocusedDrawable">@drawable/view_accessibility_focused</item>
 
-        <!-- Lighting and shadow style. -->
-        <item name="lightingStyle">@style/Lighting</item>
+        <!-- Lighting and shadow properties -->
+        <item name="lightY">@dimen/light_y</item>
+        <item name="lightZ">@dimen/light_z</item>
+        <item name="lightRadius">@dimen/light_radius</item>
+        <item name="ambientShadowAlpha">@dimen/ambient_shadow_alpha</item>
+        <item name="spotShadowAlpha">@dimen/spot_shadow_alpha</item>
     </style>
 
     <!-- Variant of {@link #Theme} with no title bar -->
@@ -493,6 +481,8 @@ please see themes_device_defaults.xml.
         <item name="textColorPrimaryInverse">@color/primary_text_dark</item>
         <item name="textColorSecondaryInverse">@color/secondary_text_dark</item>
         <item name="textColorTertiaryInverse">@color/tertiary_text_dark</item>
+        <item name="textColorPrimaryActivated">@color/primary_text_light</item>
+        <item name="textColorSecondaryActivated">@color/secondary_text_light</item>
         <item name="textColorPrimaryDisableOnly">@color/primary_text_light_disable_only</item>
         <item name="textColorPrimaryInverseDisableOnly">@color/primary_text_dark_disable_only</item>
         <item name="textColorPrimaryNoDisable">@color/primary_text_light_nodisable</item>
@@ -744,22 +734,6 @@ please see themes_device_defaults.xml.
         <item name="textAppearanceListItemSecondary">@style/TextAppearance.Small.Inverse</item>
     </style>
 
-    <!-- Default heme for the TimePicker dialog windows, which is used by the
-         {@link android.app.TimePickerDialog} class. -->
-    <style name="Theme.Dialog.TimePicker">
-        <item name="windowBackground">@color/transparent</item>
-        <item name="windowTitleStyle">@style/DialogWindowTitle</item>
-        <item name="windowContentOverlay">@null</item>
-    </style>
-
-    <!-- Default heme for the DatePicker dialog windows, which is used by the
-         {@link android.app.DatePickerDialog} class. -->
-    <style name="Theme.Dialog.DatePicker">
-        <item name="windowBackground">@android:color/transparent</item>
-        <item name="windowTitleStyle">@android:style/DialogWindowTitle</item>
-        <item name="windowContentOverlay">@null</item>
-    </style>
-
     <!-- Default dark theme for panel windows (on API level 10 and lower).  This removes all
          extraneous window decorations, so you basically have an empty rectangle in which
          to place your content.  It makes the window floating, with a transparent
@@ -851,6 +825,7 @@ please see themes_device_defaults.xml.
     <!-- Theme for the dialog shown when an app crashes or ANRs. -->
     <style name="Theme.Dialog.AppError" parent="Theme.DeviceDefault.Light.Dialog.Alert">
         <item name="windowContentTransitions">false</item>
+        <item name="windowActivityTransitions">false</item>
         <item name="windowCloseOnTouchOutside">false</item>
     </style>
 
@@ -862,6 +837,7 @@ please see themes_device_defaults.xml.
         <item name="textColor">@color/secondary_text_nofocus</item>
         <item name="windowCloseOnTouchOutside">false</item>
         <item name="windowContentTransitions">false</item>
+        <item name="windowActivityTransitions">false</item>
     </style>
 
     <!-- Theme for a window that looks like a toast. -->
@@ -871,6 +847,7 @@ please see themes_device_defaults.xml.
         <item name="backgroundDimEnabled">false</item>
         <item name="windowCloseOnTouchOutside">false</item>
         <item name="windowContentTransitions">false</item>
+        <item name="windowActivityTransitions">false</item>
     </style>
 
 </resources>

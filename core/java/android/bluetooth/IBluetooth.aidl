@@ -55,11 +55,11 @@ interface IBluetooth
     int getProfileConnectionState(int profile);
 
     BluetoothDevice[] getBondedDevices();
-    boolean createBond(in BluetoothDevice device);
+    boolean createBond(in BluetoothDevice device, in int transport);
     boolean cancelBondProcess(in BluetoothDevice device);
     boolean removeBond(in BluetoothDevice device);
     int getBondState(in BluetoothDevice device);
-    boolean isConnected(in BluetoothDevice device);
+    int getConnectionState(in BluetoothDevice device);
 
     String getRemoteName(in BluetoothDevice device);
     int getRemoteType(in BluetoothDevice device);
@@ -75,6 +75,11 @@ interface IBluetooth
     passkey);
     boolean setPairingConfirmation(in BluetoothDevice device, boolean accept);
 
+    int getPhonebookAccessPermission(in BluetoothDevice device);
+    boolean setPhonebookAccessPermission(in BluetoothDevice device, int value);
+    int getMessageAccessPermission(in BluetoothDevice device);
+    boolean setMessageAccessPermission(in BluetoothDevice device, int value);
+
     void sendConnectionStateChange(in BluetoothDevice device, int profile, int state, int prevState);
 
     void registerCallback(in IBluetoothCallback callback);
@@ -87,9 +92,13 @@ interface IBluetooth
     boolean configHciSnoopLog(boolean enable);
 
     boolean isMultiAdvertisementSupported();
+    boolean isPeripheralModeSupported();
     boolean isOffloadedFilteringSupported();
     boolean isOffloadedScanBatchingSupported();
     boolean isActivityAndEnergyReportingSupported();
     void getActivityEnergyInfoFromController();
     BluetoothActivityEnergyInfo reportActivityInfo();
+
+    // for dumpsys support
+    String dump();
 }

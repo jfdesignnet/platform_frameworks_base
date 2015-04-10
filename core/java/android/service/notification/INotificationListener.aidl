@@ -16,6 +16,7 @@
 
 package android.service.notification;
 
+import android.service.notification.IStatusBarNotificationHolder;
 import android.service.notification.StatusBarNotification;
 import android.service.notification.NotificationRankingUpdate;
 
@@ -23,10 +24,11 @@ import android.service.notification.NotificationRankingUpdate;
 oneway interface INotificationListener
 {
     void onListenerConnected(in NotificationRankingUpdate update);
-    void onNotificationPosted(in StatusBarNotification notification,
+    void onNotificationPosted(in IStatusBarNotificationHolder notificationHolder,
             in NotificationRankingUpdate update);
-    void onNotificationRemoved(in StatusBarNotification notification,
+    void onNotificationRemoved(in IStatusBarNotificationHolder notificationHolder,
             in NotificationRankingUpdate update);
     void onNotificationRankingUpdate(in NotificationRankingUpdate update);
-    void onListenerFlagsChanged(int flags);
+    void onListenerHintsChanged(int hints);
+    void onInterruptionFilterChanged(int interruptionFilter);
 }

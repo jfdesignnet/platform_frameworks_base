@@ -40,8 +40,6 @@ import com.android.i18n.phonenumbers.PhoneNumberUtil;
 import com.android.i18n.phonenumbers.Phonenumber.PhoneNumber;
 import android.telephony.SubscriptionManager;
 
-import android.telephony.TelephonyManager;
-
 import java.util.Locale;
 
 
@@ -102,6 +100,7 @@ public class CallerInfo {
     public long contactIdOrZero;
     public boolean needUpdate;
     public Uri contactRefUri;
+    public String lookupKey;
 
     /**
      * Contact display photo URI.  If a contact has no display photo but a thumbnail, it'll be
@@ -219,7 +218,7 @@ public class CallerInfo {
                 columnIndex = getColumnIndexForPersonId(contactRef, cursor);
                 if (columnIndex != -1) {
                     final long contactId = cursor.getLong(columnIndex);
-                    if (contactId != 0 && !Contacts.isCorpContactId(contactId)) {
+                    if (contactId != 0 && !Contacts.isEnterpriseContactId(contactId)) {
                         info.contactIdOrZero = contactId;
                         if (VDBG) {
                             Rlog.v(TAG, "==> got info.contactIdOrZero: " + info.contactIdOrZero);
@@ -231,6 +230,12 @@ public class CallerInfo {
                     // Watch out: this means that anything that depends on
                     // person_id will be broken (like contact photo lookups in
                     // the in-call UI, for example.)
+                }
+
+                // Contact lookupKey
+                columnIndex = cursor.getColumnIndex(PhoneLookup.LOOKUP_KEY);
+                if (columnIndex != -1) {
+                    info.lookupKey = cursor.getString(columnIndex);
                 }
 
                 // Display photo URI.
@@ -296,7 +301,7 @@ public class CallerInfo {
     public static CallerInfo getCallerInfo(Context context, String number) {
         if (VDBG) Rlog.v(TAG, "getCallerInfo() based on number...");
 
-        long subId = SubscriptionManager.getDefaultSubId();
+        int subId = SubscriptionManager.getDefaultSubId();
         return getCallerInfo(context, number, subId);
     }
 
@@ -311,7 +316,7 @@ public class CallerInfo {
      * a matching number is not found, then a generic caller info is returned,
      * with all relevant fields empty or null.
      */
-    public static CallerInfo getCallerInfo(Context context, String number, long subId) {
+    public static CallerInfo getCallerInfo(Context context, String number, int subId) {
 
         if (TextUtils.isEmpty(number)) {
             return null;
@@ -413,12 +418,12 @@ public class CallerInfo {
     // string in the phone number field.
     /* package */ CallerInfo markAsVoiceMail() {
 
-        long subId = SubscriptionManager.getDefaultSubId();
+        int subId = SubscriptionManager.getDefaultSubId();
         return markAsVoiceMail(subId);
 
     }
 
-    /* package */ CallerInfo markAsVoiceMail(long subId) {
+    /* package */ CallerInfo markAsVoiceMail(int subId) {
         mIsVoiceMail = true;
 
         try {

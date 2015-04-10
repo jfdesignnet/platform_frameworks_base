@@ -74,8 +74,7 @@ import java.util.List;
     private MetadataEditor mMetadataEditor;
 
     private MediaSessionManager mSessionManager;
-    private MediaSessionManager.SessionListener mSessionListener
-            = new TopTransportSessionListener();
+    private MediaSessionManager.OnActiveSessionsChangedListener mSessionListener;
     private MediaController.Callback mSessionCb = new MediaControllerCallback();
 
     /**
@@ -141,6 +140,7 @@ import java.util.List;
         mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         mSessionManager = (MediaSessionManager) context
                 .getSystemService(Context.MEDIA_SESSION_SERVICE);
+        mSessionListener = new TopTransportSessionListener();
 
         if (ActivityManager.isLowRamDeviceStatic()) {
             mMaxBitmapDimension = MAX_BITMAP_DIMENSION;
@@ -214,7 +214,7 @@ import java.util.List;
     public String getRemoteControlClientPackageName() {
         if (USE_SESSIONS) {
             synchronized (mInfoLock) {
-                return mCurrentSession != null ? mCurrentSession.getSessionInfo().getPackageName()
+                return mCurrentSession != null ? mCurrentSession.getPackageName()
                         : null;
             }
         } else {
@@ -710,7 +710,9 @@ import java.util.List;
      * Listens for changes to the active session stack and replaces the
      * currently tracked session if it has changed.
      */
-    private class TopTransportSessionListener extends MediaSessionManager.SessionListener {
+    private class TopTransportSessionListener implements
+            MediaSessionManager.OnActiveSessionsChangedListener {
+
         @Override
         public void onActiveSessionsChanged(List<MediaController> controllers) {
             int size = controllers.size();
@@ -787,8 +789,12 @@ import java.util.List;
     void startListeningToSessions() {
         final ComponentName listenerComponent = new ComponentName(mContext,
                 mOnClientUpdateListener.getClass());
-        mSessionManager.addActiveSessionsListener(mSessionListener, listenerComponent,
-                UserHandle.myUserId());
+        Handler handler = null;
+        if (Looper.myLooper() == null) {
+            handler = new Handler(Looper.getMainLooper());
+        }
+        mSessionManager.addOnActiveSessionsChangedListener(mSessionListener, listenerComponent,
+                UserHandle.myUserId(), handler);
         mSessionListener.onActiveSessionsChanged(mSessionManager
                 .getActiveSessions(listenerComponent));
         if (DEBUG) {
@@ -801,7 +807,7 @@ import java.util.List;
      * @hide
      */
     void stopListeningToSessions() {
-        mSessionManager.removeActiveSessionsListener(mSessionListener);
+        mSessionManager.removeOnActiveSessionsChangedListener(mSessionListener);
         if (DEBUG) {
             Log.d(TAG, "Unregistered session listener for user "
                     + UserHandle.myUserId());
@@ -974,21 +980,21 @@ import java.util.List;
         synchronized (mInfoLock) {
             if (controller == null) {
                 if (mCurrentSession != null) {
-                    mCurrentSession.removeCallback(mSessionCb);
+                    mCurrentSession.unregisterCallback(mSessionCb);
                     mCurrentSession = null;
                     sendMsg(mEventHandler, MSG_CLIENT_CHANGE, SENDMSG_REPLACE,
                             0 /* genId */, 1 /* clearing */, null /* obj */, 0 /* delay */);
                 }
             } else if (mCurrentSession == null
-                    || !controller.getSessionInfo().getId()
-                            .equals(mCurrentSession.getSessionInfo().getId())) {
+                    || !controller.getSessionToken()
+                            .equals(mCurrentSession.getSessionToken())) {
                 if (mCurrentSession != null) {
-                    mCurrentSession.removeCallback(mSessionCb);
+                    mCurrentSession.unregisterCallback(mSessionCb);
                 }
                 sendMsg(mEventHandler, MSG_CLIENT_CHANGE, SENDMSG_REPLACE,
                         0 /* genId */, 0 /* clearing */, null /* obj */, 0 /* delay */);
                 mCurrentSession = controller;
-                mCurrentSession.addCallback(mSessionCb, mEventHandler);
+                mCurrentSession.registerCallback(mSessionCb, mEventHandler);
 
                 PlaybackState state = controller.getPlaybackState();
                 sendMsg(mEventHandler, MSG_NEW_PLAYBACK_STATE, SENDMSG_REPLACE,
