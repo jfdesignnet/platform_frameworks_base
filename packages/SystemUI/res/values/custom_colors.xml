@@ -27,9 +27,6 @@
     <color name="kg_lock_icon_tint">@color/exposed_kg_lock_icon</color>
     <color name="kg_battery_level_text">@color/exposed_kg_batt_level</color>
     <color name="kg_carrier_text">@color/exposed_kg_carrier_text</color>
-    <color name="notification_time_text">@*android:color/material_notification_time_text</color>
-    <color name="notification_title_text">@*android:color/material_notification_title_text</color>
-    <color name="notification_text">@*android:color/material_notification_text</color>
     <color name="recents_search_bar_label_text">@color/exposed_recents_search_bar_label</color>
     <color name="alarm_status_text">@color/exposed_button</color>
     <color name="battery_level_text">@color/exposed_batt_text</color>
@@ -51,6 +48,8 @@
     <color name="material_notification_parenthetical_text">
         @color/exposed_TextAppearance.Material.Notification.Parenthetical
     </color>
+    <!-- Background of the volume panel. See also: volume_dialog_background -->
+    <color name="volume_panel_background_color">@color/system_secondary_color</color>
     <!-- Battery base color -->
     <color name="batterymeter_base_color">#FFFFFFFF</color>
     <!-- Color for notification icons -->

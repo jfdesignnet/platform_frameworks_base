@@ -15,13 +15,13 @@
 -->
 
 <resources>
-    <!-- Exposed resources for theming -->
-    <color name="exposed_primary_text_light">@color/primary_text_default_material_light</color>
-    <color name="exposed_secondary_text_light">@color/secondary_text_material_light</color>
+    <!-- Legacy exposed resources for theming -->
+    <color name="exposed_primary_text_light">#de000000</color>
+    <color name="exposed_secondary_text_light">#8a000000</color>
     <color name="exposed_primary_text_dark">#ffffffff</color>
     <color name="exposed_notification_big_pic_bg">#CCEEEEEE</color>
     <color name="exposed_resolver_list_bg">@color/white</color>
-    <color name="exposed_notify_action_text">@color/secondary_text_material_light</color>
+    <color name="exposed_notify_action_text">#8a000000</color>
     <color name="exposed_navigation_bar">@color/black</color>
     <color name="exposed_TextAppearance.StatusBar.EventContent">#999999</color>
     <color name="exposed_TextAppearance.StatusBar.EventContent.Emphasis">#CCCCCC</color>

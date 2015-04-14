@@ -435,7 +435,7 @@ please see styles_device_defaults.xml.
     </style>
 
     <style name="TextAppearance.Material.Notification.Time">
-        <item name="textColor">@color/material_notification_time_text</item>
+        <item name="textColor">@color/material_notification_text</item>
         <item name="textSize">@dimen/notification_subtext_size</item>
     </style>
 
