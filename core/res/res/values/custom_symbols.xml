@@ -31,4 +31,7 @@
   <!-- Package Manager -->
   <java-symbol type="array" name="config_disabledComponents" />
   <java-symbol type="array" name="config_forceEnabledComponents" />
+
+  <!-- Expanding volume panel -->
+  <java-symbol type="drawable" name="expander_open_mtrl_alpha" />
 </resources>
