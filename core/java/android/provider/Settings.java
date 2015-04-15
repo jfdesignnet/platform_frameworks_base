@@ -3045,6 +3045,13 @@ public final class Settings {
          public static final String VOLUME_KEY_CURSOR_CONTROL = "volume_key_cursor_control";
 
         /**
+         * Boolean value whether to expand the volume panel
+         *
+         * @hide
+         */
+        public static final String VOLUME_PANEL_EXPANDED = "volume_link_expanded";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
