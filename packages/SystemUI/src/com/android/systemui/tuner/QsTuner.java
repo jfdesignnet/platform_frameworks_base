@@ -201,6 +201,7 @@ public class QsTuner extends PreferenceFragment implements Callback {
         else if (spec.equals("location")) return R.string.quick_settings_location_label;
         else if (spec.equals("cast")) return R.string.quick_settings_cast_title;
         else if (spec.equals("hotspot")) return R.string.quick_settings_hotspot_label;
+        else if (spec.equals("ambient_display")) return R.string.quick_settings_ambient_display_label;
         return 0;
     }
 
@@ -444,6 +445,7 @@ public class QsTuner extends PreferenceFragment implements Callback {
             else if (mSpec.equals("location")) return R.drawable.ic_signal_location_enable;
             else if (mSpec.equals("cast")) return R.drawable.ic_qs_cast_on;
             else if (mSpec.equals("hotspot")) return R.drawable.ic_hotspot_enable;
+            else if (mSpec.equals("ambient_display")) return R.drawable.ic_qs_ambientdisplay_on;
             return R.drawable.android;
         }
 
