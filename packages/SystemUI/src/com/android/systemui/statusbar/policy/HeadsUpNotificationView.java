@@ -75,7 +75,7 @@ public class HeadsUpNotificationView extends FrameLayout implements SwipeHelper.
     private int mUser;
     private String mMostRecentPackageName;
 
-    private static int sRoundedRectCornerRadius = 30;
+    private static int sRoundedRectCornerRadius = 180;
 
     public HeadsUpNotificationView(Context context, AttributeSet attrs) {
         this(context, attrs, 0);
