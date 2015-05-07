@@ -148,7 +148,7 @@
         android:paddingStart="6dp"
         android:paddingTop="16dp"
         android:paddingBottom="16dp"
-                android:background="@drawable/ripple_drawable"
+        android:background="@drawable/ripple_drawable"
         android:visibility="gone"
         />
 
