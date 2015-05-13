@@ -2018,7 +2018,6 @@ public final class Settings {
         public static final String LOCK_PATTERN_TACTILE_FEEDBACK_ENABLED =
             "lock_pattern_tactile_feedback_enabled";
 
-
         /**
          * A formatted string of the next alarm that is set, or the empty string
          * if there is no alarm set.
@@ -2027,6 +2026,11 @@ public final class Settings {
          */
         @Deprecated
         public static final String NEXT_ALARM_FORMATTED = "next_alarm_formatted";
+
+        /**
+         * @hide
+         */
+        public static final String SHOW_ALARM_ICON = "show_alarm_icon";
 
         /**
          * Scaling factor for fonts, float.
@@ -2138,6 +2142,13 @@ public final class Settings {
         public static final String ALWAYS_FINISH_ACTIVITIES = Global.ALWAYS_FINISH_ACTIVITIES;
 
         /**
+         * Volume Adjust Sounds Enable, This is the noise made when using volume hard buttons
+         * Defaults to 1 - sounds enabled
+         * @hide
+         */
+        public static final String VOLUME_ADJUST_SOUNDS_ENABLED = "volume_adjust_sounds_enabled";
+
+        /**
          * Determines which streams are affected by ringer mode changes. The
          * stream type's bit should be set to 1 if it should be muted when going
          * into an inaudible ringer mode.
@@ -2238,6 +2249,15 @@ public final class Settings {
          * @hide
          */
         public static final String VOLBTN_MUSIC_CONTROLS = "volbtn_music_controls";
+
+        /**
+         * Swap volume buttons when the screen is rotated
+         * 0 - Disabled
+         * 1 - Enabled (screen is rotated by 90 or 180 degrees: phone, hybrid)
+         * 2 - Enabled (screen is rotated by 180 or 270 degrees: tablet)
+         * @hide
+         */
+        public static final String SWAP_VOLUME_KEYS_ON_ROTATION = "swap_volume_keys_on_rotation";
 
         /**
          * Microphone mute (int 1 = mute, 0 = not muted).
@@ -3188,6 +3208,12 @@ public final class Settings {
         * @hide
         */
        public static final String NETWORK_TRAFFIC_AUTOHIDE_THRESHOLD = "network_traffic_autohide_threshold";
+
+        /**
+         *  Enable statusbar double tap gesture on to put device to sleep
+         * @hide
+         */
+        public static final String DOUBLE_TAP_SLEEP_GESTURE = "double_tap_sleep_gesture";
 
         /**
          * Settings to backup. This is here so that it's in the same place as the settings
