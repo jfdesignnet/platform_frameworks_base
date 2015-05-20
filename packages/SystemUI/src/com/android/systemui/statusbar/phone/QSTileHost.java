@@ -46,6 +46,7 @@ import com.android.systemui.qs.tiles.IntentTile;
 import com.android.systemui.qs.tiles.LocationTile;
 import com.android.systemui.qs.tiles.NfcTile;
 import com.android.systemui.qs.tiles.NotificationsTile;
+import com.android.systemui.qs.tiles.OwlsNestTile;
 import com.android.systemui.qs.tiles.RotationLockTile;
 import com.android.systemui.qs.tiles.ScreenshotTile;
 import com.android.systemui.qs.tiles.ScreenTimeoutTile;
@@ -268,6 +269,8 @@ public class QSTileHost implements QSTile.Host {
                 return new ColorInversionTile(this);
             case QSConstants.TILE_CELLULAR:
                 return new CellularTile(this);
+            case QSConstants.TILE_OWLS_NEST:
+                return new OwlsNestTile(this);
             case QSConstants.TILE_AIRPLANE:
                 return new AirplaneModeTile(this);
             case QSConstants.TILE_ROTATION:
