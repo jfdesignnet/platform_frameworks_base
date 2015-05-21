@@ -461,6 +461,14 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             mBrightnessControl = Settings.System.getInt(
                     resolver, Settings.System.STATUS_BAR_BRIGHTNESS_CONTROL, 0) == 1;
 
+            int sidebarPosition = Settings.System.getInt(
+                    resolver, Settings.System.APP_SIDEBAR_POSITION, AppSidebar.SIDEBAR_POSITION_LEFT);
+            if (sidebarPosition != mSidebarPosition) {
+                mSidebarPosition = sidebarPosition;
+                removeSidebarView();
+                addSidebarView();
+            }
+
             mIllusionLogo = Settings.System.getIntForUser(resolver,
                     Settings.System.STATUS_BAR_ILLUSION_LOGO, 0, mCurrentUserId) == 1;
             showIllusionLogo(mIllusionLogo);
@@ -825,20 +833,12 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
 
         updateShowSearchHoldoff();
 
-        if (mRecreating) {
-            removeSidebarView();
-        }
-
-        addSidebarView();
-        addGestureAnywhereView();
-
         try {
             boolean showNav = mWindowManagerService.hasNavigationBar();
             if (DEBUG) Log.v(TAG, "hasNavigationBar=" + showNav);
             if (showNav) {
                 mNavigationBarView =
                     (NavigationBarView) View.inflate(context, R.layout.navigation_bar, null);
-
                 mNavigationBarView.setDisabledFlags(mDisabled);
                 mNavigationBarView.setBar(this);
                 mNavigationBarView.setOnVerticalChangedListener(
@@ -849,6 +849,12 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                             mSearchPanelView.setHorizontal(isVertical);
                         }
                         mNotificationPanel.setQsScrimEnabled(!isVertical);
+                        if (mRecreating) {
+                        removeSidebarView();
+                        }
+
+                        addSidebarView();
+                        addGestureAnywhereView();
                     }
                 });
                 mNavigationBarView.setOnTouchListener(new View.OnTouchListener() {
@@ -1083,10 +1089,10 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
 
         // receive broadcasts
         IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_CONFIGURATION_CHANGED); 
         filter.addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
-        filter.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
         if (DEBUG_MEDIA_FAKE_ARTWORK) {
             filter.addAction("fake_artwork");
         }
@@ -3453,24 +3459,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                 finishBarAnimations();
                 resetUserExpandedStates();
             }
-            else if (Intent.ACTION_CONFIGURATION_CHANGED.equals(action)) {
-                Configuration config = mContext.getResources().getConfiguration();
-                try {
-                    // position app sidebar on left if in landscape orientation and device has a navbar
-                    if (mWindowManagerService.hasNavigationBar() &&
-                            config.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                        mWindowManager.updateViewLayout(mAppSidebar,
-                                getAppSidebarLayoutParams(AppSidebar.SIDEBAR_POSITION_LEFT));
-                        mHandler.postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                mAppSidebar.setPosition(AppSidebar.SIDEBAR_POSITION_LEFT);
-                            }
-                        }, 500);
-                    }
-                } catch (RemoteException e) {
-                }
-            }
             else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 mScreenOn = true;
                 notifyNavigationBarScreenOn(true);
@@ -3581,17 +3569,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
 
     public void onHeadsUpDismissed() {
         mHeadsUpNotificationView.dismiss();
-    }
-
-    private void updateSettings() {
-        ContentResolver resolver = mContext.getContentResolver();
-        int sidebarPosition = Settings.System.getInt(resolver,
-                Settings.System.APP_SIDEBAR_POSITION, 
-                AppSidebar.SIDEBAR_POSITION_LEFT);
-        if (sidebarPosition != mSidebarPosition) {
-            mSidebarPosition = sidebarPosition;
-            mWindowManager.updateViewLayout(mAppSidebar, getAppSidebarLayoutParams(sidebarPosition));
-        }
     }
 
     /**
