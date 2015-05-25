@@ -888,12 +888,14 @@ public class NotificationManagerService extends SystemService {
                 parseNotificationPulseCustomValuesString(Settings.System.getStringForUser(resolver,
                         Settings.System.NOTIFICATION_LIGHT_PULSE_CUSTOM_VALUES,
                         UserHandle.USER_CURRENT));
+            }
 
             if (uri == null || MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD_URI.equals(uri)) {
-                mAnnoyingNotificationThreshold = Settings.System.getLongForUser(resolver,
-                       Settings.System.MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD, 0,
-                       UserHandle.USER_CURRENT_OR_SELF);
+            mAnnoyingNotificationThreshold = Settings.System.getLongForUser(resolver,
+               Settings.System.MUTE_ANNOYING_NOTIFICATIONS_THRESHOLD, 0,
+               UserHandle.USER_CURRENT_OR_SELF);
             }
+
             updateNotificationPulse();
         }
     }
