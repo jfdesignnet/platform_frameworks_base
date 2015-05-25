@@ -97,4 +97,8 @@
 
     <!-- Screenshot -->
     <string name="shortcut_screenshot">Screenshot</string>
+
+    <!-- Navigation bar IME navigation -->
+    <string name="accessibility_ime_navigation_left">Cursor left</string>
+    <string name="accessibility_ime_navigation_right">Cursor right</string>
 </resources>
