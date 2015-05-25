@@ -45,5 +45,8 @@ oneway interface IStatusBar
     void showScreenPinningRequest();
     void hideHeadsUpCandidate(String packageName);
     void scheduleHeadsUpClose();
+    void toggleScreenshot();
+    void toggleLastApp();
+    void toggleKillApp();
 }
 

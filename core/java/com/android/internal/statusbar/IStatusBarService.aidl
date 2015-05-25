@@ -63,4 +63,7 @@ interface IStatusBarService
     void cancelPreloadRecentApps();
     void hideHeadsUpCandidate(String packageName);
     void scheduleHeadsUpClose();
+    void toggleScreenshot();
+    void toggleLastApp();
+    void toggleKillApp();
 }

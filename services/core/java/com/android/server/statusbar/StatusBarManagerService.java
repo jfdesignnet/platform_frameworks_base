@@ -454,6 +454,24 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
         }
     }
 
+    @Override
+    public void toggleLastApp() {
+        if (mBar != null) {
+            try {
+                mBar.toggleLastApp();
+            } catch (RemoteException ex) {}
+        }
+    }
+
+    @Override
+    public void toggleKillApp() {
+        if (mBar != null) {
+            try {
+                mBar.toggleKillApp();
+            } catch (RemoteException ex) {}
+        }
+    }
+
     /**
      * @hide
      */
@@ -478,6 +496,15 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
                 mBar.scheduleHeadsUpClose();
             } catch (RemoteException ex) {}
             }
+    }
+
+    @Override
+    public void toggleScreenshot() {
+        if (mBar != null) {
+            try {
+                mBar.toggleScreenshot();
+            } catch (RemoteException ex) {}
+        }
     }
 
     private void enforceStatusBar() {
