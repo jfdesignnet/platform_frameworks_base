@@ -47,7 +47,6 @@ import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 import android.widget.FrameLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.android.internal.util.cm.LockscreenShortcutsHelper;
 import com.android.keyguard.KeyguardStatusView;
@@ -205,7 +204,6 @@ public class NotificationPanelView extends PanelView implements
 
     private int mQSBackgroundColor;
     private boolean mQSShadeTransparency = false;
-    private boolean mQSCSwitch = false;
 
     public NotificationPanelView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -282,13 +280,7 @@ public class NotificationPanelView extends PanelView implements
                 }
             }
         });
-
-        mQSCSwitch = Settings.System.getInt(getContext().getContentResolver(),
-                Settings.System.QS_COLOR_SWITCH, 0) == 1;
-
-        if (mQSCSwitch) {
-            setQSBackgroundColor();
-        }
+        setQSBackgroundColor();
     }
 
     @Override
@@ -2130,25 +2122,22 @@ public class NotificationPanelView extends PanelView implements
 
         @Override
         public void onChange(boolean selfChange, Uri uri) {
-            update();
             ContentResolver resolver = mContext.getContentResolver();
             if (uri.equals(Settings.System.getUriFor(
-                    Settings.System.QS_COLOR_SWITCH))) {
-                if (uri.equals(Settings.System.getUriFor(
-                        Settings.System.QS_BACKGROUND_COLOR))
-                    || uri.equals(Settings.System.getUriFor(
-                        Settings.System.QS_TRANSPARENT_SHADE))) {
-                    mQSBackgroundColor = Settings.System.getInt(
-                            resolver, Settings.System.QS_BACKGROUND_COLOR, 0xff263238);
-                    mQSShadeTransparency = Settings.System.getInt(
-                            resolver, Settings.System.QS_TRANSPARENT_SHADE, 0) == 1;
-                    setQSBackgroundColor();
-                } else if (uri.equals(Settings.System.getUriFor(
-                        Settings.System.QS_ICON_COLOR))
-                    || uri.equals(Settings.System.getUriFor(
-                        Settings.System.QS_TEXT_COLOR))) {
-                    setQSColors();
-                }
+                    Settings.System.QS_BACKGROUND_COLOR))
+                || uri.equals(Settings.System.getUriFor(
+                    Settings.System.QS_TRANSPARENT_SHADE))) {
+                mQSBackgroundColor = Settings.System.getInt(
+                        resolver, Settings.System.QS_BACKGROUND_COLOR, 0xff263238);
+                mQSShadeTransparency = Settings.System.getInt(
+                        resolver, Settings.System.QS_TRANSPARENT_SHADE, 0) == 1;
+                setQSBackgroundColor();
+            } else if (uri.equals(Settings.System.getUriFor(
+                    Settings.System.QS_ICON_COLOR))
+                || uri.equals(Settings.System.getUriFor(
+                    Settings.System.QS_TEXT_COLOR))) {
+                setQSColors();
+                update();
             }
         }
 
@@ -2160,16 +2149,12 @@ public class NotificationPanelView extends PanelView implements
                     ONE_FINGER_QS_INTERCEPT_OFF, UserHandle.USER_CURRENT);
             mDoubleTapToSleepEnabled = Settings.System.getInt(
                     resolver, Settings.System.DOUBLE_TAP_SLEEP_GESTURE, 1) == 1;
-            mQSCSwitch = Settings.System.getInt(
-                    resolver, Settings.System.QS_COLOR_SWITCH, 0) == 1;
             mQSBackgroundColor = Settings.System.getInt(
                     resolver, Settings.System.QS_BACKGROUND_COLOR, 0xff263238);
             mQSShadeTransparency = Settings.System.getInt(
                     resolver, Settings.System.QS_TRANSPARENT_SHADE, 0) == 1;
-            if (mQSCSwitch) {
-                setQSBackgroundColor();
-                setQSColors();
-            }
+            setQSBackgroundColor();
+            setQSColors();
         }
     }
 

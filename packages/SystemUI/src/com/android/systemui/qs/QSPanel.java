@@ -86,10 +86,11 @@ public class QSPanel extends ViewGroup {
     private boolean mUseMainTiles = false;
 
     private boolean mBrightnessSliderEnabled;
+
+    private boolean mBrightnessSliderEnabled;
     private boolean mUseFourColumns;
 
     private boolean mQSShadeTransparency = false;
-    private boolean mQSCSwitch = false;
 
     private Record mDetailRecord;
     private Callback mCallback;
@@ -157,16 +158,12 @@ public class QSPanel extends ViewGroup {
     }
 
     private void updateDetailText() {
-        mQSCSwitch = Settings.System.getInt(mContext.getContentResolver(),
-                Settings.System.QS_COLOR_SWITCH, 0) == 1;
         int textColor = Settings.System.getInt(mContext.getContentResolver(),
-                    Settings.System.QS_TEXT_COLOR, 0xffffffff);
+                Settings.System.QS_TEXT_COLOR, 0xffffffff);
         mDetailDoneButton.setText(R.string.quick_settings_done);
         mDetailSettingsButton.setText(R.string.quick_settings_more_settings);
-        if (mQSCSwitch) {
-            mDetailDoneButton.setTextColor(textColor);
-            mDetailSettingsButton.setTextColor(textColor);
-        }
+        mDetailDoneButton.setTextColor(textColor);
+        mDetailSettingsButton.setTextColor(textColor);
     }
 
     public void setBrightnessMirror(BrightnessMirrorController c) {
@@ -290,10 +287,8 @@ public class QSPanel extends ViewGroup {
         for (int i = 0; i < mRecords.size(); i++) {
             TileRecord r = mRecords.get(i);
             r.tileView.setDual(mUseMainTiles && i < 2);
-            if (mQSCSwitch) {
-                r.tileView.setLabelColor();
-                r.tileView.setIconColor();
-            }
+            r.tileView.setLabelColor();
+            r.tileView.setIconColor();
             r.tile.refreshState();
         }
         mFooter.refreshState();
@@ -631,19 +626,15 @@ public class QSPanel extends ViewGroup {
     }
 
     public void setDetailBackgroundColor(int color) {
-        mQSCSwitch = Settings.System.getInt(getContext().getContentResolver(),
-                Settings.System.QS_COLOR_SWITCH, 0) == 1;
         mQSShadeTransparency = Settings.System.getInt(mContext.getContentResolver(),
             Settings.System.QS_TRANSPARENT_SHADE, 0) == 1;
-        if (mQSCSwitch) {
-            if (mDetail != null) {
-                if (mQSShadeTransparency) {
-                    mDetail.getBackground().setColorFilter(
-                            color, Mode.MULTIPLY);
-                } else {
-                    mDetail.getBackground().setColorFilter(
-                            color, Mode.SRC_OVER);
-                }
+        if (mDetail != null) {
+            if (mQSShadeTransparency) {
+                mDetail.getBackground().setColorFilter(
+                        color, Mode.MULTIPLY);
+            } else {
+                mDetail.getBackground().setColorFilter(
+                        color, Mode.SRC_OVER);
             }
         }
     }
@@ -728,9 +719,6 @@ public class QSPanel extends ViewGroup {
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.QS_TRANSPARENT_SHADE),
                     false, this, UserHandle.USER_ALL);
-            resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.QS_COLOR_SWITCH),
-                    false, this, UserHandle.USER_ALL);
             update();
         }
 
@@ -757,9 +745,6 @@ public class QSPanel extends ViewGroup {
                 1, UserHandle.USER_CURRENT) == 1;
             mQSShadeTransparency = Settings.System.getInt(
             mContext.getContentResolver(), Settings.System.QS_TRANSPARENT_SHADE,
-                0) == 1;
-            mQSCSwitch = Settings.System.getInt(
-            mContext.getContentResolver(), Settings.System.QS_COLOR_SWITCH,
                 0) == 1;
         }
     }

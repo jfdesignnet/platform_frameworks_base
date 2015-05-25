@@ -140,8 +140,6 @@ public class StatusBarHeaderView extends RelativeLayout implements View.OnClickL
     private SettingsObserver mSettingsObserver;
     private boolean mShowBatteryTextExpanded;
 
-    private boolean mQSCSwitch = false;
-
     public StatusBarHeaderView(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
@@ -794,8 +792,6 @@ public class StatusBarHeaderView extends RelativeLayout implements View.OnClickL
 
         private void handleShowingDetail(final QSTile.DetailAdapter detail) {
             final boolean showingDetail = detail != null;
-            mQSCSwitch = Settings.System.getInt(getContext().getContentResolver(),
-                    Settings.System.QS_COLOR_SWITCH, 0) == 1;
             transition(mClock, !showingDetail);
             transition(mDateGroup, !showingDetail);
             if (mAlarmShowing) {
@@ -808,9 +804,7 @@ public class StatusBarHeaderView extends RelativeLayout implements View.OnClickL
                         getContext().getContentResolver(),
                         Settings.System.QS_TEXT_COLOR, 0xffffffff);
                 mQsDetailHeaderTitle.setText(detail.getTitle());
-                if (mQSCSwitch) {
-                    mQsDetailHeaderTitle.setTextColor(color);
-                }
+                mQsDetailHeaderTitle.setTextColor(color);
                 final Boolean toggleState = detail.getToggleState();
                 if (toggleState == null) {
                     mQsDetailHeaderSwitch.setVisibility(INVISIBLE);
@@ -864,8 +858,6 @@ public class StatusBarHeaderView extends RelativeLayout implements View.OnClickL
                     Settings.System.STATUS_BAR_BATTERY_STYLE), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.STATUS_BAR_SHOW_BATTERY_PERCENT), false, this);
-            resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.QS_COLOR_SWITCH), false, this);
             update();
         }
 
@@ -902,10 +894,6 @@ public class StatusBarHeaderView extends RelativeLayout implements View.OnClickL
             }
 
             mShowBatteryTextExpanded = showExpandedBatteryPercentage;
-
-            mQSCSwitch = Settings.System.getInt(
-                    resolver, Settings.System.QS_COLOR_SWITCH, 0) == 1;
-
             updateVisibilities();
             requestCaptureValues();
         }
