@@ -110,6 +110,9 @@ public final class NavigationBarTransitions extends BarTransitions {
         setKeyButtonViewQuiescentAlpha(mView.getLeftMenuButton(), alpha, animate);
         setKeyButtonViewQuiescentAlpha(mView.getRightMenuButton(), alpha, animate);
 
+        setKeyButtonViewQuiescentAlpha(mView.getLeftIMENavigationButton(), alpha, animate);
+        setKeyButtonViewQuiescentAlpha(mView.getRightIMENavigationButton(), alpha, animate);
+
         // apply to lights out
         applyLightsOut(isLightsOut(mode), animate, force);
     }
