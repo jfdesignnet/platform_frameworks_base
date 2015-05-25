@@ -43,6 +43,8 @@ import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.WindowManagerGlobal;
 
+import com.android.internal.statusbar.IStatusBarService;
+
 import java.net.URISyntaxException;
 
 public class Action {
@@ -69,6 +71,11 @@ public class Action {
                 Log.w("Action", "Error getting window manager service", e);
             }
 
+            IStatusBarService barService = IStatusBarService.Stub.asInterface(
+                    ServiceManager.getService(Context.STATUS_BAR_SERVICE));
+            if (barService == null) {
+                return; // ouch
+            }
 
             final IWindowManager windowManagerService = IWindowManager.Stub.asInterface(
                     ServiceManager.getService(Context.WINDOW_SERVICE));
@@ -92,37 +99,37 @@ public class Action {
             } else if (action.equals(ActionConstants.ACTION_SEARCH)) {
                 triggerVirtualKeypress(KeyEvent.KEYCODE_SEARCH, isLongpress);
                 return;
-            //} else if (action.equals(ActionConstants.ACTION_KILL)) {
-            //    if (isKeyguardShowing) return;
-             //   try {
-             //       barService.toggleKillApp();
-            //    } catch (RemoteException e) {}
-             //   return;
-            //} else if (action.equals(ActionConstants.ACTION_NOTIFICATIONS)) {
-            //    if (isKeyguardShowing && isKeyguardSecure) {
-            //        return;
-            //    }
-            //    try {
-            //        barService.expandNotificationsPanel();
-            //    } catch (RemoteException e) {
-             //   }
-             //   return;
-            //} else if (action.equals(ActionConstants.ACTION_SETTINGS_PANEL)) {
-            //    if (isKeyguardShowing && isKeyguardSecure) {
-            //        return;
-             //   }
-            //    try {
-             //       barService.expandSettingsPanel();
-             //   } catch (RemoteException e) {}
-            //} else if (action.equals(ActionConstants.ACTION_LAST_APP)) {
-            //    if (isKeyguardShowing) {
-             //       return;
-            //    }
-            //    try {
-              //      barService.toggleLastApp();
-             //   } catch (RemoteException e) {
-              //  }
-             //   return;
+            } else if (action.equals(ActionConstants.ACTION_KILL)) {
+                if (isKeyguardShowing) return;
+                try {
+                    barService.toggleKillApp();
+                } catch (RemoteException e) {}
+                return;
+            } else if (action.equals(ActionConstants.ACTION_NOTIFICATIONS)) {
+                if (isKeyguardShowing && isKeyguardSecure) {
+                    return;
+                }
+                try {
+                    barService.expandNotificationsPanel();
+                } catch (RemoteException e) {
+                }
+                return;
+            } else if (action.equals(ActionConstants.ACTION_SETTINGS_PANEL)) {
+                if (isKeyguardShowing && isKeyguardSecure) {
+                    return;
+                }
+                try {
+                    barService.expandSettingsPanel();
+                } catch (RemoteException e) {}
+            } else if (action.equals(ActionConstants.ACTION_LAST_APP)) {
+                if (isKeyguardShowing) {
+                    return;
+                }
+                try {
+                    barService.toggleLastApp();
+                } catch (RemoteException e) {
+                }
+                return;
             } else if (action.equals(ActionConstants.ACTION_TORCH)) {
                 try {
                     ITorchService torchService = ITorchService.Stub.asInterface(
@@ -271,11 +278,11 @@ public class Action {
                     powerManager.wakeUp(SystemClock.uptimeMillis());
                 }
                 return;
-           // } else if (action.equals(ActionConstants.ACTION_SCREENSHOT)) {
-            //    try {
-            //        barService.toggleScreenshot();
-             //   } catch (RemoteException e) {}
-            //    return;
+            } else if (action.equals(ActionConstants.ACTION_SCREENSHOT)) {
+                try {
+                    barService.toggleScreenshot();
+                } catch (RemoteException e) {}
+                return;
             } else {
                 // we must have a custom uri
                 Intent intent = null;
