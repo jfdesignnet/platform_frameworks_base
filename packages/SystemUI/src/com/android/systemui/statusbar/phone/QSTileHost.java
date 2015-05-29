@@ -50,7 +50,6 @@ import com.android.systemui.qs.tiles.OwlsNestTile;
 import com.android.systemui.qs.tiles.RotationLockTile;
 import com.android.systemui.qs.tiles.ScreenOffTile;
 import com.android.systemui.qs.tiles.ScreenshotTile;
-import com.android.systemui.qs.tiles.ScreenrecordTile;
 import com.android.systemui.qs.tiles.ScreenTimeoutTile;
 import com.android.systemui.qs.tiles.SyncTile;
 import com.android.systemui.qs.tiles.WifiTile;
@@ -301,8 +300,6 @@ public class QSTileHost implements QSTile.Host {
                 return new ScreenOffTile(this);
             case QSConstants.TILE_SCREENSHOT:
                 return new ScreenshotTile(this);
-            case QSConstants.TILE_SCREENRECORD:
-                return new ScreenrecordTile(this);
             case QSConstants.TILE_NOTIFICATIONS:
                 return new NotificationsTile(this);
             default:

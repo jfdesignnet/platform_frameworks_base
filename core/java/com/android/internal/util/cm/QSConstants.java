@@ -43,7 +43,6 @@ public class QSConstants {
     public static final String TILE_SYNC = "sync";
     public static final String TILE_SCREEN_OFF = "screen_off";
     public static final String TILE_SCREENSHOT = "screenshot";
-    public static final String TILE_SCREENRECORD = "screenrecord";
     public static final String TILE_NOTIFICATIONS = "notifications";
     public static final String TILE_COMPASS = "compass";
 
@@ -78,7 +77,6 @@ public class QSConstants {
         TILES_AVAILABLE.add(TILE_BATTERY_SAVER);
         TILES_AVAILABLE.add(TILE_SYNC);
         TILES_AVAILABLE.add(TILE_SCREEN_OFF);
-        TILES_AVAILABLE.add(TILE_SCREENRECORD);
         TILES_AVAILABLE.add(TILE_SCREENSHOT);
         TILES_AVAILABLE.add(TILE_NOTIFICATIONS);
         TILES_AVAILABLE.add(TILE_COMPASS);
