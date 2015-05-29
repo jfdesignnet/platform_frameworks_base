@@ -614,41 +614,6 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
     private int mCurrentUserId;
 
-    // Intent actions receiver
-    IntentActionReceiver mIntentActionReceiver;
-    class IntentActionReceiver extends BroadcastReceiver {
-        private boolean mIsRegistered = false;
-
-        public IntentActionReceiver(Context context) {
-        }
-
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            final String action = intent.getAction();
-            if (action.equals(Intent.ACTION_SCREENRECORD)) {
-                mHandler.removeCallbacks(mScreenRecordRunnable);
-                mHandler.post(mScreenRecordRunnable);
-            }
-        }
-
-        protected void register() {
-            if (!mIsRegistered) {
-                mIsRegistered = true;
-
-                IntentFilter filter = new IntentFilter();
-                filter.addAction(Intent.ACTION_SCREENRECORD);
-                mContext.registerReceiver(mIntentActionReceiver, filter);
-            }
-        }
-
-        protected void unregister() {
-            if (mIsRegistered) {
-                mContext.unregisterReceiver(this);
-                mIsRegistered = false;
-            }
-        }
-    }
-
     // Maps global key codes to the components that will handle them.
     private GlobalKeyManager mGlobalKeyManager;
 
@@ -1479,10 +1444,6 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
         mAccessibilityManager = (AccessibilityManager) context.getSystemService(
                 Context.ACCESSIBILITY_SERVICE);
-
-        // register for intent actions
-        mIntentActionReceiver = new IntentActionReceiver(context);
-        mIntentActionReceiver.register();
 
         // register for dock events
         IntentFilter filter = new IntentFilter();

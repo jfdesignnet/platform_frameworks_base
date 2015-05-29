@@ -718,13 +718,6 @@ public class Intent implements Parcelable, Cloneable {
      */
     public static final String EXTRA_SHORTCUT_INTENT = "android.intent.extra.shortcut.INTENT";
     /**
-     * PhoneWindowManager: Screenrecord via performScreenRecord()
-     *  <p>Input: nothing
-     *  <p>Output: nothing
-     *  @hide
-     */
-    public static final String ACTION_SCREENRECORD = "android.intent.action.SCREENRECORD";
-    /**
      * The name of the extra used to define the name of a shortcut.
      *
      * @see #ACTION_CREATE_SHORTCUT
