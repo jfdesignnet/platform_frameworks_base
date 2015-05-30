@@ -49,6 +49,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.ThemeConfig;
 import android.content.res.Resources;
@@ -930,13 +931,16 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         }
 
         updateShowSearchHoldoff();
+        if (mRecreating) {
+        removeSidebarView();
+        }
+
+        addSidebarView();
+        addGestureAnywhereView();
 
         try {
             boolean showNav = mWindowManagerService.hasNavigationBar();
             if (DEBUG) Log.v(TAG, "hasNavigationBar=" + showNav);
-            if (mNavigationBarView == null) {
-            mNavigationBarView =
-                (NavigationBarView) View.inflate(context, R.layout.navigation_bar, null);
             if (showNav && !mRecreating) {
                 mNavigationBarView =
                     (NavigationBarView) View.inflate(context, R.layout.navigation_bar, null);
@@ -952,12 +956,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                             mSearchPanelView.setHorizontal(isVertical);
                         }
                         mNotificationPanel.setQsScrimEnabled(!isVertical);
-                        if (mRecreating) {
-                        removeSidebarView();
-                        }
-
-                        addSidebarView();
-                        addGestureAnywhereView();
                     }
                 });
                 mNavigationBarView.setOnTouchListener(new View.OnTouchListener() {
@@ -3785,10 +3783,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     private void recreateStatusBar() {
         mRecreating = true;
 
-        if (mMSimNetworkController != null) {
-            mMSimNetworkController.clearSubsLabelView();
-            mContext.unregisterReceiver(mMSimNetworkController);
-        } else if (mNetworkController != null) {
+        if (mNetworkController != null) {
             mContext.unregisterReceiver(mNetworkController);
         }
 

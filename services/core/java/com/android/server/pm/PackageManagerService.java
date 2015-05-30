@@ -252,6 +252,8 @@ import java.util.zip.ZipFile;
 
 import libcore.io.IoUtils;
 import libcore.util.EmptyArray;
+import java.util.HashMap;
+import java.util.HashSet;
 
 /**
  * Keep track of all those .apks everywhere.
@@ -446,10 +448,6 @@ public class PackageManagerService extends IPackageManager.Stub {
     final ArrayMap<String, PackageParser.Package> mPackages =
             new ArrayMap<String, PackageParser.Package>();
 
-    // Tracks available target package names -> overlay package paths.
-    final ArrayMap<String, ArrayMap<String, PackageParser.Package>> mOverlays =
-        new ArrayMap<String, ArrayMap<String, PackageParser.Package>>();
-
     // Example: com.angrybirds -> (com.theme1 -> theme1pkg, com.theme2 -> theme2pkg)
     //          com.facebook   -> (com.theme1 -> theme1pkg)
     final ArrayMap<String, ArrayMap<String, PackageParser.Package>> mOverlays =
@@ -462,7 +460,7 @@ public class PackageManagerService extends IPackageManager.Stub {
     final int[] mGlobalGids;
     final SparseArray<ArraySet<String>> mSystemPermissions;
     final ArrayMap<String, FeatureInfo> mAvailableFeatures;
-    final ArrayMap<Signature, ArraySet<String>> mSignatureAllowances;
+    final HashMap<Signature, HashSet<String>> mSignatureAllowances;
 
     // If mac_permissions.xml was found for seinfo labeling.
     boolean mFoundPolicyFile;
