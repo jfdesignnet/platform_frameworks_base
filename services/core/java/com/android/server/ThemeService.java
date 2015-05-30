@@ -398,8 +398,7 @@ public class ThemeService extends IThemeService.Stub {
         }
 
         if (request.getWallpaperThemePackageName() != null) {
-            if (updateWallpaper(request.getWallpaperThemePackageName(),
-                    request.getWallpaperId())) {
+            if (updateWallpaper(request.getWallpaperThemePackageName())) {
                 mWallpaperChangedByUs = true;
             }
             incrementProgress(progressIncrement);
@@ -494,12 +493,6 @@ public class ThemeService extends IThemeService.Stub {
             if (selectionArgs[0] == null) {
                 continue; // No equivalence between mixnmatch and theme
             }
-
-            // Add component ID for multiwallpaper
-            if (ThemesColumns.MODIFIES_LAUNCHER.equals(component)) {
-                values.put(MixnMatchColumns.COL_COMPONENT_ID, request.getWallpaperId());
-            }
-
             mContext.getContentResolver().update(MixnMatchColumns.CONTENT_URI, values, where,
                     selectionArgs);
         }
@@ -687,7 +680,7 @@ public class ThemeService extends IThemeService.Stub {
         return true;
     }
 
-    private boolean updateWallpaper(String pkgName, long id) {
+    private boolean updateWallpaper(String pkgName) {
         WallpaperManager wm = WallpaperManager.getInstance(mContext);
         if (SYSTEM_DEFAULT.equals(pkgName)) {
             try {
@@ -700,17 +693,6 @@ public class ThemeService extends IThemeService.Stub {
                 wm.clear(false);
             } catch (IOException e) {
                 return false;
-            }
-        } else {
-            InputStream in = null;
-            try {
-                in = ImageUtils.getCroppedWallpaperStream(pkgName, id, mContext);
-                if (in != null)
-                    wm.setStream(in);
-            } catch (Exception e) {
-                return false;
-            } finally {
-                ThemeUtils.closeQuietly(in);
             }
         }
         return true;
@@ -1291,3 +1273,4 @@ public class ThemeService extends IThemeService.Stub {
         }
     }
 }
+
