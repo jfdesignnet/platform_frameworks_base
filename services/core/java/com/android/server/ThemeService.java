@@ -98,7 +98,7 @@ public class ThemeService extends IThemeService.Stub {
     private static final boolean DEBUG = false;
 
     private static final String GOOGLE_SETUPWIZARD_PACKAGE = "com.google.android.setupwizard";
-    private static final String CM_SETUPWIZARD_PACKAGE = "com.cyanogenmod.account";
+    private static final String CM_SETUPWIZARD_PACKAGE = "com.cyanogenmod.setupwizard";
 
     private static final long MAX_ICON_CACHE_SIZE = 33554432L; // 32MB
     private static final long PURGED_ICON_CACHE_SIZE = 25165824L; // 24 MB
@@ -398,7 +398,8 @@ public class ThemeService extends IThemeService.Stub {
         }
 
         if (request.getWallpaperThemePackageName() != null) {
-            if (updateWallpaper(request.getWallpaperThemePackageName())) {
+            if (updateWallpaper(request.getWallpaperThemePackageName(),
+                    request.getWallpaperId())) {
                 mWallpaperChangedByUs = true;
             }
             incrementProgress(progressIncrement);
@@ -436,7 +437,12 @@ public class ThemeService extends IThemeService.Stub {
             incrementProgress(progressIncrement);
         }
 
-        updateProvider(request, updateTime);
+        try {
+            updateProvider(request, updateTime);
+        } catch(IllegalArgumentException e) {
+            // Safeguard against provider not being ready yet.
+            Log.e(TAG, "Not updating the theme provider since it is unavailable");
+        }
 
         if (shouldUpdateConfiguration(request)) {
             updateConfiguration(request, removePerAppTheme);
@@ -493,6 +499,12 @@ public class ThemeService extends IThemeService.Stub {
             if (selectionArgs[0] == null) {
                 continue; // No equivalence between mixnmatch and theme
             }
+
+            // Add component ID for multiwallpaper
+            if (ThemesColumns.MODIFIES_LAUNCHER.equals(component)) {
+                values.put(MixnMatchColumns.COL_COMPONENT_ID, request.getWallpaperId());
+            }
+
             mContext.getContentResolver().update(MixnMatchColumns.CONTENT_URI, values, where,
                     selectionArgs);
         }
@@ -680,7 +692,7 @@ public class ThemeService extends IThemeService.Stub {
         return true;
     }
 
-    private boolean updateWallpaper(String pkgName) {
+    private boolean updateWallpaper(String pkgName, long id) {
         WallpaperManager wm = WallpaperManager.getInstance(mContext);
         if (SYSTEM_DEFAULT.equals(pkgName)) {
             try {
@@ -693,6 +705,17 @@ public class ThemeService extends IThemeService.Stub {
                 wm.clear(false);
             } catch (IOException e) {
                 return false;
+            }
+        } else {
+            InputStream in = null;
+            try {
+                in = ImageUtils.getCroppedWallpaperStream(pkgName, id, mContext);
+                if (in != null)
+                    wm.setStream(in);
+            } catch (Exception e) {
+                return false;
+            } finally {
+                ThemeUtils.closeQuietly(in);
             }
         }
         return true;
