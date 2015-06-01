@@ -180,6 +180,8 @@ public abstract class BaseStatusBar extends SystemUI implements
     protected HeadsUpNotificationView mHeadsUpNotificationView;
     protected int mHeadsUpNotificationDecay;
 
+    protected static final int SYSTEM_UI_VISIBILITY_MASK = 0xffffffff;
+
     // Search panel
     protected SearchPanelView mSearchPanelView;
     private boolean mSearchPanelViewEnabled;
@@ -627,7 +629,7 @@ public abstract class BaseStatusBar extends SystemUI implements
         createAndAddWindows();
 
         disable(switches[0], false /* animate */);
-        setSystemUiVisibility(switches[1], 0xffffffff);
+        setSystemUiVisibility(switches[1], SYSTEM_UI_VISIBILITY_MASK);
         topAppWindowChanged(switches[2] != 0);
         // StatusBarManagerService has a back up of IME token and it's restored here.
         setImeWindowStatus(binders.get(0), switches[3], switches[4], switches[5] != 0);
