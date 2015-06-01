@@ -535,9 +535,11 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                     Settings.System.MENU_VISIBILITY))) {
                 if (mNavigationBarView != null) {
                     mNavigationBarView.recreateNavigationBar();
+                    prepareNavigationBarView();
                 }
             } else if (uri.equals(Settings.System.getUriFor(
                     Settings.System.NAVIGATION_BAR_CAN_MOVE))) {
+                prepareNavigationBarView();
             } else if (uri.equals(Settings.System.getUriFor(
                     Settings.System.VOLUME_KEY_CURSOR_CONTROL))) {
                 if (mNavigationBarView != null) {
@@ -823,7 +825,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         // TODO: use MediaSessionManager.SessionListener to hook us up to future updates
         // in session state
 
-        addNavigationBar(false);
+        addNavigationBar();
 
         SettingsObserver observer = new SettingsObserver(mHandler);
         observer.observe();
@@ -1472,7 +1474,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         }
     }
 
-    private void prepareNavigationBarView(boolean forceReset) {
+    private void prepareNavigationBarView() {
         mNavigationBarView.reorient();
 
         View home = mNavigationBarView.getHomeButton();
@@ -1488,19 +1490,11 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             home.setOnTouchListener(mHomeActionListener);
         }
 
-        if (forceReset) {
-            // Nav Bar was added dynamically - we need to reset the mSystemUiVisibility and call
-            // setSystemUiVisibility so that mNavigationBarMode is set to the correct value
-            int newVal = mSystemUiVisibility;
-            mSystemUiVisibility = 0;
-            setSystemUiVisibility(newVal, SYSTEM_UI_VISIBILITY_MASK);
-        }
-
         updateSearchPanel();
     }
 
     // For small-screen devices (read: phones) that lack hardware navigation buttons
-    private void addNavigationBar(boolean forceReset) {
+    private void addNavigationBar() {
         if (DEBUG) Log.v(TAG, "addNavigationBar: about to add " + mNavigationBarView);
         if (mNavigationBarView == null) return;
 
@@ -1511,21 +1505,15 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             return;
         }
 
+        prepareNavigationBarView();
+
         mWindowManager.addView(mNavigationBarView, getNavigationBarLayoutParams());
-    }
-
-    private void removeNavigationBar() {
-        if (DEBUG) Log.d(TAG, "removeNavigationBar: about to remove " + mNavigationBarView);
-        if (mNavigationBarView == null) return;
-
-        mWindowManager.removeView(mNavigationBarView);
-        mNavigationBarView = null;
     }
 
     private void repositionNavigationBar() {
         if (mNavigationBarView == null || !mNavigationBarView.isAttachedToWindow()) return;
 
-        prepareNavigationBarView(false);
+        prepareNavigationBarView();
 
         mWindowManager.updateViewLayout(mNavigationBarView, getNavigationBarLayoutParams());
     }
