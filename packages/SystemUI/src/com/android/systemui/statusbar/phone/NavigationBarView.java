@@ -421,6 +421,7 @@ public class NavigationBarView extends LinearLayout {
                 }
             }
         }
+        updateSettings();
     }
 
     @Override
@@ -709,13 +710,6 @@ public class NavigationBarView extends LinearLayout {
         }
 
         mNavigationIconHints = hints;
-
-        ((ImageView)getBackButton()).setImageDrawable(backAlt
-                ? (mVertical ? mBackAltLandIcon : mBackAltIcon)
-                : (mVertical ? mBackLandIcon : mBackIcon));
-
-        ((ImageView)getRecentsButton()).setImageDrawable(mVertical ? mRecentLandIcon : mRecentIcon);
-        ((ImageView)getHomeButton()).setImageDrawable(mVertical ? mHomeLandIcon : mHomeIcon);
 
         final boolean showImeButton = ((hints & StatusBarManager.NAVIGATION_HINT_IME_SHOWN) != 0);
         if (getImeSwitchButton() != null)
@@ -1076,7 +1070,6 @@ public class NavigationBarView extends LinearLayout {
                     changed?"changed":"notchanged", left, top, right, bottom));
         super.onLayout(changed, left, top, right, bottom);
     }
-
     // uncomment this for extra defensiveness in WORKAROUND_INVALID_LAYOUT situations: if all else
     // fails, any touch on the display will fix the layout.
     @Override
