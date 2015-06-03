@@ -5,4 +5,6 @@
     <bool name="config_keyguardShowVoiceAssistAffordance">true</bool>
     <!-- Double tap anywhere in lockscreen makes the device go to sleep -->
     <bool name="config_doubletap_lockscreen_sleep">true</bool>
+     <!-- Enable the Advanced Location tile in QuickSettings -->
+    <bool name="config_qs_advancedlocation">true</bool>
 </resources>
