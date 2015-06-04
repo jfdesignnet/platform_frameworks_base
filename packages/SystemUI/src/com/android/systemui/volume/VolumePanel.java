@@ -1292,7 +1292,13 @@ public class VolumePanel extends Handler implements DemoMode {
             if (sc.seekbarView.getMax() != max) {
                 sc.seekbarView.setMax(max);
             }
-            updateStates();
+            updateSliderProgress(sc, index);
+            final boolean muted = isMuted(streamType);
+            updateSliderEnabled(sc, muted, (flags & AudioManager.FLAG_FIXED_VOLUME) != 0);
+            if (isNotificationOrRing(streamType)) {
+                // check for secondary-icon transition completion
+                updateSliderIcon(sc, muted);
+            }
         }
 
         if (!isShowing()) {
@@ -1703,4 +1709,3 @@ public class VolumePanel extends Handler implements DemoMode {
         void onVisible(boolean visible);
     }
 }
-
