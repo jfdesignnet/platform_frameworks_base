@@ -41,24 +41,11 @@
             >
 
             <!-- navigation controls -->
-            <com.android.systemui.statusbar.policy.KeyButtonView android:id="@+id/menu_left"
+            <View
                 android:layout_width="@dimen/navigation_extra_key_width"
                 android:layout_height="match_parent"
-                android:src="@drawable/ic_sysbar_menu"
-                systemui:keyCode="82"
                 android:layout_weight="0"
-                android:visibility="invisible"
-                android:contentDescription="@string/accessibility_menu" />
-            <com.android.systemui.statusbar.policy.KeyButtonView android:id="@+id/ime_navigation_left"
-                android:layout_width="48dp"
-                android:layout_height="match_parent"
-                android:layout_weight="0"
-                android:visibility="gone"
-                android:scaleType="centerInside" />
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
+                android:layout_marginStart="2dp"
                 android:visibility="invisible"
                 />
             <Space 
@@ -112,13 +99,6 @@
                     systemui:keyCode="82"
                     android:visibility="invisible"
                     android:contentDescription="@string/accessibility_menu"
-                    />
-                <com.android.systemui.statusbar.policy.KeyButtonView android:id="@+id/ime_navigation_right"
-                    android:layout_width="48dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0"
-                    android:visibility="gone"
-                    android:scaleType="centerInside"
                     />
                 <com.android.systemui.statusbar.policy.KeyButtonView
                     android:id="@+id/ime_switcher"
@@ -264,12 +244,6 @@
                     systemui:keyCode="82"
                     android:visibility="invisible"
                     android:contentDescription="@string/accessibility_menu" />
-                <com.android.systemui.statusbar.policy.KeyButtonView android:id="@+id/ime_navigation_right"
-                    android:layout_width="@dimen/navigation_extra_key_width"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0"
-                    android:visibility="gone"
-                    android:scaleType="centerInside" />
                 <com.android.systemui.statusbar.policy.KeyButtonView
                     android:id="@+id/ime_switcher"
                     android:layout_width="@dimen/navigation_extra_key_width"

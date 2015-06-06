@@ -57,12 +57,8 @@ public class CommandQueue extends IStatusBar.Stub {
     private static final int MSG_NOTIFICATION_LIGHT_OFF     = 16 << MSG_SHIFT;
     private static final int MSG_NOTIFICATION_LIGHT_PULSE   = 17 << MSG_SHIFT;
     private static final int MSG_SHOW_SCREEN_PIN_REQUEST    = 18 << MSG_SHIFT;
-
-    private static final int MSG_TOGGLE_LAST_APP            = 19 << MSG_SHIFT;
-    private static final int MSG_TOGGLE_KILL_APP            = 20 << MSG_SHIFT;
-    private static final int MSG_TOGGLE_SCREENSHOT          = 21 << MSG_SHIFT;
-    private static final int MSG_HIDE_HEADS_UP_CANDIDATE    = 22 << MSG_SHIFT;
-    private static final int MSG_HIDE_HEADS_UP              = 23 << MSG_SHIFT;
+    private static final int MSG_HIDE_HEADS_UP_CANDIDATE    = 19 << MSG_SHIFT;
+    private static final int MSG_HIDE_HEADS_UP              = 20 << MSG_SHIFT;
 
     public static final int FLAG_EXCLUDE_NONE = 0;
     public static final int FLAG_EXCLUDE_SEARCH_PANEL = 1 << 0;
@@ -106,9 +102,6 @@ public class CommandQueue extends IStatusBar.Stub {
         public void notificationLightOff();
         public void notificationLightPulse(int argb, int onMillis, int offMillis);
         public void showScreenPinningRequest();
-        public void toggleLastApp();
-        public void toggleKillApp();
-        public void toggleScreenshot();
         public void hideHeadsUpCandidate(String packageName);
         public void scheduleHeadsUpClose();
     }
@@ -258,27 +251,6 @@ public class CommandQueue extends IStatusBar.Stub {
         }
     }
 
-    public void toggleLastApp() {
-        synchronized (mList) {
-            mHandler.removeMessages(MSG_TOGGLE_LAST_APP);
-            mHandler.obtainMessage(MSG_TOGGLE_LAST_APP, 0, 0, null).sendToTarget();
-        }
-    }
-
-    public void toggleKillApp() {
-        synchronized (mList) {
-            mHandler.removeMessages(MSG_TOGGLE_KILL_APP);
-            mHandler.obtainMessage(MSG_TOGGLE_KILL_APP, 0, 0, null).sendToTarget();
-        }
-    }
-
-    public void toggleScreenshot() {
-        synchronized (mList) {
-            mHandler.removeMessages(MSG_TOGGLE_SCREENSHOT);
-            mHandler.obtainMessage(MSG_TOGGLE_SCREENSHOT, 0, 0, null).sendToTarget();
-        }
-    }
-
     public void hideHeadsUpCandidate(String packageName) {
         synchronized (mList) {
             mHandler.removeMessages(MSG_HIDE_HEADS_UP_CANDIDATE);
@@ -387,15 +359,6 @@ public class CommandQueue extends IStatusBar.Stub {
                     break;
                 case MSG_SHOW_SCREEN_PIN_REQUEST:
                     mCallbacks.showScreenPinningRequest();
-                    break;
-                case MSG_TOGGLE_LAST_APP:
-                    mCallbacks.toggleLastApp();
-                    break;
-                case MSG_TOGGLE_KILL_APP:
-                    mCallbacks.toggleKillApp();
-                    break;
-                case MSG_TOGGLE_SCREENSHOT:
-                    mCallbacks.toggleScreenshot();
                     break;
                 case MSG_HIDE_HEADS_UP_CANDIDATE:
                     mCallbacks.hideHeadsUpCandidate((String) msg.obj);
