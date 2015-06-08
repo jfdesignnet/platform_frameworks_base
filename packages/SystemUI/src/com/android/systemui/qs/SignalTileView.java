@@ -18,8 +18,7 @@ package com.android.systemui.qs;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
-import android.graphics.ColorFilter;
-import android.graphics.LightingColorFilter;
+import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -31,7 +30,6 @@ import com.android.systemui.qs.QSTile.SignalState;
 public final class SignalTileView extends QSTileView {
     private static final long DEFAULT_DURATION = new ValueAnimator().getDuration();
     private static final long SHORT_DURATION = DEFAULT_DURATION / 3;
-    private static final ColorFilter FILTER = new LightingColorFilter(0xffffffff, 0xff283034);
 
     private FrameLayout mIconFrame;
     private ImageView mSignal;
@@ -39,17 +37,21 @@ public final class SignalTileView extends QSTileView {
     private ImageView mIn;
     private ImageView mOut;
 
+    private int mWideOverlayIconStartPadding;
+
     public SignalTileView(Context context) {
         super(context);
 
         mIn = addTrafficView(R.drawable.ic_qs_signal_in);
         mOut = addTrafficView(R.drawable.ic_qs_signal_out);
+
+        mWideOverlayIconStartPadding = context.getResources().getDimensionPixelSize(
+                R.dimen.wide_type_icon_start_padding_qs);
     }
 
     private ImageView addTrafficView(int icon) {
         final ImageView traffic = new ImageView(mContext);
         traffic.setImageResource(icon);
-        traffic.setColorFilter(FILTER);
         traffic.setAlpha(0f);
         addView(traffic);
         return traffic;
@@ -61,7 +63,7 @@ public final class SignalTileView extends QSTileView {
         mSignal = new ImageView(mContext);
         mIconFrame.addView(mSignal);
         mOverlay = new ImageView(mContext);
-        mIconFrame.addView(mOverlay);
+        mIconFrame.addView(mOverlay, LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         return mIconFrame;
     }
 
@@ -82,10 +84,19 @@ public final class SignalTileView extends QSTileView {
     }
 
     private void layoutIndicator(View indicator) {
+        boolean isRtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+        int left, right;
+        if (isRtl) {
+            right = mIconFrame.getLeft();
+            left = right - indicator.getMeasuredWidth();
+        } else {
+            left = mIconFrame.getRight();
+            right = left + indicator.getMeasuredWidth();
+        }
         indicator.layout(
-                mIconFrame.getRight(),
+                left,
                 mIconFrame.getBottom() - indicator.getMeasuredHeight(),
-                mIconFrame.getRight() + indicator.getMeasuredWidth(),
+                right,
                 mIconFrame.getBottom());
     }
 
@@ -93,16 +104,21 @@ public final class SignalTileView extends QSTileView {
     protected void handleStateChanged(QSTile.State state) {
         super.handleStateChanged(state);
         final SignalState s = (SignalState) state;
-        mSignal.setImageDrawable(null);  // force refresh
-        mSignal.setImageResource(s.iconId);
-        mSignal.setColorFilter(s.filter ? FILTER : null);
+        setIcon(mSignal, s);
         if (s.overlayIconId > 0) {
             mOverlay.setVisibility(VISIBLE);
-            mOverlay.setImageDrawable(null);  // force refresh
             mOverlay.setImageResource(s.overlayIconId);
-            mOverlay.setColorFilter(s.filter ? FILTER : null);
         } else {
             mOverlay.setVisibility(GONE);
+        }
+        if (s.overlayIconId > 0 && s.isOverlayIconWide) {
+            mSignal.setPaddingRelative(mWideOverlayIconStartPadding, 0, 0, 0);
+        } else {
+            mSignal.setPaddingRelative(0, 0, 0, 0);
+        }
+        Drawable drawable = mSignal.getDrawable();
+        if (state.autoMirrorDrawable && drawable != null) {
+            drawable.setAutoMirrored(true);
         }
         final boolean shown = isShown();
         setVisibility(mIn, shown, s.activityIn);
@@ -116,7 +132,6 @@ public final class SignalTileView extends QSTileView {
             view.animate()
                 .setDuration(visible ? SHORT_DURATION : DEFAULT_DURATION)
                 .alpha(newAlpha)
-                .withLayer()
                 .start();
         } else {
             view.setAlpha(newAlpha);

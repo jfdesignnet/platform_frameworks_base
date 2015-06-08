@@ -159,6 +159,8 @@ public class TransitionInflater {
                 transition = new AutoTransition(mContext, attrs);
             } else if ("recolor".equals(name)) {
                 transition = new Recolor(mContext, attrs);
+            } else if ("changeScroll".equals(name)) {
+                transition = new ChangeScroll(mContext, attrs);
             } else if ("transitionSet".equals(name)) {
                 transition = new TransitionSet(mContext, attrs);
             } else if ("transition".equals(name)) {
@@ -169,8 +171,8 @@ public class TransitionInflater {
                 parent.setPathMotion(new ArcMotion(mContext, attrs));
             } else if ("pathMotion".equals(name)) {
                 parent.setPathMotion((PathMotion)createCustom(attrs, PathMotion.class, "pathMotion"));
-            } else if ("patternMotion".equals(name)) {
-                parent.setPathMotion(new PatternMotion(mContext, attrs));
+            } else if ("patternPathMotion".equals(name)) {
+                parent.setPathMotion(new PatternPathMotion(mContext, attrs));
             } else {
                 throw new RuntimeException("Unknown scene name: " + parser.getName());
             }

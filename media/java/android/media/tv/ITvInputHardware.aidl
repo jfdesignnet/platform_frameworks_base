@@ -33,14 +33,32 @@ interface ITvInputHardware {
      * trigger CEC commands for adjusting active HDMI source. Returns true on success.
      */
     boolean setSurface(in Surface surface, in TvStreamConfig config);
+
     /**
-     * Set volume for this stream via AudioGain. (TBD)
+     * Set volume for this stream via AudioGain.
      */
-    void setVolume(float volume);
+    void setStreamVolume(float volume);
 
     /**
      * Dispatch key event to HDMI service. The events would be automatically converted to
      * HDMI CEC commands. If the hardware is not representing an HDMI port, this method will fail.
      */
     boolean dispatchKeyEventToHdmi(in KeyEvent event);
+
+    /**
+     * Override default audio sink from audio policy. When override is on, it is
+     * TvInputService's responsibility to adjust to audio configuration change
+     * (for example, when the audio sink becomes unavailable or more desirable
+     * audio sink is detected).
+     *
+     * @param audioType one of AudioManager.DEVICE_* values. When it's * DEVICE_NONE, override
+     *        becomes off.
+     * @param audioAddress audio address of the overriding device.
+     * @param samplingRate desired sampling rate. Use default when it's 0.
+     * @param channelMask desired channel mask. Use default when it's
+     *        AudioFormat.CHANNEL_OUT_DEFAULT.
+     * @param format desired format. Use default when it's AudioFormat.ENCODING_DEFAULT.
+     */
+    void overrideAudioSink(int audioType, String audioAddress, int samplingRate, int channelMask,
+            int format);
 }

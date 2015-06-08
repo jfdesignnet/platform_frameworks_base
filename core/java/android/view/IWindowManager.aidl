@@ -93,6 +93,10 @@ interface IWindowManager
             int startHeight);
     void overridePendingAppTransitionThumb(in Bitmap srcThumb, int startX, int startY,
             IRemoteCallback startedCallback, boolean scaleUp);
+    void overridePendingAppTransitionAspectScaledThumb(in Bitmap srcThumb, int startX,
+            int startY, int targetWidth, int targetHeight, IRemoteCallback startedCallback,
+            boolean scaleUp);
+    void overridePendingAppTransitionInPlace(String packageName, int anim);
     void executeAppTransition();
     void setAppStartingWindow(IBinder token, String pkg, int theme,
             in CompatibilityInfo compatInfo, CharSequence nonLocalizedLabel, int labelRes,
@@ -121,7 +125,8 @@ interface IWindowManager
     boolean isKeyguardSecure();
     boolean inKeyguardRestrictedInputMode();
     void dismissKeyguard();
-    void keyguardGoingAway();
+    void keyguardGoingAway(boolean disableWindowAnimations,
+            boolean keyguardGoingToNotificationShade);
 
     void closeSystemDialogs(String reason);
 
@@ -148,6 +153,11 @@ interface IWindowManager
     // the system default (differs per build variant) or any valid
     // boolean string as parsed by SystemProperties.getBoolean().
     void setStrictModeVisualIndicatorPreference(String enabled);
+
+    /**
+     * Set whether screen capture is disabled for all windows of a specific user
+     */
+    void setScreenCaptureDisabled(int userId, boolean disabled);
 
     // These can only be called with the SET_ORIENTATION permission.
     /**

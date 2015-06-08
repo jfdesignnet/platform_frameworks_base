@@ -22,16 +22,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.ContentObserver;
-import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
+import android.util.Log;
 import android.util.Slog;
 
 import com.android.systemui.SystemUI;
+import com.android.systemui.statusbar.phone.PhoneStatusBar;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -39,11 +40,9 @@ import java.util.Arrays;
 
 public class PowerUI extends SystemUI {
     static final String TAG = "PowerUI";
-    static final boolean DEBUG = false;
-
+    static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
     private final Handler mHandler = new Handler();
-    private final SettingsObserver mObserver = new SettingsObserver(mHandler);
     private final Receiver mReceiver = new Receiver();
 
     private PowerManager mPowerManager;
@@ -61,7 +60,7 @@ public class PowerUI extends SystemUI {
     public void start() {
         mPowerManager = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
         mScreenOffTime = mPowerManager.isScreenOn() ? -1 : SystemClock.elapsedRealtime();
-        mWarnings = new PowerNotificationWarnings(mContext);
+        mWarnings = new PowerNotificationWarnings(mContext, getComponent(PhoneStatusBar.class));
 
         ContentObserver obs = new ContentObserver(mHandler) {
             @Override
@@ -75,15 +74,10 @@ public class PowerUI extends SystemUI {
                 false, obs, UserHandle.USER_ALL);
         updateBatteryWarningLevels();
         mReceiver.init();
-        mObserver.init();
     }
 
     private void setSaverMode(boolean mode) {
         mWarnings.showSaverMode(mode);
-    }
-
-    private void setSaverTrigger(int level) {
-        mWarnings.setSaverTrigger(level);
     }
 
     void updateBatteryWarningLevels() {
@@ -143,6 +137,8 @@ public class PowerUI extends SystemUI {
             filter.addAction(Intent.ACTION_BATTERY_CHANGED);
             filter.addAction(Intent.ACTION_SCREEN_OFF);
             filter.addAction(Intent.ACTION_SCREEN_ON);
+            filter.addAction(Intent.ACTION_USER_SWITCHED);
+            filter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGING);
             filter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
             mContext.registerReceiver(this, filter, null, mHandler);
             updateSaverMode();
@@ -212,8 +208,12 @@ public class PowerUI extends SystemUI {
                 mScreenOffTime = SystemClock.elapsedRealtime();
             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 mScreenOffTime = -1;
+            } else if (Intent.ACTION_USER_SWITCHED.equals(action)) {
+                mWarnings.userSwitched();
             } else if (PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(action)) {
                 updateSaverMode();
+            } else if (PowerManager.ACTION_POWER_SAVE_MODE_CHANGING.equals(action)) {
+                setSaverMode(intent.getBooleanExtra(PowerManager.EXTRA_POWER_SAVE_MODE, false));
             } else {
                 Slog.w(TAG, "unknown intent: " + intent);
             }
@@ -251,7 +251,6 @@ public class PowerUI extends SystemUI {
 
     public interface WarningsUI {
         void update(int batteryLevel, int bucket, long screenOffTime);
-        void setSaverTrigger(int level);
         void showSaverMode(boolean mode);
         void dismissLowBatteryWarning();
         void showLowBatteryWarning(boolean playSound);
@@ -260,30 +259,7 @@ public class PowerUI extends SystemUI {
         void updateLowBatteryWarning();
         boolean isInvalidChargerWarningShowing();
         void dump(PrintWriter pw);
-    }
-
-    private final class SettingsObserver extends ContentObserver {
-        private final Uri LOW_POWER_MODE_TRIGGER_LEVEL_URI =
-                Settings.Global.getUriFor(Settings.Global.LOW_POWER_MODE_TRIGGER_LEVEL);
-
-        public SettingsObserver(Handler handler) {
-            super(handler);
-        }
-
-        public void init() {
-            onChange(true, LOW_POWER_MODE_TRIGGER_LEVEL_URI);
-            final ContentResolver cr = mContext.getContentResolver();
-            cr.registerContentObserver(LOW_POWER_MODE_TRIGGER_LEVEL_URI, false, this);
-        }
-
-        @Override
-        public void onChange(boolean selfChange, Uri uri) {
-            if (LOW_POWER_MODE_TRIGGER_LEVEL_URI.equals(uri)) {
-                final int level = Settings.Global.getInt(mContext.getContentResolver(),
-                        Settings.Global.LOW_POWER_MODE_TRIGGER_LEVEL, 0);
-                setSaverTrigger(level);
-            }
-        }
+        void userSwitched();
     }
 }
 

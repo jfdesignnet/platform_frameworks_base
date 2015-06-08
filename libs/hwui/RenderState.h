@@ -16,11 +16,14 @@
 #ifndef RENDERSTATE_H
 #define RENDERSTATE_H
 
+#include <set>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+#include <utils/Mutex.h>
 
 #include <private/hwui/DrawGlInfo.h>
 
+#include "AssetAtlas.h"
 #include "Caches.h"
 #include "utils/Macros.h"
 
@@ -28,6 +31,7 @@ namespace android {
 namespace uirenderer {
 
 namespace renderthread {
+class CanvasContext;
 class RenderThread;
 }
 
@@ -37,6 +41,7 @@ class RenderState {
     PREVENT_COPY_AND_ASSIGN(RenderState);
 public:
     void onGLContextCreated();
+    void onGLContextDestroyed();
 
     void setViewport(GLsizei width, GLsizei height);
     void getViewport(GLsizei* outWidth, GLsizei* outHeight);
@@ -48,20 +53,51 @@ public:
 
     void debugOverdraw(bool enable, bool clear);
 
+    void registerLayer(Layer* layer) {
+        mActiveLayers.insert(layer);
+    }
+    void unregisterLayer(Layer* layer) {
+        mActiveLayers.erase(layer);
+    }
+
+    void registerCanvasContext(renderthread::CanvasContext* context) {
+        mRegisteredContexts.insert(context);
+    }
+
+    void unregisterCanvasContext(renderthread::CanvasContext* context) {
+        mRegisteredContexts.erase(context);
+    }
+
+    void requireGLContext();
+
+    // TODO: This system is a little clunky feeling, this could use some
+    // more thinking...
+    void postDecStrong(VirtualLightRefBase* object);
+
+    AssetAtlas& assetAtlas() { return mAssetAtlas; }
+
 private:
     friend class renderthread::RenderThread;
+    friend class Caches;
 
     void interruptForFunctorInvoke();
     void resumeFromFunctorInvoke();
+    void assertOnGLThread();
 
-    RenderState();
+    RenderState(renderthread::RenderThread& thread);
     ~RenderState();
 
+    renderthread::RenderThread& mRenderThread;
     Caches* mCaches;
+    AssetAtlas mAssetAtlas;
+    std::set<Layer*> mActiveLayers;
+    std::set<renderthread::CanvasContext*> mRegisteredContexts;
 
     GLsizei mViewportWidth;
     GLsizei mViewportHeight;
     GLuint mFramebuffer;
+
+    pthread_t mThreadId;
 };
 
 } /* namespace uirenderer */

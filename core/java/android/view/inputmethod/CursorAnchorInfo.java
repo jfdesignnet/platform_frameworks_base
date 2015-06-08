@@ -35,9 +35,21 @@ import java.util.Objects;
  * actually inserted.</p>
  */
 public final class CursorAnchorInfo implements Parcelable {
+    /**
+     * The index of the first character of the selected text (inclusive). {@code -1} when there is
+     * no text selection.
+     */
     private final int mSelectionStart;
+    /**
+     * The index of the first character of the selected text (exclusive). {@code -1} when there is
+     * no text selection.
+     */
     private final int mSelectionEnd;
 
+    /**
+     * The index of the first character of the composing text (inclusive). {@code -1} when there is
+     * no composing text.
+     */
     private final int mComposingTextStart;
     /**
      * The text, tracked as a composing region.
@@ -45,9 +57,9 @@ public final class CursorAnchorInfo implements Parcelable {
     private final CharSequence mComposingText;
 
     /**
-     * {@code True} if the insertion marker is partially or entirely clipped by other UI elements.
+     * Flags of the insertion marker. See {@link #FLAG_HAS_VISIBLE_REGION} for example.
      */
-    private final boolean mInsertionMarkerClipped;
+    private final int mInsertionMarkerFlags;
     /**
      * Horizontal position of the insertion marker, in the local coordinates that will be
      * transformed with the transformation matrix when rendered on the screen. This should be
@@ -82,7 +94,7 @@ public final class CursorAnchorInfo implements Parcelable {
      * Java chars, in the local coordinates that will be transformed with the transformation matrix
      * when rendered on the screen.
      */
-    private final SparseRectFArray mCharacterRects;
+    private final SparseRectFArray mCharacterBoundsArray;
 
     /**
      * Transformation matrix that is applied to any positional information of this class to
@@ -90,41 +102,35 @@ public final class CursorAnchorInfo implements Parcelable {
      */
     private final Matrix mMatrix;
 
-    public static final int CHARACTER_RECT_TYPE_MASK = 0x0f;
     /**
-     * Type for {@link #CHARACTER_RECT_TYPE_MASK}: the editor did not specify any type of this
-     * character. Editor authors should not use this flag.
+     * Flag for {@link #getInsertionMarkerFlags()} and {@link #getCharacterBoundsFlags(int)}: the
+     * insertion marker or character bounds have at least one visible region.
      */
-    public static final int CHARACTER_RECT_TYPE_UNSPECIFIED = 0;
+    public static final int FLAG_HAS_VISIBLE_REGION = 0x01;
+
     /**
-     * Type for {@link #CHARACTER_RECT_TYPE_MASK}: the character is entirely visible.
+     * Flag for {@link #getInsertionMarkerFlags()} and {@link #getCharacterBoundsFlags(int)}: the
+     * insertion marker or character bounds have at least one invisible (clipped) region.
      */
-    public static final int CHARACTER_RECT_TYPE_FULLY_VISIBLE = 1;
+    public static final int FLAG_HAS_INVISIBLE_REGION = 0x02;
+
     /**
-     * Type for {@link #CHARACTER_RECT_TYPE_MASK}: some area of the character is invisible.
+     * Flag for {@link #getInsertionMarkerFlags()} and {@link #getCharacterBoundsFlags(int)}: the
+     * insertion marker or character bounds is placed at right-to-left (RTL) character.
      */
-    public static final int CHARACTER_RECT_TYPE_PARTIALLY_VISIBLE = 2;
-    /**
-     * Type for {@link #CHARACTER_RECT_TYPE_MASK}: the character is entirely invisible.
-     */
-    public static final int CHARACTER_RECT_TYPE_INVISIBLE = 3;
-    /**
-     * Type for {@link #CHARACTER_RECT_TYPE_MASK}: the editor gave up to calculate the rectangle
-     * for this character. Input method authors should ignore the returned rectangle.
-     */
-    public static final int CHARACTER_RECT_TYPE_NOT_FEASIBLE = 4;
+    public static final int FLAG_IS_RTL = 0x04;
 
     public CursorAnchorInfo(final Parcel source) {
         mSelectionStart = source.readInt();
         mSelectionEnd = source.readInt();
         mComposingTextStart = source.readInt();
         mComposingText = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
-        mInsertionMarkerClipped = (source.readInt() != 0);
+        mInsertionMarkerFlags = source.readInt();
         mInsertionMarkerHorizontal = source.readFloat();
         mInsertionMarkerTop = source.readFloat();
         mInsertionMarkerBaseline = source.readFloat();
         mInsertionMarkerBottom = source.readFloat();
-        mCharacterRects = source.readParcelable(SparseRectFArray.class.getClassLoader());
+        mCharacterBoundsArray = source.readParcelable(SparseRectFArray.class.getClassLoader());
         mMatrix = new Matrix();
         mMatrix.setValues(source.createFloatArray());
     }
@@ -141,12 +147,12 @@ public final class CursorAnchorInfo implements Parcelable {
         dest.writeInt(mSelectionEnd);
         dest.writeInt(mComposingTextStart);
         TextUtils.writeToParcel(mComposingText, dest, flags);
-        dest.writeInt(mInsertionMarkerClipped ? 1 : 0);
+        dest.writeInt(mInsertionMarkerFlags);
         dest.writeFloat(mInsertionMarkerHorizontal);
         dest.writeFloat(mInsertionMarkerTop);
         dest.writeFloat(mInsertionMarkerBaseline);
         dest.writeFloat(mInsertionMarkerBottom);
-        dest.writeParcelable(mCharacterRects, flags);
+        dest.writeParcelable(mCharacterBoundsArray, flags);
         final float[] matrixArray = new float[9];
         mMatrix.getValues(matrixArray);
         dest.writeFloatArray(matrixArray);
@@ -154,18 +160,17 @@ public final class CursorAnchorInfo implements Parcelable {
 
     @Override
     public int hashCode(){
-        // TODO: Improve the hash function.
         final float floatHash = mInsertionMarkerHorizontal + mInsertionMarkerTop
                 + mInsertionMarkerBaseline + mInsertionMarkerBottom;
         int hash = floatHash > 0 ? (int) floatHash : (int)(-floatHash);
         hash *= 31;
-        hash += (mInsertionMarkerClipped ? 2 : 1);
+        hash += mInsertionMarkerFlags;
         hash *= 31;
         hash += mSelectionStart + mSelectionEnd + mComposingTextStart;
         hash *= 31;
         hash += Objects.hashCode(mComposingText);
         hash *= 31;
-        hash += Objects.hashCode(mCharacterRects);
+        hash += Objects.hashCode(mCharacterBoundsArray);
         hash *= 31;
         hash += Objects.hashCode(mMatrix);
         return hash;
@@ -204,17 +209,14 @@ public final class CursorAnchorInfo implements Parcelable {
                 || !Objects.equals(mComposingText, that.mComposingText)) {
             return false;
         }
-        if (mInsertionMarkerClipped != that.mInsertionMarkerClipped
+        if (mInsertionMarkerFlags != that.mInsertionMarkerFlags
                 || !areSameFloatImpl(mInsertionMarkerHorizontal, that.mInsertionMarkerHorizontal)
                 || !areSameFloatImpl(mInsertionMarkerTop, that.mInsertionMarkerTop)
                 || !areSameFloatImpl(mInsertionMarkerBaseline, that.mInsertionMarkerBaseline)
                 || !areSameFloatImpl(mInsertionMarkerBottom, that.mInsertionMarkerBottom)) {
             return false;
         }
-        if (!Objects.equals(mComposingTextStart, that.mComposingTextStart)) {
-            return false;
-        }
-        if (!Objects.equals(mCharacterRects, that.mCharacterRects)) {
+        if (!Objects.equals(mCharacterBoundsArray, that.mCharacterBoundsArray)) {
             return false;
         }
         if (!Objects.equals(mMatrix, that.mMatrix)) {
@@ -228,12 +230,12 @@ public final class CursorAnchorInfo implements Parcelable {
         return "SelectionInfo{mSelection=" + mSelectionStart + "," + mSelectionEnd
                 + " mComposingTextStart=" + mComposingTextStart
                 + " mComposingText=" + Objects.toString(mComposingText)
-                + " mInsertionMarkerClipped=" + mInsertionMarkerClipped
+                + " mInsertionMarkerFlags=" + mInsertionMarkerFlags
                 + " mInsertionMarkerHorizontal=" + mInsertionMarkerHorizontal
                 + " mInsertionMarkerTop=" + mInsertionMarkerTop
                 + " mInsertionMarkerBaseline=" + mInsertionMarkerBaseline
                 + " mInsertionMarkerBottom=" + mInsertionMarkerBottom
-                + " mCharacterRects=" + Objects.toString(mCharacterRects)
+                + " mCharacterBoundsArray=" + Objects.toString(mCharacterBoundsArray)
                 + " mMatrix=" + Objects.toString(mMatrix)
                 + "}";
     }
@@ -242,6 +244,19 @@ public final class CursorAnchorInfo implements Parcelable {
      * Builder for {@link CursorAnchorInfo}. This class is not designed to be thread-safe.
      */
     public static final class Builder {
+        private int mSelectionStart = -1;
+        private int mSelectionEnd = -1;
+        private int mComposingTextStart = -1;
+        private CharSequence mComposingText = null;
+        private float mInsertionMarkerHorizontal = Float.NaN;
+        private float mInsertionMarkerTop = Float.NaN;
+        private float mInsertionMarkerBaseline = Float.NaN;
+        private float mInsertionMarkerBottom = Float.NaN;
+        private int mInsertionMarkerFlags = 0;
+        private SparseRectFArrayBuilder mCharacterBoundsArrayBuilder = null;
+        private final Matrix mMatrix = new Matrix(Matrix.IDENTITY_MATRIX);
+        private boolean mMatrixInitialized = false;
+
         /**
          * Sets the text range of the selection. Calling this can be skipped if there is no
          * selection.
@@ -251,8 +266,6 @@ public final class CursorAnchorInfo implements Parcelable {
             mSelectionEnd = newEnd;
             return this;
         }
-        private int mSelectionStart = -1;
-        private int mSelectionEnd = -1;
 
         /**
          * Sets the text range of the composing text. Calling this can be skipped if there is
@@ -271,8 +284,6 @@ public final class CursorAnchorInfo implements Parcelable {
             }
             return this;
         }
-        private int mComposingTextStart = -1;
-        private CharSequence mComposingText = null;
 
         /**
          * Sets the location of the text insertion point (zero width cursor) as a rectangle in
@@ -291,62 +302,46 @@ public final class CursorAnchorInfo implements Parcelable {
          * @param lineBottom vertical position of the insertion marker, in the local coordinates
          * that will be transformed with the transformation matrix when rendered on the screen. This
          * should be calculated or compatible with {@link Layout#getLineBottom(int)}.
-         * @param clipped {@code true} is the insertion marker is partially or entierly clipped by
-         * other UI elements.
+         * @param flags flags of the insertion marker. See {@link #FLAG_HAS_VISIBLE_REGION} for
+         * example.
          */
         public Builder setInsertionMarkerLocation(final float horizontalPosition,
                 final float lineTop, final float lineBaseline, final float lineBottom,
-                final boolean clipped){
+                final int flags){
             mInsertionMarkerHorizontal = horizontalPosition;
             mInsertionMarkerTop = lineTop;
             mInsertionMarkerBaseline = lineBaseline;
             mInsertionMarkerBottom = lineBottom;
-            mInsertionMarkerClipped = clipped;
+            mInsertionMarkerFlags = flags;
             return this;
         }
-        private float mInsertionMarkerHorizontal = Float.NaN;
-        private float mInsertionMarkerTop = Float.NaN;
-        private float mInsertionMarkerBaseline = Float.NaN;
-        private float mInsertionMarkerBottom = Float.NaN;
-        private boolean mInsertionMarkerClipped = false;
 
         /**
          * Adds the bounding box of the character specified with the index.
          *
          * @param index index of the character in Java chars units. Must be specified in
          * ascending order across successive calls.
-         * @param leadingEdgeX x coordinate of the leading edge of the character in local
-         * coordinates, that is, left edge for LTR text and right edge for RTL text.
-         * @param leadingEdgeY y coordinate of the leading edge of the character in local
-         * coordinates.
-         * @param trailingEdgeX x coordinate of the trailing edge of the character in local
-         * coordinates, that is, right edge for LTR text and left edge for RTL text.
-         * @param trailingEdgeY y coordinate of the trailing edge of the character in local
-         * coordinates.
-         * @param flags type and flags for this character. See
-         * {@link #CHARACTER_RECT_TYPE_FULLY_VISIBLE} for example.
+         * @param left x coordinate of the left edge of the character in local coordinates.
+         * @param top y coordinate of the top edge of the character in local coordinates.
+         * @param right x coordinate of the right edge of the character in local coordinates.
+         * @param bottom y coordinate of the bottom edge of the character in local coordinates.
+         * @param flags flags for this character bounds. See {@link #FLAG_HAS_VISIBLE_REGION},
+         * {@link #FLAG_HAS_INVISIBLE_REGION} and {@link #FLAG_IS_RTL}. These flags must be
+         * specified when necessary.
          * @throws IllegalArgumentException If the index is a negative value, or not greater than
          * all of the previously called indices.
          */
-        public Builder addCharacterRect(final int index, final float leadingEdgeX,
-                final float leadingEdgeY, final float trailingEdgeX, final float trailingEdgeY,
-                final int flags) {
+        public Builder addCharacterBounds(final int index, final float left, final float top,
+                final float right, final float bottom, final int flags) {
             if (index < 0) {
                 throw new IllegalArgumentException("index must not be a negative integer.");
             }
-            final int type = flags & CHARACTER_RECT_TYPE_MASK;
-            if (type == CHARACTER_RECT_TYPE_UNSPECIFIED) {
-                throw new IllegalArgumentException("Type except for "
-                        + "CHARACTER_RECT_TYPE_UNSPECIFIED must be specified.");
+            if (mCharacterBoundsArrayBuilder == null) {
+                mCharacterBoundsArrayBuilder = new SparseRectFArrayBuilder();
             }
-            if (mCharacterRectBuilder == null) {
-                mCharacterRectBuilder = new SparseRectFArrayBuilder();
-            }
-            mCharacterRectBuilder.append(index, leadingEdgeX, leadingEdgeY, trailingEdgeX,
-                    trailingEdgeY, flags);
+            mCharacterBoundsArrayBuilder.append(index, left, top, right, bottom, flags);
             return this;
         }
-        private SparseRectFArrayBuilder mCharacterRectBuilder = null;
 
         /**
          * Sets the matrix that transforms local coordinates into screen coordinates.
@@ -358,8 +353,6 @@ public final class CursorAnchorInfo implements Parcelable {
             mMatrixInitialized = true;
             return this;
         }
-        private final Matrix mMatrix = new Matrix(Matrix.IDENTITY_MATRIX);
-        private boolean mMatrixInitialized = false;
 
         /**
          * @return {@link CursorAnchorInfo} using parameters in this {@link Builder}.
@@ -368,13 +361,15 @@ public final class CursorAnchorInfo implements Parcelable {
          */
         public CursorAnchorInfo build() {
             if (!mMatrixInitialized) {
-                // Coordinate transformation matrix is mandatory when positional parameters are
-                // specified.
-                if ((mCharacterRectBuilder != null && !mCharacterRectBuilder.isEmpty()) ||
-                        !Float.isNaN(mInsertionMarkerHorizontal) ||
-                        !Float.isNaN(mInsertionMarkerTop) ||
-                        !Float.isNaN(mInsertionMarkerBaseline) ||
-                        !Float.isNaN(mInsertionMarkerBottom)) {
+                // Coordinate transformation matrix is mandatory when at least one positional
+                // parameter is specified.
+                final boolean hasCharacterBounds = (mCharacterBoundsArrayBuilder != null
+                        && !mCharacterBoundsArrayBuilder.isEmpty());
+                if (hasCharacterBounds
+                        || !Float.isNaN(mInsertionMarkerHorizontal)
+                        || !Float.isNaN(mInsertionMarkerTop)
+                        || !Float.isNaN(mInsertionMarkerBaseline)
+                        || !Float.isNaN(mInsertionMarkerBottom)) {
                     throw new IllegalArgumentException("Coordinate transformation matrix is " +
                             "required when positional parameters are specified.");
                 }
@@ -391,15 +386,15 @@ public final class CursorAnchorInfo implements Parcelable {
             mSelectionEnd = -1;
             mComposingTextStart = -1;
             mComposingText = null;
-            mInsertionMarkerClipped = false;
+            mInsertionMarkerFlags = 0;
             mInsertionMarkerHorizontal = Float.NaN;
             mInsertionMarkerTop = Float.NaN;
             mInsertionMarkerBaseline = Float.NaN;
             mInsertionMarkerBottom = Float.NaN;
             mMatrix.set(Matrix.IDENTITY_MATRIX);
             mMatrixInitialized = false;
-            if (mCharacterRectBuilder != null) {
-                mCharacterRectBuilder.reset();
+            if (mCharacterBoundsArrayBuilder != null) {
+                mCharacterBoundsArrayBuilder.reset();
             }
         }
     }
@@ -409,13 +404,13 @@ public final class CursorAnchorInfo implements Parcelable {
         mSelectionEnd = builder.mSelectionEnd;
         mComposingTextStart = builder.mComposingTextStart;
         mComposingText = builder.mComposingText;
-        mInsertionMarkerClipped = builder.mInsertionMarkerClipped;
+        mInsertionMarkerFlags = builder.mInsertionMarkerFlags;
         mInsertionMarkerHorizontal = builder.mInsertionMarkerHorizontal;
         mInsertionMarkerTop = builder.mInsertionMarkerTop;
         mInsertionMarkerBaseline = builder.mInsertionMarkerBaseline;
         mInsertionMarkerBottom = builder.mInsertionMarkerBottom;
-        mCharacterRects = builder.mCharacterRectBuilder != null ?
-                builder.mCharacterRectBuilder.build() : null;
+        mCharacterBoundsArray = builder.mCharacterBoundsArrayBuilder != null ?
+                builder.mCharacterBoundsArrayBuilder.build() : null;
         mMatrix = new Matrix(builder.mMatrix);
     }
 
@@ -452,11 +447,11 @@ public final class CursorAnchorInfo implements Parcelable {
     }
 
     /**
-     * Returns the visibility of the insertion marker.
-     * @return {@code true} if the insertion marker is partially or entirely clipped.
+     * Returns the flag of the insertion marker.
+     * @return the flag of the insertion marker. {@code 0} if no flag is specified.
      */
-    public boolean isInsertionMarkerClipped() {
-        return mInsertionMarkerClipped;
+    public int getInsertionMarkerFlags() {
+        return mInsertionMarkerFlags;
     }
 
     /**
@@ -504,38 +499,26 @@ public final class CursorAnchorInfo implements Parcelable {
     /**
      * Returns a new instance of {@link RectF} that indicates the location of the character
      * specified with the index.
-     * <p>
-     * Note that coordinates are not necessarily contiguous or even monotonous, especially when
-     * RTL text and LTR text are mixed.
-     * </p>
      * @param index index of the character in a Java chars.
-     * @return a new instance of {@link RectF} that represents the location of the character in
-     * local coordinates. null if the character is invisible or the application did not provide
-     * the location. Note that the {@code left} field can be greater than the {@code right} field
-     * if the character is in RTL text. Returns {@code null} if no location information is
-     * available.
+     * @return the character bounds in local coordinates as a new instance of {@link RectF}.
      */
-    // TODO: Prepare a document about the expected behavior for surrogate pairs, combining
-    // characters, and non-graphical chars.
-    public RectF getCharacterRect(final int index) {
-        if (mCharacterRects == null) {
+    public RectF getCharacterBounds(final int index) {
+        if (mCharacterBoundsArray == null) {
             return null;
         }
-        return mCharacterRects.get(index);
+        return mCharacterBoundsArray.get(index);
     }
 
     /**
-     * Returns the flags associated with the character specified with the index.
+     * Returns the flags associated with the character bounds specified with the index.
      * @param index index of the character in a Java chars.
-     * @return {@link #CHARACTER_RECT_TYPE_UNSPECIFIED} if no flag is specified.
+     * @return {@code 0} if no flag is specified.
      */
-    // TODO: Prepare a document about the expected behavior for surrogate pairs, combining
-    // characters, and non-graphical chars.
-    public int getCharacterRectFlags(final int index) {
-        if (mCharacterRects == null) {
-            return CHARACTER_RECT_TYPE_UNSPECIFIED;
+    public int getCharacterBoundsFlags(final int index) {
+        if (mCharacterBoundsArray == null) {
+            return 0;
         }
-        return mCharacterRects.getFlags(index, CHARACTER_RECT_TYPE_UNSPECIFIED);
+        return mCharacterBoundsArray.getFlags(index, 0);
     }
 
     /**

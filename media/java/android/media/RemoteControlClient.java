@@ -18,28 +18,20 @@ package android.media;
 
 import android.app.PendingIntent;
 import android.content.ComponentName;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.RectF;
 import android.media.session.MediaSessionLegacyHelper;
 import android.media.session.PlaybackState;
 import android.media.session.MediaSession;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
-import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.util.Log;
 
 import java.lang.IllegalArgumentException;
-import java.util.ArrayList;
-import java.util.Iterator;
 
 /**
  * RemoteControlClient enables exposing information meant to be consumed by remote controls
@@ -63,8 +55,10 @@ import java.util.Iterator;
  * // create and register the remote control client
  * RemoteControlClient myRemoteControlClient = new RemoteControlClient(mediaPendingIntent);
  * myAudioManager.registerRemoteControlClient(myRemoteControlClient);</pre>
+ *
+ * @deprecated Use {@link MediaSession} instead.
  */
-public class RemoteControlClient
+@Deprecated public class RemoteControlClient
 {
     private final static String TAG = "RemoteControlClient";
     private final static boolean DEBUG = false;
@@ -395,6 +389,7 @@ public class RemoteControlClient
     public void registerWithSession(MediaSessionLegacyHelper helper) {
         helper.addRccListener(mRcMediaIntent, mTransportListener);
         mSession = helper.getSession(mRcMediaIntent);
+        setTransportControlFlags(mTransportControlFlags);
     }
 
     /**
@@ -425,8 +420,10 @@ public class RemoteControlClient
      * has been set, use {@link #apply()} to make it the new metadata that should be displayed
      * for the associated client. Once the metadata has been "applied", you cannot reuse this
      * instance of the MetadataEditor.
+     *
+     * @deprecated Use {@link MediaMetadata} and {@link MediaSession} instead.
      */
-    public class MetadataEditor extends MediaMetadataEditor {
+    @Deprecated public class MetadataEditor extends MediaMetadataEditor {
 
         // only use RemoteControlClient.editMetadata() to get a MetadataEditor instance
         private MetadataEditor() { }
@@ -477,7 +474,7 @@ public class RemoteControlClient
                 String metadataKey = MediaMetadata.getKeyFromMetadataEditorKey(key);
                 // But just in case, don't add things we don't understand
                 if (metadataKey != null) {
-                    mMetadataBuilder.putString(metadataKey, value);
+                    mMetadataBuilder.putText(metadataKey, value);
                 }
             }
 
@@ -538,6 +535,21 @@ public class RemoteControlClient
             return this;
         }
 
+        @Override
+        public synchronized MetadataEditor putObject(int key, Object object)
+                throws IllegalArgumentException {
+            super.putObject(key, object);
+            if (mMetadataBuilder != null &&
+                    (key == MediaMetadataEditor.RATING_KEY_BY_USER ||
+                    key == MediaMetadataEditor.RATING_KEY_BY_OTHERS)) {
+                String metadataKey = MediaMetadata.getKeyFromMetadataEditorKey(key);
+                if (metadataKey != null) {
+                    mMetadataBuilder.putRating(metadataKey, (Rating) object);
+                }
+            }
+            return this;
+        }
+
         /**
          * Clears all the metadata that has been set since the MetadataEditor instance was created
          * (with {@link RemoteControlClient#editMetadata(boolean)}).
@@ -575,7 +587,8 @@ public class RemoteControlClient
 
                 // USE_SESSIONS
                 if (mSession != null && mMetadataBuilder != null) {
-                    mSession.setMetadata(mMetadataBuilder.build());
+                    mMediaMetadata = mMetadataBuilder.build();
+                    mSession.setMetadata(mMediaMetadata);
                 }
                 mApplied = true;
             }
@@ -750,7 +763,8 @@ public class RemoteControlClient
             // USE_SESSIONS
             if (mSession != null) {
                 PlaybackState.Builder bob = new PlaybackState.Builder(mSessionPlaybackState);
-                bob.setActions(PlaybackState.getActionsFromRccControlFlags(transportControlFlags));
+                bob.setActions(
+                        PlaybackState.getActionsFromRccControlFlags(transportControlFlags));
                 mSessionPlaybackState = bob.build();
                 mSession.setPlaybackState(mSessionPlaybackState);
             }
@@ -973,8 +987,7 @@ public class RemoteControlClient
     public final static int RCSE_ID_UNREGISTERED = -1;
 
     // USE_SESSIONS
-    private MediaSession.TransportControlsCallback mTransportListener
-            = new MediaSession.TransportControlsCallback() {
+    private MediaSession.Callback mTransportListener = new MediaSession.Callback() {
 
         @Override
         public void onSeekTo(long pos) {

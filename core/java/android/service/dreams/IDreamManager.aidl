@@ -20,7 +20,6 @@ import android.content.ComponentName;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.IBinder;
-import android.service.dreams.IDozeHardware;
 
 /** @hide */
 interface IDreamManager {
@@ -31,8 +30,7 @@ interface IDreamManager {
     ComponentName getDefaultDreamComponent();
     void testDream(in ComponentName componentName);
     boolean isDreaming();
-    void finishSelf(in IBinder token);
-    void startDozing(in IBinder token);
+    void finishSelf(in IBinder token, boolean immediate);
+    void startDozing(in IBinder token, int screenState, int screenBrightness);
     void stopDozing(in IBinder token);
-    IDozeHardware getDozeHardware(in IBinder token);
 }

@@ -58,11 +58,17 @@ enum {
     EVENT_SET_CALLBACK = 2,
 };
 
-struct CryptoErrorCodes {
+static struct CryptoErrorCodes {
     jint cryptoErrorNoKey;
     jint cryptoErrorKeyExpired;
     jint cryptoErrorResourceBusy;
+    jint cryptoErrorInsufficientOutputProtection;
 } gCryptoErrorCodes;
+
+static struct CodecActionCodes {
+    jint codecActionTransient;
+    jint codecActionRecoverable;
+} gCodecActionCodes;
 
 struct fields_t {
     jfieldID context;
@@ -90,6 +96,8 @@ JMediaCodec::JMediaCodec(
     mClass = (jclass)env->NewGlobalRef(clazz);
     mObject = env->NewWeakGlobalRef(thiz);
 
+    cacheJavaObjects(env);
+
     mLooper = new ALooper;
     mLooper->setName("MediaCodec_looper");
 
@@ -99,14 +107,54 @@ JMediaCodec::JMediaCodec(
             PRIORITY_FOREGROUND);
 
     if (nameIsType) {
-        mCodec = MediaCodec::CreateByType(mLooper, name, encoder);
+        mCodec = MediaCodec::CreateByType(mLooper, name, encoder, &mInitStatus);
     } else {
-        mCodec = MediaCodec::CreateByComponentName(mLooper, name);
+        mCodec = MediaCodec::CreateByComponentName(mLooper, name, &mInitStatus);
     }
+    CHECK((mCodec != NULL) != (mInitStatus != OK));
+}
+
+void JMediaCodec::cacheJavaObjects(JNIEnv *env) {
+    jclass clazz = (jclass)env->FindClass("java/nio/ByteBuffer");
+    mByteBufferClass = (jclass)env->NewGlobalRef(clazz);
+    CHECK(mByteBufferClass != NULL);
+
+    ScopedLocalRef<jclass> byteOrderClass(
+            env, env->FindClass("java/nio/ByteOrder"));
+    CHECK(byteOrderClass.get() != NULL);
+
+    jmethodID nativeOrderID = env->GetStaticMethodID(
+            byteOrderClass.get(), "nativeOrder", "()Ljava/nio/ByteOrder;");
+    CHECK(nativeOrderID != NULL);
+
+    jobject nativeByteOrderObj =
+        env->CallStaticObjectMethod(byteOrderClass.get(), nativeOrderID);
+    mNativeByteOrderObj = env->NewGlobalRef(nativeByteOrderObj);
+    CHECK(mNativeByteOrderObj != NULL);
+    env->DeleteLocalRef(nativeByteOrderObj);
+    nativeByteOrderObj = NULL;
+
+    mByteBufferOrderMethodID = env->GetMethodID(
+            mByteBufferClass,
+            "order",
+            "(Ljava/nio/ByteOrder;)Ljava/nio/ByteBuffer;");
+    CHECK(mByteBufferOrderMethodID != NULL);
+
+    mByteBufferAsReadOnlyBufferMethodID = env->GetMethodID(
+            mByteBufferClass, "asReadOnlyBuffer", "()Ljava/nio/ByteBuffer;");
+    CHECK(mByteBufferAsReadOnlyBufferMethodID != NULL);
+
+    mByteBufferPositionMethodID = env->GetMethodID(
+            mByteBufferClass, "position", "(I)Ljava/nio/Buffer;");
+    CHECK(mByteBufferPositionMethodID != NULL);
+
+    mByteBufferLimitMethodID = env->GetMethodID(
+            mByteBufferClass, "limit", "(I)Ljava/nio/Buffer;");
+    CHECK(mByteBufferLimitMethodID != NULL);
 }
 
 status_t JMediaCodec::initCheck() const {
-    return mCodec != NULL ? OK : NO_INIT;
+    return mInitStatus;
 }
 
 void JMediaCodec::registerSelf() {
@@ -117,6 +165,7 @@ void JMediaCodec::release() {
     if (mCodec != NULL) {
         mCodec->release();
         mCodec.clear();
+        mInitStatus = NO_INIT;
     }
 
     if (mLooper != NULL) {
@@ -148,6 +197,19 @@ JMediaCodec::~JMediaCodec() {
     mObject = NULL;
     env->DeleteGlobalRef(mClass);
     mClass = NULL;
+    deleteJavaObjects(env);
+}
+
+void JMediaCodec::deleteJavaObjects(JNIEnv *env) {
+    env->DeleteGlobalRef(mByteBufferClass);
+    mByteBufferClass = NULL;
+    env->DeleteGlobalRef(mNativeByteOrderObj);
+    mNativeByteOrderObj = NULL;
+
+    mByteBufferOrderMethodID = NULL;
+    mByteBufferAsReadOnlyBufferMethodID = NULL;
+    mByteBufferPositionMethodID = NULL;
+    mByteBufferLimitMethodID = NULL;
 }
 
 status_t JMediaCodec::setCallback(jobject cb) {
@@ -298,80 +360,69 @@ status_t JMediaCodec::getBuffers(
         return err;
     }
 
-    ScopedLocalRef<jclass> byteBufferClass(
-            env, env->FindClass("java/nio/ByteBuffer"));
-
-    CHECK(byteBufferClass.get() != NULL);
-
-    jmethodID orderID = env->GetMethodID(
-            byteBufferClass.get(),
-            "order",
-            "(Ljava/nio/ByteOrder;)Ljava/nio/ByteBuffer;");
-
-    CHECK(orderID != NULL);
-
-    jmethodID asReadOnlyBufferID = env->GetMethodID(
-            byteBufferClass.get(), "asReadOnlyBuffer", "()Ljava/nio/ByteBuffer;");
-
-    CHECK(asReadOnlyBufferID != NULL);
-
-    ScopedLocalRef<jclass> byteOrderClass(
-            env, env->FindClass("java/nio/ByteOrder"));
-
-    CHECK(byteOrderClass.get() != NULL);
-
-    jmethodID nativeOrderID = env->GetStaticMethodID(
-            byteOrderClass.get(), "nativeOrder", "()Ljava/nio/ByteOrder;");
-    CHECK(nativeOrderID != NULL);
-
-    jobject nativeByteOrderObj =
-        env->CallStaticObjectMethod(byteOrderClass.get(), nativeOrderID);
-    CHECK(nativeByteOrderObj != NULL);
-
     *bufArray = (jobjectArray)env->NewObjectArray(
-            buffers.size(), byteBufferClass.get(), NULL);
+            buffers.size(), mByteBufferClass, NULL);
     if (*bufArray == NULL) {
-        env->DeleteLocalRef(nativeByteOrderObj);
         return NO_MEMORY;
     }
 
     for (size_t i = 0; i < buffers.size(); ++i) {
         const sp<ABuffer> &buffer = buffers.itemAt(i);
 
-        // if this is an ABuffer that doesn't actually hold any accessible memory,
-        // use a null ByteBuffer
-        if (buffer->base() == NULL) {
-            continue;
+        jobject byteBuffer = NULL;
+        err = createByteBufferFromABuffer(
+                env, !input /* readOnly */, true /* clearBuffer */, buffer, &byteBuffer);
+        if (err != OK) {
+            return err;
         }
-        jobject byteBuffer =
-            env->NewDirectByteBuffer(
-                buffer->base(),
-                buffer->capacity());
-        if (!input && byteBuffer != NULL) {
-            jobject readOnlyBuffer = env->CallObjectMethod(
-                    byteBuffer, asReadOnlyBufferID);
+        if (byteBuffer != NULL) {
+            env->SetObjectArrayElement(
+                    *bufArray, i, byteBuffer);
+
             env->DeleteLocalRef(byteBuffer);
-            byteBuffer = readOnlyBuffer;
+            byteBuffer = NULL;
         }
-        if (byteBuffer == NULL) {
-            env->DeleteLocalRef(nativeByteOrderObj);
-            return NO_MEMORY;
-        }
-        jobject me = env->CallObjectMethod(
-                byteBuffer, orderID, nativeByteOrderObj);
-        env->DeleteLocalRef(me);
-        me = NULL;
-
-        env->SetObjectArrayElement(
-                *bufArray, i, byteBuffer);
-
-        env->DeleteLocalRef(byteBuffer);
-        byteBuffer = NULL;
     }
 
-    env->DeleteLocalRef(nativeByteOrderObj);
-    nativeByteOrderObj = NULL;
+    return OK;
+}
 
+// static
+status_t JMediaCodec::createByteBufferFromABuffer(
+        JNIEnv *env, bool readOnly, bool clearBuffer, const sp<ABuffer> &buffer,
+        jobject *buf) const {
+    // if this is an ABuffer that doesn't actually hold any accessible memory,
+    // use a null ByteBuffer
+    *buf = NULL;
+    if (buffer->base() == NULL) {
+        return OK;
+    }
+
+    jobject byteBuffer =
+        env->NewDirectByteBuffer(buffer->base(), buffer->capacity());
+    if (readOnly && byteBuffer != NULL) {
+        jobject readOnlyBuffer = env->CallObjectMethod(
+                byteBuffer, mByteBufferAsReadOnlyBufferMethodID);
+        env->DeleteLocalRef(byteBuffer);
+        byteBuffer = readOnlyBuffer;
+    }
+    if (byteBuffer == NULL) {
+        return NO_MEMORY;
+    }
+    jobject me = env->CallObjectMethod(
+            byteBuffer, mByteBufferOrderMethodID, mNativeByteOrderObj);
+    env->DeleteLocalRef(me);
+    me = env->CallObjectMethod(
+            byteBuffer, mByteBufferLimitMethodID,
+            clearBuffer ? buffer->capacity() : (buffer->offset() + buffer->size()));
+    env->DeleteLocalRef(me);
+    me = env->CallObjectMethod(
+            byteBuffer, mByteBufferPositionMethodID,
+            clearBuffer ? 0 : buffer->offset());
+    env->DeleteLocalRef(me);
+    me = NULL;
+
+    *buf = byteBuffer;
     return OK;
 }
 
@@ -388,85 +439,8 @@ status_t JMediaCodec::getBuffer(
         return err;
     }
 
-    ScopedLocalRef<jclass> byteBufferClass(
-            env, env->FindClass("java/nio/ByteBuffer"));
-
-    CHECK(byteBufferClass.get() != NULL);
-
-    jmethodID orderID = env->GetMethodID(
-            byteBufferClass.get(),
-            "order",
-            "(Ljava/nio/ByteOrder;)Ljava/nio/ByteBuffer;");
-
-    CHECK(orderID != NULL);
-
-    jmethodID asReadOnlyBufferID = env->GetMethodID(
-            byteBufferClass.get(), "asReadOnlyBuffer", "()Ljava/nio/ByteBuffer;");
-
-    CHECK(asReadOnlyBufferID != NULL);
-
-    jmethodID positionID = env->GetMethodID(
-            byteBufferClass.get(), "position", "(I)Ljava/nio/Buffer;");
-
-    CHECK(positionID != NULL);
-
-    jmethodID limitID = env->GetMethodID(
-            byteBufferClass.get(), "limit", "(I)Ljava/nio/Buffer;");
-
-    CHECK(limitID != NULL);
-
-    ScopedLocalRef<jclass> byteOrderClass(
-            env, env->FindClass("java/nio/ByteOrder"));
-
-    CHECK(byteOrderClass.get() != NULL);
-
-    jmethodID nativeOrderID = env->GetStaticMethodID(
-            byteOrderClass.get(), "nativeOrder", "()Ljava/nio/ByteOrder;");
-    CHECK(nativeOrderID != NULL);
-
-    jobject nativeByteOrderObj =
-        env->CallStaticObjectMethod(byteOrderClass.get(), nativeOrderID);
-    CHECK(nativeByteOrderObj != NULL);
-
-    // if this is an ABuffer that doesn't actually hold any accessible memory,
-    // use a null ByteBuffer
-    if (buffer->base() == NULL) {
-        *buf = NULL;
-        return OK;
-    }
-
-    jobject byteBuffer =
-        env->NewDirectByteBuffer(
-            buffer->base(),
-            buffer->capacity());
-    if (!input && byteBuffer != NULL) {
-        jobject readOnlyBuffer = env->CallObjectMethod(
-                byteBuffer, asReadOnlyBufferID);
-        env->DeleteLocalRef(byteBuffer);
-        byteBuffer = readOnlyBuffer;
-    }
-    if (byteBuffer == NULL) {
-        env->DeleteLocalRef(nativeByteOrderObj);
-        return NO_MEMORY;
-    }
-    jobject me = env->CallObjectMethod(
-            byteBuffer, orderID, nativeByteOrderObj);
-    env->DeleteLocalRef(me);
-    me = env->CallObjectMethod(
-            byteBuffer, limitID,
-            input ? buffer->capacity() : (buffer->offset() + buffer->size()));
-    env->DeleteLocalRef(me);
-    me = env->CallObjectMethod(
-            byteBuffer, positionID,
-            input ? 0 : buffer->offset());
-    env->DeleteLocalRef(me);
-    me = NULL;
-
-    env->DeleteLocalRef(nativeByteOrderObj);
-    nativeByteOrderObj = NULL;
-
-    *buf = byteBuffer;
-    return OK;
+    return createByteBufferFromABuffer(
+            env, !input /* readOnly */, input /* clearBuffer */, buffer, buf);
 }
 
 status_t JMediaCodec::getImage(
@@ -490,14 +464,79 @@ status_t JMediaCodec::getImage(
     }
 
     // check if buffer is an image
-    AString imageData;
-    if (!buffer->meta()->findString("image-data", &imageData)) {
+    sp<ABuffer> imageData;
+    if (!buffer->meta()->findBuffer("image-data", &imageData)) {
         return OK;
     }
 
+    int64_t timestamp = 0;
+    if (!input && buffer->meta()->findInt64("timeUs", &timestamp)) {
+        timestamp *= 1000; // adjust to ns
+    }
+
+    jobject byteBuffer = NULL;
+    err = createByteBufferFromABuffer(
+            env, !input /* readOnly */, input /* clearBuffer */, buffer, &byteBuffer);
+    if (err != OK) {
+        return OK;
+    }
+
+    jobject infoBuffer = NULL;
+    err = createByteBufferFromABuffer(
+            env, true /* readOnly */, true /* clearBuffer */, imageData, &infoBuffer);
+    if (err != OK) {
+        env->DeleteLocalRef(byteBuffer);
+        byteBuffer = NULL;
+        return OK;
+    }
+
+    jobject cropRect = NULL;
+    int32_t left, top, right, bottom;
+    if (buffer->meta()->findRect("crop-rect", &left, &top, &right, &bottom)) {
+        ScopedLocalRef<jclass> rectClazz(
+                env, env->FindClass("android/graphics/Rect"));
+        CHECK(rectClazz.get() != NULL);
+
+        jmethodID rectConstructID = env->GetMethodID(
+                rectClazz.get(), "<init>", "(IIII)V");
+
+        cropRect = env->NewObject(
+                rectClazz.get(), rectConstructID, left, top, right + 1, bottom + 1);
+    }
+
+    ScopedLocalRef<jclass> imageClazz(
+            env, env->FindClass("android/media/MediaCodec$MediaImage"));
+    CHECK(imageClazz.get() != NULL);
+
+    jmethodID imageConstructID = env->GetMethodID(imageClazz.get(), "<init>",
+            "(Ljava/nio/ByteBuffer;Ljava/nio/ByteBuffer;ZJIILandroid/graphics/Rect;)V");
+
+    *buf = env->NewObject(imageClazz.get(), imageConstructID,
+            byteBuffer, infoBuffer,
+            (jboolean)!input /* readOnly */,
+            (jlong)timestamp,
+            (jint)0 /* xOffset */, (jint)0 /* yOffset */, cropRect);
+
+    // if MediaImage creation fails, return null
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        *buf = NULL;
+    }
+
+    if (cropRect != NULL) {
+        env->DeleteLocalRef(cropRect);
+        cropRect = NULL;
+    }
+
+    env->DeleteLocalRef(byteBuffer);
+    byteBuffer = NULL;
+
+    env->DeleteLocalRef(infoBuffer);
+    infoBuffer = NULL;
+
     return OK;
 }
-
 
 status_t JMediaCodec::getName(JNIEnv *env, jstring *nameStr) const {
     AString name;
@@ -521,6 +560,34 @@ void JMediaCodec::setVideoScalingMode(int mode) {
     if (mSurfaceTextureClient != NULL) {
         native_window_set_scaling_mode(mSurfaceTextureClient.get(), mode);
     }
+}
+
+static jthrowable createCodecException(
+        JNIEnv *env, status_t err, int32_t actionCode, const char *msg = NULL) {
+    ScopedLocalRef<jclass> clazz(
+            env, env->FindClass("android/media/MediaCodec$CodecException"));
+    CHECK(clazz.get() != NULL);
+
+    const jmethodID ctor = env->GetMethodID(clazz.get(), "<init>", "(IILjava/lang/String;)V");
+    CHECK(ctor != NULL);
+
+    ScopedLocalRef<jstring> msgObj(
+            env, env->NewStringUTF(msg != NULL ? msg : String8::format("Error %#x", err)));
+
+    // translate action code to Java equivalent
+    switch (actionCode) {
+    case ACTION_CODE_TRANSIENT:
+        actionCode = gCodecActionCodes.codecActionTransient;
+        break;
+    case ACTION_CODE_RECOVERABLE:
+        actionCode = gCodecActionCodes.codecActionRecoverable;
+        break;
+    default:
+        actionCode = 0;  // everything else is fatal
+        break;
+    }
+
+    return (jthrowable)env->NewObject(clazz.get(), ctor, err, actionCode, msgObj.get());
 }
 
 void JMediaCodec::handleCallback(const sp<AMessage> &msg) {
@@ -574,19 +641,8 @@ void JMediaCodec::handleCallback(const sp<AMessage> &msg) {
             CHECK(msg->findInt32("err", &err));
             CHECK(msg->findInt32("actionCode", &actionCode));
 
-            // use Integer object to pass the action code
-            ScopedLocalRef<jclass> clazz(
-                    env, env->FindClass("android/media/MediaCodec$CodecException"));
-            jmethodID ctor = env->GetMethodID(clazz.get(), "<init>", "(IILjava/lang/String;)V");
-
-            AString str;
-            const char *detail = "Unknown error";
-            if (msg->findString("detail", &str)) {
-                detail = str.c_str();
-            }
-            jstring msgObj = env->NewStringUTF(detail);
-
-            obj = env->NewObject(clazz.get(), ctor, err, actionCode, msgObj);
+            // note that DRM errors could conceivably alias into a CodecException
+            obj = (jobject)createCodecException(env, err, actionCode);
 
             if (obj == NULL) {
                 if (env->ExceptionCheck()) {
@@ -674,6 +730,11 @@ static void android_media_MediaCodec_release(JNIEnv *env, jobject thiz) {
     setMediaCodec(env, thiz, NULL);
 }
 
+static void throwCodecException(JNIEnv *env, status_t err, int32_t actionCode, const char *msg) {
+    jthrowable exception = createCodecException(env, err, actionCode, msg);
+    env->Throw(exception);
+}
+
 static void throwCryptoException(JNIEnv *env, status_t err, const char *msg) {
     ScopedLocalRef<jclass> clazz(
             env, env->FindClass("android/media/MediaCodec$CryptoException"));
@@ -685,7 +746,7 @@ static void throwCryptoException(JNIEnv *env, status_t err, const char *msg) {
 
     jstring msgObj = env->NewStringUTF(msg != NULL ? msg : "Unknown Error");
 
-    /* translate OS errors to Java API CryptoException errorCodes */
+    /* translate OS errors to Java API CryptoException errorCodes (which are positive) */
     switch (err) {
         case ERROR_DRM_NO_LICENSE:
             err = gCryptoErrorCodes.cryptoErrorNoKey;
@@ -696,7 +757,10 @@ static void throwCryptoException(JNIEnv *env, status_t err, const char *msg) {
         case ERROR_DRM_RESOURCE_BUSY:
             err = gCryptoErrorCodes.cryptoErrorResourceBusy;
             break;
-        default:
+        case ERROR_DRM_INSUFFICIENT_OUTPUT_PROTECTION:
+            err = gCryptoErrorCodes.cryptoErrorInsufficientOutputProtection;
+            break;
+        default:  /* Other negative DRM error codes go out as is. */
             break;
     }
 
@@ -707,13 +771,8 @@ static void throwCryptoException(JNIEnv *env, status_t err, const char *msg) {
 }
 
 static jint throwExceptionAsNecessary(
-        JNIEnv *env, status_t err, const char *msg = NULL) {
-    if (err >= ERROR_DRM_VENDOR_MIN && err <= ERROR_DRM_VENDOR_MAX) {
-        // We'll throw our custom MediaCodec.CryptoException
-        throwCryptoException(env, err, msg);
-        return 0;
-    }
-
+        JNIEnv *env, status_t err, int32_t actionCode = ACTION_CODE_FATAL,
+        const char *msg = NULL) {
     switch (err) {
         case OK:
             return 0;
@@ -727,20 +786,18 @@ static jint throwExceptionAsNecessary(
         case INFO_OUTPUT_BUFFERS_CHANGED:
             return DEQUEUE_INFO_OUTPUT_BUFFERS_CHANGED;
 
-        case ERROR_DRM_NO_LICENSE:
-        case ERROR_DRM_LICENSE_EXPIRED:
-        case ERROR_DRM_RESOURCE_BUSY:
-            throwCryptoException(env, err, msg);
-            break;
+        case INVALID_OPERATION:
+            jniThrowException(env, "java/lang/IllegalStateException", msg);
+            return 0;
 
         default:
-        {
-            jniThrowException(env, "java/lang/IllegalStateException", msg);
-            break;
-        }
+            if (isCryptoError(err)) {
+                throwCryptoException(env, err, msg);
+                return 0;
+            }
+            throwCodecException(env, err, actionCode, msg);
+            return 0;
     }
-
-    return 0;
 }
 
 static void android_media_MediaCodec_native_setCallback(
@@ -750,7 +807,7 @@ static void android_media_MediaCodec_native_setCallback(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -769,7 +826,7 @@ static void android_media_MediaCodec_native_configure(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -811,7 +868,7 @@ static jobject android_media_MediaCodec_createInputSurface(JNIEnv* env,
 
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return NULL;
     }
 
@@ -834,13 +891,13 @@ static void android_media_MediaCodec_start(JNIEnv *env, jobject thiz) {
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", "no codec found");
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
     status_t err = codec->start();
 
-    throwExceptionAsNecessary(env, err, "start failed");
+    throwExceptionAsNecessary(env, err, ACTION_CODE_FATAL, "start failed");
 }
 
 static void android_media_MediaCodec_stop(JNIEnv *env, jobject thiz) {
@@ -849,7 +906,7 @@ static void android_media_MediaCodec_stop(JNIEnv *env, jobject thiz) {
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -864,8 +921,7 @@ static void android_media_MediaCodec_reset(JNIEnv *env, jobject thiz) {
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        // should never be here
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -873,7 +929,10 @@ static void android_media_MediaCodec_reset(JNIEnv *env, jobject thiz) {
     if (err != OK) {
         // treat all errors as fatal for now, though resource not available
         // errors could be treated as transient.
-        err = 0x80000000;
+        // we also should avoid sending INVALID_OPERATION here due to
+        // the transitory nature of reset(), it should not inadvertently
+        // trigger an IllegalStateException.
+        err = UNKNOWN_ERROR;
     }
     throwExceptionAsNecessary(env, err);
 }
@@ -884,7 +943,7 @@ static void android_media_MediaCodec_flush(JNIEnv *env, jobject thiz) {
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -906,7 +965,7 @@ static void android_media_MediaCodec_queueInputBuffer(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -916,7 +975,7 @@ static void android_media_MediaCodec_queueInputBuffer(
             index, offset, size, timestampUs, flags, &errorDetailMsg);
 
     throwExceptionAsNecessary(
-            env, err, errorDetailMsg.empty() ? NULL : errorDetailMsg.c_str());
+            env, err, ACTION_CODE_FATAL, errorDetailMsg.empty() ? NULL : errorDetailMsg.c_str());
 }
 
 static void android_media_MediaCodec_queueSecureInputBuffer(
@@ -932,7 +991,7 @@ static void android_media_MediaCodec_queueSecureInputBuffer(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -974,7 +1033,7 @@ static void android_media_MediaCodec_queueSecureInputBuffer(
         err = -ERANGE;
     // subSamples array may silently overflow if number of samples are too large.  Use
     // INT32_MAX as maximum allocation size may be less than SIZE_MAX on some platforms
-    } else if ( CC_UNLIKELY(numSubSamples >= INT32_MAX / sizeof(*subSamples)) ) {
+    } else if ( CC_UNLIKELY(numSubSamples >= (signed)(INT32_MAX / sizeof(*subSamples))) ) {
         err = -EINVAL;
     } else {
         jboolean isCopy;
@@ -1058,7 +1117,7 @@ static void android_media_MediaCodec_queueSecureInputBuffer(
     subSamples = NULL;
 
     throwExceptionAsNecessary(
-            env, err, errorDetailMsg.empty() ? NULL : errorDetailMsg.c_str());
+            env, err, ACTION_CODE_FATAL, errorDetailMsg.empty() ? NULL : errorDetailMsg.c_str());
 }
 
 static jint android_media_MediaCodec_dequeueInputBuffer(
@@ -1068,7 +1127,7 @@ static jint android_media_MediaCodec_dequeueInputBuffer(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return -1;
     }
 
@@ -1089,7 +1148,7 @@ static jint android_media_MediaCodec_dequeueOutputBuffer(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return 0;
     }
 
@@ -1112,7 +1171,7 @@ static void android_media_MediaCodec_releaseOutputBuffer(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -1127,7 +1186,7 @@ static void android_media_MediaCodec_signalEndOfInputStream(JNIEnv* env,
 
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -1143,7 +1202,7 @@ static jobject android_media_MediaCodec_getFormatNative(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return NULL;
     }
 
@@ -1166,7 +1225,7 @@ static jobject android_media_MediaCodec_getOutputFormatForIndexNative(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return NULL;
     }
 
@@ -1189,7 +1248,7 @@ static jobjectArray android_media_MediaCodec_getBuffers(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return NULL;
     }
 
@@ -1215,7 +1274,7 @@ static jobject android_media_MediaCodec_getBuffer(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return NULL;
     }
 
@@ -1241,7 +1300,7 @@ static jobject android_media_MediaCodec_getImage(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return NULL;
     }
 
@@ -1267,7 +1326,7 @@ static jobject android_media_MediaCodec_getName(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return NULL;
     }
 
@@ -1290,7 +1349,7 @@ static void android_media_MediaCodec_setParameters(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -1309,7 +1368,7 @@ static void android_media_MediaCodec_setVideoScalingMode(
     sp<JMediaCodec> codec = getMediaCodec(env, thiz);
 
     if (codec == NULL) {
-        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        throwExceptionAsNecessary(env, INVALID_OPERATION);
         return;
     }
 
@@ -1378,13 +1437,30 @@ static void android_media_MediaCodec_native_init(JNIEnv *env) {
     CHECK(field != NULL);
     gCryptoErrorCodes.cryptoErrorResourceBusy =
         env->GetStaticIntField(clazz.get(), field);
+
+    field = env->GetStaticFieldID(clazz.get(), "ERROR_INSUFFICIENT_OUTPUT_PROTECTION", "I");
+    CHECK(field != NULL);
+    gCryptoErrorCodes.cryptoErrorInsufficientOutputProtection =
+        env->GetStaticIntField(clazz.get(), field);
+
+    clazz.reset(env->FindClass("android/media/MediaCodec$CodecException"));
+    CHECK(clazz.get() != NULL);
+    field = env->GetStaticFieldID(clazz.get(), "ACTION_TRANSIENT", "I");
+    CHECK(field != NULL);
+    gCodecActionCodes.codecActionTransient =
+        env->GetStaticIntField(clazz.get(), field);
+
+    field = env->GetStaticFieldID(clazz.get(), "ACTION_RECOVERABLE", "I");
+    CHECK(field != NULL);
+    gCodecActionCodes.codecActionRecoverable =
+        env->GetStaticIntField(clazz.get(), field);
 }
 
 static void android_media_MediaCodec_native_setup(
         JNIEnv *env, jobject thiz,
         jstring name, jboolean nameIsType, jboolean encoder) {
     if (name == NULL) {
-        jniThrowException(env, "java/lang/IllegalArgumentException", NULL);
+        jniThrowException(env, "java/lang/NullPointerException", NULL);
         return;
     }
 
@@ -1396,18 +1472,22 @@ static void android_media_MediaCodec_native_setup(
 
     sp<JMediaCodec> codec = new JMediaCodec(env, thiz, tmp, nameIsType, encoder);
 
-    status_t err = codec->initCheck();
-
-    env->ReleaseStringUTFChars(name, tmp);
-    tmp = NULL;
-
-    if (err != OK) {
-        jniThrowException(
-                env,
-                "java/io/IOException",
-                "Failed to allocate component instance");
+    const status_t err = codec->initCheck();
+    if (err == NAME_NOT_FOUND) {
+        // fail and do not try again.
+        jniThrowException(env, "java/lang/IllegalArgumentException",
+                String8::format("Failed to initialize %s, error %#x", tmp, err));
+        env->ReleaseStringUTFChars(name, tmp);
+        return;
+    } else if (err != OK) {
+        // believed possible to try again
+        jniThrowException(env, "java/io/IOException",
+                String8::format("Failed to find matching codec %s, error %#x", tmp, err));
+        env->ReleaseStringUTFChars(name, tmp);
         return;
     }
+
+    env->ReleaseStringUTFChars(name, tmp);
 
     codec->registerSelf();
 

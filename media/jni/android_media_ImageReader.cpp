@@ -80,7 +80,7 @@ public:
 
     virtual ~JNIImageReaderContext();
 
-    virtual void onFrameAvailable();
+    virtual void onFrameAvailable(const BufferItem& item);
 
     CpuConsumer::LockedBuffer* getLockedBuffer();
 
@@ -187,7 +187,7 @@ JNIImageReaderContext::~JNIImageReaderContext() {
     mConsumer.clear();
 }
 
-void JNIImageReaderContext::onFrameAvailable()
+void JNIImageReaderContext::onFrameAvailable(const BufferItem& /*item*/)
 {
     ALOGV("%s: frame available", __FUNCTION__);
     bool needsDetach = false;
@@ -286,12 +286,16 @@ static int Image_getPixelFormat(JNIEnv* env, int format)
     return format;
 }
 
-static uint32_t Image_getJpegSize(CpuConsumer::LockedBuffer* buffer)
+static uint32_t Image_getJpegSize(CpuConsumer::LockedBuffer* buffer, bool usingRGBAOverride)
 {
     ALOG_ASSERT(buffer != NULL, "Input buffer is NULL!!!");
     uint32_t size = 0;
     uint32_t width = buffer->width;
     uint8_t* jpegBuffer = buffer->data;
+
+    if (usingRGBAOverride) {
+        width = (buffer->width + buffer->stride * (buffer->height - 1)) * 4;
+    }
 
     // First check for JPEG transport header at the end of the buffer
     uint8_t* header = jpegBuffer + (width - sizeof(struct camera3_jpeg_blob));
@@ -317,8 +321,22 @@ static uint32_t Image_getJpegSize(CpuConsumer::LockedBuffer* buffer)
     return size;
 }
 
+static bool usingRGBAToJpegOverride(int32_t bufferFormat, int32_t readerCtxFormat) {
+    return readerCtxFormat == HAL_PIXEL_FORMAT_BLOB && bufferFormat == HAL_PIXEL_FORMAT_RGBA_8888;
+}
+
+static int32_t applyFormatOverrides(int32_t bufferFormat, int32_t readerCtxFormat)
+{
+    // Using HAL_PIXEL_FORMAT_RGBA_8888 gralloc buffers containing JPEGs to get around SW
+    // write limitations for some platforms (b/17379185).
+    if (usingRGBAToJpegOverride(bufferFormat, readerCtxFormat)) {
+        return HAL_PIXEL_FORMAT_BLOB;
+    }
+    return bufferFormat;
+}
+
 static void Image_getLockedBufferInfo(JNIEnv* env, CpuConsumer::LockedBuffer* buffer, int idx,
-                                uint8_t **base, uint32_t *size)
+                                uint8_t **base, uint32_t *size, int32_t readerFormat)
 {
     ALOG_ASSERT(buffer != NULL, "Input buffer is NULL!!!");
     ALOG_ASSERT(base != NULL, "base is NULL!!!");
@@ -333,7 +351,10 @@ static void Image_getLockedBufferInfo(JNIEnv* env, CpuConsumer::LockedBuffer* bu
     int bytesPerPixel = 0;
 
     dataSize = ySize = cSize = cStride = 0;
-    int32_t fmt = buffer->format;
+    int32_t fmt = buffer->flexFormat;
+
+    bool usingRGBAOverride = usingRGBAToJpegOverride(fmt, readerFormat);
+    fmt = applyFormatOverrides(fmt, readerFormat);
     switch (fmt) {
         case HAL_PIXEL_FORMAT_YCbCr_420_888:
             pData =
@@ -342,18 +363,21 @@ static void Image_getLockedBufferInfo(JNIEnv* env, CpuConsumer::LockedBuffer* bu
                 (idx == 1) ?
                     buffer->dataCb :
                 buffer->dataCr;
+            // only map until last pixel
             if (idx == 0) {
-                dataSize = buffer->stride * buffer->height;
+                dataSize = buffer->stride * (buffer->height - 1) + buffer->width;
             } else {
-                dataSize = buffer->chromaStride * buffer->height / 2;
+                dataSize = buffer->chromaStride * (buffer->height / 2 - 1) +
+                        buffer->chromaStep * (buffer->width / 2 - 1) + 1;
             }
             break;
         // NV21
         case HAL_PIXEL_FORMAT_YCrCb_420_SP:
             cr = buffer->data + (buffer->stride * buffer->height);
             cb = cr + 1;
-            ySize = buffer->width * buffer->height;
-            cSize = buffer->width * buffer->height / 2;
+            // only map until last pixel
+            ySize = buffer->width * (buffer->height - 1) + buffer->width;
+            cSize = buffer->width * (buffer->height / 2 - 1) + buffer->width - 1;
 
             pData =
                 (idx == 0) ?
@@ -404,7 +428,7 @@ static void Image_getLockedBufferInfo(JNIEnv* env, CpuConsumer::LockedBuffer* bu
             ALOG_ASSERT(buffer->height == 1, "JPEG should has height value %d", buffer->height);
 
             pData = buffer->data;
-            dataSize = Image_getJpegSize(buffer);
+            dataSize = Image_getJpegSize(buffer, usingRGBAOverride);
             break;
         case HAL_PIXEL_FORMAT_RAW_SENSOR:
             // Single plane 16bpp bayer data.
@@ -420,8 +444,11 @@ static void Image_getLockedBufferInfo(JNIEnv* env, CpuConsumer::LockedBuffer* bu
                                 "Width is not multiple of 4 %d", buffer->width);
             LOG_ALWAYS_FATAL_IF(buffer->height % 2,
                                 "Height is not even %d", buffer->height);
+            LOG_ALWAYS_FATAL_IF(buffer->stride < (buffer->width * 10 / 8),
+                                "stride (%d) should be at least %d",
+                                buffer->stride, buffer->width * 10 / 8);
             pData = buffer->data;
-            dataSize = buffer->width * buffer->height * 10 / 8;
+            dataSize = buffer->stride * buffer->height;
             break;
         case HAL_PIXEL_FORMAT_RGBA_8888:
         case HAL_PIXEL_FORMAT_RGBX_8888:
@@ -455,7 +482,8 @@ static void Image_getLockedBufferInfo(JNIEnv* env, CpuConsumer::LockedBuffer* bu
     *size = dataSize;
 }
 
-static jint Image_imageGetPixelStride(JNIEnv* env, CpuConsumer::LockedBuffer* buffer, int idx)
+static jint Image_imageGetPixelStride(JNIEnv* env, CpuConsumer::LockedBuffer* buffer, int idx,
+        int32_t readerFormat)
 {
     ALOGV("%s: buffer index: %d", __FUNCTION__, idx);
     ALOG_ASSERT((idx < IMAGE_READER_MAX_NUM_PLANES) && (idx >= 0), "Index is out of range:%d", idx);
@@ -463,7 +491,10 @@ static jint Image_imageGetPixelStride(JNIEnv* env, CpuConsumer::LockedBuffer* bu
     int pixelStride = 0;
     ALOG_ASSERT(buffer != NULL, "buffer is NULL");
 
-    int32_t fmt = buffer->format;
+    int32_t fmt = buffer->flexFormat;
+
+    fmt = applyFormatOverrides(fmt, readerFormat);
+
     switch (fmt) {
         case HAL_PIXEL_FORMAT_YCbCr_420_888:
             pixelStride = (idx == 0) ? 1 : buffer->chromaStep;
@@ -512,7 +543,8 @@ static jint Image_imageGetPixelStride(JNIEnv* env, CpuConsumer::LockedBuffer* bu
     return pixelStride;
 }
 
-static jint Image_imageGetRowStride(JNIEnv* env, CpuConsumer::LockedBuffer* buffer, int idx)
+static jint Image_imageGetRowStride(JNIEnv* env, CpuConsumer::LockedBuffer* buffer, int idx,
+        int32_t readerFormat)
 {
     ALOGV("%s: buffer index: %d", __FUNCTION__, idx);
     ALOG_ASSERT((idx < IMAGE_READER_MAX_NUM_PLANES) && (idx >= 0));
@@ -520,7 +552,9 @@ static jint Image_imageGetRowStride(JNIEnv* env, CpuConsumer::LockedBuffer* buff
     int rowStride = 0;
     ALOG_ASSERT(buffer != NULL, "buffer is NULL");
 
-    int32_t fmt = buffer->format;
+    int32_t fmt = buffer->flexFormat;
+
+    fmt = applyFormatOverrides(fmt, readerFormat);
 
     switch (fmt) {
         case HAL_PIXEL_FORMAT_YCbCr_420_888:
@@ -535,11 +569,14 @@ static jint Image_imageGetRowStride(JNIEnv* env, CpuConsumer::LockedBuffer* buff
             rowStride = (idx == 0) ? buffer->stride : ALIGN(buffer->stride / 2, 16);
             break;
         case HAL_PIXEL_FORMAT_BLOB:
-        case HAL_PIXEL_FORMAT_RAW10:
             // Blob is used for JPEG data, RAW10 is used for 10-bit raw data, they are
             // single plane, row and pixel strides are 0.
             ALOG_ASSERT(idx == 0, "Wrong index: %d", idx);
             rowStride = 0;
+            break;
+        case HAL_PIXEL_FORMAT_RAW10:
+            ALOG_ASSERT(idx == 0, "Wrong index: %d", idx);
+            rowStride = buffer->stride;
             break;
         case HAL_PIXEL_FORMAT_Y8:
             ALOG_ASSERT(idx == 0, "Wrong index: %d", idx);
@@ -579,6 +616,24 @@ static jint Image_imageGetRowStride(JNIEnv* env, CpuConsumer::LockedBuffer* buff
     }
 
     return rowStride;
+}
+
+static int Image_getBufferWidth(CpuConsumer::LockedBuffer* buffer) {
+    if (buffer == NULL) return -1;
+
+    if (!buffer->crop.isEmpty()) {
+        return buffer->crop.getWidth();
+    }
+    return buffer->width;
+}
+
+static int Image_getBufferHeight(CpuConsumer::LockedBuffer* buffer) {
+    if (buffer == NULL) return -1;
+
+    if (!buffer->crop.isEmpty()) {
+        return buffer->crop.getHeight();
+    }
+    return buffer->height;
 }
 
 // ----------------------------------------------------------------------------
@@ -745,7 +800,7 @@ static jint ImageReader_imageSetup(JNIEnv* env, jobject thiz,
         return ACQUIRE_NO_BUFFERS;
     }
 
-    if (buffer->format == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
+    if (buffer->flexFormat == HAL_PIXEL_FORMAT_YCrCb_420_SP) {
         jniThrowException(env, "java/lang/UnsupportedOperationException",
                 "NV21 format is not supported by ImageReader");
         return -1;
@@ -761,43 +816,33 @@ static jint ImageReader_imageSetup(JNIEnv* env, jobject thiz,
     }
 
     // Check if the producer buffer configurations match what ImageReader configured.
-    // We want to fail for the very first image because this case is too bad.
-    int outputWidth = buffer->width;
-    int outputHeight = buffer->height;
-
-    // Correct width/height when crop is set.
-    if (!buffer->crop.isEmpty()) {
-        outputWidth = buffer->crop.getWidth();
-        outputHeight = buffer->crop.getHeight();
-    }
-
-    int imageReaderWidth = ctx->getBufferWidth();
-    int imageReaderHeight = ctx->getBufferHeight();
-    if ((buffer->format != HAL_PIXEL_FORMAT_BLOB) &&
-            (imageReaderWidth != outputWidth || imageReaderHeight > outputHeight)) {
-        /**
-         * For video decoder, the buffer height is actually the vertical stride,
-         * which is always >= actual image height. For future, decoder need provide
-         * right crop rectangle to CpuConsumer to indicate the actual image height,
-         * see bug 9563986. After this bug is fixed, we can enforce the height equal
-         * check. Right now, only make sure buffer height is no less than ImageReader
-         * height.
-         */
-        jniThrowExceptionFmt(env, "java/lang/IllegalStateException",
-                "Producer buffer size: %dx%d, doesn't match ImageReader configured size: %dx%d",
-                outputWidth, outputHeight, imageReaderWidth, imageReaderHeight);
-        return -1;
-    }
+    int outputWidth = Image_getBufferWidth(buffer);
+    int outputHeight = Image_getBufferHeight(buffer);
 
     int imgReaderFmt = ctx->getBufferFormat();
+    int imageReaderWidth = ctx->getBufferWidth();
+    int imageReaderHeight = ctx->getBufferHeight();
+    if ((buffer->format != HAL_PIXEL_FORMAT_BLOB) && (imgReaderFmt != HAL_PIXEL_FORMAT_BLOB) &&
+            (imageReaderWidth != outputWidth || imageReaderHeight != outputHeight)) {
+        ALOGV("%s: Producer buffer size: %dx%d, doesn't match ImageReader configured size: %dx%d",
+                __FUNCTION__, outputWidth, outputHeight, imageReaderWidth, imageReaderHeight);
+    }
+
     int bufFmt = buffer->format;
+    if (imgReaderFmt == HAL_PIXEL_FORMAT_YCbCr_420_888) {
+        bufFmt = buffer->flexFormat;
+    }
     if (imgReaderFmt != bufFmt) {
-        // Special casing for when producer switches to a format compatible with flexible YUV
-        // (HAL_PIXEL_FORMAT_YCbCr_420_888).
         if (imgReaderFmt == HAL_PIXEL_FORMAT_YCbCr_420_888 && (bufFmt ==
                 HAL_PIXEL_FORMAT_YCrCb_420_SP || bufFmt == HAL_PIXEL_FORMAT_YV12)) {
+            // Special casing for when producer switches to a format compatible with flexible YUV
+            // (HAL_PIXEL_FORMAT_YCbCr_420_888).
             ctx->setBufferFormat(bufFmt);
-            ALOGV("%s: Overriding buffer format YUV_420_888 to %x.", __FUNCTION__, bufFmt);
+            ALOGD("%s: Overriding buffer format YUV_420_888 to %x.", __FUNCTION__, bufFmt);
+        } else if (imgReaderFmt == HAL_PIXEL_FORMAT_BLOB && bufFmt == HAL_PIXEL_FORMAT_RGBA_8888) {
+            // Using HAL_PIXEL_FORMAT_RGBA_8888 gralloc buffers containing JPEGs to get around SW
+            // write limitations for (b/17379185).
+            ALOGD("%s: Receiving JPEG in HAL_PIXEL_FORMAT_RGBA_8888 buffer.", __FUNCTION__);
         } else {
             // Return the buffer to the queue.
             consumer->unlockBuffer(*buffer);
@@ -809,7 +854,7 @@ static jint ImageReader_imageSetup(JNIEnv* env, jobject thiz,
             String8 msg;
             msg.appendFormat("The producer output buffer format 0x%x doesn't "
                     "match the ImageReader's configured buffer format 0x%x.",
-                    buffer->format, ctx->getBufferFormat());
+                    bufFmt, ctx->getBufferFormat());
             jniThrowException(env, "java/lang/UnsupportedOperationException",
                     msg.string());
             return -1;
@@ -837,7 +882,7 @@ static jobject ImageReader_getSurface(JNIEnv* env, jobject thiz)
     return android_view_Surface_createFromIGraphicBufferProducer(env, gbp);
 }
 
-static jobject Image_createSurfacePlane(JNIEnv* env, jobject thiz, int idx)
+static jobject Image_createSurfacePlane(JNIEnv* env, jobject thiz, int idx, int readerFormat)
 {
     int rowStride, pixelStride;
     ALOGV("%s: buffer index: %d", __FUNCTION__, idx);
@@ -848,8 +893,11 @@ static jobject Image_createSurfacePlane(JNIEnv* env, jobject thiz, int idx)
     if (buffer == NULL) {
         jniThrowException(env, "java/lang/IllegalStateException", "Image was released");
     }
-    rowStride = Image_imageGetRowStride(env, buffer, idx);
-    pixelStride = Image_imageGetPixelStride(env, buffer, idx);
+
+    readerFormat = Image_getPixelFormat(env, readerFormat);
+
+    rowStride = Image_imageGetRowStride(env, buffer, idx, readerFormat);
+    pixelStride = Image_imageGetPixelStride(env, buffer, idx, readerFormat);
 
     jobject surfPlaneObj = env->NewObject(gSurfacePlaneClassInfo.clazz,
             gSurfacePlaneClassInfo.ctor, thiz, idx, rowStride, pixelStride);
@@ -857,7 +905,7 @@ static jobject Image_createSurfacePlane(JNIEnv* env, jobject thiz, int idx)
     return surfPlaneObj;
 }
 
-static jobject Image_getByteBuffer(JNIEnv* env, jobject thiz, int idx)
+static jobject Image_getByteBuffer(JNIEnv* env, jobject thiz, int idx, int readerFormat)
 {
     uint8_t *base = NULL;
     uint32_t size = 0;
@@ -871,13 +919,15 @@ static jobject Image_getByteBuffer(JNIEnv* env, jobject thiz, int idx)
         jniThrowException(env, "java/lang/IllegalStateException", "Image was released");
     }
 
+    readerFormat = Image_getPixelFormat(env, readerFormat);
+
     // Create byteBuffer from native buffer
-    Image_getLockedBufferInfo(env, buffer, idx, &base, &size);
+    Image_getLockedBufferInfo(env, buffer, idx, &base, &size, readerFormat);
 
     if (size > static_cast<uint32_t>(INT32_MAX)) {
         // Byte buffer have 'int capacity', so check the range
         jniThrowExceptionFmt(env, "java/lang/IllegalStateException",
-                "Size too large for bytebuffer capacity " PRIu32, size);
+                "Size too large for bytebuffer capacity %" PRIu32, size);
         return NULL;
     }
 
@@ -890,6 +940,19 @@ static jobject Image_getByteBuffer(JNIEnv* env, jobject thiz, int idx)
     return byteBuffer;
 }
 
+static jint Image_getWidth(JNIEnv* env, jobject thiz)
+{
+    CpuConsumer::LockedBuffer* buffer = Image_getLockedBuffer(env, thiz);
+    return Image_getBufferWidth(buffer);
+}
+
+static jint Image_getHeight(JNIEnv* env, jobject thiz)
+{
+    CpuConsumer::LockedBuffer* buffer = Image_getLockedBuffer(env, thiz);
+    return Image_getBufferHeight(buffer);
+}
+
+
 } // extern "C"
 
 // ----------------------------------------------------------------------------
@@ -899,14 +962,16 @@ static JNINativeMethod gImageReaderMethods[] = {
     {"nativeInit",             "(Ljava/lang/Object;IIII)V",  (void*)ImageReader_init },
     {"nativeClose",            "()V",                        (void*)ImageReader_close },
     {"nativeReleaseImage",     "(Landroid/media/Image;)V",   (void*)ImageReader_imageRelease },
-    {"nativeImageSetup",       "(Landroid/media/Image;)I",    (void*)ImageReader_imageSetup },
+    {"nativeImageSetup",       "(Landroid/media/Image;)I",   (void*)ImageReader_imageSetup },
     {"nativeGetSurface",       "()Landroid/view/Surface;",   (void*)ImageReader_getSurface },
 };
 
 static JNINativeMethod gImageMethods[] = {
-    {"nativeImageGetBuffer",   "(I)Ljava/nio/ByteBuffer;",   (void*)Image_getByteBuffer },
-    {"nativeCreatePlane",      "(I)Landroid/media/ImageReader$SurfaceImage$SurfacePlane;",
-                                                             (void*)Image_createSurfacePlane },
+    {"nativeImageGetBuffer",   "(II)Ljava/nio/ByteBuffer;",   (void*)Image_getByteBuffer },
+    {"nativeCreatePlane",      "(II)Landroid/media/ImageReader$SurfaceImage$SurfacePlane;",
+                                                              (void*)Image_createSurfacePlane },
+    {"nativeGetWidth",         "()I",                         (void*)Image_getWidth },
+    {"nativeGetHeight",        "()I",                         (void*)Image_getHeight },
 };
 
 int register_android_media_ImageReader(JNIEnv *env) {

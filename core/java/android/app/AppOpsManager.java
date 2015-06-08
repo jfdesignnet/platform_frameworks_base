@@ -16,23 +16,26 @@
 
 package android.app;
 
-import android.Manifest;
+import android.annotation.SystemApi;
+import android.app.usage.UsageStatsManager;
+import android.content.Context;
+import android.media.AudioAttributes.AttributeUsage;
 import android.os.Binder;
 import android.os.IBinder;
-import android.os.UserManager;
-import android.util.ArrayMap;
-import com.android.internal.app.IAppOpsService;
-import com.android.internal.app.IAppOpsCallback;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-
-import android.content.Context;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.UserHandle;
+import android.os.UserManager;
+import android.util.ArrayMap;
+
+import com.android.internal.app.IAppOpsCallback;
+import com.android.internal.app.IAppOpsService;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 
 /**
  * API for interacting with "application operation" tracking.
@@ -91,6 +94,13 @@ public class AppOpsManager {
      * cause it to have a fatal error, typically a {@link SecurityException}.
      */
     public static final int MODE_ERRORED = 2;
+
+    /**
+     * Result from {@link #checkOp}, {@link #noteOp}, {@link #startOp}: the given caller should
+     * use its default security check.  This mode is not normally used; it should only be used
+     * with appop permissions, and callers must explicitly check for it and deal with it.
+     */
+    public static final int MODE_DEFAULT = 3;
 
     // when adding one of these:
     //  - increment _NUM_OP
@@ -192,8 +202,12 @@ public class AppOpsManager {
     public static final int OP_MUTE_MICROPHONE = 44;
     /** @hide */
     public static final int OP_TOAST_WINDOW = 45;
+    /** @hide Capture the device's display contents and/or audio */
+    public static final int OP_PROJECT_MEDIA = 46;
+    /** @hide Activate a VPN connection without user intervention. */
+    public static final int OP_ACTIVATE_VPN = 47;
     /** @hide */
-    public static final int _NUM_OP = 46;
+    public static final int _NUM_OP = 48;
 
     /** Access to coarse location information. */
     public static final String OPSTR_COARSE_LOCATION =
@@ -207,6 +221,12 @@ public class AppOpsManager {
     /** Continually monitoring location data with a relatively high power request. */
     public static final String OPSTR_MONITOR_HIGH_POWER_LOCATION
             = "android:monitor_location_high_power";
+    /** Access to {@link android.app.usage.UsageStatsManager}. */
+    public static final String OPSTR_GET_USAGE_STATS
+            = "android:get_usage_stats";
+    /** Activate a VPN connection without user intervention. @hide */
+    @SystemApi
+    public static final String OPSTR_ACTIVATE_VPN = "android:activate_vpn";
 
     /**
      * This maps each operation to the operation that serves as the
@@ -263,6 +283,8 @@ public class AppOpsManager {
             OP_GET_USAGE_STATS,
             OP_MUTE_MICROPHONE,
             OP_TOAST_WINDOW,
+            OP_PROJECT_MEDIA,
+            OP_ACTIVATE_VPN,
     };
 
     /**
@@ -313,9 +335,11 @@ public class AppOpsManager {
             null,
             OPSTR_MONITOR_LOCATION,
             OPSTR_MONITOR_HIGH_POWER_LOCATION,
+            OPSTR_GET_USAGE_STATS,
             null,
             null,
             null,
+            OPSTR_ACTIVATE_VPN,
     };
 
     /**
@@ -367,8 +391,10 @@ public class AppOpsManager {
             "MONITOR_LOCATION",
             "MONITOR_HIGH_POWER_LOCATION",
             "GET_USAGE_STATS",
-            "OP_MUTE_MICROPHONE",
+            "MUTE_MICROPHONE",
             "TOAST_WINDOW",
+            "PROJECT_MEDIA",
+            "ACTIVATE_VPN",
     };
 
     /**
@@ -422,6 +448,8 @@ public class AppOpsManager {
             android.Manifest.permission.PACKAGE_USAGE_STATS,
             null, // no permission for muting/unmuting microphone
             null, // no permission for displaying toasts
+            null, // no permission for projecting media
+            null, // no permission for activating vpn
     };
 
     /**
@@ -436,23 +464,23 @@ public class AppOpsManager {
             null, //VIBRATE
             null, //READ_CONTACTS
             null, //WRITE_CONTACTS
-            null, //READ_CALL_LOG
-            null, //WRITE_CALL_LOG
+            UserManager.DISALLOW_OUTGOING_CALLS, //READ_CALL_LOG
+            UserManager.DISALLOW_OUTGOING_CALLS, //WRITE_CALL_LOG
             null, //READ_CALENDAR
             null, //WRITE_CALENDAR
             UserManager.DISALLOW_SHARE_LOCATION, //WIFI_SCAN
             null, //POST_NOTIFICATION
             null, //NEIGHBORING_CELLS
             null, //CALL_PHONE
-            null, //READ_SMS
-            null, //WRITE_SMS
-            null, //RECEIVE_SMS
-            null, //RECEIVE_EMERGECY_SMS
-            null, //RECEIVE_MMS
+            UserManager.DISALLOW_SMS, //READ_SMS
+            UserManager.DISALLOW_SMS, //WRITE_SMS
+            UserManager.DISALLOW_SMS, //RECEIVE_SMS
+            null, //RECEIVE_EMERGENCY_SMS
+            UserManager.DISALLOW_SMS, //RECEIVE_MMS
             null, //RECEIVE_WAP_PUSH
-            null, //SEND_SMS
-            null, //READ_ICC_SMS
-            null, //WRITE_ICC_SMS
+            UserManager.DISALLOW_SMS, //SEND_SMS
+            UserManager.DISALLOW_SMS, //READ_ICC_SMS
+            UserManager.DISALLOW_SMS, //WRITE_ICC_SMS
             null, //WRITE_SETTINGS
             UserManager.DISALLOW_CREATE_WINDOWS, //SYSTEM_ALERT_WINDOW
             null, //ACCESS_NOTIFICATIONS
@@ -476,6 +504,8 @@ public class AppOpsManager {
             null, //GET_USAGE_STATS
             UserManager.DISALLOW_UNMUTE_MICROPHONE, // MUTE_MICROPHONE
             UserManager.DISALLOW_CREATE_WINDOWS, // TOAST_WINDOW
+            null, //PROJECT_MEDIA
+            UserManager.DISALLOW_CONFIG_VPN, // ACTIVATE_VPN
     };
 
     /**
@@ -527,8 +557,10 @@ public class AppOpsManager {
             false, //MONITOR_LOCATION
             false, //MONITOR_HIGH_POWER_LOCATION
             false, //GET_USAGE_STATS
-            false, // MUTE_MICROPHONE
-            true, // TOAST_WINDOW
+            false, //MUTE_MICROPHONE
+            true, //TOAST_WINDOW
+            false, //PROJECT_MEDIA
+            false, //ACTIVATE_VPN
     };
 
     /**
@@ -578,9 +610,11 @@ public class AppOpsManager {
             AppOpsManager.MODE_ALLOWED,
             AppOpsManager.MODE_ALLOWED,
             AppOpsManager.MODE_ALLOWED,
-            AppOpsManager.MODE_IGNORED, // OP_GET_USAGE_STATS
+            AppOpsManager.MODE_DEFAULT, // OP_GET_USAGE_STATS
             AppOpsManager.MODE_ALLOWED,
             AppOpsManager.MODE_ALLOWED,
+            AppOpsManager.MODE_IGNORED, // OP_PROJECT_MEDIA
+            AppOpsManager.MODE_IGNORED, // OP_ACTIVATE_VPN
     };
 
     /**
@@ -607,6 +641,8 @@ public class AppOpsManager {
             false,
             false,
             true,      // OP_WRITE_SMS
+            false,
+            false,
             false,
             false,
             false,
@@ -696,6 +732,18 @@ public class AppOpsManager {
     public static String opToName(int op) {
         if (op == OP_NONE) return "NONE";
         return op < sOpNames.length ? sOpNames[op] : ("Unknown(" + op + ")");
+    }
+
+    /**
+     * @hide
+     */
+    public static int strDebugOpToOp(String op) {
+        for (int i=0; i<sOpNames.length; i++) {
+            if (sOpNames[i].equals(op)) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("Unknown operation string: " + op);
     }
 
     /**
@@ -944,15 +992,16 @@ public class AppOpsManager {
      * defined by {@link #setMode}.
      *
      * @param code The operation to restrict.
-     * @param stream The {@link android.media.AudioManager} stream type.
+     * @param usage The {@link android.media.AudioAttributes} usage value.
      * @param mode The restriction mode (MODE_IGNORED,MODE_ERRORED) or MODE_ALLOWED to unrestrict.
      * @param exceptionPackages Optional list of packages to exclude from the restriction.
      * @hide
      */
-    public void setRestriction(int code, int stream, int mode, String[] exceptionPackages) {
+    public void setRestriction(int code, @AttributeUsage int usage, int mode,
+            String[] exceptionPackages) {
         try {
             final int uid = Binder.getCallingUid();
-            mService.setAudioRestriction(code, stream, uid, mode, exceptionPackages);
+            mService.setAudioRestriction(code, usage, uid, mode, exceptionPackages);
         } catch (RemoteException e) {
         }
     }
@@ -960,7 +1009,7 @@ public class AppOpsManager {
     /** @hide */
     public void resetAllModes() {
         try {
-            mService.resetAllModes();
+            mService.resetAllModes(UserHandle.myUserId(), null);
         } catch (RemoteException e) {
         }
     }
@@ -1026,7 +1075,10 @@ public class AppOpsManager {
         return packageName + " from uid " + uid + " not allowed to perform " + sOpNames[op];
     }
 
-    private int strOpToOp(String op) {
+    /**
+     * {@hide}
+     */
+    public static int strOpToOp(String op) {
         Integer val = sOpStrToOp.get(op);
         if (val == null) {
             throw new IllegalArgumentException("Unknown operation string: " + op);

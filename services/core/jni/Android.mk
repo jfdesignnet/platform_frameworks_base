@@ -10,9 +10,7 @@ LOCAL_SRC_FILES += \
     $(LOCAL_REL_DIR)/com_android_server_AssetAtlasService.cpp \
     $(LOCAL_REL_DIR)/com_android_server_connectivity_Vpn.cpp \
     $(LOCAL_REL_DIR)/com_android_server_ConsumerIrService.cpp \
-    $(LOCAL_REL_DIR)/com_android_server_dreams_McuHal.cpp \
     $(LOCAL_REL_DIR)/com_android_server_hdmi_HdmiCecController.cpp \
-    $(LOCAL_REL_DIR)/com_android_server_hdmi_HdmiMhlController.cpp \
     $(LOCAL_REL_DIR)/com_android_server_input_InputApplicationHandle.cpp \
     $(LOCAL_REL_DIR)/com_android_server_input_InputManagerService.cpp \
     $(LOCAL_REL_DIR)/com_android_server_input_InputWindowHandle.cpp \
@@ -62,5 +60,6 @@ LOCAL_SHARED_LIBRARIES += \
     libusbhost \
     libsuspend \
     libEGL \
-    libGLESv2
+    libGLESv2 \
+    libnetutils \
 

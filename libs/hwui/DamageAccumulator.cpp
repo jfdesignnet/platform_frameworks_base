@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "DamageAccumulator"
-
 #include "DamageAccumulator.h"
 
 #include <cutils/log.h>
@@ -25,12 +23,6 @@
 
 namespace android {
 namespace uirenderer {
-
-NullDamageAccumulator NullDamageAccumulator::sInstance;
-
-NullDamageAccumulator* NullDamageAccumulator::instance() {
-    return &sInstance;
-}
 
 enum TransformType {
     TransformInvalid = 0,
@@ -60,6 +52,30 @@ DamageAccumulator::DamageAccumulator() {
     mHead->type = TransformNone;
 }
 
+static void computeTransformImpl(const DirtyStack* currentFrame, Matrix4* outMatrix) {
+    if (currentFrame->prev != currentFrame) {
+        computeTransformImpl(currentFrame->prev, outMatrix);
+    }
+    switch (currentFrame->type) {
+    case TransformRenderNode:
+        currentFrame->renderNode->applyViewPropertyTransforms(*outMatrix);
+        break;
+    case TransformMatrix4:
+        outMatrix->multiply(*currentFrame->matrix4);
+        break;
+    case TransformNone:
+        // nothing to be done
+        break;
+    default:
+        LOG_ALWAYS_FATAL("Tried to compute transform with an invalid type: %d", currentFrame->type);
+    }
+}
+
+void DamageAccumulator::computeCurrentTransform(Matrix4* outMatrix) const {
+    outMatrix->loadIdentity();
+    computeTransformImpl(mHead, outMatrix);
+}
+
 void DamageAccumulator::pushCommon() {
     if (!mHead->next) {
         DirtyStack* nextFrame = (DirtyStack*) mAllocator.alloc(sizeof(DirtyStack));
@@ -81,11 +97,6 @@ void DamageAccumulator::pushTransform(const Matrix4* transform) {
     pushCommon();
     mHead->type = TransformMatrix4;
     mHead->matrix4 = transform;
-}
-
-void DamageAccumulator::pushNullTransform() {
-    pushCommon();
-    mHead->type = TransformNone;
 }
 
 void DamageAccumulator::popTransform() {
@@ -203,7 +214,7 @@ void DamageAccumulator::dirty(float left, float top, float right, float bottom) 
     mHead->pendingDirty.join(left, top, right, bottom);
 }
 
-void DamageAccumulator::peekAtDirty(SkRect* dest) {
+void DamageAccumulator::peekAtDirty(SkRect* dest) const {
     *dest = mHead->pendingDirty;
 }
 

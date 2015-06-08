@@ -1,3 +1,4 @@
+#include "Paint.h"
 #include "SkBitmap.h"
 #include "SkPixelRef.h"
 #include "SkImageEncoder.h"
@@ -16,7 +17,7 @@
 
 #include <jni.h>
 
-#include <Caches.h>
+#include <ResourceCache.h>
 
 #if 0
     #define TRACE_BITMAP(code)  code
@@ -364,8 +365,8 @@ static jobject Bitmap_copy(JNIEnv* env, jobject, jlong srcHandle,
 static void Bitmap_destructor(JNIEnv* env, jobject, jlong bitmapHandle) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
 #ifdef USE_OPENGL_RENDERER
-    if (android::uirenderer::Caches::hasInstance()) {
-        android::uirenderer::Caches::getInstance().resourceCache.destructor(bitmap);
+    if (android::uirenderer::ResourceCache::hasInstance()) {
+        android::uirenderer::ResourceCache::getInstance().destructor(bitmap);
         return;
     }
 #endif // USE_OPENGL_RENDERER
@@ -375,9 +376,9 @@ static void Bitmap_destructor(JNIEnv* env, jobject, jlong bitmapHandle) {
 static jboolean Bitmap_recycle(JNIEnv* env, jobject, jlong bitmapHandle) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
 #ifdef USE_OPENGL_RENDERER
-    if (android::uirenderer::Caches::hasInstance()) {
+    if (android::uirenderer::ResourceCache::hasInstance()) {
         bool result;
-        result = android::uirenderer::Caches::getInstance().resourceCache.recycle(bitmap);
+        result = android::uirenderer::ResourceCache::getInstance().recycle(bitmap);
         return result ? JNI_TRUE : JNI_FALSE;
     }
 #endif // USE_OPENGL_RENDERER
@@ -676,7 +677,7 @@ static jobject Bitmap_extractAlpha(JNIEnv* env, jobject clazz,
                                    jlong srcHandle, jlong paintHandle,
                                    jintArray offsetXY) {
     const SkBitmap* src = reinterpret_cast<SkBitmap*>(srcHandle);
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const android::Paint* paint = reinterpret_cast<android::Paint*>(paintHandle);
     SkIPoint  offset;
     SkBitmap* dst = new SkBitmap;
     JavaPixelAllocator allocator(env);
@@ -845,7 +846,19 @@ static jboolean Bitmap_sameAs(JNIEnv* env, jobject, jlong bm0Handle,
     const int h = bm0->height();
     const size_t size = bm0->width() * bm0->bytesPerPixel();
     for (int y = 0; y < h; y++) {
-        if (memcmp(bm0->getAddr(0, y), bm1->getAddr(0, y), size) != 0) {
+        // SkBitmap::getAddr(int, int) may return NULL due to unrecognized config
+        // (ex: kRLE_Index8_Config). This will cause memcmp method to crash. Since bm0
+        // and bm1 both have pixel data() (have passed NULL == getPixels() check),
+        // those 2 bitmaps should be valid (only unrecognized), we return JNI_FALSE
+        // to warn user those 2 unrecognized config bitmaps may be different.
+        void *bm0Addr = bm0->getAddr(0, y);
+        void *bm1Addr = bm1->getAddr(0, y);
+
+        if(bm0Addr == NULL || bm1Addr == NULL) {
+            return JNI_FALSE;
+        }
+
+        if (memcmp(bm0Addr, bm1Addr, size) != 0) {
             return JNI_FALSE;
         }
     }

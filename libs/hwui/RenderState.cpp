@@ -15,14 +15,19 @@
  */
 #include "RenderState.h"
 
+#include "renderthread/CanvasContext.h"
+#include "renderthread/EglManager.h"
+
 namespace android {
 namespace uirenderer {
 
-RenderState::RenderState()
-        : mCaches(NULL)
+RenderState::RenderState(renderthread::RenderThread& thread)
+        : mRenderThread(thread)
+        , mCaches(NULL)
         , mViewportWidth(0)
         , mViewportHeight(0)
         , mFramebuffer(0) {
+    mThreadId = pthread_self();
 }
 
 RenderState::~RenderState() {
@@ -32,6 +37,48 @@ void RenderState::onGLContextCreated() {
     // This is delayed because the first access of Caches makes GL calls
     mCaches = &Caches::getInstance();
     mCaches->init();
+    mCaches->setRenderState(this);
+    mCaches->textureCache.setAssetAtlas(&mAssetAtlas);
+}
+
+static void layerLostGlContext(Layer* layer) {
+    layer->onGlContextLost();
+}
+
+void RenderState::onGLContextDestroyed() {
+/*
+    size_t size = mActiveLayers.size();
+    if (CC_UNLIKELY(size != 0)) {
+        ALOGE("Crashing, have %d contexts and %d layers at context destruction. isempty %d",
+                mRegisteredContexts.size(), size, mActiveLayers.empty());
+        mCaches->dumpMemoryUsage();
+        for (std::set<renderthread::CanvasContext*>::iterator cit = mRegisteredContexts.begin();
+                cit != mRegisteredContexts.end(); cit++) {
+            renderthread::CanvasContext* context = *cit;
+            ALOGE("Context: %p (root = %p)", context, context->mRootRenderNode.get());
+            ALOGE("  Prefeteched layers: %zu", context->mPrefetechedLayers.size());
+            for (std::set<RenderNode*>::iterator pit = context->mPrefetechedLayers.begin();
+                    pit != context->mPrefetechedLayers.end(); pit++) {
+                (*pit)->debugDumpLayers("    ");
+            }
+            context->mRootRenderNode->debugDumpLayers("  ");
+        }
+
+
+        if (mActiveLayers.begin() == mActiveLayers.end()) {
+            ALOGE("set has become empty. wat.");
+        }
+        for (std::set<const Layer*>::iterator lit = mActiveLayers.begin();
+             lit != mActiveLayers.end(); lit++) {
+            const Layer* layer = *(lit);
+            ALOGE("Layer %p, state %d, texlayer %d, fbo %d, buildlayered %d",
+                    layer, layer->state, layer->isTextureLayer(), layer->getFbo(), layer->wasBuildLayered);
+        }
+        LOG_ALWAYS_FATAL("%d layers have survived gl context destruction", size);
+    }
+*/
+    std::for_each(mActiveLayers.begin(), mActiveLayers.end(), layerLostGlContext);
+    mAssetAtlas.terminate();
 }
 
 void RenderState::setViewport(GLsizei width, GLsizei height) {
@@ -106,6 +153,35 @@ void RenderState::debugOverdraw(bool enable, bool clear) {
             mCaches->stencil.disable();
         }
     }
+}
+
+void RenderState::requireGLContext() {
+    assertOnGLThread();
+    mRenderThread.eglManager().requireGlContext();
+}
+
+void RenderState::assertOnGLThread() {
+    pthread_t curr = pthread_self();
+    LOG_ALWAYS_FATAL_IF(!pthread_equal(mThreadId, curr), "Wrong thread!");
+}
+
+
+class DecStrongTask : public renderthread::RenderTask {
+public:
+    DecStrongTask(VirtualLightRefBase* object) : mObject(object) {}
+
+    virtual void run() {
+        mObject->decStrong(0);
+        mObject = 0;
+        delete this;
+    }
+
+private:
+    VirtualLightRefBase* mObject;
+};
+
+void RenderState::postDecStrong(VirtualLightRefBase* object) {
+    mRenderThread.queue(new DecStrongTask(object));
 }
 
 } /* namespace uirenderer */

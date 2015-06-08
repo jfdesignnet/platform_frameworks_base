@@ -19,7 +19,7 @@ package android.os;
 
 import android.net.InterfaceConfiguration;
 import android.net.INetworkManagementEventObserver;
-import android.net.LinkAddress;
+import android.net.Network;
 import android.net.NetworkStats;
 import android.net.RouteInfo;
 import android.net.UidRange;
@@ -90,6 +90,11 @@ interface INetworkManagementService
      * Enable IPv6 on an interface
      */
     void enableIpv6(String iface);
+
+    /**
+     * Enables or enables IPv6 ND offload.
+     */
+    void setInterfaceIpv6NdOffload(String iface, boolean enable);
 
     /**
      * Retrieves the network routes currently configured on the specified
@@ -165,10 +170,10 @@ interface INetworkManagementService
     /**
      * Sets the list of DNS forwarders (in order of priority)
      */
-    void setDnsForwarders(in String[] dns);
+    void setDnsForwarders(in Network network, in String[] dns);
 
     /**
-     * Returns the list of DNS fowarders (in order of priority)
+     * Returns the list of DNS forwarders (in order of priority)
      */
     String[] getDnsForwarders();
 
@@ -336,30 +341,19 @@ interface INetworkManagementService
     void removeVpnUidRanges(int netId, in UidRange[] ranges);
 
     /**
-     * Exempts {@code host} from the routing set up by {@link setMarkedForwardingRoute}
-     * All connects to {@code host} will use the global routing table
-     */
-    void setHostExemption(in LinkAddress host);
-
-    /**
-     * Clears an exemption set by {@link setHostExemption}
-     */
-    void clearHostExemption(in LinkAddress host);
-
-    /**
-     * Start the clatd (464xlat) service
+     * Start the clatd (464xlat) service on the given interface.
      */
     void startClatd(String interfaceName);
 
     /**
-     * Stop the clatd (464xlat) service
+     * Stop the clatd (464xlat) service on the given interface.
      */
-    void stopClatd();
+    void stopClatd(String interfaceName);
 
     /**
-     * Determine whether the clatd (464xlat) service has been started
+     * Determine whether the clatd (464xlat) service has been started on the given interface.
      */
-    boolean isClatdStarted();
+    boolean isClatdStarted(String interfaceName);
 
     /**
      * Start listening for mobile activity state changes.
@@ -384,7 +378,7 @@ interface INetworkManagementService
     /**
      * Setup a new VPN.
      */
-    void createVirtualNetwork(int netId, boolean hasDNS);
+    void createVirtualNetwork(int netId, boolean hasDNS, boolean secure);
 
     /**
      * Remove a network.
@@ -402,12 +396,11 @@ interface INetworkManagementService
     void removeInterfaceFromNetwork(String iface, int netId);
 
     void addLegacyRouteForNetId(int netId, in RouteInfo routeInfo, int uid);
-    void removeLegacyRouteForNetId(int netId, in RouteInfo routeInfo, int uid);
 
     void setDefaultNetId(int netId);
     void clearDefaultNetId();
 
-    void setPermission(boolean internal, boolean changeNetState, in int[] uids);
+    void setPermission(String permission, in int[] uids);
     void clearPermission(in int[] uids);
 
     /**
@@ -419,4 +412,7 @@ interface INetworkManagementService
      * Deny UID from calling protect().
      */
     void denyProtect(int uid);
+
+    void addInterfaceToLocalNetwork(String iface, in List<RouteInfo> routes);
+    void removeInterfaceFromLocalNetwork(String iface);
 }

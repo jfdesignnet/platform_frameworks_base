@@ -29,6 +29,7 @@ import android.view.accessibility.AccessibilityEvent;
 import com.android.internal.view.menu.ActionMenuItemView;
 import com.android.internal.view.menu.MenuBuilder;
 import com.android.internal.view.menu.MenuItemImpl;
+import com.android.internal.view.menu.MenuPresenter;
 import com.android.internal.view.menu.MenuView;
 
 /**
@@ -53,6 +54,8 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
 
     private boolean mReserveOverflow;
     private ActionMenuPresenter mPresenter;
+    private MenuPresenter.Callback mActionMenuPresenterCallback;
+    private MenuBuilder.Callback mMenuBuilderCallback;
     private boolean mFormatItems;
     private int mFormatItemsWidth;
     private int mMinCellSize;
@@ -426,7 +429,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
         }
 
         final int childCount = getChildCount();
-        final int midVertical = (top + bottom) / 2;
+        final int midVertical = (bottom - top) / 2;
         final int dividerWidth = getDividerWidth();
         int overflowWidth = 0;
         int nonOverflowWidth = 0;
@@ -608,12 +611,23 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
             mMenu = new MenuBuilder(context);
             mMenu.setCallback(new MenuBuilderCallback());
             mPresenter = new ActionMenuPresenter(context);
-            mPresenter.setCallback(new ActionMenuPresenterCallback());
+            mPresenter.setReserveOverflow(true);
+            mPresenter.setCallback(mActionMenuPresenterCallback != null
+                    ? mActionMenuPresenterCallback : new ActionMenuPresenterCallback());
             mMenu.addMenuPresenter(mPresenter, mPopupContext);
             mPresenter.setMenuView(this);
         }
 
         return mMenu;
+    }
+
+    /**
+     * Must be called before the first call to getMenu()
+     * @hide
+     */
+    public void setMenuCallbacks(MenuPresenter.Callback pcb, MenuBuilder.Callback mcb) {
+        mActionMenuPresenterCallback = pcb;
+        mMenuBuilderCallback = mcb;
     }
 
     /**
@@ -719,6 +733,9 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
 
         @Override
         public void onMenuModeChange(MenuBuilder menu) {
+            if (mMenuBuilderCallback != null) {
+                mMenuBuilderCallback.onMenuModeChange(menu);
+            }
         }
     }
 

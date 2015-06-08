@@ -17,20 +17,30 @@
 
 package android.provider;
 
+import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.UserInfo;
 import android.database.Cursor;
+import android.location.Country;
+import android.location.CountryDetector;
 import android.net.Uri;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.ContactsContract.CommonDataKinds.Callable;
 import android.provider.ContactsContract.CommonDataKinds.Phone;
+import android.provider.ContactsContract.Data;
 import android.provider.ContactsContract.DataUsageFeedback;
-import android.telecomm.PhoneAccount;
+import android.telecom.PhoneAccountHandle;
+import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.CallerInfo;
 import com.android.internal.telephony.PhoneConstants;
+
+import java.util.List;
 
 /**
  * The CallLog provider contains information about placed and received calls.
@@ -106,11 +116,13 @@ public class CallLog {
          * </pre>
          * </p>
          */
-        public static final String EXTRA_CALL_TYPE_FILTER = "extra_call_type_filter";
+        public static final String EXTRA_CALL_TYPE_FILTER =
+                "android.provider.extra.CALL_TYPE_FILTER";
 
         /**
          * Content uri used to access call log entries, including voicemail records. You must have
-         * the READ_CALL_LOG and WRITE_CALL_LOG permissions to read and write to the call log.
+         * the READ_CALL_LOG and WRITE_CALL_LOG permissions to read and write to the call log, as
+         * well as READ_VOICEMAIL and WRITE_VOICEMAIL permissions to read and write voicemails.
          */
         public static final Uri CONTENT_URI_WITH_VOICEMAIL = CONTENT_URI.buildUpon()
                 .appendQueryParameter(ALLOW_VOICEMAILS_PARAM_KEY, "true")
@@ -155,8 +167,6 @@ public class CallLog {
          */
         public static final String FEATURES = "features";
 
-        /** Call had no associated features (e.g. voice-only). */
-        public static final int FEATURES_NONE = 0x0;
         /** Call had video. */
         public static final int FEATURES_VIDEO = 0x1;
 
@@ -258,6 +268,12 @@ public class CallLog {
         public static final String VOICEMAIL_URI = "voicemail_uri";
 
         /**
+         * Transcription of the call or voicemail entry. This will only be populated for call log
+         * entries of type {@link #VOICEMAIL_TYPE} that have valid transcriptions.
+         */
+        public static final String TRANSCRIPTION = "transcription";
+
+        /**
          * Whether this item has been read or otherwise consumed by the user.
          * <p>
          * Unlike the {@link #NEW} field, which requires the user to have acknowledged the
@@ -332,6 +348,22 @@ public class CallLog {
         public static final String PHONE_ACCOUNT_ID = "subscription_id";
 
         /**
+         * The identifier of a account that is unique to a specified component. Equivalent value
+         * to {@link #PHONE_ACCOUNT_ID}. For ContactsProvider internal use only.
+         * <P>Type: INTEGER</P>
+         *
+         * @hide
+         */
+        public static final String SUB_ID = "sub_id";
+
+        /**
+         * If a successful call is made that is longer than this duration, update the phone number
+         * in the ContactsProvider with the normalized version of the number, based on the user's
+         * current country code.
+         */
+        private static final int MIN_DURATION_FOR_NORMALIZED_NUMBER_UPDATE_MS = 1000 * 10;
+
+        /**
          * Adds a call to the call log.
          *
          * @param ci the CallerInfo object to get the target contact from.  Can be null
@@ -343,17 +375,50 @@ public class CallLog {
          *        "allowed", "payphone", "restricted" or "unknown"
          * @param callType enumerated values for "incoming", "outgoing", or "missed"
          * @param features features of the call (e.g. Video).
-         * @param account The account object describing the provider of the call
+         * @param accountHandle The accountHandle object identifying the provider of the call
          * @param start time stamp for the call in milliseconds
          * @param duration call duration in seconds
          * @param dataUsage data usage for the call in bytes, null if data usage was not tracked for
          *                  the call.
-         *
+         * @result The URI of the call log entry belonging to the user that made or received this
+         *        call.
          * {@hide}
          */
         public static Uri addCall(CallerInfo ci, Context context, String number,
-                int presentation, int callType, int features, PhoneAccount account, long start,
-                int duration, Long dataUsage) {
+                int presentation, int callType, int features, PhoneAccountHandle accountHandle,
+                long start, int duration, Long dataUsage) {
+            return addCall(ci, context, number, presentation, callType, features, accountHandle,
+                    start, duration, dataUsage, false);
+        }
+
+
+        /**
+         * Adds a call to the call log.
+         *
+         * @param ci the CallerInfo object to get the target contact from.  Can be null
+         * if the contact is unknown.
+         * @param context the context used to get the ContentResolver
+         * @param number the phone number to be added to the calls db
+         * @param presentation enum value from PhoneConstants.PRESENTATION_xxx, which
+         *        is set by the network and denotes the number presenting rules for
+         *        "allowed", "payphone", "restricted" or "unknown"
+         * @param callType enumerated values for "incoming", "outgoing", or "missed"
+         * @param features features of the call (e.g. Video).
+         * @param accountHandle The accountHandle object identifying the provider of the call
+         * @param start time stamp for the call in milliseconds
+         * @param duration call duration in seconds
+         * @param dataUsage data usage for the call in bytes, null if data usage was not tracked for
+         *                  the call.
+         * @param addForAllUsers If true, the call is added to the call log of all currently
+         *        running users. The caller must have the MANAGE_USERS permission if this is true.
+         *
+         * @result The URI of the call log entry belonging to the user that made or received this
+         *        call.
+         * {@hide}
+         */
+        public static Uri addCall(CallerInfo ci, Context context, String number,
+                int presentation, int callType, int features, PhoneAccountHandle accountHandle,
+                long start, int duration, Long dataUsage, boolean addForAllUsers) {
             final ContentResolver resolver = context.getContentResolver();
             int numberPresentation = PRESENTATION_ALLOWED;
 
@@ -377,12 +442,12 @@ public class CallLog {
                 }
             }
 
-            // account information
+            // accountHandle information
             String accountComponentString = null;
             String accountId = null;
-            if (account != null) {
-                accountComponentString = account.getComponentName().flattenToString();
-                accountId = account.getId();
+            if (accountHandle != null) {
+                accountComponentString = accountHandle.getComponentName().flattenToString();
+                accountId = accountHandle.getId();
             }
 
             ContentValues values = new ContentValues(6);
@@ -399,6 +464,7 @@ public class CallLog {
             values.put(PHONE_ACCOUNT_COMPONENT_NAME, accountComponentString);
             values.put(PHONE_ACCOUNT_ID, accountId);
             values.put(NEW, Integer.valueOf(1));
+
             if (callType == MISSED_TYPE) {
                 values.put(IS_READ, Integer.valueOf(0));
             }
@@ -439,12 +505,13 @@ public class CallLog {
                 if (cursor != null) {
                     try {
                         if (cursor.getCount() > 0 && cursor.moveToFirst()) {
-                            final Uri feedbackUri = DataUsageFeedback.FEEDBACK_URI.buildUpon()
-                                    .appendPath(cursor.getString(0))
-                                    .appendQueryParameter(DataUsageFeedback.USAGE_TYPE,
-                                                DataUsageFeedback.USAGE_TYPE_CALL)
-                                    .build();
-                            resolver.update(feedbackUri, new ContentValues(), null, null);
+                            final String dataId = cursor.getString(0);
+                            updateDataUsageStatForData(resolver, dataId);
+                            if (duration >= MIN_DURATION_FOR_NORMALIZED_NUMBER_UPDATE_MS
+                                    && callType == Calls.OUTGOING_TYPE
+                                    && TextUtils.isEmpty(ci.normalizedNumber)) {
+                                updateNormalizedNumber(context, resolver, dataId, number);
+                            }
                         }
                     } finally {
                         cursor.close();
@@ -452,9 +519,33 @@ public class CallLog {
                 }
             }
 
-            Uri result = resolver.insert(CONTENT_URI, values);
+            Uri result = null;
 
-            removeExpiredEntries(context);
+            if (addForAllUsers) {
+                // Insert the entry for all currently running users, in order to trigger any
+                // ContentObservers currently set on the call log.
+                final UserManager userManager = (UserManager) context.getSystemService(
+                        Context.USER_SERVICE);
+                List<UserInfo> users = userManager.getUsers(true);
+                final int currentUserId = userManager.getUserHandle();
+                final int count = users.size();
+                for (int i = 0; i < count; i++) {
+                    final UserInfo user = users.get(i);
+                    final UserHandle userHandle = user.getUserHandle();
+                    if (userManager.isUserRunning(userHandle)
+                            && !userManager.hasUserRestriction(UserManager.DISALLOW_OUTGOING_CALLS,
+                                    userHandle)
+                            && !user.isManagedProfile()) {
+                        Uri uri = addEntryAndRemoveExpiredEntries(context,
+                                ContentProvider.maybeAddUserId(CONTENT_URI, user.id), values);
+                        if (user.id == currentUserId) {
+                            result = uri;
+                        }
+                    }
+                }
+            } else {
+                result = addEntryAndRemoveExpiredEntries(context, CONTENT_URI, values);
+            }
 
             return result;
         }
@@ -484,11 +575,59 @@ public class CallLog {
             }
         }
 
-        private static void removeExpiredEntries(Context context) {
+        private static Uri addEntryAndRemoveExpiredEntries(Context context, Uri uri,
+                ContentValues values) {
             final ContentResolver resolver = context.getContentResolver();
-            resolver.delete(CONTENT_URI, "_id IN " +
+            Uri result = resolver.insert(uri, values);
+            resolver.delete(uri, "_id IN " +
                     "(SELECT _id FROM calls ORDER BY " + DEFAULT_SORT_ORDER
                     + " LIMIT -1 OFFSET 500)", null);
+            return result;
+        }
+
+        private static void updateDataUsageStatForData(ContentResolver resolver, String dataId) {
+            final Uri feedbackUri = DataUsageFeedback.FEEDBACK_URI.buildUpon()
+                    .appendPath(dataId)
+                    .appendQueryParameter(DataUsageFeedback.USAGE_TYPE,
+                                DataUsageFeedback.USAGE_TYPE_CALL)
+                    .build();
+            resolver.update(feedbackUri, new ContentValues(), null, null);
+        }
+
+        /*
+         * Update the normalized phone number for the given dataId in the ContactsProvider, based
+         * on the user's current country.
+         */
+        private static void updateNormalizedNumber(Context context, ContentResolver resolver,
+                String dataId, String number) {
+            if (TextUtils.isEmpty(number) || TextUtils.isEmpty(dataId)) {
+                return;
+            }
+            final String countryIso = getCurrentCountryIso(context);
+            if (TextUtils.isEmpty(countryIso)) {
+                return;
+            }
+            final String normalizedNumber = PhoneNumberUtils.formatNumberToE164(number,
+                    getCurrentCountryIso(context));
+            if (TextUtils.isEmpty(normalizedNumber)) {
+                return;
+            }
+            final ContentValues values = new ContentValues();
+            values.put(Phone.NORMALIZED_NUMBER, normalizedNumber);
+            resolver.update(Data.CONTENT_URI, values, Data._ID + "=?", new String[] {dataId});
+        }
+
+        private static String getCurrentCountryIso(Context context) {
+            String countryIso = null;
+            final CountryDetector detector = (CountryDetector) context.getSystemService(
+                    Context.COUNTRY_DETECTOR);
+            if (detector != null) {
+                final Country country = detector.detectCountry();
+                if (country != null) {
+                    countryIso = country.getCountryIso();
+                }
+            }
+            return countryIso;
         }
     }
 }

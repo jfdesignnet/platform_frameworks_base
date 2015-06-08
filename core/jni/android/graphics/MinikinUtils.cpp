@@ -18,17 +18,17 @@
 #include <cutils/log.h>
 #include <string>
 
-#include "SkPaint.h"
 #include "SkPathMeasure.h"
-#include "minikin/Layout.h"
+#include "Paint.h"
 #include "TypefaceImpl.h"
-#include "MinikinSkia.h"
 
 #include "MinikinUtils.h"
 
 namespace android {
 
 // Do an sprintf starting at offset n, abort on overflow
+static int snprintfcat(char* buf, int off, int size, const char* format, ...)
+        __attribute__((__format__(__printf__, 4, 5)));
 static int snprintfcat(char* buf, int off, int size, const char* format, ...) {
     va_list args;
     va_start(args, format);
@@ -38,36 +38,37 @@ static int snprintfcat(char* buf, int off, int size, const char* format, ...) {
     return off + n;
 }
 
-std::string MinikinUtils::setLayoutProperties(Layout* layout, const SkPaint* paint, int bidiFlags,
-        TypefaceImpl* typeface) {
+void MinikinUtils::doLayout(Layout* layout, const Paint* paint, int bidiFlags, TypefaceImpl* typeface,
+        const uint16_t* buf, size_t start, size_t count, size_t bufSize) {
     TypefaceImpl* resolvedFace = TypefaceImpl_resolveDefault(typeface);
     layout->setFontCollection(resolvedFace->fFontCollection);
-    FontStyle style = resolvedFace->fStyle;
-    char css[256];
-    int off = snprintfcat(css, 0, sizeof(css),
-        "font-size: %d; font-scale-x: %f; font-skew-x: %f; -paint-flags: %d;"
-        " font-weight: %d; font-style: %s; -minikin-bidi: %d;",
-        (int)paint->getTextSize(),
-        paint->getTextScaleX(),
-        paint->getTextSkewX(),
-        MinikinFontSkia::packPaintFlags(paint),
-        style.getWeight() * 100,
-        style.getItalic() ? "italic" : "normal",
-        bidiFlags);
-    SkString langString = paint->getPaintOptionsAndroid().getLanguage().getTag();
-    off = snprintfcat(css, off, sizeof(css), " lang: %s;", langString.c_str());
-    SkPaintOptionsAndroid::FontVariant var = paint->getPaintOptionsAndroid().getFontVariant();
-    const char* varstr = var == SkPaintOptionsAndroid::kElegant_Variant ? "elegant" : "compact";
-    off = snprintfcat(css, off, sizeof(css), " -minikin-variant: %s;", varstr);
-    return std::string(css);
+    FontStyle resolved = resolvedFace->fStyle;
+
+    /* Prepare minikin FontStyle */
+    std::string lang = paint->getTextLocale();
+    FontLanguage minikinLang(lang.c_str(), lang.size());
+    FontVariant minikinVariant = (paint->getFontVariant() == VARIANT_ELEGANT) ? VARIANT_ELEGANT
+            : VARIANT_COMPACT;
+    FontStyle minikinStyle(minikinLang, minikinVariant, resolved.getWeight(), resolved.getItalic());
+
+    /* Prepare minikin Paint */
+    MinikinPaint minikinPaint;
+    minikinPaint.size = (int)/*WHY?!*/paint->getTextSize();
+    minikinPaint.scaleX = paint->getTextScaleX();
+    minikinPaint.skewX = paint->getTextSkewX();
+    minikinPaint.letterSpacing = paint->getLetterSpacing();
+    minikinPaint.paintFlags = MinikinFontSkia::packPaintFlags(paint);
+    minikinPaint.fontFeatureSettings = paint->getFontFeatureSettings();
+
+    layout->doLayout(buf, start, count, bufSize, bidiFlags, minikinStyle, minikinPaint);
 }
 
-float MinikinUtils::xOffsetForTextAlign(SkPaint* paint, const Layout& layout) {
+float MinikinUtils::xOffsetForTextAlign(Paint* paint, const Layout& layout) {
     switch (paint->getTextAlign()) {
-        case SkPaint::kCenter_Align:
+        case Paint::kCenter_Align:
             return layout.getAdvance() * -0.5f;
             break;
-        case SkPaint::kRight_Align:
+        case Paint::kRight_Align:
             return -layout.getAdvance();
             break;
         default:
@@ -76,13 +77,13 @@ float MinikinUtils::xOffsetForTextAlign(SkPaint* paint, const Layout& layout) {
     return 0;
 }
 
-float MinikinUtils::hOffsetForTextAlign(SkPaint* paint, const Layout& layout, const SkPath& path) {
+float MinikinUtils::hOffsetForTextAlign(Paint* paint, const Layout& layout, const SkPath& path) {
     float align = 0;
     switch (paint->getTextAlign()) {
-        case SkPaint::kCenter_Align:
+        case Paint::kCenter_Align:
             align = -0.5f;
             break;
-        case SkPaint::kRight_Align:
+        case Paint::kRight_Align:
             align = -1;
             break;
         default:

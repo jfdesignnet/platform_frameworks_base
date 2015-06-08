@@ -55,10 +55,11 @@ public:
                 || rect.intersects(dangerRects[3]);
     }
 
+    bool highPriority;
     Matrix4 matrix;
     Rect dangerRects[4];
-    Rect outlineInnerRect;
-    float outlineRadius;
+    Rect innerRect;
+    float radius;
 };
 
 /**
@@ -161,10 +162,16 @@ public:
     int getViewportHeight() const { return mViewportData.mHeight; }
     const Matrix4& getOrthoMatrix() const { return mViewportData.mOrthoMatrix; }
 
+    const Vector3& getRelativeLightCenter() const { return mRelativeLightCenter; }
+    void setRelativeLightCenter(const Vector3& lightCenter) { mRelativeLightCenter = lightCenter; }
+
     /**
      * Sets (and replaces) the current clipping outline
+     *
+     * If the current round rect clip is high priority, the incoming clip is ignored.
      */
-    void setClippingOutline(LinearAllocator& allocator, const Outline* outline);
+    void setClippingRoundRect(LinearAllocator& allocator, const Rect& bounds,
+            float radius, bool highPriority);
 
     /**
      * Indicates whether this snapshot should be ignored. A snapshot
@@ -302,6 +309,7 @@ private:
 
     SkRegion mClipRegionRoot;
     ViewportData mViewportData;
+    Vector3 mRelativeLightCenter;
 
 }; // class Snapshot
 

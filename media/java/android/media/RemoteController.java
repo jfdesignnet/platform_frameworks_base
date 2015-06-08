@@ -23,8 +23,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.media.IRemoteControlDisplay;
-import android.media.MediaMetadataEditor;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.media.session.MediaSessionLegacyHelper;
@@ -57,8 +55,10 @@ import java.util.List;
  * <p>
  * Registration requires the {@link OnClientUpdateListener} listener to be one of the enabled
  * notification listeners (see {@link android.service.notification.NotificationListenerService}).
+ *
+ * @deprecated Use {@link MediaController} instead.
  */
-public final class RemoteController
+@Deprecated public final class RemoteController
 {
     private final static int MAX_BITMAP_DIMENSION = 512;
     private final static int TRANSPORT_UNKNOWN = 0;
@@ -74,8 +74,7 @@ public final class RemoteController
     private MetadataEditor mMetadataEditor;
 
     private MediaSessionManager mSessionManager;
-    private MediaSessionManager.SessionListener mSessionListener
-            = new TopTransportSessionListener();
+    private MediaSessionManager.OnActiveSessionsChangedListener mSessionListener;
     private MediaController.Callback mSessionCb = new MediaControllerCallback();
 
     /**
@@ -141,6 +140,7 @@ public final class RemoteController
         mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         mSessionManager = (MediaSessionManager) context
                 .getSystemService(Context.MEDIA_SESSION_SERVICE);
+        mSessionListener = new TopTransportSessionListener();
 
         if (ActivityManager.isLowRamDeviceStatic()) {
             mMaxBitmapDimension = MAX_BITMAP_DIMENSION;
@@ -214,7 +214,7 @@ public final class RemoteController
     public String getRemoteControlClientPackageName() {
         if (USE_SESSIONS) {
             synchronized (mInfoLock) {
-                return mCurrentSession != null ? mCurrentSession.getSessionInfo().getPackageName()
+                return mCurrentSession != null ? mCurrentSession.getPackageName()
                         : null;
             }
         } else {
@@ -395,12 +395,6 @@ public final class RemoteController
                 mArtworkWidth = -1;
                 mArtworkHeight = -1;
             }
-            if (mIsRegistered) {
-                mAudioManager.remoteControlDisplayUsesBitmapSize(mRcd,
-                        mArtworkWidth, mArtworkHeight);
-            } // else new values have been stored, and will be read by AudioManager with
-              //    RemoteController.getArtworkSize() when AudioManager.registerRemoteController()
-              //    is called.
         }
         return true;
     }
@@ -716,7 +710,9 @@ public final class RemoteController
      * Listens for changes to the active session stack and replaces the
      * currently tracked session if it has changed.
      */
-    private class TopTransportSessionListener extends MediaSessionManager.SessionListener {
+    private class TopTransportSessionListener implements
+            MediaSessionManager.OnActiveSessionsChangedListener {
+
         @Override
         public void onActiveSessionsChanged(List<MediaController> controllers) {
             int size = controllers.size();
@@ -793,8 +789,12 @@ public final class RemoteController
     void startListeningToSessions() {
         final ComponentName listenerComponent = new ComponentName(mContext,
                 mOnClientUpdateListener.getClass());
-        mSessionManager.addActiveSessionsListener(mSessionListener, listenerComponent,
-                UserHandle.myUserId());
+        Handler handler = null;
+        if (Looper.myLooper() == null) {
+            handler = new Handler(Looper.getMainLooper());
+        }
+        mSessionManager.addOnActiveSessionsChangedListener(mSessionListener, listenerComponent,
+                UserHandle.myUserId(), handler);
         mSessionListener.onActiveSessionsChanged(mSessionManager
                 .getActiveSessions(listenerComponent));
         if (DEBUG) {
@@ -807,7 +807,7 @@ public final class RemoteController
      * @hide
      */
     void stopListeningToSessions() {
-        mSessionManager.removeActiveSessionsListener(mSessionListener);
+        mSessionManager.removeOnActiveSessionsChangedListener(mSessionListener);
         if (DEBUG) {
             Log.d(TAG, "Unregistered session listener for user "
                     + UserHandle.myUserId());
@@ -980,21 +980,21 @@ public final class RemoteController
         synchronized (mInfoLock) {
             if (controller == null) {
                 if (mCurrentSession != null) {
-                    mCurrentSession.removeCallback(mSessionCb);
+                    mCurrentSession.unregisterCallback(mSessionCb);
                     mCurrentSession = null;
                     sendMsg(mEventHandler, MSG_CLIENT_CHANGE, SENDMSG_REPLACE,
                             0 /* genId */, 1 /* clearing */, null /* obj */, 0 /* delay */);
                 }
             } else if (mCurrentSession == null
-                    || !controller.getSessionInfo().getId()
-                            .equals(mCurrentSession.getSessionInfo().getId())) {
+                    || !controller.getSessionToken()
+                            .equals(mCurrentSession.getSessionToken())) {
                 if (mCurrentSession != null) {
-                    mCurrentSession.removeCallback(mSessionCb);
+                    mCurrentSession.unregisterCallback(mSessionCb);
                 }
                 sendMsg(mEventHandler, MSG_CLIENT_CHANGE, SENDMSG_REPLACE,
                         0 /* genId */, 0 /* clearing */, null /* obj */, 0 /* delay */);
                 mCurrentSession = controller;
-                mCurrentSession.addCallback(mSessionCb, mEventHandler);
+                mCurrentSession.registerCallback(mSessionCb, mEventHandler);
 
                 PlaybackState state = controller.getPlaybackState();
                 sendMsg(mEventHandler, MSG_NEW_PLAYBACK_STATE, SENDMSG_REPLACE,
@@ -1023,8 +1023,8 @@ public final class RemoteController
                         state.getPosition(), state.getPlaybackSpeed());
             }
             if (state != null) {
-                l.onClientTransportControlUpdate(PlaybackState.getRccControlFlagsFromActions(state
-                        .getActions()));
+                l.onClientTransportControlUpdate(
+                        PlaybackState.getRccControlFlagsFromActions(state.getActions()));
             }
         }
     }
@@ -1042,7 +1042,8 @@ public final class RemoteController
             boolean canRate = mCurrentSession != null
                     && mCurrentSession.getRatingType() != Rating.RATING_NONE;
             long editableKeys = canRate ? MediaMetadataEditor.RATING_KEY_BY_USER : 0;
-            Bundle legacyMetadata = MediaSessionLegacyHelper.getOldMetadata(metadata);
+            Bundle legacyMetadata = MediaSessionLegacyHelper.getOldMetadata(metadata,
+                    mArtworkWidth, mArtworkHeight);
             mMetadataEditor = new MetadataEditor(legacyMetadata, editableKeys);
             metadataEditor = mMetadataEditor;
         }

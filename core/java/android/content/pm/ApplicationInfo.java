@@ -334,11 +334,11 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
     public static final int FLAG_FULL_BACKUP_ONLY = 1<<26;
 
     /**
-     * Value for {@link #flags}: true if the application is blocked via restrictions and for
+     * Value for {@link #flags}: true if the application is hidden via restrictions and for
      * most purposes is considered as not installed.
      * {@hide}
      */
-    public static final int FLAG_BLOCKED = 1<<27;
+    public static final int FLAG_HIDDEN = 1<<27;
 
     /**
      * Value for {@link #flags}: set to <code>true</code> if the application
@@ -683,6 +683,8 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         requiresSmallestWidthDp = orig.requiresSmallestWidthDp;
         compatibleWidthLimitDp = orig.compatibleWidthLimitDp;
         largestWidthLimitDp = orig.largestWidthLimitDp;
+        scanSourceDir = orig.scanSourceDir;
+        scanPublicSourceDir = orig.scanPublicSourceDir;
         sourceDir = orig.sourceDir;
         publicSourceDir = orig.publicSourceDir;
         splitSourceDirs = orig.splitSourceDirs;
@@ -731,6 +733,8 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         dest.writeInt(requiresSmallestWidthDp);
         dest.writeInt(compatibleWidthLimitDp);
         dest.writeInt(largestWidthLimitDp);
+        dest.writeString(scanSourceDir);
+        dest.writeString(scanPublicSourceDir);
         dest.writeString(sourceDir);
         dest.writeString(publicSourceDir);
         dest.writeStringArray(splitSourceDirs);
@@ -778,6 +782,8 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         requiresSmallestWidthDp = source.readInt();
         compatibleWidthLimitDp = source.readInt();
         largestWidthLimitDp = source.readInt();
+        scanSourceDir = source.readString();
+        scanPublicSourceDir = source.readString();
         sourceDir = source.readString();
         publicSourceDir = source.readString();
         splitSourceDirs = source.readStringArray();
@@ -839,7 +845,8 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
     /**
      * @hide
      */
-    @Override protected Drawable loadDefaultIcon(PackageManager pm) {
+    @Override
+    public Drawable loadDefaultIcon(PackageManager pm) {
         if ((flags & FLAG_EXTERNAL_STORAGE) != 0
                 && isPackageUnavailable(pm)) {
             return Resources.getSystem().getDrawable(

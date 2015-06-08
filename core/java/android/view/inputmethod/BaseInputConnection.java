@@ -429,18 +429,10 @@ public class BaseInputConnection implements InputConnection {
     }
 
     /**
-     * The default implementation is responsible for handling
-     * {@link CursorAnchorInfoRequest#TYPE_CURSOR_RECT}. In fact, for derived classes, calling
-     * {@code super.requestCursorAnchorInfo(request)} is the only way to handle
-     * {@link CursorAnchorInfoRequest#TYPE_CURSOR_RECT}.
+     * The default implementation does nothing.
      */
-    public int requestCursorAnchorInfo(CursorAnchorInfoRequest request) {
-        if (request != null && mIMM != null &&
-                request.getRequestType() == CursorAnchorInfoRequest.TYPE_CURSOR_RECT) {
-            mIMM.setCursorRectMonitorMode(request.getRequestFlags());
-            return CursorAnchorInfoRequest.RESULT_SCHEDULED;
-        }
-        return CursorAnchorInfoRequest.RESULT_NOT_HANDLED;
+    public boolean requestCursorUpdates(int cursorUpdateMode) {
+        return false;
     }
 
     /**

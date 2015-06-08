@@ -22,6 +22,9 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.DisplayMetrics;
 
+import java.util.Arrays;
+
+import libcore.util.EmptyArray;
 import libcore.util.Objects;
 
 /**
@@ -54,6 +57,11 @@ public final class DisplayInfo implements Parcelable {
      * The human-readable name of the display.
      */
     public String name;
+
+    /**
+     * Unique identifier for the display. Shouldn't be displayed to the user.
+     */
+    public String uniqueId;
 
     /**
      * The width of the portion of the display that is available to applications, in pixels.
@@ -156,6 +164,11 @@ public final class DisplayInfo implements Parcelable {
     public float refreshRate;
 
     /**
+     * The supported refresh rates of this display at the current resolution in frames per second.
+     */
+    public float[] supportedRefreshRates = EmptyArray.FLOAT;
+
+    /**
      * The logical display density which is the basis for density-independent
      * pixels.
      */
@@ -249,7 +262,7 @@ public final class DisplayInfo implements Parcelable {
                 && flags == other.flags
                 && type == other.type
                 && Objects.equal(address, other.address)
-                && Objects.equal(name, other.name)
+                && Objects.equal(uniqueId, other.uniqueId)
                 && appWidth == other.appWidth
                 && appHeight == other.appHeight
                 && smallestNominalAppWidth == other.smallestNominalAppWidth
@@ -285,6 +298,7 @@ public final class DisplayInfo implements Parcelable {
         type = other.type;
         address = other.address;
         name = other.name;
+        uniqueId = other.uniqueId;
         appWidth = other.appWidth;
         appHeight = other.appHeight;
         smallestNominalAppWidth = other.smallestNominalAppWidth;
@@ -299,6 +313,8 @@ public final class DisplayInfo implements Parcelable {
         overscanBottom = other.overscanBottom;
         rotation = other.rotation;
         refreshRate = other.refreshRate;
+        supportedRefreshRates = Arrays.copyOf(
+                other.supportedRefreshRates, other.supportedRefreshRates.length);
         logicalDensityDpi = other.logicalDensityDpi;
         physicalXDpi = other.physicalXDpi;
         physicalYDpi = other.physicalYDpi;
@@ -329,6 +345,7 @@ public final class DisplayInfo implements Parcelable {
         overscanBottom = source.readInt();
         rotation = source.readInt();
         refreshRate = source.readFloat();
+        supportedRefreshRates = source.createFloatArray();
         logicalDensityDpi = source.readInt();
         physicalXDpi = source.readFloat();
         physicalYDpi = source.readFloat();
@@ -337,6 +354,7 @@ public final class DisplayInfo implements Parcelable {
         state = source.readInt();
         ownerUid = source.readInt();
         ownerPackageName = source.readString();
+        uniqueId = source.readString();
     }
 
     @Override
@@ -360,6 +378,7 @@ public final class DisplayInfo implements Parcelable {
         dest.writeInt(overscanBottom);
         dest.writeInt(rotation);
         dest.writeFloat(refreshRate);
+        dest.writeFloatArray(supportedRefreshRates);
         dest.writeInt(logicalDensityDpi);
         dest.writeFloat(physicalXDpi);
         dest.writeFloat(physicalYDpi);
@@ -368,6 +387,7 @@ public final class DisplayInfo implements Parcelable {
         dest.writeInt(state);
         dest.writeInt(ownerUid);
         dest.writeString(ownerPackageName);
+        dest.writeString(uniqueId);
     }
 
     @Override
@@ -433,6 +453,8 @@ public final class DisplayInfo implements Parcelable {
         StringBuilder sb = new StringBuilder();
         sb.append("DisplayInfo{\"");
         sb.append(name);
+        sb.append("\", uniqueId \"");
+        sb.append(uniqueId);
         sb.append("\", app ");
         sb.append(appWidth);
         sb.append(" x ");
@@ -462,7 +484,9 @@ public final class DisplayInfo implements Parcelable {
         sb.append(smallestNominalAppHeight);
         sb.append(", ");
         sb.append(refreshRate);
-        sb.append(" fps, rotation ");
+        sb.append(" fps, supportedRefreshRates ");
+        sb.append(Arrays.toString(supportedRefreshRates));
+        sb.append(", rotation ");
         sb.append(rotation);
         sb.append(", density ");
         sb.append(logicalDensityDpi);

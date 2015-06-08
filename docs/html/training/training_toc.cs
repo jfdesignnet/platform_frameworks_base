@@ -131,7 +131,7 @@ include the action bar on devices running Android 2.1 or higher."
             Creating a Fragment
           </a>
           </li>
-          <li><a href="<?cs var:toroot ?>training/basics/fragments/fragment-ui.html">
+          <li><a href="<?cs var:toroot ?>training/basics/fragments/fragment-ui.html" zh-cn-lang="构建灵活的界面">
             Building a Flexible UI
           </a>
           </li>
@@ -437,6 +437,35 @@ include the action bar on devices running Android 2.1 or higher."
           </li>
         </ul>
       </li>
+
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot?>training/transitions/index.html"
+             description=
+             "How to animate state changes in a view hierarchy using transitions."
+            >Animating Views Using Scenes and Transitions</a>
+        </div>
+        <ul>
+          <li><a href="<?cs var:toroot ?>training/transitions/overview.html">
+            The Transitions Framework
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/transitions/scenes.html">
+            Creating a Scene
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/transitions/transitions.html">
+            Applying a Transition
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/transitions/custom-transitions.html">
+            Creating Custom Transitions
+          </a>
+          </li>
+
+        </ul>
+      </li>
+
       <li class="nav-section">
         <div class="nav-section-header"><a href="<?cs var:toroot ?>training/animation/index.html"
              description=
@@ -694,7 +723,7 @@ include the action bar on devices running Android 2.1 or higher."
         <ul>
           <li>
             <a href="<?cs var:toroot ?>training/location/retrieve-current.html">
-            Retrieving the Current Location
+            Getting the Last Known Location
             </a>
           </li>
           <li>
@@ -705,18 +734,6 @@ include the action bar on devices running Android 2.1 or higher."
           <li>
             <a href="<?cs var:toroot ?>training/location/display-address.html">
             Displaying a Location Address
-          </a>
-          </li>
-          <li><a href="<?cs var:toroot ?>training/location/geofencing.html">
-            Creating and Monitoring Geofences
-          </a>
-          </li>
-          <li><a href="<?cs var:toroot ?>training/location/activity-recognition.html">
-          Recognizing the User's Current Activity
-          </a>
-          </li>
-          <li><a href="<?cs var:toroot ?>training/location/location-testing.html">
-          Testing Using Mock Locations
           </a>
           </li>
         </ul>
@@ -784,6 +801,34 @@ include the action bar on devices running Android 2.1 or higher."
 
       <li class="nav-section">
         <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>training/wearables/ui/index.html"
+             description="How to create custom user interfaces for wearable apps."
+            >Creating Custom UIs</a>
+        </div>
+        <ul>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/ui/layouts.html">Defining Layouts</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/ui/cards.html">Creating Cards</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/ui/lists.html">Creating Lists</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/ui/2d-picker.html">Creating a 2D Picker</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/ui/confirm.html">Showing Confirmations</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/ui/exit.html">Exiting Full-Screen Activities</a>
+          </li>
+        </ul>
+      </li>
+
+      <li class="nav-section">
+        <div class="nav-section-header">
           <a href="<?cs var:toroot ?>training/wearables/data-layer/index.html"
              description="How to sync data between handhelds and wearables."
             >Sending and Syncing Data</a>
@@ -806,10 +851,194 @@ include the action bar on devices running Android 2.1 or higher."
           </li>
         </ul>
       </li>
+
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>training/wearables/watch-faces/index.html"
+             description="How to create watch faces for wearables."
+            >Creating Watch Faces</a>
+        </div>
+        <ul>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/watch-faces/designing.html">Designing Watch Faces</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/watch-faces/service.html">Building a Watch Face Service</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/watch-faces/drawing.html">Drawing Watch Faces</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/watch-faces/information.html">Showing Information in Watch Faces</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/watch-faces/configuration.html">Providing Configuration Activities</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/watch-faces/issues.html">Addressing Common Issues</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/wearables/watch-faces/performance.html">Optimizing Performance and Battery Life</a>
+          </li>
+        </ul>
+      </li>
+
+      <li>
+        <a href="<?cs var:toroot ?>training/articles/wear-location-detection.html"
+           description=
+           "How to detect location data on Android Wear devices."
+          >Detecting Location</a>
+      </li>
     </ul>
   </li>
-
   <!-- End Building for wearables -->
+
+
+  <!-- Start: Building for TV -->
+  <li class="nav-section">
+    <div class="nav-section-header">
+      <a href="<?cs var:toroot ?>training/tv/index.html">
+      <span class="small">Building Apps for</span><br/>
+              TV
+      </a>
+    </div>
+    <ul>
+
+      <li class="nav-section">
+        <div class="nav-section-header">
+
+          <a href="<?cs var:toroot ?>training/tv/start/index.html"
+             ja-lang="TV アプリのビルド"
+             description="How to start building TV apps or extend your existing app to run on TV
+             devices.">
+             Building TV Apps</a>
+        </div>
+        <ul>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/start/start.html"
+               ja-lang="TV アプリのビルドを開始する">
+              Getting Started with TV Apps</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/start/hardware.html"
+               ja-lang="TV ハードウェアを処理する">
+              Handling TV Hardware</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/start/layouts.html"
+               ja-lang="TV 向けレイアウトをビルドする">
+              Building TV Layouts</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/start/navigation.html"
+               ja-lang="TV 用のナビゲーションを作成する">
+              Creating TV Navigation</a>
+          </li>
+        </ul>
+      </li>
+
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>training/tv/playback/index.html"
+             ja-lang="TV 再生アプリのビルド"
+             description="How to build apps that provide media catalogs and play content.">
+             Building TV Playback Apps</a>
+        </div>
+        <ul>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/playback/browse.html"
+               ja-lang="カタログ ブラウザを作成する">
+              Creating a Catalog Browser</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/playback/card.html">
+              Providing a Card View</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/playback/details.html"
+               ja-lang="詳細ビューをビルドする">
+              Building a Details View</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/playback/now-playing.html"
+               ja-lang="再生中カードを表示する">
+              Displaying a Now Playing Card</a>
+          </li>
+        </ul>
+      </li>
+
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>training/tv/discovery/index.html"
+             description="How to help users discover content from your app.">
+             Helping Users Find Content on TV</a>
+        </div>
+        <ul>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/discovery/recommendations.html">
+              Recommending TV Content</a>
+          </li>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/discovery/searchable.html">
+              Making TV Apps Searchable</a>
+          <li>
+            <a href="<?cs var:toroot ?>training/tv/discovery/in-app-search.html">
+              Searching within TV Apps</a>
+          </li>
+        </ul>
+      </li>
+
+      <li>
+        <a href="<?cs var:toroot ?>training/tv/games/index.html"
+           description="How to build games for TV.">
+           Building TV Games</a>
+      </li>
+
+      <li>
+        <a href="<?cs var:toroot ?>training/tv/tif/index.html"
+           description="How to build Live TV apps.">
+           Building Live TV Apps</a>
+      </li>
+
+      <li>
+        <a href="<?cs var:toroot ?>training/tv/publishing/checklist.html"
+           description="An itemized list of requirements for TV apps.">
+           TV Apps Checklist</a>
+      </li>
+    </ul>
+  </li>
+  <!-- End: Building for TV -->
+
+
+  <!-- Start: Building for Auto -->
+  <li class="nav-section">
+    <div class="nav-section-header">
+      <a href="<?cs var:toroot ?>training/auto/index.html">
+      <span class="small">Building Apps for</span><br/>
+              Auto
+      </a>
+    </div>
+    <ul>
+      <li>
+        <a href="<?cs var:toroot ?>training/auto/start/index.html"
+             description="How to start building or extending apps that work
+             with Auto devices.">
+             Getting Started with Auto</a>
+      </li>
+      <li>
+        <a href="<?cs var:toroot ?>training/auto/audio/index.html"
+             description="How to extend audio apps to play content on Auto devices.">
+             Playing Audio for Auto</a>
+      </li>
+      <li>
+        <a href="<?cs var:toroot ?>training/auto/messaging/index.html"
+             description="How to extend text messaging apps to work with Auto devices.">
+             Messaging for Auto</a>
+      </li>
+    </ul>
+  </li>
+  <!-- End: Building for Auto -->
+
 
   <li class="nav-section">
     <div class="nav-section-header">
@@ -1018,29 +1247,6 @@ results."
       </li>
 
       <li class="nav-section">
-        <div class="nav-section-header"><a href="<?cs var:toroot ?>training/tv/index.html"
-             description=
-             "How to optimize your app's user interface and user input for
-             the &quot;ten foot experience&quot; of a TV screen."
-            >Designing for TV</a>
-        </div>
-        <ul>
-          <li><a href="<?cs var:toroot ?>training/tv/optimizing-layouts-tv.html">
-            Optimizing Layouts for TV
-          </a>
-          </li>
-          <li><a href="<?cs var:toroot ?>training/tv/optimizing-navigation-tv.html">
-            Optimizing Navigation for TV
-          </a>
-          </li>
-          <li><a href="<?cs var:toroot ?>training/tv/unsupported-features-tv.html">
-            Handling Features Not Supported on TV
-          </a>
-          </li>
-        </ul>
-      </li>
-
-      <li class="nav-section">
         <div class="nav-section-header">
           <a href="<?cs var:toroot ?>training/custom-views/index.html"
              description=
@@ -1142,6 +1348,45 @@ results."
           </li>
           <li><a href="<?cs var:toroot ?>training/system-ui/visibility.html">
             Responding to UI Visibility Changes
+          </a>
+          </li>
+        </ul>
+      </li>
+
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>training/material/index.html"
+             description=
+             "How to implement material design on Android."
+            >Creating Apps with Material Design</a>
+        </div>
+        <ul>
+          <li><a href="<?cs var:toroot ?>training/material/get-started.html">
+            Getting Started
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/material/theme.html">
+            Using the Material Theme
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/material/lists-cards.html">
+            Creating Lists and Cards
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/material/shadows-clipping.html">
+            Defining Shadows and Clipping Views
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/material/drawables.html">
+            Working with Drawables
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/material/animations.html">
+            Defining Custom Animations
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/material/compatibility.html">
+            Maintaining Compatibility
           </a>
           </li>
         </ul>
@@ -1487,6 +1732,14 @@ results."
           >Security with HTTPS and SSL</a>
       </li>
 
+      <li>
+        <a href="<?cs var:toroot ?>training/articles/security-gms-provider.html"
+           description=
+           "How to use and update Google Play services security provider, to
+           protect against SSL exploits."
+          >Updating Your Security Provider to Protect Against SSL Exploits</a>
+      </li>
+
       <li class="nav-section">
         <div class="nav-section-header">
           <a href="<?cs var:toroot ?>training/enterprise/index.html"
@@ -1497,6 +1750,10 @@ results."
         <ul>
           <li><a href="<?cs var:toroot ?>training/enterprise/device-management-policy.html">
             Enhancing Security with Device Management Policies
+          </a>
+          </li>
+          <li><a href="<?cs var:toroot ?>training/enterprise/app-compatibility.html">
+            Ensuring Compatibility with Managed Profiles
           </a>
           </li>
         </ul>

@@ -52,9 +52,25 @@ class DeferStateStruct;
 /**
  * A layer has dimensions and is backed by an OpenGL texture or FBO.
  */
-class Layer {
+class Layer : public VirtualLightRefBase {
 public:
-    Layer(RenderState& renderState, const uint32_t layerWidth, const uint32_t layerHeight);
+    enum Type {
+        kType_Texture,
+        kType_DisplayList,
+    };
+
+    // layer lifecycle, controlled from outside
+    enum State {
+        kState_Uncached = 0,
+        kState_InCache = 1,
+        kState_FailedToCache = 2,
+        kState_RemovedFromCache = 3,
+        kState_DeletedFromCache = 4,
+        kState_InGarbageList = 5,
+    };
+    State state; // public for logging/debugging purposes
+
+    Layer(Type type, RenderState& renderState, const uint32_t layerWidth, const uint32_t layerHeight);
     ~Layer();
 
     static uint32_t computeIdealWidth(uint32_t layerWidth);
@@ -84,6 +100,11 @@ public:
                regionRect.right * texX, (height - regionRect.bottom) * texY);
 
         regionRect.translate(layer.left, layer.top);
+    }
+
+    void setWindowTransform(Matrix4& windowTransform) {
+        cachedInvTransformInWindow.loadInverse(windowTransform);
+        rendererLightPosDirty = true;
     }
 
     void updateDeferred(RenderNode* renderNode, int left, int top, int right, int bottom);
@@ -214,11 +235,7 @@ public:
     }
 
     inline bool isTextureLayer() const {
-        return textureLayer;
-    }
-
-    inline void setTextureLayer(bool textureLayer) {
-        this->textureLayer = textureLayer;
+        return type == kType_Texture;
     }
 
     inline SkColorFilter* getColorFilter() const {
@@ -257,10 +274,22 @@ public:
         return transform;
     }
 
-    void defer();
+    void defer(const OpenGLRenderer& rootRenderer);
     void cancelDefer();
     void flush();
-    void render();
+    void render(const OpenGLRenderer& rootRenderer);
+
+    /**
+     * Posts a decStrong call to the appropriate thread.
+     * Thread-safe.
+     */
+    void postDecStrong();
+
+    /**
+     * Lost the GL context but the layer is still around, mark it invalid internally
+     * so the dtor knows not to do any GL work
+     */
+    void onGlContextLost();
 
     /**
      * Bounds of the layer.
@@ -301,9 +330,11 @@ public:
     Rect dirtyRect;
     bool debugDrawUpdate;
     bool hasDrawnSinceUpdate;
+    bool wasBuildLayered;
 
 private:
     void requireRenderer();
+    void updateLightPosFromRenderer(const OpenGLRenderer& rootRenderer);
 
     Caches& caches;
 
@@ -336,10 +367,9 @@ private:
     bool cacheable;
 
     /**
-     * When set to true, this layer must be treated as a texture
-     * layer.
+     * Denotes whether the layer is a DisplayList, or Texture layer.
      */
-    bool textureLayer;
+    const Type type;
 
     /**
      * When set to true, this layer is dirty and should be cleared
@@ -381,6 +411,12 @@ private:
      * Optional transform.
      */
     mat4 transform;
+
+    /**
+     * Cached transform of layer in window, updated only on creation / resize
+     */
+    mat4 cachedInvTransformInWindow;
+    bool rendererLightPosDirty;
 
     /**
      * Used to defer display lists when the layer is updated with a

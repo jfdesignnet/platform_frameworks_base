@@ -16,194 +16,287 @@
 
 package com.android.systemui.statusbar.policy;
 
-import com.android.systemui.R;
-import com.android.systemui.statusbar.phone.StatusBarHeaderView;
-import com.android.systemui.statusbar.phone.UserAvatarView;
-
-import android.app.ActivityManagerNative;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ObjectAnimator;
 import android.content.Context;
-import android.content.pm.UserInfo;
-import android.graphics.Bitmap;
-import android.os.AsyncTask;
-import android.os.RemoteException;
-import android.os.UserManager;
-import android.util.Log;
+import android.database.DataSetObserver;
+import android.util.AttributeSet;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewStub;
-import android.view.WindowManagerGlobal;
-import android.widget.TextView;
+import android.view.animation.AnimationUtils;
+import android.widget.FrameLayout;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.android.keyguard.AppearAnimationUtils;
+import com.android.systemui.R;
+import com.android.systemui.qs.tiles.UserDetailItemView;
+import com.android.systemui.statusbar.phone.KeyguardStatusBarView;
+import com.android.systemui.statusbar.phone.NotificationPanelView;
+import com.android.systemui.statusbar.phone.PhoneStatusBar;
 
 /**
  * Manages the user switcher on the Keyguard.
  */
-public class KeyguardUserSwitcher implements View.OnClickListener {
+public class KeyguardUserSwitcher {
 
     private static final String TAG = "KeyguardUserSwitcher";
+    private static final boolean ALWAYS_ON = false;
 
-    private final Context mContext;
+    private final Container mUserSwitcherContainer;
     private final ViewGroup mUserSwitcher;
-    private final UserManager mUserManager;
-    private final StatusBarHeaderView mHeader;
+    private final KeyguardStatusBarView mStatusBarView;
+    private final Adapter mAdapter;
+    private final AppearAnimationUtils mAppearAnimationUtils;
+    private final KeyguardUserSwitcherScrim mBackground;
+    private ObjectAnimator mBgAnimator;
+    private UserSwitcherController mUserSwitcherController;
+    private boolean mAnimating;
 
     public KeyguardUserSwitcher(Context context, ViewStub userSwitcher,
-            StatusBarHeaderView header) {
-        mContext = context;
-        if (context.getResources().getBoolean(R.bool.config_keyguardUserSwitcher)) {
-            mUserSwitcher = (ViewGroup) userSwitcher.inflate();
-            mUserManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
-            mHeader = header;
-            refresh();
+            KeyguardStatusBarView statusBarView, NotificationPanelView panelView,
+            UserSwitcherController userSwitcherController) {
+        boolean keyguardUserSwitcherEnabled =
+                context.getResources().getBoolean(R.bool.config_keyguardUserSwitcher) || ALWAYS_ON;
+        if (userSwitcherController != null && keyguardUserSwitcherEnabled) {
+            mUserSwitcherContainer = (Container) userSwitcher.inflate();
+            mUserSwitcher = (ViewGroup)
+                    mUserSwitcherContainer.findViewById(R.id.keyguard_user_switcher_inner);
+            mBackground = new KeyguardUserSwitcherScrim(mUserSwitcher);
+            mUserSwitcher.setBackground(mBackground);
+            mStatusBarView = statusBarView;
+            mStatusBarView.setKeyguardUserSwitcher(this);
+            panelView.setKeyguardUserSwitcher(this);
+            mAdapter = new Adapter(context, userSwitcherController, this);
+            mAdapter.registerDataSetObserver(mDataSetObserver);
+            mUserSwitcherController = userSwitcherController;
+            mAppearAnimationUtils = new AppearAnimationUtils(context, 400, -0.5f, 0.5f,
+                    AnimationUtils.loadInterpolator(
+                            context, android.R.interpolator.fast_out_slow_in));
+            mUserSwitcherContainer.setKeyguardUserSwitcher(this);
         } else {
+            mUserSwitcherContainer = null;
             mUserSwitcher = null;
-            mUserManager = null;
-            mHeader = null;
+            mStatusBarView = null;
+            mAdapter = null;
+            mAppearAnimationUtils = null;
+            mBackground = null;
         }
     }
 
-    public void setKeyguard(boolean keyguard) {
+    public void setKeyguard(boolean keyguard, boolean animate) {
         if (mUserSwitcher != null) {
-            // TODO: Cache showUserSwitcherOnKeyguard().
-            if (keyguard && showUserSwitcherOnKeyguard()) {
-                show();
-                refresh();
+            if (keyguard && shouldExpandByDefault()) {
+                show(animate);
             } else {
-                hide();
+                hide(animate);
             }
         }
     }
 
     /**
-     * @return true if the user switcher should be shown on the lock screen.
+     * @return true if the user switcher should be expanded by default on the lock screen.
      * @see android.os.UserManager#isUserSwitcherEnabled()
      */
-    private boolean showUserSwitcherOnKeyguard() {
-        // TODO: Set isEdu. The edu provisioning process can add settings to Settings.Global.
-        boolean isEdu = false;
-        if (isEdu) {
-            return true;
-        }
-        List<UserInfo> users = mUserManager.getUsers(true /* excludeDying */);
-        int N = users.size();
-        int switchableUsers = 0;
-        for (int i = 0; i < N; i++) {
-            if (users.get(i).supportsSwitchTo()) {
-                switchableUsers++;
+    private boolean shouldExpandByDefault() {
+        return (mUserSwitcherController != null) && mUserSwitcherController.isSimpleUserSwitcher();
+    }
+
+    public void show(boolean animate) {
+        if (mUserSwitcher != null && mUserSwitcherContainer.getVisibility() != View.VISIBLE) {
+            cancelAnimations();
+            mAdapter.refresh();
+            mUserSwitcherContainer.setVisibility(View.VISIBLE);
+            mStatusBarView.setKeyguardUserSwitcherShowing(true, animate);
+            if (animate) {
+                startAppearAnimation();
             }
         }
-        return switchableUsers > 1;
     }
 
-    public void show() {
-        if (mUserSwitcher != null) {
-            // TODO: animate
-            mUserSwitcher.setVisibility(View.VISIBLE);
-            mHeader.setKeyguardUserSwitcherShowing(true);
+    private void hide(boolean animate) {
+        if (mUserSwitcher != null && mUserSwitcherContainer.getVisibility() == View.VISIBLE) {
+            cancelAnimations();
+            if (animate) {
+                startDisappearAnimation();
+            } else {
+                mUserSwitcherContainer.setVisibility(View.GONE);
+            }
+            mStatusBarView.setKeyguardUserSwitcherShowing(false, animate);
         }
     }
 
-    private void hide() {
-        if (mUserSwitcher != null) {
-            // TODO: animate
-            mUserSwitcher.setVisibility(View.GONE);
-            mHeader.setKeyguardUserSwitcherShowing(false);
+    private void cancelAnimations() {
+        int count = mUserSwitcher.getChildCount();
+        for (int i = 0; i < count; i++) {
+            mUserSwitcher.getChildAt(i).animate().cancel();
         }
+        if (mBgAnimator != null) {
+            mBgAnimator.cancel();
+        }
+        mUserSwitcher.animate().cancel();
+        mAnimating = false;
+    }
+
+    private void startAppearAnimation() {
+        int count = mUserSwitcher.getChildCount();
+        View[] objects = new View[count];
+        for (int i = 0; i < count; i++) {
+            objects[i] = mUserSwitcher.getChildAt(i);
+        }
+        mUserSwitcher.setClipChildren(false);
+        mUserSwitcher.setClipToPadding(false);
+        mAppearAnimationUtils.startAnimation(objects, new Runnable() {
+            @Override
+            public void run() {
+                mUserSwitcher.setClipChildren(true);
+                mUserSwitcher.setClipToPadding(true);
+            }
+        });
+        mAnimating = true;
+        mBgAnimator = ObjectAnimator.ofInt(mBackground, "alpha", 0, 255);
+        mBgAnimator.setDuration(400);
+        mBgAnimator.setInterpolator(PhoneStatusBar.ALPHA_IN);
+        mBgAnimator.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                mBgAnimator = null;
+                mAnimating = false;
+            }
+        });
+        mBgAnimator.start();
+    }
+
+    private void startDisappearAnimation() {
+        mAnimating = true;
+        mUserSwitcher.animate()
+                .alpha(0f)
+                .setDuration(300)
+                .setInterpolator(PhoneStatusBar.ALPHA_OUT)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        mUserSwitcherContainer.setVisibility(View.GONE);
+                        mUserSwitcher.setAlpha(1f);
+                        mAnimating = false;
+                    }
+                });
     }
 
     private void refresh() {
-        if (mUserSwitcher != null) {
-            new AsyncTask<Void, Void, ArrayList<UserData>>() {
-                @Override
-                protected ArrayList<UserData> doInBackground(Void... params) {
-                    return loadUsers();
-                }
-
-                @Override
-                protected void onPostExecute(ArrayList<UserData> userInfos) {
-                    bind(userInfos);
-                }
-            }.execute((Void[]) null);
-        }
-    }
-
-    private void bind(ArrayList<UserData> userList) {
-        mUserSwitcher.removeAllViews();
-        int N = userList.size();
+        final int childCount = mUserSwitcher.getChildCount();
+        final int adapterCount = mAdapter.getCount();
+        final int N = Math.max(childCount, adapterCount);
         for (int i = 0; i < N; i++) {
-            mUserSwitcher.addView(inflateUser(userList.get(i)));
-        }
-        // TODO: add Guest
-        // TODO: add (+) button
-    }
-
-    private View inflateUser(UserData user) {
-        View v = LayoutInflater.from(mUserSwitcher.getContext()).inflate(
-                R.layout.keyguard_user_switcher_item, mUserSwitcher, false);
-        TextView name = (TextView) v.findViewById(R.id.name);
-        UserAvatarView picture = (UserAvatarView) v.findViewById(R.id.picture);
-        name.setText(user.userInfo.name);
-        picture.setActivated(user.isCurrent);
-        if (user.userInfo.isGuest()) {
-            picture.setDrawable(mContext.getResources().getDrawable(R.drawable.ic_account_circle));
-        } else {
-            picture.setBitmap(user.userIcon);
-        }
-        v.setOnClickListener(this);
-        v.setTag(user.userInfo);
-        // TODO: mark which user is current for accessibility.
-        return v;
-    }
-
-    @Override
-    public void onClick(View v) {
-        switchUser(((UserInfo)v.getTag()).id);
-    }
-
-    // TODO: Factor out logic below and share with QS implementation.
-
-    private ArrayList<UserData> loadUsers() {
-        ArrayList<UserInfo> users = (ArrayList<UserInfo>) mUserManager
-                .getUsers(true /* excludeDying */);
-        int N = users.size();
-        ArrayList<UserData> result = new ArrayList<>(N);
-        int currentUser = -1;
-        try {
-            currentUser = ActivityManagerNative.getDefault().getCurrentUser().id;
-        } catch (RemoteException e) {
-            Log.e(TAG, "Couln't get current user.", e);
-        }
-        for (int i = 0; i < N; i++) {
-            UserInfo user = users.get(i);
-            if (user.supportsSwitchTo()) {
-                boolean isCurrent = user.id == currentUser;
-                result.add(new UserData(user, mUserManager.getUserIcon(user.id), isCurrent));
+            if (i < adapterCount) {
+                View oldView = null;
+                if (i < childCount) {
+                    oldView = mUserSwitcher.getChildAt(i);
+                }
+                View newView = mAdapter.getView(i, oldView, mUserSwitcher);
+                if (oldView == null) {
+                    // We ran out of existing views. Add it at the end.
+                    mUserSwitcher.addView(newView);
+                } else if (oldView != newView) {
+                    // We couldn't rebind the view. Replace it.
+                    mUserSwitcher.removeViewAt(i);
+                    mUserSwitcher.addView(newView, i);
+                }
+            } else {
+                int lastIndex = mUserSwitcher.getChildCount() - 1;
+                mUserSwitcher.removeViewAt(lastIndex);
             }
         }
-        return result;
     }
 
-    private void switchUser(int userId) {
-        try {
-            WindowManagerGlobal.getWindowManagerService().lockNow(null);
-            ActivityManagerNative.getDefault().switchUser(userId);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Couldn't switch user.", e);
+    public void hideIfNotSimple(boolean animate) {
+        if (mUserSwitcherContainer != null && !mUserSwitcherController.isSimpleUserSwitcher()) {
+            hide(animate);
         }
     }
 
-    private static class UserData {
-        final UserInfo userInfo;
-        final Bitmap userIcon;
-        final boolean isCurrent;
+    boolean isAnimating() {
+        return mAnimating;
+    }
 
-        UserData(UserInfo userInfo, Bitmap userIcon, boolean isCurrent) {
-            this.userInfo = userInfo;
-            this.userIcon = userIcon;
-            this.isCurrent = isCurrent;
+    public final DataSetObserver mDataSetObserver = new DataSetObserver() {
+        @Override
+        public void onChanged() {
+            refresh();
+        }
+    };
+
+    public static class Adapter extends UserSwitcherController.BaseUserAdapter implements
+            View.OnClickListener {
+
+        private Context mContext;
+        private KeyguardUserSwitcher mKeyguardUserSwitcher;
+
+        public Adapter(Context context, UserSwitcherController controller,
+                KeyguardUserSwitcher kgu) {
+            super(controller);
+            mContext = context;
+            mKeyguardUserSwitcher = kgu;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            UserSwitcherController.UserRecord item = getItem(position);
+
+            if (!(convertView instanceof UserDetailItemView)
+                    || !(convertView.getTag() instanceof UserSwitcherController.UserRecord)) {
+                convertView = LayoutInflater.from(mContext).inflate(
+                        R.layout.keyguard_user_switcher_item, parent, false);
+                convertView.setOnClickListener(this);
+            }
+            UserDetailItemView v = (UserDetailItemView) convertView;
+
+            String name = getName(mContext, item);
+            if (item.picture == null) {
+                v.bind(name, getDrawable(mContext, item));
+            } else {
+                v.bind(name, item.picture);
+            }
+            convertView.setActivated(item.isCurrent);
+            convertView.setTag(item);
+            return convertView;
+        }
+
+        @Override
+        public void onClick(View v) {
+            UserSwitcherController.UserRecord user = (UserSwitcherController.UserRecord) v.getTag();
+            if (user.isCurrent && !user.isGuest) {
+                // Close the switcher if tapping the current user. Guest is excluded because
+                // tapping the guest user while it's current clears the session.
+                mKeyguardUserSwitcher.hideIfNotSimple(true /* animate */);
+            } else {
+                switchTo(user);
+            }
+        }
+    }
+
+    public static class Container extends FrameLayout {
+
+        private KeyguardUserSwitcher mKeyguardUserSwitcher;
+
+        public Container(Context context, AttributeSet attrs) {
+            super(context, attrs);
+            setClipChildren(false);
+        }
+
+        public void setKeyguardUserSwitcher(KeyguardUserSwitcher keyguardUserSwitcher) {
+            mKeyguardUserSwitcher = keyguardUserSwitcher;
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent ev) {
+            // Hide switcher if it didn't handle the touch event (and let the event go through).
+            if (mKeyguardUserSwitcher != null && !mKeyguardUserSwitcher.isAnimating()) {
+                mKeyguardUserSwitcher.hideIfNotSimple(true /* animate */);
+            }
+            return false;
         }
     }
 }

@@ -25,12 +25,9 @@
     <string name="label_paper_size_summary" msgid="5668204981332138168">"Цаасны хэмжээ:"</string>
     <string name="label_color" msgid="1108690305218188969">"Өнгө"</string>
     <string name="label_orientation" msgid="2853142581990496477">"Чиглэл"</string>
-    <!-- no translation found for label_pages (7768589729282182230) -->
-    <skip />
-    <!-- no translation found for template_all_pages (3322235982020148762) -->
-    <skip />
-    <!-- no translation found for template_page_range (428638530038286328) -->
-    <skip />
+    <string name="label_pages" msgid="7768589729282182230">"Хуудас"</string>
+    <string name="template_all_pages" msgid="3322235982020148762">"Нийт <xliff:g id="PAGE_COUNT">%1$s</xliff:g>"</string>
+    <string name="template_page_range" msgid="428638530038286328">"Хүрээ <xliff:g id="PAGE_COUNT">%1$s</xliff:g>"</string>
     <string name="pages_range_example" msgid="8558694453556945172">"ж.нь. 1–5, 8, 11–13"</string>
     <string name="print_preview" msgid="8010217796057763343">"Хэвлэхээр урьдчилан харах"</string>
     <string name="install_for_print_preview" msgid="6366303997385509332">"Урьдчилан харахын тулд PDF харагчийг суулгах"</string>
@@ -40,6 +37,14 @@
     <string name="all_printers" msgid="5018829726861876202">"Бүх принтерүүд…"</string>
     <string name="print_dialog" msgid="32628687461331979">"Хэвлэх диалоги"</string>
     <string name="current_page_template" msgid="1386638343571771292">"<xliff:g id="CURRENT_PAGE">%1$d</xliff:g> /<xliff:g id="PAGE_COUNT">%2$d</xliff:g>"</string>
+    <string name="page_description_template" msgid="6831239682256197161">"<xliff:g id="PAGE_COUNT">%2$d</xliff:g>-с <xliff:g id="CURRENT_PAGE">%1$d</xliff:g> хуудас"</string>
+    <string name="summary_template" msgid="8899734908625669193">"Дүгнэлт, <xliff:g id="COPIES">%1$s</xliff:g> хувь, цаасны хэмжээ <xliff:g id="PAPER_SIZE">%2$s</xliff:g>"</string>
+    <string name="expand_handle" msgid="7282974448109280522">"Бариулыг дэлгэх"</string>
+    <string name="collapse_handle" msgid="6886637989442507451">"Бариулыг хумих"</string>
+    <string name="print_button" msgid="645164566271246268">"Хэвлэх"</string>
+    <string name="savetopdf_button" msgid="2976186791686924743">"PDF-т хадгалах"</string>
+    <string name="print_options_expanded" msgid="6944679157471691859">"Хэвлэх тохируулгыг дэлгэсэн"</string>
+    <string name="print_options_collapsed" msgid="7455930445670414332">"Хэвлэх тохируулгыг хумисан"</string>
     <string name="search" msgid="5421724265322228497">"Хайх"</string>
     <string name="all_printers_label" msgid="3178848870161526399">"Бүх принтерүүд"</string>
     <string name="add_print_service_label" msgid="5356702546188981940">"Үйлчилгээ нэмэх"</string>

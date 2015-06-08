@@ -15,9 +15,11 @@
 
 package android.media.session;
 
+import android.content.pm.ParceledListSlice;
 import android.media.MediaMetadata;
 import android.media.session.ParcelableVolumeInfo;
 import android.media.session.PlaybackState;
+import android.media.session.MediaSession;
 import android.os.Bundle;
 
 /**
@@ -25,9 +27,13 @@ import android.os.Bundle;
  */
 oneway interface ISessionControllerCallback {
     void onEvent(String event, in Bundle extras);
+    void onSessionDestroyed();
 
     // These callbacks are for the TransportController
     void onPlaybackStateChanged(in PlaybackState state);
     void onMetadataChanged(in MediaMetadata metadata);
+    void onQueueChanged(in ParceledListSlice queue);
+    void onQueueTitleChanged(CharSequence title);
+    void onExtrasChanged(in Bundle extras);
     void onVolumeInfoChanged(in ParcelableVolumeInfo info);
 }

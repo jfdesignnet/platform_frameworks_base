@@ -17,6 +17,7 @@
 package android.view;
 
 import android.graphics.Rect;
+import android.os.Bundle;
 import android.view.accessibility.AccessibilityEvent;
 
 /**
@@ -523,10 +524,51 @@ public interface ViewParent {
      * parent instead. The parent may optionally consume the fling or observe a child fling.</p>
      *
      * @param target View that initiated the nested scroll
-     * @param velocityX Horizontal velocity in pixels per second.
+     * @param velocityX Horizontal velocity in pixels per second
      * @param velocityY Vertical velocity in pixels per second
      * @param consumed true if the child consumed the fling, false otherwise
      * @return true if this parent consumed or otherwise reacted to the fling
      */
     public boolean onNestedFling(View target, float velocityX, float velocityY, boolean consumed);
+
+    /**
+     * React to a nested fling before the target view consumes it.
+     *
+     * <p>This method siginfies that a nested scrolling child has detected a fling with the given
+     * velocity along each axis. Generally this means that a touch scroll has ended with a
+     * {@link VelocityTracker velocity} in the direction of scrolling that meets or exceeds
+     * the {@link ViewConfiguration#getScaledMinimumFlingVelocity() minimum fling velocity}
+     * along a scrollable axis.</p>
+     *
+     * <p>If a nested scrolling parent is consuming motion as part of a
+     * {@link #onNestedPreScroll(View, int, int, int[]) pre-scroll}, it may be appropriate for
+     * it to also consume the pre-fling to complete that same motion. By returning
+     * <code>true</code> from this method, the parent indicates that the child should not
+     * fling its own internal content as well.</p>
+     *
+     * @param target View that initiated the nested scroll
+     * @param velocityX Horizontal velocity in pixels per second
+     * @param velocityY Vertical velocity in pixels per second
+     * @return true if this parent consumed the fling ahead of the target view
+     */
+    public boolean onNestedPreFling(View target, float velocityX, float velocityY);
+
+    /**
+     * React to an accessibility action delegated by a target descendant view before the target
+     * processes it.
+     *
+     * <p>This method may be called by a target descendant view if the target wishes to give
+     * a view in its parent chain a chance to react to the event before normal processing occurs.
+     * Most commonly this will be a scroll event such as
+     * {@link android.view.accessibility.AccessibilityNodeInfo#ACTION_SCROLL_FORWARD}.
+     * A ViewParent that supports acting as a nested scrolling parent should override this
+     * method and act accordingly to implement scrolling via accesibility systems.</p>
+     *
+     * @param target The target view dispatching this action
+     * @param action Action being performed; see
+     *               {@link android.view.accessibility.AccessibilityNodeInfo}
+     * @param arguments Optional action arguments
+     * @return true if the action was consumed by this ViewParent
+     */
+    public boolean onNestedPrePerformAccessibilityAction(View target, int action, Bundle arguments);
 }

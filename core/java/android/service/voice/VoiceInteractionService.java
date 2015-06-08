@@ -22,31 +22,33 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.soundtrigger.KeyphraseEnrollmentInfo;
-import android.hardware.soundtrigger.SoundTriggerHelper;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-
 import android.provider.Settings;
+
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IVoiceInteractionManagerService;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.util.Locale;
 
 
 /**
  * Top-level service of the current global voice interactor, which is providing
- * support for hotwording, the back-end of a {@link android.app.VoiceInteractor}, etc.
+ * support for hotwording etc.
  * The current VoiceInteractionService that has been selected by the user is kept
  * always running by the system, to allow it to do things like listen for hotwords
- * in the background to instigate voice interactions.
+ * in the background.
  *
  * <p>Because this service is always running, it should be kept as lightweight as
  * possible.  Heavy-weight operations (including showing UI) should be implemented
- * in the associated {@link android.service.voice.VoiceInteractionSessionService} when
- * an actual voice interaction is taking place, and that service should run in a
- * separate process from this one.
+ * in the associated {@link android.service.voice.VoiceInteractionSessionService}
+ * that only runs while the operation is active.
  */
 public class VoiceInteractionService extends Service {
     /**
@@ -71,16 +73,27 @@ public class VoiceInteractionService extends Service {
         @Override public void ready() {
             mHandler.sendEmptyMessage(MSG_READY);
         }
+        @Override public void shutdown() {
+            mHandler.sendEmptyMessage(MSG_SHUTDOWN);
+        }
+        @Override public void soundModelsChanged() {
+            mHandler.sendEmptyMessage(MSG_SOUND_MODELS_CHANGED);
+        }
     };
 
     MyHandler mHandler;
 
     IVoiceInteractionManagerService mSystemService;
 
+    private final Object mLock = new Object();
+
     private KeyphraseEnrollmentInfo mKeyphraseEnrollmentInfo;
-    private SoundTriggerHelper mSoundTriggerHelper;
+
+    private AlwaysOnHotwordDetector mHotwordDetector;
 
     static final int MSG_READY = 1;
+    static final int MSG_SHUTDOWN = 2;
+    static final int MSG_SOUND_MODELS_CHANGED = 3;
 
     class MyHandler extends Handler {
         @Override
@@ -88,6 +101,12 @@ public class VoiceInteractionService extends Service {
             switch (msg.what) {
                 case MSG_READY:
                     onReady();
+                    break;
+                case MSG_SHUTDOWN:
+                    onShutdownInternal();
+                    break;
+                case MSG_SOUND_MODELS_CHANGED:
+                    onSoundModelsChangedInternal();
                     break;
                 default:
                     super.handleMessage(msg);
@@ -109,7 +128,7 @@ public class VoiceInteractionService extends Service {
         if (curComp == null) {
             return false;
         }
-        return curComp.equals(cur);
+        return curComp.equals(service);
     }
 
     /**
@@ -142,33 +161,67 @@ public class VoiceInteractionService extends Service {
 
     /**
      * Called during service initialization to tell you when the system is ready
-     * to receive interaction from it.  You should generally do initialization here
-     * rather than in {@link #onCreate()}.  Methods such as {@link #startSession}
-     * and {@link #getAlwaysOnHotwordDetector} will not be operational until this point.
+     * to receive interaction from it. You should generally do initialization here
+     * rather than in {@link #onCreate()}. Methods such as {@link #startSession(Bundle)} and
+     * {@link #createAlwaysOnHotwordDetector(String, Locale, android.service.voice.AlwaysOnHotwordDetector.Callback)}
+     * will not be operational until this point.
      */
     public void onReady() {
         mSystemService = IVoiceInteractionManagerService.Stub.asInterface(
                 ServiceManager.getService(Context.VOICE_INTERACTION_MANAGER_SERVICE));
         mKeyphraseEnrollmentInfo = new KeyphraseEnrollmentInfo(getPackageManager());
-        mSoundTriggerHelper = new SoundTriggerHelper();
+    }
+
+    private void onShutdownInternal() {
+        onShutdown();
+        // Stop any active recognitions when shutting down.
+        // This ensures that if implementations forget to stop any active recognition,
+        // It's still guaranteed to have been stopped.
+        // This helps with cases where the voice interaction implementation is changed
+        // by the user.
+        safelyShutdownHotwordDetector();
     }
 
     /**
+     * Called during service de-initialization to tell you when the system is shutting the
+     * service down.
+     * At this point this service may no longer be the active {@link VoiceInteractionService}.
+     */
+    public void onShutdown() {
+    }
+
+    private void onSoundModelsChangedInternal() {
+        synchronized (this) {
+            if (mHotwordDetector != null) {
+                // TODO: Stop recognition if a sound model that was being recognized gets deleted.
+                mHotwordDetector.onSoundModelsChanged();
+            }
+        }
+    }
+
+    /**
+     * Creates an {@link AlwaysOnHotwordDetector} for the given keyphrase and locale.
+     * This instance must be retained and used by the client.
+     * Calling this a second time invalidates the previously created hotword detector
+     * which can no longer be used to manage recognition.
+     *
      * @param keyphrase The keyphrase that's being used, for example "Hello Android".
      * @param locale The locale for which the enrollment needs to be performed.
-     *        This is a Java locale, for example "en_US".
      * @param callback The callback to notify of detection events.
      * @return An always-on hotword detector for the given keyphrase and locale.
      */
-    public final AlwaysOnHotwordDetector getAlwaysOnHotwordDetector(
-            String keyphrase, String locale, AlwaysOnHotwordDetector.Callback callback) {
+    public final AlwaysOnHotwordDetector createAlwaysOnHotwordDetector(
+            String keyphrase, Locale locale, AlwaysOnHotwordDetector.Callback callback) {
         if (mSystemService == null) {
             throw new IllegalStateException("Not available until onReady() is called");
         }
-        // TODO: Cache instances and return the same one instead of creating a new interactor
-        // for the same keyphrase/locale combination.
-        return new AlwaysOnHotwordDetector(keyphrase, locale, callback,
-                mKeyphraseEnrollmentInfo, mSoundTriggerHelper, mInterface, mSystemService);
+        synchronized (mLock) {
+            // Allow only one concurrent recognition via the APIs.
+            safelyShutdownHotwordDetector();
+            mHotwordDetector = new AlwaysOnHotwordDetector(keyphrase, locale, callback,
+                    mKeyphraseEnrollmentInfo, mInterface, mSystemService);
+        }
+        return mHotwordDetector;
     }
 
     /**
@@ -178,5 +231,32 @@ public class VoiceInteractionService extends Service {
     @VisibleForTesting
     protected final KeyphraseEnrollmentInfo getKeyphraseEnrollmentInfo() {
         return mKeyphraseEnrollmentInfo;
+    }
+
+    private void safelyShutdownHotwordDetector() {
+        try {
+            synchronized (mLock) {
+                if (mHotwordDetector != null) {
+                    mHotwordDetector.stopRecognition();
+                    mHotwordDetector.invalidate();
+                    mHotwordDetector = null;
+                }
+            }
+        } catch (Exception ex) {
+            // Ignore.
+        }
+    }
+
+    @Override
+    protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("VOICE INTERACTION");
+        synchronized (mLock) {
+            pw.println("  AlwaysOnHotwordDetector");
+            if (mHotwordDetector == null) {
+                pw.println("    NULL");
+            } else {
+                mHotwordDetector.dump("    ", pw);
+            }
+        }
     }
 }

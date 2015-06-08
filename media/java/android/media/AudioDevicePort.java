@@ -16,6 +16,8 @@
 
 package android.media;
 
+import android.media.AudioSystem;
+
 /**
  * The AudioDevicePort is a specialized type of AudioPort
  * describing an input (e.g microphone) or output device (e.g speaker)
@@ -81,5 +83,16 @@ public class AudioDevicePort extends AudioPort {
             return false;
         }
         return super.equals(o);
+    }
+
+    @Override
+    public String toString() {
+        String type = (mRole == ROLE_SOURCE ?
+                            AudioSystem.getInputDeviceName(mType) :
+                            AudioSystem.getOutputDeviceName(mType));
+        return "{" + super.toString()
+                + ", mType: " + type
+                + ", mAddress: " + mAddress
+                + "}";
     }
 }

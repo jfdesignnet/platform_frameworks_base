@@ -29,6 +29,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.UserInfo;
 import android.graphics.Rect;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IInterface;
@@ -36,6 +37,7 @@ import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.Slog;
 
@@ -197,8 +199,7 @@ public class LauncherAppsService extends SystemService {
             mainIntent.setPackage(packageName);
             long ident = Binder.clearCallingIdentity();
             try {
-                List<ResolveInfo> apps = mPm.queryIntentActivitiesAsUser(mainIntent,
-                        PackageManager.NO_CROSS_PROFILE, // We only want the apps for this user
+                List<ResolveInfo> apps = mPm.queryIntentActivitiesAsUser(mainIntent, 0 /* flags */,
                         user.getIdentifier());
                 return apps;
             } finally {
@@ -253,7 +254,7 @@ public class LauncherAppsService extends SystemService {
             try {
                 IPackageManager pm = AppGlobals.getPackageManager();
                 ActivityInfo info = pm.getActivityInfo(component, 0, user.getIdentifier());
-                return info != null && info.isEnabled();
+                return info != null;
             } finally {
                 Binder.restoreCallingIdentity(ident);
             }
@@ -269,17 +270,66 @@ public class LauncherAppsService extends SystemService {
 
             Intent launchIntent = new Intent(Intent.ACTION_MAIN);
             launchIntent.addCategory(Intent.CATEGORY_LAUNCHER);
-            launchIntent.setComponent(component);
             launchIntent.setSourceBounds(sourceBounds);
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            launchIntent.setPackage(component.getPackageName());
 
             long ident = Binder.clearCallingIdentity();
             try {
-                mContext.startActivityAsUser(launchIntent, opts, user);
+                IPackageManager pm = AppGlobals.getPackageManager();
+                ActivityInfo info = pm.getActivityInfo(component, 0, user.getIdentifier());
+                if (!info.exported) {
+                    throw new SecurityException("Cannot launch non-exported components "
+                            + component);
+                }
+
+                // Check that the component actually has Intent.CATEGORY_LAUCNCHER
+                // as calling startActivityAsUser ignores the category and just
+                // resolves based on the component if present.
+                List<ResolveInfo> apps = mPm.queryIntentActivitiesAsUser(launchIntent,
+                        0 /* flags */, user.getIdentifier());
+                final int size = apps.size();
+                for (int i = 0; i < size; ++i) {
+                    ActivityInfo activityInfo = apps.get(i).activityInfo;
+                    if (activityInfo.packageName.equals(component.getPackageName()) &&
+                            activityInfo.name.equals(component.getClassName())) {
+                        // Found an activity with category launcher that matches
+                        // this component so ok to launch.
+                        launchIntent.setComponent(component);
+                        mContext.startActivityAsUser(launchIntent, opts, user);
+                        return;
+                    }
+                }
+                throw new SecurityException("Attempt to launch activity without "
+                        + " category Intent.CATEGORY_LAUNCHER " + component);
             } finally {
                 Binder.restoreCallingIdentity(ident);
             }
         }
+
+        @Override
+        public void showAppDetailsAsUser(ComponentName component, Rect sourceBounds,
+                Bundle opts, UserHandle user) throws RemoteException {
+            ensureInUserProfiles(user, "Cannot show app details for unrelated profile " + user);
+            if (!isUserEnabled(user)) {
+                throw new IllegalStateException("Cannot show app details for disabled profile "
+                        + user);
+            }
+
+            long ident = Binder.clearCallingIdentity();
+            try {
+                String packageName = component.getPackageName();
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", packageName, null));
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK |
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+                intent.setSourceBounds(sourceBounds);
+                mContext.startActivityAsUser(intent, opts, user);
+            } finally {
+                Binder.restoreCallingIdentity(ident);
+            }
+        }
+
 
         private class MyPackageMonitor extends PackageMonitor {
 

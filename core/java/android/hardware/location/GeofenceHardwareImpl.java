@@ -23,6 +23,7 @@ import android.location.IGpsGeofenceHardware;
 import android.location.Location;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.IInterface;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.RemoteException;
@@ -30,6 +31,7 @@ import android.util.Log;
 import android.util.SparseArray;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 
 /**
  * This class manages the geofences which are handled by hardware.
@@ -139,8 +141,8 @@ public final class GeofenceHardwareImpl {
     private void updateFusedHardwareAvailability() {
         boolean fusedSupported;
         try {
-            fusedSupported = mFusedService.isSupported();
-        } catch(RemoteException e) {
+            fusedSupported = (mFusedService != null ? mFusedService.isSupported() : false);
+        } catch (RemoteException e) {
             Log.e(TAG, "RemoteException calling LocationManagerService");
             fusedSupported = false;
         }
@@ -210,18 +212,20 @@ public final class GeofenceHardwareImpl {
         }
     }
 
-    public boolean addCircularFence(int geofenceId,  int monitoringType, double latitude,
-            double longitude, double radius, int lastTransition,int monitorTransitions,
-            int notificationResponsivenes, int unknownTimer, IGeofenceHardwareCallback callback) {
+    public boolean addCircularFence(
+            int monitoringType,
+            GeofenceHardwareRequestParcelable request,
+            IGeofenceHardwareCallback callback) {
+        int geofenceId = request.getId();
+
         // This API is not thread safe. Operations on the same geofence need to be serialized
         // by upper layers
         if (DEBUG) {
-            Log.d(TAG, "addCircularFence: GeofenceId: " + geofenceId + " Latitude: " + latitude +
-                    " Longitude: " + longitude + " Radius: " + radius + " LastTransition: "
-                    + lastTransition + " MonitorTransition: " + monitorTransitions +
-                    " NotificationResponsiveness: " + notificationResponsivenes +
-                    " UnKnown Timer: " + unknownTimer + " MonitoringType: " + monitoringType);
-
+            String message = String.format(
+                    "addCircularFence: monitoringType=%d, %s",
+                    monitoringType,
+                    request);
+            Log.d(TAG, message);
         }
         boolean result;
 
@@ -237,9 +241,15 @@ public final class GeofenceHardwareImpl {
             case GeofenceHardware.MONITORING_TYPE_GPS_HARDWARE:
                 if (mGpsService == null) return false;
                 try {
-                    result = mGpsService.addCircularHardwareGeofence(geofenceId, latitude,
-                            longitude, radius, lastTransition, monitorTransitions,
-                            notificationResponsivenes, unknownTimer);
+                    result = mGpsService.addCircularHardwareGeofence(
+                            request.getId(),
+                            request.getLatitude(),
+                            request.getLongitude(),
+                            request.getRadius(),
+                            request.getLastTransition(),
+                            request.getMonitorTransitions(),
+                            request.getNotificationResponsiveness(),
+                            request.getUnknownTimer());
                 } catch (RemoteException e) {
                     Log.e(TAG, "AddGeofence: Remote Exception calling LocationManagerService");
                     result = false;
@@ -249,20 +259,9 @@ public final class GeofenceHardwareImpl {
                 if(mFusedService == null) {
                     return false;
                 }
-                GeofenceHardwareRequest request = GeofenceHardwareRequest.createCircularGeofence(
-                        latitude,
-                        longitude,
-                        radius);
-                request.setUnknownTimer(unknownTimer);
-                request.setNotificationResponsiveness(notificationResponsivenes);
-                request.setMonitorTransitions(monitorTransitions);
-                request.setLastTransition(lastTransition);
-
-                GeofenceHardwareRequestParcelable parcelableRequest =
-                        new GeofenceHardwareRequestParcelable(geofenceId, request);
                 try {
                     mFusedService.addGeofences(
-                            new GeofenceHardwareRequestParcelable[] { parcelableRequest });
+                            new GeofenceHardwareRequestParcelable[] { request });
                     result = true;
                 } catch(RemoteException e) {
                     Log.e(TAG, "AddGeofence: RemoteException calling LocationManagerService");
@@ -471,12 +470,14 @@ public final class GeofenceHardwareImpl {
             int monitoringStatus,
             Location location,
             int source) {
-        // TODO: use the source if needed in the future
         setMonitorAvailability(monitoringType, monitoringStatus);
         acquireWakeLock();
-        Message message = mCallbacksHandler.obtainMessage(GEOFENCE_STATUS, location);
-        message.arg1 = monitoringStatus;
-        message.arg2 = monitoringType;
+        GeofenceHardwareMonitorEvent event = new GeofenceHardwareMonitorEvent(
+                monitoringType,
+                monitoringStatus,
+                source,
+                location);
+        Message message = mCallbacksHandler.obtainMessage(GEOFENCE_STATUS, event);
         message.sendToTarget();
     }
 
@@ -559,8 +560,34 @@ public final class GeofenceHardwareImpl {
                         try {
                             callback.onGeofenceRemove(geofenceId, msg.arg2);
                         } catch (RemoteException e) {}
+                        IBinder callbackBinder = callback.asBinder();
+                        boolean callbackInUse = false;
                         synchronized (mGeofences) {
                             mGeofences.remove(geofenceId);
+                            // Check if the underlying binder is still useful for other geofences,
+                            // if no, unlink the DeathRecipient to avoid memory leak.
+                            for (int i = 0; i < mGeofences.size(); i++) {
+                                 if (mGeofences.valueAt(i).asBinder() == callbackBinder) {
+                                     callbackInUse = true;
+                                     break;
+                                 }
+                            }
+                        }
+
+                        // Remove the reaper associated with this binder.
+                        if (!callbackInUse) {
+                            for (Iterator<Reaper> iterator = mReapers.iterator();
+                                    iterator.hasNext();) {
+                                Reaper reaper = iterator.next();
+                                if (reaper.mCallback != null &&
+                                        reaper.mCallback.asBinder() == callbackBinder) {
+                                    iterator.remove();
+                                    reaper.unlinkToDeath();
+                                    if (DEBUG) Log.d(TAG, String.format("Removed reaper %s " +
+                                          "because binder %s is no longer needed.",
+                                          reaper, callbackBinder));
+                                }
+                            }
                         }
                     }
                     releaseWakeLock();
@@ -644,20 +671,17 @@ public final class GeofenceHardwareImpl {
 
             switch (msg.what) {
                 case GEOFENCE_STATUS:
-                    Location location = (Location) msg.obj;
-                    int val = msg.arg1;
-                    monitoringType = msg.arg2;
-                    boolean available;
-                    available = (val == GeofenceHardware.MONITOR_CURRENTLY_AVAILABLE ?
-                            true : false);
-                    callbackList = mCallbacks[monitoringType];
+                    GeofenceHardwareMonitorEvent event = (GeofenceHardwareMonitorEvent) msg.obj;
+                    callbackList = mCallbacks[event.getMonitoringType()];
                     if (callbackList != null) {
-                        if (DEBUG) Log.d(TAG, "MonitoringSystemChangeCallback: GPS : " + available);
+                        if (DEBUG) Log.d(TAG, "MonitoringSystemChangeCallback: " + event);
 
-                        for (IGeofenceHardwareMonitorCallback c: callbackList) {
+                        for (IGeofenceHardwareMonitorCallback c : callbackList) {
                             try {
-                                c.onMonitoringSystemChange(monitoringType, available, location);
-                            } catch (RemoteException e) {}
+                                c.onMonitoringSystemChange(event);
+                            } catch (RemoteException e) {
+                                Log.d(TAG, "Error reporting onMonitoringSystemChange.", e);
+                            }
                         }
                     }
                     releaseWakeLock();
@@ -807,8 +831,9 @@ public final class GeofenceHardwareImpl {
         @Override
         public int hashCode() {
             int result = 17;
-            result = 31 * result + (mCallback != null ? mCallback.hashCode() : 0);
-            result = 31 * result + (mMonitorCallback != null ? mMonitorCallback.hashCode() : 0);
+            result = 31 * result + (mCallback != null ? mCallback.asBinder().hashCode() : 0);
+            result = 31 * result + (mMonitorCallback != null
+                    ? mMonitorCallback.asBinder().hashCode() : 0);
             result = 31 * result + mMonitoringType;
             return result;
         }
@@ -819,8 +844,37 @@ public final class GeofenceHardwareImpl {
             if (obj == this) return true;
 
             Reaper rhs = (Reaper) obj;
-            return rhs.mCallback == mCallback && rhs.mMonitorCallback == mMonitorCallback &&
+            return binderEquals(rhs.mCallback, mCallback) &&
+                    binderEquals(rhs.mMonitorCallback, mMonitorCallback) &&
                     rhs.mMonitoringType == mMonitoringType;
+        }
+
+        /**
+         * Compares the underlying Binder of the given two IInterface objects and returns true if
+         * they equals. null values are accepted.
+         */
+        private boolean binderEquals(IInterface left, IInterface right) {
+          if (left == null) {
+            return right == null;
+          } else {
+            return right == null ? false : left.asBinder() == right.asBinder();
+          }
+        }
+
+        /**
+         * Unlinks this DeathRecipient.
+         */
+        private boolean unlinkToDeath() {
+          if (mMonitorCallback != null) {
+            return mMonitorCallback.asBinder().unlinkToDeath(this, 0);
+          } else if (mCallback != null) {
+            return mCallback.asBinder().unlinkToDeath(this, 0);
+          }
+          return true;
+        }
+
+        private boolean callbackEquals(IGeofenceHardwareCallback cb) {
+          return mCallback != null && mCallback.asBinder() == cb.asBinder();
         }
     }
 

@@ -23,18 +23,15 @@ import android.content.res.Resources;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 
 import com.android.systemui.R;
-import com.android.systemui.qs.DataUsageGraph;
 import com.android.systemui.qs.QSTile;
 import com.android.systemui.qs.QSTileView;
 import com.android.systemui.qs.SignalTileView;
 import com.android.systemui.statusbar.policy.NetworkController;
-import com.android.systemui.statusbar.policy.NetworkController.DataUsageInfo;
+import com.android.systemui.statusbar.policy.NetworkController.MobileDataController;
+import com.android.systemui.statusbar.policy.NetworkController.MobileDataController.DataUsageInfo;
 import com.android.systemui.statusbar.policy.NetworkController.NetworkSignalChangedCallback;
-
-import java.text.DecimalFormat;
 
 /** Quick settings tile: Cellular **/
 public class CellularTile extends QSTile<QSTile.SignalState> {
@@ -42,11 +39,13 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
             "com.android.settings", "com.android.settings.Settings$DataUsageSummaryActivity"));
 
     private final NetworkController mController;
+    private final MobileDataController mDataController;
     private final CellularDetailAdapter mDetailAdapter;
 
     public CellularTile(Host host) {
         super(host);
         mController = host.getNetworkController();
+        mDataController = mController.getMobileDataController();
         mDetailAdapter = new CellularDetailAdapter();
     }
 
@@ -76,7 +75,7 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
 
     @Override
     protected void handleClick() {
-        if (mController.isMobileDataSupported()) {
+        if (mDataController.isMobileDataSupported()) {
             showDetail(true);
         } else {
             mHost.startSettingsActivity(CELLULAR_SETTINGS);
@@ -91,15 +90,15 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
         if (cb == null) return;
 
         final Resources r = mContext.getResources();
-        state.iconId = cb.noSim
-                ? R.drawable.stat_sys_no_sim
-                : cb.enabled && (cb.mobileSignalIconId > 0)
-                ? cb.mobileSignalIconId
+        final int iconId = cb.noSim ? R.drawable.ic_qs_no_sim
+                : !cb.enabled || cb.airplaneModeEnabled ? R.drawable.ic_qs_signal_disabled
+                : cb.mobileSignalIconId > 0 ? cb.mobileSignalIconId
                 : R.drawable.ic_qs_signal_no_signal;
-        state.overlayIconId = cb.enabled && (cb.dataTypeIconId > 0) && !cb.wifiEnabled
-                ? cb.dataTypeIconId
-                : 0;
-        state.filter = state.iconId != R.drawable.stat_sys_no_sim;
+        state.icon = ResourceIcon.get(iconId);
+        state.isOverlayIconWide = cb.isDataTypeIconWide;
+        state.autoMirrorDrawable = !cb.noSim;
+        state.overlayIconId = cb.enabled && (cb.dataTypeIconId > 0) ? cb.dataTypeIconId : 0;
+        state.filter = iconId != R.drawable.ic_qs_no_sim;
         state.activityIn = cb.enabled && cb.activityIn;
         state.activityOut = cb.enabled && cb.activityOut;
 
@@ -132,6 +131,8 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
     private static final class CallbackInfo {
         boolean enabled;
         boolean wifiEnabled;
+        boolean wifiConnected;
+        boolean airplaneModeEnabled;
         int mobileSignalIconId;
         String signalContentDescription;
         int dataTypeIconId;
@@ -140,16 +141,19 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
         boolean activityOut;
         String enabledDesc;
         boolean noSim;
+        boolean isDataTypeIconWide;
     }
 
     private final NetworkSignalChangedCallback mCallback = new NetworkSignalChangedCallback() {
-        private boolean mWifiEnabled;
+        private final CallbackInfo mInfo = new CallbackInfo();
 
         @Override
-        public void onWifiSignalChanged(boolean enabled, int wifiSignalIconId,
+        public void onWifiSignalChanged(boolean enabled, boolean connected, int wifiSignalIconId,
                 boolean activityIn, boolean activityOut,
                 String wifiSignalContentDescriptionId, String description) {
-            mWifiEnabled = enabled;
+            mInfo.wifiEnabled = enabled;
+            mInfo.wifiConnected = connected;
+            refreshState(mInfo);
         }
 
         @Override
@@ -157,24 +161,40 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
                 int mobileSignalIconId,
                 String mobileSignalContentDescriptionId, int dataTypeIconId,
                 boolean activityIn, boolean activityOut,
-                String dataTypeContentDescriptionId, String description, boolean noSim) {
-            final CallbackInfo info = new CallbackInfo();  // TODO pool?
-            info.enabled = enabled;
-            info.wifiEnabled = mWifiEnabled;
-            info.mobileSignalIconId = mobileSignalIconId;
-            info.signalContentDescription = mobileSignalContentDescriptionId;
-            info.dataTypeIconId = dataTypeIconId;
-            info.dataContentDescription = dataTypeContentDescriptionId;
-            info.activityIn = activityIn;
-            info.activityOut = activityOut;
-            info.enabledDesc = description;
-            info.noSim = noSim;
-            refreshState(info);
+                String dataTypeContentDescriptionId, String description,
+                boolean isDataTypeIconWide) {
+            mInfo.enabled = enabled;
+            mInfo.mobileSignalIconId = mobileSignalIconId;
+            mInfo.signalContentDescription = mobileSignalContentDescriptionId;
+            mInfo.dataTypeIconId = dataTypeIconId;
+            mInfo.dataContentDescription = dataTypeContentDescriptionId;
+            mInfo.activityIn = activityIn;
+            mInfo.activityOut = activityOut;
+            mInfo.enabledDesc = description;
+            mInfo.isDataTypeIconWide = isDataTypeIconWide;
+            refreshState(mInfo);
+        }
+
+        @Override
+        public void onNoSimVisibleChanged(boolean visible) {
+            mInfo.noSim = visible;
+            if (mInfo.noSim) {
+                // Make sure signal gets cleared out when no sims.
+                mInfo.mobileSignalIconId = 0;
+                mInfo.dataTypeIconId = 0;
+                // Show a No SIMs description to avoid emergency calls message.
+                mInfo.enabled = true;
+                mInfo.enabledDesc = mContext.getString(
+                        R.string.keyguard_missing_sim_message_short);
+                mInfo.signalContentDescription = mInfo.enabledDesc;
+            }
+            refreshState(mInfo);
         }
 
         @Override
         public void onAirplaneModeChanged(boolean enabled) {
-            // noop
+            mInfo.airplaneModeEnabled = enabled;
+            refreshState(mInfo);
         }
 
         public void onMobileDataEnabled(boolean enabled) {
@@ -183,11 +203,6 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
     };
 
     private final class CellularDetailAdapter implements DetailAdapter {
-        private static final double KB = 1024;
-        private static final double MB = 1024 * KB;
-        private static final double GB = 1024 * MB;
-
-        private final DecimalFormat FORMAT = new DecimalFormat("#.##");
 
         @Override
         public int getTitle() {
@@ -196,7 +211,9 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
 
         @Override
         public Boolean getToggleState() {
-            return mController.isMobileDataSupported() ? mController.isMobileDataEnabled() : null;
+            return mDataController.isMobileDataSupported()
+                    ? mDataController.isMobileDataEnabled()
+                    : null;
         }
 
         @Override
@@ -206,85 +223,22 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
 
         @Override
         public void setToggleState(boolean state) {
-            mController.setMobileDataEnabled(state);
+            mDataController.setMobileDataEnabled(state);
         }
 
         @Override
         public View createDetailView(Context context, View convertView, ViewGroup parent) {
-            final View v = convertView != null ? convertView : LayoutInflater.from(mContext)
-                    .inflate(R.layout.data_usage, parent, false);
-            final DataUsageInfo info = mController.getDataUsageInfo();
+            final DataUsageDetailView v = (DataUsageDetailView) (convertView != null
+                    ? convertView
+                    : LayoutInflater.from(mContext).inflate(R.layout.data_usage, parent, false));
+            final DataUsageInfo info = mDataController.getDataUsageInfo();
             if (info == null) return v;
-            final Resources res = mContext.getResources();
-            final int titleId;
-            final long bytes;
-            int usageColor = R.color.system_accent_color;
-            final String top;
-            String bottom = null;
-            if (info.usageLevel < info.warningLevel || info.limitLevel <= 0) {
-                // under warning, or no limit
-                titleId = R.string.quick_settings_cellular_detail_data_usage;
-                bytes = info.usageLevel;
-                top = res.getString(R.string.quick_settings_cellular_detail_data_warning,
-                        formatBytes(info.warningLevel));
-            } else if (info.usageLevel <= info.limitLevel) {
-                // over warning, under limit
-                titleId = R.string.quick_settings_cellular_detail_remaining_data;
-                bytes = info.limitLevel - info.usageLevel;
-                top = res.getString(R.string.quick_settings_cellular_detail_data_used,
-                        formatBytes(info.usageLevel));
-                bottom = res.getString(R.string.quick_settings_cellular_detail_data_limit,
-                        formatBytes(info.limitLevel));
-            } else {
-                // over limit
-                titleId = R.string.quick_settings_cellular_detail_over_limit;
-                bytes = info.usageLevel - info.limitLevel;
-                top = res.getString(R.string.quick_settings_cellular_detail_data_used,
-                        formatBytes(info.usageLevel));
-                bottom = res.getString(R.string.quick_settings_cellular_detail_data_limit,
-                        formatBytes(info.limitLevel));
-                usageColor = R.color.system_warning_color;
-            }
-
-            final TextView title = (TextView) v.findViewById(android.R.id.title);
-            title.setText(titleId);
-            final TextView usage = (TextView) v.findViewById(R.id.usage_text);
-            usage.setText(formatBytes(bytes));
-            usage.setTextColor(res.getColor(usageColor));
-            final DataUsageGraph graph = (DataUsageGraph) v.findViewById(R.id.usage_graph);
-            graph.setLevels(info.limitLevel, info.warningLevel, info.usageLevel);
-            final TextView carrier = (TextView) v.findViewById(R.id.usage_carrier_text);
-            carrier.setText(info.carrier);
-            final TextView period = (TextView) v.findViewById(R.id.usage_period_text);
-            period.setText(info.period);
-            final TextView infoTop = (TextView) v.findViewById(R.id.usage_info_top_text);
-            infoTop.setVisibility(top != null ? View.VISIBLE : View.GONE);
-            infoTop.setText(top);
-            final TextView infoBottom = (TextView) v.findViewById(R.id.usage_info_bottom_text);
-            infoBottom.setVisibility(bottom != null ? View.VISIBLE : View.GONE);
-            infoBottom.setText(bottom);
+            v.bind(info);
             return v;
         }
 
         public void setMobileDataEnabled(boolean enabled) {
             fireToggleStateChanged(enabled);
-        }
-
-        private String formatBytes(long bytes) {
-            final long b = Math.abs(bytes);
-            double val;
-            String suffix;
-            if (b > 100 * MB) {
-                val = b / GB;
-                suffix = "GB";
-            } else if (b > 100 * KB) {
-                val = b / MB;
-                suffix = "MB";
-            } else {
-                val = b / KB;
-                suffix = "KB";
-            }
-            return FORMAT.format(val * (bytes < 0 ? -1 : 1)) + " " + suffix;
         }
     }
 }

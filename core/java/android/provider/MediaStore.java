@@ -256,6 +256,11 @@ public final class MediaStore {
      * object in the extra field. This is useful for applications that only need a small image.
      * If the EXTRA_OUTPUT is present, then the full-sized image will be written to the Uri
      * value of EXTRA_OUTPUT.
+     * As of {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this uri can also be supplied through
+     * {@link android.content.Intent#setClipData(ClipData)}. If using this approach, you still must
+     * supply the uri through the EXTRA_OUTPUT field for compatibility with old applications.
+     * If you don't set a ClipData, it will be copied there for you when calling
+     * {@link Context#startActivity(Intent)}.
      * @see #EXTRA_OUTPUT
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
@@ -276,6 +281,11 @@ public final class MediaStore {
      * object in the extra field. This is useful for applications that only need a small image.
      * If the EXTRA_OUTPUT is present, then the full-sized image will be written to the Uri
      * value of EXTRA_OUTPUT.
+     * As of {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this uri can also be supplied through
+     * {@link android.content.Intent#setClipData(ClipData)}. If using this approach, you still must
+     * supply the uri through the EXTRA_OUTPUT field for compatibility with old applications.
+     * If you don't set a ClipData, it will be copied there for you when calling
+     * {@link Context#startActivity(Intent)}.
      *
      * @see #ACTION_IMAGE_CAPTURE
      * @see #EXTRA_OUTPUT
@@ -294,6 +304,11 @@ public final class MediaStore {
      * where the video is written. If EXTRA_OUTPUT is not present the video will be
      * written to the standard location for videos, and the Uri of that location will be
      * returned in the data field of the Uri.
+     * As of {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this uri can also be supplied through
+     * {@link android.content.Intent#setClipData(ClipData)}. If using this approach, you still must
+     * supply the uri through the EXTRA_OUTPUT field for compatibility with old applications.
+     * If you don't set a ClipData, it will be copied there for you when calling
+     * {@link Context#startActivity(Intent)}.
      * @see #EXTRA_OUTPUT
      * @see #EXTRA_VIDEO_QUALITY
      * @see #EXTRA_SIZE_LIMIT
@@ -623,7 +638,6 @@ public final class MediaStore {
         static Bitmap getThumbnail(ContentResolver cr, long origId, long groupId, int kind,
                 BitmapFactory.Options options, Uri baseUri, boolean isVideo) {
             Bitmap bitmap = null;
-            String filePath = null;
             // Log.v(TAG, "getThumbnail: origId="+origId+", kind="+kind+", isVideo="+isVideo);
             // If the magic is non-zero, we simply return thumbnail if it does exist.
             // querying MediaProvider and simply return thumbnail.
@@ -695,18 +709,18 @@ public final class MediaStore {
                     Uri uri = Uri.parse(
                             baseUri.buildUpon().appendPath(String.valueOf(origId))
                                     .toString().replaceFirst("thumbnails", "media"));
-                    if (filePath == null) {
-                        if (c != null) c.close();
-                        c = cr.query(uri, PROJECTION, null, null, null);
-                        if (c == null || !c.moveToFirst()) {
-                            return null;
-                        }
-                        filePath = c.getString(1);
+                    if (c != null) c.close();
+                    c = cr.query(uri, PROJECTION, null, null, null);
+                    if (c == null || !c.moveToFirst()) {
+                        return null;
                     }
-                    if (isVideo) {
-                        bitmap = ThumbnailUtils.createVideoThumbnail(filePath, kind);
-                    } else {
-                        bitmap = ThumbnailUtils.createImageThumbnail(filePath, kind);
+                    String filePath = c.getString(1);
+                    if (filePath != null) {
+                        if (isVideo) {
+                            bitmap = ThumbnailUtils.createVideoThumbnail(filePath, kind);
+                        } else {
+                            bitmap = ThumbnailUtils.createImageThumbnail(filePath, kind);
+                        }
                     }
                 }
             } catch (SQLiteException ex) {

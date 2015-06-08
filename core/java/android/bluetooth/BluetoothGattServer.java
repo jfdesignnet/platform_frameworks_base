@@ -42,6 +42,7 @@ import java.util.UUID;
 public final class BluetoothGattServer implements BluetoothProfile {
     private static final String TAG = "BluetoothGattServer";
     private static final boolean DBG = true;
+    private static final boolean VDBG = false;
 
     private final Context mContext;
     private BluetoothAdapter mAdapter;
@@ -83,7 +84,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
              * @hide
              */
             public void onScanResult(String address, int rssi, byte[] advData) {
-                if (DBG) Log.d(TAG, "onScanResult() - Device=" + address + " RSSI=" +rssi);
+                if (VDBG) Log.d(TAG, "onScanResult() - Device=" + address + " RSSI=" +rssi);
                 // no op
             }
 
@@ -133,7 +134,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
                             ParcelUuid srvcId, int charInstId, ParcelUuid charId) {
                 UUID srvcUuid = srvcId.getUuid();
                 UUID charUuid = charId.getUuid();
-                if (DBG) Log.d(TAG, "onCharacteristicReadRequest() - "
+                if (VDBG) Log.d(TAG, "onCharacteristicReadRequest() - "
                     + "service=" + srvcUuid + ", characteristic=" + charUuid);
 
                 BluetoothDevice device = mAdapter.getRemoteDevice(address);
@@ -161,7 +162,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
                 UUID srvcUuid = srvcId.getUuid();
                 UUID charUuid = charId.getUuid();
                 UUID descrUuid = descrId.getUuid();
-                if (DBG) Log.d(TAG, "onCharacteristicReadRequest() - "
+                if (VDBG) Log.d(TAG, "onCharacteristicReadRequest() - "
                     + "service=" + srvcUuid + ", characteristic=" + charUuid
                     + "descriptor=" + descrUuid);
 
@@ -192,7 +193,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
                             int charInstId, ParcelUuid charId, byte[] value) {
                 UUID srvcUuid = srvcId.getUuid();
                 UUID charUuid = charId.getUuid();
-                if (DBG) Log.d(TAG, "onCharacteristicWriteRequest() - "
+                if (VDBG) Log.d(TAG, "onCharacteristicWriteRequest() - "
                     + "service=" + srvcUuid + ", characteristic=" + charUuid);
 
                 BluetoothDevice device = mAdapter.getRemoteDevice(address);
@@ -223,7 +224,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
                 UUID srvcUuid = srvcId.getUuid();
                 UUID charUuid = charId.getUuid();
                 UUID descrUuid = descrId.getUuid();
-                if (DBG) Log.d(TAG, "onDescriptorWriteRequest() - "
+                if (VDBG) Log.d(TAG, "onDescriptorWriteRequest() - "
                     + "service=" + srvcUuid + ", characteristic=" + charUuid
                     + "descriptor=" + descrUuid);
 
@@ -271,7 +272,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
              * @hide
              */
             public void onNotificationSent(String address, int status) {
-                if (DBG) Log.d(TAG, "onNotificationSent() - "
+                if (VDBG) Log.d(TAG, "onNotificationSent() - "
                     + "device=" + address + ", status=" + status);
 
                 BluetoothDevice device = mAdapter.getRemoteDevice(address);
@@ -285,20 +286,20 @@ public final class BluetoothGattServer implements BluetoothProfile {
             }
 
             /**
-             * Callback indicating the remote device connection is congested.
+             * The MTU for a connection has changed
              * @hide
              */
-            public void onConnectionCongested(String address, boolean congested) {
-                if (DBG) Log.d(TAG, "onConnectionCongested() - Device=" + address
-                        + " congested=" + congested);
+            public void onMtuChanged(String address, int mtu) {
+                if (DBG) Log.d(TAG, "onMtuChanged() - "
+                    + "device=" + address + ", mtu=" + mtu);
 
                 BluetoothDevice device = mAdapter.getRemoteDevice(address);
                 if (device == null) return;
 
                 try {
-                    mCallback.onConnectionCongested(device, congested);
+                    mCallback.onMtuChanged(device, mtu);
                 } catch (Exception ex) {
-                    Log.w(TAG, "Unhandled exception in callback", ex);
+                    Log.w(TAG, "Unhandled exception: " + ex);
                 }
             }
         };
@@ -490,7 +491,7 @@ public final class BluetoothGattServer implements BluetoothProfile {
      */
     public boolean sendResponse(BluetoothDevice device, int requestId,
                                 int status, int offset, byte[] value) {
-        if (DBG) Log.d(TAG, "sendResponse() - device: " + device.getAddress());
+        if (VDBG) Log.d(TAG, "sendResponse() - device: " + device.getAddress());
         if (mService == null || mServerIf == 0) return false;
 
         try {
@@ -518,15 +519,21 @@ public final class BluetoothGattServer implements BluetoothProfile {
      * @param characteristic The local characteristic that has been updated
      * @param confirm true to request confirmation from the client (indication),
      *                false to send a notification
+     * @throws IllegalArgumentException
      * @return true, if the notification has been triggered successfully
      */
     public boolean notifyCharacteristicChanged(BluetoothDevice device,
                     BluetoothGattCharacteristic characteristic, boolean confirm) {
-        if (DBG) Log.d(TAG, "notifyCharacteristicChanged() - device: " + device.getAddress());
+        if (VDBG) Log.d(TAG, "notifyCharacteristicChanged() - device: " + device.getAddress());
         if (mService == null || mServerIf == 0) return false;
 
         BluetoothGattService service = characteristic.getService();
         if (service == null) return false;
+
+        if (characteristic.getValue() == null) {
+            throw new IllegalArgumentException("Chracteristic value is empty. Use "
+                    + "BluetoothGattCharacteristic#setvalue to update");
+        }
 
         try {
             mService.sendNotification(mServerIf, device.getAddress(),

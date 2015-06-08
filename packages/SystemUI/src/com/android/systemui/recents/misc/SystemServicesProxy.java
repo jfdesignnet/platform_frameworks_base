@@ -21,22 +21,26 @@ import android.app.ActivityManagerNative;
 import android.app.ActivityOptions;
 import android.app.AppGlobals;
 import android.app.IActivityManager;
+import android.app.ITaskStackListener;
 import android.app.SearchManager;
 import android.appwidget.AppWidgetHost;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
@@ -46,13 +50,16 @@ import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.os.UserManager;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.Pair;
 import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.SurfaceControl;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityManager;
+import com.android.systemui.R;
+import com.android.systemui.recents.AlternateRecentsComponent;
 import com.android.systemui.recents.Constants;
 
 import java.io.IOException;
@@ -60,6 +67,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Acts as a shim around the real system services that we need to access data from, and provides
@@ -68,12 +76,14 @@ import java.util.Random;
 public class SystemServicesProxy {
     final static String TAG = "SystemServicesProxy";
 
+    final static BitmapFactory.Options sBitmapOptions;
+
+    AccessibilityManager mAccm;
     ActivityManager mAm;
     IActivityManager mIam;
     AppWidgetManager mAwm;
     PackageManager mPm;
     IPackageManager mIpm;
-    UserManager mUm;
     SearchManager mSm;
     WindowManager mWm;
     Display mDisplay;
@@ -86,13 +96,18 @@ public class SystemServicesProxy {
     Paint mBgProtectionPaint;
     Canvas mBgProtectionCanvas;
 
+    static {
+        sBitmapOptions = new BitmapFactory.Options();
+        sBitmapOptions.inMutable = true;
+    }
+
     /** Private constructor */
     public SystemServicesProxy(Context context) {
+        mAccm = AccessibilityManager.getInstance(context);
         mAm = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
         mIam = ActivityManagerNative.getDefault();
         mAwm = AppWidgetManager.getInstance(context);
         mPm = context.getPackageManager();
-        mUm = (UserManager) context.getSystemService(Context.USER_SERVICE);
         mIpm = AppGlobals.getPackageManager();
         mSm = (SearchManager) context.getSystemService(Context.SEARCH_SERVICE);
         mWm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
@@ -126,7 +141,8 @@ public class SystemServicesProxy {
     }
 
     /** Returns a list of the recents tasks */
-    public List<ActivityManager.RecentTaskInfo> getRecentTasks(int numLatestTasks, int userId) {
+    public List<ActivityManager.RecentTaskInfo> getRecentTasks(int numLatestTasks, int userId,
+            boolean isTopTaskHome) {
         if (mAm == null) return null;
 
         // If we are mocking, then create some recent tasks
@@ -164,9 +180,16 @@ public class SystemServicesProxy {
         int minNumTasksToQuery = 10;
         int numTasksToQuery = Math.max(minNumTasksToQuery, numLatestTasks);
         List<ActivityManager.RecentTaskInfo> tasks = mAm.getRecentTasksForUser(numTasksToQuery,
+                ActivityManager.RECENT_IGNORE_HOME_STACK_TASKS |
                 ActivityManager.RECENT_IGNORE_UNAVAILABLE |
                 ActivityManager.RECENT_INCLUDE_PROFILES |
                 ActivityManager.RECENT_WITH_EXCLUDED, userId);
+
+        // Break early if we can't get a valid set of tasks
+        if (tasks == null) {
+            return new ArrayList<ActivityManager.RecentTaskInfo>();
+        }
+
         boolean isFirstValidTask = true;
         Iterator<ActivityManager.RecentTaskInfo> iter = tasks.iterator();
         while (iter.hasNext()) {
@@ -175,25 +198,16 @@ public class SystemServicesProxy {
             // NOTE: The order of these checks happens in the expected order of the traversal of the
             // tasks
 
-            // Skip tasks from this Recents package
-            if (t.baseIntent.getComponent().getPackageName().equals(mRecentsPackage)) {
-                iter.remove();
-                continue;
-            }
             // Check the first non-recents task, include this task even if it is marked as excluded
-            // from recents.  In other words, only remove excluded tasks if it is not the first task
+            // from recents if we are currently in the app.  In other words, only remove excluded
+            // tasks if it is not the first active task.
             boolean isExcluded = (t.baseIntent.getFlags() & Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                     == Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS;
-            if (isExcluded && !isFirstValidTask) {
+            if (isExcluded && (isTopTaskHome || !isFirstValidTask)) {
                 iter.remove();
                 continue;
             }
             isFirstValidTask = false;
-            // Skip tasks in the home stack
-            if (isInHomeStack(t.persistentId)) {
-                iter.remove();
-                continue;
-            }
         }
 
         return tasks.subList(0, Math.min(tasks.size(), numLatestTasks));
@@ -203,6 +217,37 @@ public class SystemServicesProxy {
     public List<ActivityManager.RunningTaskInfo> getRunningTasks(int numTasks) {
         if (mAm == null) return null;
         return mAm.getRunningTasks(numTasks);
+    }
+
+    /** Returns the top task. */
+    public ActivityManager.RunningTaskInfo getTopMostTask() {
+        List<ActivityManager.RunningTaskInfo> tasks = getRunningTasks(1);
+        if (!tasks.isEmpty()) {
+            return tasks.get(0);
+        }
+        return null;
+    }
+
+    /** Returns whether the recents is currently running */
+    public boolean isRecentsTopMost(ActivityManager.RunningTaskInfo topTask,
+            AtomicBoolean isHomeTopMost) {
+        if (topTask != null) {
+            ComponentName topActivity = topTask.topActivity;
+
+            // Check if the front most activity is recents
+            if (topActivity.getPackageName().equals(AlternateRecentsComponent.sRecentsPackage) &&
+                    topActivity.getClassName().equals(AlternateRecentsComponent.sRecentsActivity)) {
+                if (isHomeTopMost != null) {
+                    isHomeTopMost.set(false);
+                }
+                return true;
+            }
+
+            if (isHomeTopMost != null) {
+                isHomeTopMost.set(isInHomeStack(topTask.id));
+            }
+        }
+        return false;
     }
 
     /** Returns whether the specified task is in the home stack */
@@ -231,6 +276,7 @@ public class SystemServicesProxy {
 
         Bitmap thumbnail = SystemServicesProxy.getThumbnail(mAm, taskId);
         if (thumbnail != null) {
+            thumbnail.setHasAlpha(false);
             // We use a dumb heuristic for now, if the thumbnail is purely transparent in the top
             // left pixel, then assume the whole thumbnail is transparent. Generally, proper
             // screenshots are always composed onto a bitmap that has no alpha.
@@ -255,7 +301,8 @@ public class SystemServicesProxy {
         Bitmap thumbnail = taskThumbnail.mainThumbnail;
         ParcelFileDescriptor descriptor = taskThumbnail.thumbnailFileDescriptor;
         if (thumbnail == null && descriptor != null) {
-            thumbnail = BitmapFactory.decodeFileDescriptor(descriptor.getFileDescriptor());
+            thumbnail = BitmapFactory.decodeFileDescriptor(descriptor.getFileDescriptor(),
+                    null, sBitmapOptions);
         }
         if (descriptor != null) {
             try {
@@ -279,18 +326,18 @@ public class SystemServicesProxy {
         }
     }
 
-    /** Removes the task and kills the process */
-    public void removeTask(int taskId, boolean isDocument) {
+    /** Removes the task */
+    public void removeTask(int taskId) {
         if (mAm == null) return;
         if (Constants.DebugFlags.App.EnableSystemServicesProxy) return;
 
-        // Remove the task, and only kill the process if it is not a document
-        mAm.removeTask(taskId, isDocument ? 0 : ActivityManager.REMOVE_TASK_KILL_PROCESS);
+        // Remove the task.
+        mAm.removeTask(taskId);
     }
 
     /**
      * Returns the activity info for a given component name.
-     * 
+     *
      * @param cn The component name of the activity.
      * @param userId The userId of the user that this is for.
      */
@@ -340,7 +387,7 @@ public class SystemServicesProxy {
      * necessary.
      */
     public Drawable getActivityIcon(ActivityInfo info, int userId) {
-        if (mPm == null || mUm == null) return null;
+        if (mPm == null) return null;
 
         // If we are mocking, then return a mock label
         if (Constants.DebugFlags.App.EnableSystemServicesProxy) {
@@ -356,9 +403,55 @@ public class SystemServicesProxy {
      */
     public Drawable getBadgedIcon(Drawable icon, int userId) {
         if (userId != UserHandle.myUserId()) {
-            icon = mUm.getBadgedDrawableForUser(icon, new UserHandle(userId));
+            icon = mPm.getUserBadgedIcon(icon, new UserHandle(userId));
         }
         return icon;
+    }
+
+    /** Returns the package name of the home activity. */
+    public String getHomeActivityPackageName() {
+        if (mPm == null) return null;
+        if (Constants.DebugFlags.App.EnableSystemServicesProxy) return null;
+
+        ArrayList<ResolveInfo> homeActivities = new ArrayList<ResolveInfo>();
+        ComponentName defaultHomeActivity = mPm.getHomeActivities(homeActivities);
+        if (defaultHomeActivity != null) {
+            return defaultHomeActivity.getPackageName();
+        } else if (homeActivities.size() == 1) {
+            ResolveInfo info = homeActivities.get(0);
+            if (info.activityInfo != null) {
+                return info.activityInfo.packageName;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns whether the foreground user is the owner.
+     */
+    public boolean isForegroundUserOwner() {
+        if (mAm == null) return false;
+
+        return mAm.getCurrentUser() == UserHandle.USER_OWNER;
+    }
+
+    /**
+     * Resolves and returns the first Recents widget from the same package as the global
+     * assist activity.
+     */
+    public AppWidgetProviderInfo resolveSearchAppWidget() {
+        if (mAwm == null) return null;
+        if (mAssistComponent == null) return null;
+
+        // Find the first Recents widget from the same package as the global assist activity
+        List<AppWidgetProviderInfo> widgets = mAwm.getInstalledProviders(
+                AppWidgetProviderInfo.WIDGET_CATEGORY_SEARCHBOX);
+        for (AppWidgetProviderInfo info : widgets) {
+            if (info.provider.getPackageName().equals(mAssistComponent.getPackageName())) {
+                return info;
+            }
+        }
+        return null;
     }
 
     /**
@@ -369,15 +462,7 @@ public class SystemServicesProxy {
         if (mAssistComponent == null) return null;
 
         // Find the first Recents widget from the same package as the global assist activity
-        List<AppWidgetProviderInfo> widgets = mAwm.getInstalledProviders(
-                AppWidgetProviderInfo.WIDGET_CATEGORY_RECENTS);
-        AppWidgetProviderInfo searchWidgetInfo = null;
-        for (AppWidgetProviderInfo info : widgets) {
-            if (info.provider.getPackageName().equals(mAssistComponent.getPackageName())) {
-                searchWidgetInfo = info;
-                break;
-            }
-        }
+        AppWidgetProviderInfo searchWidgetInfo = resolveSearchAppWidget();
 
         // Return early if there is no search widget
         if (searchWidgetInfo == null) return null;
@@ -386,8 +471,9 @@ public class SystemServicesProxy {
         int searchWidgetId = host.allocateAppWidgetId();
         Bundle opts = new Bundle();
         opts.putInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY,
-                AppWidgetProviderInfo.WIDGET_CATEGORY_RECENTS);
+                AppWidgetProviderInfo.WIDGET_CATEGORY_SEARCHBOX);
         if (!mAwm.bindAppWidgetIdIfAllowed(searchWidgetId, searchWidgetInfo.provider, opts)) {
+            host.deleteAppWidgetId(searchWidgetId);
             return null;
         }
         return new Pair<Integer, AppWidgetProviderInfo>(searchWidgetId, searchWidgetInfo);
@@ -413,25 +499,41 @@ public class SystemServicesProxy {
     }
 
     /**
+     * Returns whether touch exploration is currently enabled.
+     */
+    public boolean isTouchExplorationEnabled() {
+        if (mAccm == null) return false;
+
+        return mAccm.isEnabled() && mAccm.isTouchExplorationEnabled();
+    }
+
+    /**
+     * Returns a global setting.
+     */
+    public int getGlobalSetting(Context context, String setting) {
+        ContentResolver cr = context.getContentResolver();
+        return Settings.Global.getInt(cr, setting, 0);
+    }
+
+    /**
+     * Returns a system setting.
+     */
+    public int getSystemSetting(Context context, String setting) {
+        ContentResolver cr = context.getContentResolver();
+        return Settings.System.getInt(cr, setting, 0);
+    }
+
+    /**
      * Returns the window rect.
      */
     public Rect getWindowRect() {
         Rect windowRect = new Rect();
         if (mWm == null) return windowRect;
 
-        mWm.getDefaultDisplay().getRectSize(windowRect);
+        Point p = new Point();
+        mWm.getDefaultDisplay().getRealSize(p);
+        windowRect.set(0, 0, p.x, p.y);
         return windowRect;
-    }
-
-    /**
-     * Locks the current task.
-     */
-    public void lockCurrentTask() {
-        if (mIam == null) return;
-
-        try {
-            mIam.startLockTaskModeOnCurrent();
-        } catch (RemoteException e) {}
     }
 
     /**
@@ -448,5 +550,42 @@ public class SystemServicesProxy {
      */
     public Bitmap takeAppScreenshot() {
         return takeScreenshot();
+    }
+
+    /** Starts an activity from recents. */
+    public boolean startActivityFromRecents(Context context, int taskId, String taskName,
+            ActivityOptions options) {
+        if (mIam != null) {
+            try {
+                mIam.startActivityFromRecents(taskId, options == null ? null : options.toBundle());
+                return true;
+            } catch (Exception e) {
+                Console.logError(context,
+                        context.getString(R.string.recents_launch_error_message, taskName));
+            }
+        }
+        return false;
+    }
+
+    /** Starts an in-place animation on the front most application windows. */
+    public void startInPlaceAnimationOnFrontMostApplication(ActivityOptions opts) {
+        if (mIam == null) return;
+
+        try {
+            mIam.startInPlaceAnimationOnFrontMostApplication(opts);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** Registers a task stack listener with the system. */
+    public void registerTaskStackListener(ITaskStackListener listener) {
+        if (mIam == null) return;
+
+        try {
+            mIam.registerTaskStackListener(listener);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }

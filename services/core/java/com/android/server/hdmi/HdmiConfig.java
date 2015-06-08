@@ -34,10 +34,14 @@ final class HdmiConfig {
     static final int DEVICE_POLLING_RETRY = 1;
 
     // Number of retries for polling each device in periodic check (hotplug detection).
-    static final int HOTPLUG_DETECTION_RETRY = 2;
+    static final int HOTPLUG_DETECTION_RETRY = 1;
 
     // Number of retries for polling each device in address allocation mechanism.
     static final int ADDRESS_ALLOCATION_RETRY = 3;
+
+    // Number of retries for sendCommand in actions related to new device discovery.
+    // Number 5 comes from 10 seconds for Chromecast preparation time.
+    static final int TIMEOUT_RETRY = 5;
 
     // CEC spec said that it should try retransmission at least once.
     // The actual number of send request for a single command will be at most
@@ -45,6 +49,12 @@ final class HdmiConfig {
     // and polling message for logical address allocation and device discovery
     // action. They will have their own retransmission count.
     static final int RETRANSMISSION_COUNT = 1;
+
+    // Do not export the CEC devices connected to a legacy HDMI switch. The usage of legacy
+    // (non-CEC) switches is deprecated. They stop the correct operation of many mandatory
+    // CEC features. If set to true, do not pass the list of CEC devices behind the legacy
+    // switch since they won't be under control from TV.
+    static final boolean HIDE_DEVICES_BEHIND_LEGACY_SWITCH = true;
 
     private HdmiConfig() { /* cannot be instantiated */ }
 }

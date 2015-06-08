@@ -24,13 +24,15 @@
         android:id="@+id/slider_panel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="@color/system_secondary_color"
+        android:paddingTop="8dp"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
         android:clipChildren="false" />
 
-     <ViewStub
-        android:id="@+id/zen_panel_stub"
+     <include
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:inflatedId="@+id/zen_panel"
-        android:layout="@layout/zen_mode_panel" />
+        layout="@layout/zen_mode_panel" />
 
 </LinearLayout>

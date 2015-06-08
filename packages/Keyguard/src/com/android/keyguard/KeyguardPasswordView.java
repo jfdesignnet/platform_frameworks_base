@@ -25,6 +25,8 @@ import android.text.method.TextKeyListener;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.animation.AnimationUtils;
+import android.view.animation.Interpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -42,9 +44,12 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
         implements KeyguardSecurityView, OnEditorActionListener, TextWatcher {
 
     private final boolean mShowImeAtScreenOn;
+    private final int mDisappearYTranslation;
 
     InputMethodManager mImm;
     private TextView mPasswordEntry;
+    private Interpolator mLinearOutSlowInInterpolator;
+    private Interpolator mFastOutLinearInInterpolator;
 
     public KeyguardPasswordView(Context context) {
         this(context, null);
@@ -54,6 +59,12 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
         super(context, attrs);
         mShowImeAtScreenOn = context.getResources().
                 getBoolean(R.bool.kg_show_ime_at_screen_on);
+        mDisappearYTranslation = getResources().getDimensionPixelSize(
+                R.dimen.disappear_y_translation);
+        mLinearOutSlowInInterpolator = AnimationUtils.loadInterpolator(
+                context, android.R.interpolator.linear_out_slow_in);
+        mFastOutLinearInInterpolator = AnimationUtils.loadInterpolator(
+                context, android.R.interpolator.fast_out_linear_in);
     }
 
     protected void resetState() {
@@ -72,12 +83,21 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
     }
 
     @Override
-    public void onResume(int reason) {
+    public void onResume(final int reason) {
         super.onResume(reason);
-        mPasswordEntry.requestFocus();
-        if (reason != KeyguardSecurityView.SCREEN_ON || mShowImeAtScreenOn) {
-            mImm.showSoftInput(mPasswordEntry, InputMethodManager.SHOW_IMPLICIT);
-        }
+
+        // Wait a bit to focus the field so the focusable flag on the window is already set then.
+        post(new Runnable() {
+            @Override
+            public void run() {
+                if (isShown()) {
+                    mPasswordEntry.requestFocus();
+                    if (reason != KeyguardSecurityView.SCREEN_ON || mShowImeAtScreenOn) {
+                        mImm.showSoftInput(mPasswordEntry, InputMethodManager.SHOW_IMPLICIT);
+                    }
+                }
+            }
+        });
     }
 
     @Override
@@ -239,9 +259,24 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
 
     @Override
     public void startAppearAnimation() {
-        // TODO: Fancy animation.
-        setAlpha(0);
-        animate().alpha(1).withLayer().setDuration(200);
+        setAlpha(0f);
+        setTranslationY(0f);
+        animate()
+                .alpha(1)
+                .withLayer()
+                .setDuration(300)
+                .setInterpolator(mLinearOutSlowInInterpolator);
+    }
+
+    @Override
+    public boolean startDisappearAnimation(Runnable finishRunnable) {
+        animate()
+                .alpha(0f)
+                .translationY(mDisappearYTranslation)
+                .setInterpolator(mFastOutLinearInInterpolator)
+                .setDuration(100)
+                .withEndAction(finishRunnable);
+        return true;
     }
 
     @Override
@@ -262,8 +297,14 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
     @Override
     public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
         // Check if this was the result of hitting the enter key
-        if (actionId == EditorInfo.IME_NULL || actionId == EditorInfo.IME_ACTION_DONE
-                || actionId == EditorInfo.IME_ACTION_NEXT) {
+        final boolean isSoftImeEvent = event == null
+                && (actionId == EditorInfo.IME_NULL
+                || actionId == EditorInfo.IME_ACTION_DONE
+                || actionId == EditorInfo.IME_ACTION_NEXT);
+        final boolean isKeyboardEnterKey = event != null
+                && KeyEvent.isConfirmKey(event.getKeyCode())
+                && event.getAction() == KeyEvent.ACTION_DOWN;
+        if (isSoftImeEvent || isKeyboardEnterKey) {
             verifyPasswordAndUnlock();
             return true;
         }

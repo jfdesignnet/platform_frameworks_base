@@ -17,9 +17,12 @@ package android.app;
 
 import android.os.Bundle;
 import android.os.ResultReceiver;
+import android.transition.Transition;
 import android.util.ArrayMap;
 import android.util.SparseArray;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 
 import java.lang.ref.WeakReference;
@@ -63,6 +66,12 @@ class ActivityTransitionState {
      * Visibility of exited Views.
      */
     private ExitTransitionCoordinator mCalledExitCoordinator;
+
+    /**
+     * The ExitTransitionCoordinator used to return to a previous Activity when called with
+     * {@link android.app.Activity#finishAfterTransition()}.
+     */
+    private ExitTransitionCoordinator mReturnExitCoordinator;
 
     /**
      * We must be able to cancel entering transitions to stop changing the Window to
@@ -142,13 +151,14 @@ class ActivityTransitionState {
     }
 
     public void setEnterActivityOptions(Activity activity, ActivityOptions options) {
-        if (activity.getWindow().hasFeature(Window.FEATURE_CONTENT_TRANSITIONS)
+        if (activity.getWindow().hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)
                 && options != null && mEnterActivityOptions == null
                 && mEnterTransitionCoordinator == null
                 && options.getAnimationType() == ActivityOptions.ANIM_SCENE_TRANSITION) {
             mEnterActivityOptions = options;
             mIsEnterTriggered = false;
             if (mEnterActivityOptions.isReturning()) {
+                restoreExitedViews();
                 int result = mEnterActivityOptions.getResultCode();
                 if (result != 0) {
                     activity.onActivityReenter(result, mEnterActivityOptions.getResultData());
@@ -193,7 +203,8 @@ class ActivityTransitionState {
     private void startEnter() {
         if (mEnterActivityOptions.isReturning()) {
             if (mExitingToView != null) {
-                mEnterTransitionCoordinator.viewInstancesReady(mExitingFrom, mExitingToView);
+                mEnterTransitionCoordinator.viewInstancesReady(mExitingFrom, mExitingTo,
+                        mExitingToView);
             } else {
                 mEnterTransitionCoordinator.namedViewsReady(mExitingFrom, mExitingTo);
             }
@@ -213,6 +224,10 @@ class ActivityTransitionState {
         if (mEnterTransitionCoordinator != null) {
             mEnterTransitionCoordinator.stop();
             mEnterTransitionCoordinator = null;
+        }
+        if (mReturnExitCoordinator != null) {
+            mReturnExitCoordinator.stop();
+            mReturnExitCoordinator = null;
         }
     }
 
@@ -238,29 +253,54 @@ class ActivityTransitionState {
         }
     }
 
-    public boolean startExitBackTransition(Activity activity) {
+    public boolean startExitBackTransition(final Activity activity) {
         if (mEnteringNames == null) {
             return false;
         } else {
             if (!mHasExited) {
                 mHasExited = true;
+                Transition enterViewsTransition = null;
+                ViewGroup decor = null;
+                boolean delayExitBack = false;
                 if (mEnterTransitionCoordinator != null) {
-                    mEnterTransitionCoordinator.cancelEnter();
+                    enterViewsTransition = mEnterTransitionCoordinator.getEnterViewsTransition();
+                    decor = mEnterTransitionCoordinator.getDecor();
+                    delayExitBack = mEnterTransitionCoordinator.cancelEnter();
                     mEnterTransitionCoordinator = null;
+                    if (enterViewsTransition != null && decor != null) {
+                        enterViewsTransition.pause(decor);
+                    }
                 }
-                ArrayMap<String, View> sharedElements = new ArrayMap<String, View>();
-                activity.getWindow().getDecorView().findNamedViews(sharedElements);
 
-                ExitTransitionCoordinator exitCoordinator =
+                mReturnExitCoordinator =
                         new ExitTransitionCoordinator(activity, mEnteringNames, null, null, true);
-                exitCoordinator.startExit(activity.mResultCode, activity.mResultData);
+                if (enterViewsTransition != null && decor != null) {
+                    enterViewsTransition.resume(decor);
+                }
+                if (delayExitBack && decor != null) {
+                    final ViewGroup finalDecor = decor;
+                    decor.getViewTreeObserver().addOnPreDrawListener(
+                            new ViewTreeObserver.OnPreDrawListener() {
+                                @Override
+                                public boolean onPreDraw() {
+                                    finalDecor.getViewTreeObserver().removeOnPreDrawListener(this);
+                                    if (mReturnExitCoordinator != null) {
+                                        mReturnExitCoordinator.startExit(activity.mResultCode,
+                                                activity.mResultData);
+                                    }
+                                    return true;
+                                }
+                            });
+                } else {
+                    mReturnExitCoordinator.startExit(activity.mResultCode, activity.mResultData);
+                }
             }
             return true;
         }
     }
 
     public void startExitOutTransition(Activity activity, Bundle options) {
-        if (!activity.getWindow().hasFeature(Window.FEATURE_CONTENT_TRANSITIONS)) {
+        if (!activity.getWindow().hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)) {
             return;
         }
         ActivityOptions activityOptions = new ActivityOptions(options);

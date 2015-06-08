@@ -41,6 +41,7 @@ import android.os.UserManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.ArraySet;
+import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
 
@@ -64,7 +65,7 @@ import java.util.Set;
  */
 abstract public class ManagedServices {
     protected final String TAG = getClass().getSimpleName();
-    protected static final boolean DEBUG = true;
+    protected final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
     private static final String ENABLED_SERVICES_SEPARATOR = ":";
 
@@ -85,6 +86,10 @@ abstract public class ManagedServices {
             = new ArraySet<ComponentName>();
     // Just the packages from mEnabledServicesForCurrentProfiles
     private ArraySet<String> mEnabledServicesPackageNames = new ArraySet<String>();
+
+    // Kept to de-dupe user change events (experienced after boot, when we receive a settings and a
+    // user change).
+    private int[] mLastSeenProfileIds;
 
     public ManagedServices(Context context, Handler handler, Object mutex,
             UserProfiles userProfiles) {
@@ -156,6 +161,15 @@ abstract public class ManagedServices {
             // make sure we're still bound to any of our services who may have just upgraded
             rebindServices();
         }
+    }
+
+    public void onUserSwitched() {
+        if (DEBUG) Slog.d(TAG, "onUserSwitched");
+        if (Arrays.equals(mLastSeenProfileIds, mUserProfiles.getCurrentProfileIds())) {
+            if (DEBUG) Slog.d(TAG, "Current profile IDs didn't change, skipping rebindServices().");
+            return;
+        }
+        rebindServices();
     }
 
     public ManagedServiceInfo checkServiceTokenLocked(IInterface service) {
@@ -320,6 +334,8 @@ abstract public class ManagedServices {
                 registerService(component, userIds[i]);
             }
         }
+
+        mLastSeenProfileIds = mUserProfiles.getCurrentProfileIds();
     }
 
     /**
@@ -480,7 +496,7 @@ abstract public class ManagedServices {
         synchronized (mMutex) {
             try {
                 ManagedServiceInfo info = newServiceInfo(service, component, userid,
-                        true /*isSystem*/, null, Build.VERSION_CODES.L);
+                        true /*isSystem*/, null, Build.VERSION_CODES.LOLLIPOP);
                 service.asBinder().linkToDeath(info, 0);
                 mServices.add(info);
                 return info;
@@ -522,6 +538,8 @@ abstract public class ManagedServices {
 
         private void update(Uri uri) {
             if (uri == null || mSecureSettingsUri.equals(uri)) {
+                if (DEBUG) Slog.d(TAG, "Setting changed: mSecureSettingsUri=" + mSecureSettingsUri +
+                        " / uri=" + uri);
                 rebindServices();
             }
         }
@@ -567,7 +585,7 @@ abstract public class ManagedServices {
         }
 
         public boolean supportsProfiles() {
-            return targetSdkVersion >= Build.VERSION_CODES.L;
+            return targetSdkVersion >= Build.VERSION_CODES.LOLLIPOP;
         }
 
         @Override

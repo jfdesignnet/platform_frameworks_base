@@ -34,7 +34,11 @@ public class PathParser {
         Path path = new Path();
         PathDataNode[] nodes = createNodesFromPathData(pathData);
         if (nodes != null) {
-            PathDataNode.nodesToPath(nodes, path);
+            try {
+                PathDataNode.nodesToPath(nodes, path);
+            } catch (RuntimeException e) {
+                throw new RuntimeException("Error in parsing " + pathData, e);
+            }
             return path;
         }
         return null;
@@ -54,9 +58,11 @@ public class PathParser {
         ArrayList<PathDataNode> list = new ArrayList<PathDataNode>();
         while (end < pathData.length()) {
             end = nextStart(pathData, end);
-            String s = pathData.substring(start, end);
-            float[] val = getFloats(s);
-            addNode(list, s.charAt(0), val);
+            String s = pathData.substring(start, end).trim();
+            if (s.length() > 0) {
+                float[] val = getFloats(s);
+                addNode(list, s.charAt(0), val);
+            }
 
             start = end;
             end++;
@@ -72,6 +78,9 @@ public class PathParser {
      * @return a deep copy of the <code>source</code>.
      */
     public static PathDataNode[] deepCopyNodes(PathDataNode[] source) {
+        if (source == null) {
+            return null;
+        }
         PathDataNode[] copy = new PathParser.PathDataNode[source.length];
         for (int i = 0; i < source.length; i ++) {
             copy[i] = new PathDataNode(source[i]);
@@ -123,7 +132,12 @@ public class PathParser {
 
         while (end < s.length()) {
             c = s.charAt(end);
-            if (((c - 'A') * (c - 'Z') <= 0) || (((c - 'a') * (c - 'z') <= 0))) {
+            // Note that 'e' or 'E' are not valid path commands, but could be
+            // used for floating point numbers' scientific notation.
+            // Therefore, when searching for next command, we should ignore 'e'
+            // and 'E'.
+            if ((((c - 'A') * (c - 'Z') <= 0) || ((c - 'a') * (c - 'z') <= 0))
+                    && c != 'e' && c != 'E') {
                 return end;
             }
             end++;
@@ -135,6 +149,12 @@ public class PathParser {
         list.add(new PathDataNode(cmd, val));
     }
 
+    private static class ExtractFloatResult {
+        // We need to return the position of the next separator and whether the
+        // next float starts with a '-' or a '.'.
+        int mEndPosition;
+        boolean mEndWithNegOrDot;
+    }
 
     /**
      * Parse the floats in the string.
@@ -148,42 +168,90 @@ public class PathParser {
             return new float[0];
         }
         try {
-            float[] tmp = new float[s.length()];
+            float[] results = new float[s.length()];
             int count = 0;
-            int pos = 1, end;
-            while ((end = extract(s, pos)) >= 0) {
-                if (pos < end) {
-                    tmp[count++] = Float.parseFloat(s.substring(pos, end));
+            int startPosition = 1;
+            int endPosition = 0;
+
+            ExtractFloatResult result = new ExtractFloatResult();
+            int totalLength = s.length();
+
+            // The startPosition should always be the first character of the
+            // current number, and endPosition is the character after the current
+            // number.
+            while (startPosition < totalLength) {
+                extract(s, startPosition, result);
+                endPosition = result.mEndPosition;
+
+                if (startPosition < endPosition) {
+                    results[count++] = Float.parseFloat(
+                            s.substring(startPosition, endPosition));
                 }
-                pos = end + 1;
+
+                if (result.mEndWithNegOrDot) {
+                    // Keep the '-' or '.' sign with next number.
+                    startPosition = endPosition;
+                } else {
+                    startPosition = endPosition + 1;
+                }
             }
-            // handle the final float if there is one
-            if (pos < s.length()) {
-                tmp[count++] = Float.parseFloat(s.substring(pos, s.length()));
-            }
-            return Arrays.copyOf(tmp, count);
-        } catch (NumberFormatException e){
-            Log.e(LOGTAG,"error in parsing \""+s+"\"");
-            throw e;
+            return Arrays.copyOf(results, count);
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("error in parsing \"" + s + "\"", e);
         }
     }
 
     /**
-     * Calculate the position of the next comma or space
+     * Calculate the position of the next comma or space or negative sign
      * @param s the string to search
      * @param start the position to start searching
-     * @return the position of the next comma or space or -1 if none found
+     * @param result the result of the extraction, including the position of the
+     * the starting position of next number, whether it is ending with a '-'.
      */
-    private static int extract(String s, int start) {
-        int space = s.indexOf(' ', start);
-        int comma = s.indexOf(',', start);
-        if (space == -1) {
-            return comma;
+    private static void extract(String s, int start, ExtractFloatResult result) {
+        // Now looking for ' ', ',', '.' or '-' from the start.
+        int currentIndex = start;
+        boolean foundSeparator = false;
+        result.mEndWithNegOrDot = false;
+        boolean secondDot = false;
+        boolean isExponential = false;
+        for (; currentIndex < s.length(); currentIndex++) {
+            boolean isPrevExponential = isExponential;
+            isExponential = false;
+            char currentChar = s.charAt(currentIndex);
+            switch (currentChar) {
+                case ' ':
+                case ',':
+                    foundSeparator = true;
+                    break;
+                case '-':
+                    // The negative sign following a 'e' or 'E' is not a separator.
+                    if (currentIndex != start && !isPrevExponential) {
+                        foundSeparator = true;
+                        result.mEndWithNegOrDot = true;
+                    }
+                    break;
+                case '.':
+                    if (!secondDot) {
+                        secondDot = true;
+                    } else {
+                        // This is the second dot, and it is considered as a separator.
+                        foundSeparator = true;
+                        result.mEndWithNegOrDot = true;
+                    }
+                    break;
+                case 'e':
+                case 'E':
+                    isExponential = true;
+                    break;
+            }
+            if (foundSeparator) {
+                break;
+            }
         }
-        if (comma == -1) {
-            return space;
-        }
-        return (comma > space) ? space : comma;
+        // When there is nothing found, then we put the end position to the end
+        // of the string.
+        result.mEndPosition = currentIndex;
     }
 
     /**
@@ -212,7 +280,7 @@ public class PathParser {
          * @param path The target Path object.
          */
         public static void nodesToPath(PathDataNode[] node, Path path) {
-            float[] current = new float[4];
+            float[] current = new float[6];
             char previousCommand = 'm';
             for (int i = 0; i < node.length; i++) {
                 addCommand(path, current, previousCommand, node[i].mType, node[i].mParams);
@@ -245,6 +313,8 @@ public class PathParser {
             float currentY = current[1];
             float ctrlPointX = current[2];
             float ctrlPointY = current[3];
+            float currentSegmentStartX = current[4];
+            float currentSegmentStartY = current[5];
             float reflectiveCtrlPointX;
             float reflectiveCtrlPointY;
 
@@ -252,7 +322,15 @@ public class PathParser {
                 case 'z':
                 case 'Z':
                     path.close();
-                    return;
+                    // Path is closed here, but we need to move the pen to the
+                    // closed position. So we cache the segment's starting position,
+                    // and restore it here.
+                    currentX = currentSegmentStartX;
+                    currentY = currentSegmentStartY;
+                    ctrlPointX = currentSegmentStartX;
+                    ctrlPointY = currentSegmentStartY;
+                    path.moveTo(currentX, currentY);
+                    break;
                 case 'm':
                 case 'M':
                 case 'l':
@@ -282,17 +360,22 @@ public class PathParser {
                     incr = 7;
                     break;
             }
+
             for (int k = 0; k < val.length; k += incr) {
                 switch (cmd) {
                     case 'm': // moveto - Start a new sub-path (relative)
                         path.rMoveTo(val[k + 0], val[k + 1]);
                         currentX += val[k + 0];
                         currentY += val[k + 1];
+                        currentSegmentStartX = currentX;
+                        currentSegmentStartY = currentY;
                         break;
                     case 'M': // moveto - Start a new sub-path
                         path.moveTo(val[k + 0], val[k + 1]);
                         currentX = val[k + 0];
                         currentY = val[k + 1];
+                        currentSegmentStartX = currentX;
+                        currentSegmentStartY = currentY;
                         break;
                     case 'l': // lineto - Draw a line from the current point (relative)
                         path.rLineTo(val[k + 0], val[k + 1]);
@@ -303,10 +386,6 @@ public class PathParser {
                         path.lineTo(val[k + 0], val[k + 1]);
                         currentX = val[k + 0];
                         currentY = val[k + 1];
-                        break;
-                    case 'z': // closepath - Close the current subpath
-                    case 'Z': // closepath - Close the current subpath
-                        path.close();
                         break;
                     case 'h': // horizontal lineto - Draws a horizontal line (relative)
                         path.rLineTo(val[k + 0], 0);
@@ -458,6 +537,8 @@ public class PathParser {
             current[1] = currentY;
             current[2] = ctrlPointX;
             current[3] = ctrlPointY;
+            current[4] = currentSegmentStartX;
+            current[5] = currentSegmentStartY;
         }
 
         private static void drawArc(Path p,

@@ -63,6 +63,12 @@ public class ActivityOptions {
     public static final String KEY_ANIM_EXIT_RES_ID = "android:animExitRes";
 
     /**
+     * Custom in-place animation resource ID.
+     * @hide
+     */
+    public static final String KEY_ANIM_IN_PLACE_RES_ID = "android:animInPlaceRes";
+
+    /**
      * Bitmap for thumbnail animation.
      * @hide
      */
@@ -84,13 +90,13 @@ public class ActivityOptions {
      * Initial width of the animation.
      * @hide
      */
-    public static final String KEY_ANIM_START_WIDTH = "android:animStartWidth";
+    public static final String KEY_ANIM_WIDTH = "android:animWidth";
 
     /**
      * Initial height of the animation.
      * @hide
      */
-    public static final String KEY_ANIM_START_HEIGHT = "android:animStartHeight";
+    public static final String KEY_ANIM_HEIGHT = "android:animHeight";
 
     /**
      * Callback for when animation is started.
@@ -128,16 +134,23 @@ public class ActivityOptions {
     public static final int ANIM_DEFAULT = 6;
     /** @hide */
     public static final int ANIM_LAUNCH_TASK_BEHIND = 7;
+    /** @hide */
+    public static final int ANIM_THUMBNAIL_ASPECT_SCALE_UP = 8;
+    /** @hide */
+    public static final int ANIM_THUMBNAIL_ASPECT_SCALE_DOWN = 9;
+    /** @hide */
+    public static final int ANIM_CUSTOM_IN_PLACE = 10;
 
     private String mPackageName;
     private int mAnimationType = ANIM_NONE;
     private int mCustomEnterResId;
     private int mCustomExitResId;
+    private int mCustomInPlaceResId;
     private Bitmap mThumbnail;
     private int mStartX;
     private int mStartY;
-    private int mStartWidth;
-    private int mStartHeight;
+    private int mWidth;
+    private int mHeight;
     private IRemoteCallback mAnimationStartedListener;
     private ResultReceiver mTransitionReceiver;
     private boolean mIsReturning;
@@ -194,6 +207,30 @@ public class ActivityOptions {
         return opts;
     }
 
+    /**
+     * Creates an ActivityOptions specifying a custom animation to run in place on an existing
+     * activity.
+     *
+     * @param context Who is defining this.  This is the application that the
+     * animation resources will be loaded from.
+     * @param animId A resource ID of the animation resource to use for
+     * the incoming activity.
+     * @return Returns a new ActivityOptions object that you can use to
+     * supply these options as the options Bundle when running an in-place animation.
+     * @hide
+     */
+    public static ActivityOptions makeCustomInPlaceAnimation(Context context, int animId) {
+        if (animId == 0) {
+            throw new RuntimeException("You must specify a valid animation.");
+        }
+
+        ActivityOptions opts = new ActivityOptions();
+        opts.mPackageName = context.getPackageName();
+        opts.mAnimationType = ANIM_CUSTOM_IN_PLACE;
+        opts.mCustomInPlaceResId = animId;
+        return opts;
+    }
+
     private void setOnAnimationStartedListener(Handler handler,
             OnAnimationStartedListener listener) {
         if (listener != null) {
@@ -234,13 +271,13 @@ public class ActivityOptions {
      * defines the coordinate space for <var>startX</var> and <var>startY</var>.
      * @param startX The x starting location of the new activity, relative to <var>source</var>.
      * @param startY The y starting location of the activity, relative to <var>source</var>.
-     * @param startWidth The initial width of the new activity.
-     * @param startHeight The initial height of the new activity.
+     * @param width The initial width of the new activity.
+     * @param height The initial height of the new activity.
      * @return Returns a new ActivityOptions object that you can use to
      * supply these options as the options Bundle when starting an activity.
      */
     public static ActivityOptions makeScaleUpAnimation(View source,
-            int startX, int startY, int startWidth, int startHeight) {
+            int startX, int startY, int width, int height) {
         ActivityOptions opts = new ActivityOptions();
         opts.mPackageName = source.getContext().getPackageName();
         opts.mAnimationType = ANIM_SCALE_UP;
@@ -248,8 +285,8 @@ public class ActivityOptions {
         source.getLocationOnScreen(pts);
         opts.mStartX = pts[0] + startX;
         opts.mStartY = pts[1] + startY;
-        opts.mStartWidth = startWidth;
-        opts.mStartHeight = startHeight;
+        opts.mWidth = width;
+        opts.mHeight = height;
         return opts;
     }
 
@@ -338,13 +375,83 @@ public class ActivityOptions {
     }
 
     /**
+     * Create an ActivityOptions specifying an animation where the new activity
+     * window and a thumbnail is aspect-scaled to a new location.
+     *
+     * @param source The View that this thumbnail is animating from.  This
+     * defines the coordinate space for <var>startX</var> and <var>startY</var>.
+     * @param thumbnail The bitmap that will be shown as the initial thumbnail
+     * of the animation.
+     * @param startX The x starting location of the bitmap, relative to <var>source</var>.
+     * @param startY The y starting location of the bitmap, relative to <var>source</var>.
+     * @param handler If <var>listener</var> is non-null this must be a valid
+     * Handler on which to dispatch the callback; otherwise it should be null.
+     * @param listener Optional OnAnimationStartedListener to find out when the
+     * requested animation has started running.  If for some reason the animation
+     * is not executed, the callback will happen immediately.
+     * @return Returns a new ActivityOptions object that you can use to
+     * supply these options as the options Bundle when starting an activity.
+     * @hide
+     */
+    public static ActivityOptions makeThumbnailAspectScaleUpAnimation(View source,
+            Bitmap thumbnail, int startX, int startY, int targetWidth, int targetHeight,
+            Handler handler, OnAnimationStartedListener listener) {
+        return makeAspectScaledThumbnailAnimation(source, thumbnail, startX, startY,
+                targetWidth, targetHeight, handler, listener, true);
+    }
+
+    /**
+     * Create an ActivityOptions specifying an animation where the new activity
+     * window and a thumbnail is aspect-scaled to a new location.
+     *
+     * @param source The View that this thumbnail is animating to.  This
+     * defines the coordinate space for <var>startX</var> and <var>startY</var>.
+     * @param thumbnail The bitmap that will be shown as the final thumbnail
+     * of the animation.
+     * @param startX The x end location of the bitmap, relative to <var>source</var>.
+     * @param startY The y end location of the bitmap, relative to <var>source</var>.
+     * @param handler If <var>listener</var> is non-null this must be a valid
+     * Handler on which to dispatch the callback; otherwise it should be null.
+     * @param listener Optional OnAnimationStartedListener to find out when the
+     * requested animation has started running.  If for some reason the animation
+     * is not executed, the callback will happen immediately.
+     * @return Returns a new ActivityOptions object that you can use to
+     * supply these options as the options Bundle when starting an activity.
+     * @hide
+     */
+    public static ActivityOptions makeThumbnailAspectScaleDownAnimation(View source,
+            Bitmap thumbnail, int startX, int startY, int targetWidth, int targetHeight,
+            Handler handler, OnAnimationStartedListener listener) {
+        return makeAspectScaledThumbnailAnimation(source, thumbnail, startX, startY,
+                targetWidth, targetHeight, handler, listener, false);
+    }
+
+    private static ActivityOptions makeAspectScaledThumbnailAnimation(View source, Bitmap thumbnail,
+            int startX, int startY, int targetWidth, int targetHeight,
+            Handler handler, OnAnimationStartedListener listener, boolean scaleUp) {
+        ActivityOptions opts = new ActivityOptions();
+        opts.mPackageName = source.getContext().getPackageName();
+        opts.mAnimationType = scaleUp ? ANIM_THUMBNAIL_ASPECT_SCALE_UP :
+                ANIM_THUMBNAIL_ASPECT_SCALE_DOWN;
+        opts.mThumbnail = thumbnail;
+        int[] pts = new int[2];
+        source.getLocationOnScreen(pts);
+        opts.mStartX = pts[0] + startX;
+        opts.mStartY = pts[1] + startY;
+        opts.mWidth = targetWidth;
+        opts.mHeight = targetHeight;
+        opts.setOnAnimationStartedListener(handler, listener);
+        return opts;
+    }
+
+    /**
      * Create an ActivityOptions to transition between Activities using cross-Activity scene
      * animations. This method carries the position of one shared element to the started Activity.
      * The position of <code>sharedElement</code> will be used as the epicenter for the
      * exit Transition. The position of the shared element in the launched Activity will be the
      * epicenter of its entering Transition.
      *
-     * <p>This requires {@link android.view.Window#FEATURE_CONTENT_TRANSITIONS} to be
+     * <p>This requires {@link android.view.Window#FEATURE_ACTIVITY_TRANSITIONS} to be
      * enabled on the calling Activity to cause an exit transition. The same must be in
      * the called Activity to get an entering transition.</p>
      * @param activity The Activity whose window contains the shared elements.
@@ -368,7 +475,7 @@ public class ActivityOptions {
      * will be used as the epicenter for the exit Transition. The position of the associated
      * shared element in the launched Activity will be the epicenter of its entering Transition.
      *
-     * <p>This requires {@link android.view.Window#FEATURE_CONTENT_TRANSITIONS} to be
+     * <p>This requires {@link android.view.Window#FEATURE_ACTIVITY_TRANSITIONS} to be
      * enabled on the calling Activity to cause an exit transition. The same must be in
      * the called Activity to get an entering transition.</p>
      * @param activity The Activity whose window contains the shared elements.
@@ -383,7 +490,7 @@ public class ActivityOptions {
     public static ActivityOptions makeSceneTransitionAnimation(Activity activity,
             Pair<View, String>... sharedElements) {
         ActivityOptions opts = new ActivityOptions();
-        if (!activity.getWindow().hasFeature(Window.FEATURE_CONTENT_TRANSITIONS)) {
+        if (!activity.getWindow().hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)) {
             opts.mAnimationType = ANIM_DEFAULT;
             return opts;
         }
@@ -444,7 +551,7 @@ public class ActivityOptions {
      * android.R.styleable#AndroidManifestActivity_launchMode launchMode} values of
      * <code>singleInstance</code> or <code>singleTask</code>.
      */
-    public static ActivityOptions makeLaunchTaskBehindAnimation() {
+    public static ActivityOptions makeTaskLaunchBehind() {
         final ActivityOptions opts = new ActivityOptions();
         opts.mAnimationType = ANIM_LAUNCH_TASK_BEHIND;
         return opts;
@@ -470,18 +577,26 @@ public class ActivityOptions {
                         opts.getBinder(KEY_ANIM_START_LISTENER));
                 break;
 
+            case ANIM_CUSTOM_IN_PLACE:
+                mCustomInPlaceResId = opts.getInt(KEY_ANIM_IN_PLACE_RES_ID, 0);
+                break;
+
             case ANIM_SCALE_UP:
                 mStartX = opts.getInt(KEY_ANIM_START_X, 0);
                 mStartY = opts.getInt(KEY_ANIM_START_Y, 0);
-                mStartWidth = opts.getInt(KEY_ANIM_START_WIDTH, 0);
-                mStartHeight = opts.getInt(KEY_ANIM_START_HEIGHT, 0);
+                mWidth = opts.getInt(KEY_ANIM_WIDTH, 0);
+                mHeight = opts.getInt(KEY_ANIM_HEIGHT, 0);
                 break;
 
             case ANIM_THUMBNAIL_SCALE_UP:
             case ANIM_THUMBNAIL_SCALE_DOWN:
-                mThumbnail = (Bitmap)opts.getParcelable(KEY_ANIM_THUMBNAIL);
+            case ANIM_THUMBNAIL_ASPECT_SCALE_UP:
+            case ANIM_THUMBNAIL_ASPECT_SCALE_DOWN:
+                mThumbnail = (Bitmap) opts.getParcelable(KEY_ANIM_THUMBNAIL);
                 mStartX = opts.getInt(KEY_ANIM_START_X, 0);
                 mStartY = opts.getInt(KEY_ANIM_START_Y, 0);
+                mWidth = opts.getInt(KEY_ANIM_WIDTH, 0);
+                mHeight = opts.getInt(KEY_ANIM_HEIGHT, 0);
                 mAnimationStartedListener = IRemoteCallback.Stub.asInterface(
                         opts.getBinder(KEY_ANIM_START_LISTENER));
                 break;
@@ -518,6 +633,11 @@ public class ActivityOptions {
     }
 
     /** @hide */
+    public int getCustomInPlaceResId() {
+        return mCustomInPlaceResId;
+    }
+
+    /** @hide */
     public Bitmap getThumbnail() {
         return mThumbnail;
     }
@@ -533,13 +653,13 @@ public class ActivityOptions {
     }
 
     /** @hide */
-    public int getStartWidth() {
-        return mStartWidth;
+    public int getWidth() {
+        return mWidth;
     }
 
     /** @hide */
-    public int getStartHeight() {
-        return mStartHeight;
+    public int getHeight() {
+        return mHeight;
     }
 
     /** @hide */
@@ -615,11 +735,14 @@ public class ActivityOptions {
                 }
                 mAnimationStartedListener = otherOptions.mAnimationStartedListener;
                 break;
+            case ANIM_CUSTOM_IN_PLACE:
+                mCustomInPlaceResId = otherOptions.mCustomInPlaceResId;
+                break;
             case ANIM_SCALE_UP:
                 mStartX = otherOptions.mStartX;
                 mStartY = otherOptions.mStartY;
-                mStartWidth = otherOptions.mStartWidth;
-                mStartHeight = otherOptions.mStartHeight;
+                mWidth = otherOptions.mWidth;
+                mHeight = otherOptions.mHeight;
                 if (mAnimationStartedListener != null) {
                     try {
                         mAnimationStartedListener.sendResult(null);
@@ -630,9 +753,13 @@ public class ActivityOptions {
                 break;
             case ANIM_THUMBNAIL_SCALE_UP:
             case ANIM_THUMBNAIL_SCALE_DOWN:
+            case ANIM_THUMBNAIL_ASPECT_SCALE_UP:
+            case ANIM_THUMBNAIL_ASPECT_SCALE_DOWN:
                 mThumbnail = otherOptions.mThumbnail;
                 mStartX = otherOptions.mStartX;
                 mStartY = otherOptions.mStartY;
+                mWidth = otherOptions.mWidth;
+                mHeight = otherOptions.mHeight;
                 if (mAnimationStartedListener != null) {
                     try {
                         mAnimationStartedListener.sendResult(null);
@@ -678,17 +805,24 @@ public class ActivityOptions {
                 b.putBinder(KEY_ANIM_START_LISTENER, mAnimationStartedListener
                         != null ? mAnimationStartedListener.asBinder() : null);
                 break;
+            case ANIM_CUSTOM_IN_PLACE:
+                b.putInt(KEY_ANIM_IN_PLACE_RES_ID, mCustomInPlaceResId);
+                break;
             case ANIM_SCALE_UP:
                 b.putInt(KEY_ANIM_START_X, mStartX);
                 b.putInt(KEY_ANIM_START_Y, mStartY);
-                b.putInt(KEY_ANIM_START_WIDTH, mStartWidth);
-                b.putInt(KEY_ANIM_START_HEIGHT, mStartHeight);
+                b.putInt(KEY_ANIM_WIDTH, mWidth);
+                b.putInt(KEY_ANIM_HEIGHT, mHeight);
                 break;
             case ANIM_THUMBNAIL_SCALE_UP:
             case ANIM_THUMBNAIL_SCALE_DOWN:
+            case ANIM_THUMBNAIL_ASPECT_SCALE_UP:
+            case ANIM_THUMBNAIL_ASPECT_SCALE_DOWN:
                 b.putParcelable(KEY_ANIM_THUMBNAIL, mThumbnail);
                 b.putInt(KEY_ANIM_START_X, mStartX);
                 b.putInt(KEY_ANIM_START_Y, mStartY);
+                b.putInt(KEY_ANIM_WIDTH, mWidth);
+                b.putInt(KEY_ANIM_HEIGHT, mHeight);
                 b.putBinder(KEY_ANIM_START_LISTENER, mAnimationStartedListener
                         != null ? mAnimationStartedListener.asBinder() : null);
                 break;

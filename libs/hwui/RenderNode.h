@@ -90,6 +90,7 @@ public:
         Y               = 1 << 11,
         Z               = 1 << 12,
         ALPHA           = 1 << 13,
+        DISPLAY_LIST    = 1 << 14,
     };
 
     ANDROID_API RenderNode();
@@ -100,7 +101,8 @@ public:
         kReplayFlag_ClipChildren = 0x1
     };
 
-    ANDROID_API static void outputLogBuffer(int fd);
+    static void outputLogBuffer(int fd);
+    void debugDumpLayers(const char* prefix);
 
     ANDROID_API void setStagingDisplayList(DisplayListData* newData);
 
@@ -113,7 +115,7 @@ public:
     ANDROID_API int getDebugSize();
 
     bool isRenderable() const {
-        return mDisplayListData && mDisplayListData->hasDrawOps;
+        return mDisplayListData && !mDisplayListData->isEmpty();
     }
 
     bool hasProjectionReceiver() const {
@@ -173,6 +175,10 @@ public:
     // UI thread only!
     ANDROID_API void addAnimator(const sp<BaseRenderNodeAnimator>& animator);
 
+    AnimatorManager& animators() { return mAnimatorManager; }
+
+    void applyViewPropertyTransforms(mat4& matrix, bool true3dTransform = false) const;
+
 private:
     typedef key_value_pair_t<float, DrawRenderNodeOp*> ZDrawRenderNodeOpPair;
 
@@ -188,8 +194,6 @@ private:
         kPositiveZChildren
     };
 
-    void applyViewPropertyTransforms(mat4& matrix, bool true3dTransform = false);
-
     void computeOrderingImpl(DrawRenderNodeOp* opState,
             const SkPath* outlineOfProjectionSurface,
             Vector<DrawRenderNodeOp*>* compositedChildrenOfProjectionSurface,
@@ -198,22 +202,16 @@ private:
     template <class T>
     inline void setViewProperties(OpenGLRenderer& renderer, T& handler);
 
-    void buildZSortedChildList(Vector<ZDrawRenderNodeOpPair>& zTranslatedNodes);
+    void buildZSortedChildList(const DisplayListData::Chunk& chunk,
+            Vector<ZDrawRenderNodeOpPair>& zTranslatedNodes);
 
     template<class T>
     inline void issueDrawShadowOperation(const Matrix4& transformFromParent, T& handler);
 
     template <class T>
-    inline int issueOperationsOfNegZChildren(
-            const Vector<ZDrawRenderNodeOpPair>& zTranslatedNodes,
+    inline void issueOperationsOf3dChildren(ChildrenSelectMode mode,
+            const Matrix4& initialTransform, const Vector<ZDrawRenderNodeOpPair>& zTranslatedNodes,
             OpenGLRenderer& renderer, T& handler);
-    template <class T>
-    inline void issueOperationsOfPosZChildren(int shadowRestoreTo,
-            const Vector<ZDrawRenderNodeOpPair>& zTranslatedNodes,
-            OpenGLRenderer& renderer, T& handler);
-    template <class T>
-    inline void issueOperationsOf3dChildren(const Vector<ZDrawRenderNodeOpPair>& zTranslatedNodes,
-            ChildrenSelectMode mode, OpenGLRenderer& renderer, T& handler);
 
     template <class T>
     inline void issueOperationsOfProjectedChildren(OpenGLRenderer& renderer, T& handler);
@@ -244,7 +242,7 @@ private:
     void pushStagingDisplayListChanges(TreeInfo& info);
     void prepareSubTree(TreeInfo& info, DisplayListData* subtree);
     void applyLayerPropertiesToLayer(TreeInfo& info);
-    void prepareLayer(TreeInfo& info);
+    void prepareLayer(TreeInfo& info, uint32_t dirtyMask);
     void pushLayerUpdate(TreeInfo& info);
     void deleteDisplayListData();
     void damageSelf(TreeInfo& info);

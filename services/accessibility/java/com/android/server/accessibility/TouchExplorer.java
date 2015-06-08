@@ -24,6 +24,7 @@ import android.gesture.GesturePoint;
 import android.gesture.GestureStore;
 import android.gesture.GestureStroke;
 import android.gesture.Prediction;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -75,6 +76,10 @@ class TouchExplorer implements EventStreamTransformation {
     private static final int STATE_DRAGGING = 0x00000002;
     private static final int STATE_DELEGATING = 0x00000004;
     private static final int STATE_GESTURE_DETECTING = 0x00000005;
+
+    private static final int CLICK_LOCATION_NONE = 0;
+    private static final int CLICK_LOCATION_ACCESSIBILITY_FOCUS = 1;
+    private static final int CLICK_LOCATION_LAST_TOUCH_EXPLORED = 2;
 
     // The maximum of the cosine between the vectors of two moving
     // pointers so they can be considered moving in the same direction.
@@ -170,6 +175,9 @@ class TouchExplorer implements EventStreamTransformation {
 
     // Temporary rectangle to avoid instantiation.
     private final Rect mTempRect = new Rect();
+
+    // Temporary point to avoid instantiation.
+    private final Point mTempPoint = new Point();
 
     // Context in which this explorer operates.
     private final Context mContext;
@@ -938,12 +946,16 @@ class TouchExplorer implements EventStreamTransformation {
      *
      * @param prototype The prototype from which to create the injected events.
      * @param policyFlags The policy flags associated with the event.
+     * @param targetAccessibilityFocus Whether the event targets the accessibility focus.
      */
-    private void sendActionDownAndUp(MotionEvent prototype, int policyFlags) {
+    private void sendActionDownAndUp(MotionEvent prototype, int policyFlags,
+            boolean targetAccessibilityFocus) {
         // Tap with the pointer that last explored.
         final int pointerId = prototype.getPointerId(prototype.getActionIndex());
         final int pointerIdBits = (1 << pointerId);
+        prototype.setTargetAccessibilityFocus(targetAccessibilityFocus);
         sendMotionEvent(prototype, MotionEvent.ACTION_DOWN, pointerIdBits, policyFlags);
+        prototype.setTargetAccessibilityFocus(targetAccessibilityFocus);
         sendMotionEvent(prototype, MotionEvent.ACTION_UP, pointerIdBits, policyFlags);
     }
 
@@ -1147,44 +1159,13 @@ class TouchExplorer implements EventStreamTransformation {
                 mSendTouchInteractionEndDelayed.forceSendAndRemove();
             }
 
-            int clickLocationX;
-            int clickLocationY;
-
             final int pointerId = secondTapUp.getPointerId(secondTapUp.getActionIndex());
             final int pointerIndex = secondTapUp.findPointerIndex(pointerId);
 
-            MotionEvent lastExploreEvent =
-                mInjectedPointerTracker.getLastInjectedHoverEventForClick();
-            if (lastExploreEvent == null) {
-                // No last touch explored event but there is accessibility focus in
-                // the active window. We click in the middle of the focus bounds.
-                Rect focusBounds = mTempRect;
-                if (mAms.getAccessibilityFocusBounds(focusBounds)) {
-                    clickLocationX = focusBounds.centerX();
-                    clickLocationY = focusBounds.centerY();
-                } else {
-                    // Out of luck - do nothing.
-                    return;
-                }
-            } else {
-                // If the click is within the active window but not within the
-                // accessibility focus bounds we click in the focus center.
-                final int lastExplorePointerIndex = lastExploreEvent.getActionIndex();
-                clickLocationX = (int) lastExploreEvent.getX(lastExplorePointerIndex);
-                clickLocationY = (int) lastExploreEvent.getY(lastExplorePointerIndex);
-                Rect activeWindowBounds = mTempRect;
-                if (mLastTouchedWindowId == mAms.getActiveWindowId()) {
-                    mAms.getActiveWindowBounds(activeWindowBounds);
-                    if (activeWindowBounds.contains(clickLocationX, clickLocationY)) {
-                        Rect focusBounds = mTempRect;
-                        if (mAms.getAccessibilityFocusBounds(focusBounds)) {
-                            if (!focusBounds.contains(clickLocationX, clickLocationY)) {
-                                clickLocationX = focusBounds.centerX();
-                                clickLocationY = focusBounds.centerY();
-                            }
-                        }
-                    }
-                }
+            Point clickLocation = mTempPoint;
+            final int result = computeClickLocation(clickLocation);
+            if (result == CLICK_LOCATION_NONE) {
+                return;
             }
 
             // Do the click.
@@ -1193,13 +1174,14 @@ class TouchExplorer implements EventStreamTransformation {
             secondTapUp.getPointerProperties(pointerIndex, properties[0]);
             PointerCoords[] coords = new PointerCoords[1];
             coords[0] = new PointerCoords();
-            coords[0].x = clickLocationX;
-            coords[0].y = clickLocationY;
+            coords[0].x = clickLocation.x;
+            coords[0].y = clickLocation.y;
             MotionEvent event = MotionEvent.obtain(secondTapUp.getDownTime(),
                     secondTapUp.getEventTime(), MotionEvent.ACTION_DOWN, 1, properties,
                     coords, 0, 0, 1.0f, 1.0f, secondTapUp.getDeviceId(), 0,
                     secondTapUp.getSource(), secondTapUp.getFlags());
-            sendActionDownAndUp(event, policyFlags);
+            final boolean targetAccessibilityFocus = (result == CLICK_LOCATION_ACCESSIBILITY_FOCUS);
+            sendActionDownAndUp(event, policyFlags, targetAccessibilityFocus);
             event.recycle();
         }
 
@@ -1242,6 +1224,27 @@ class TouchExplorer implements EventStreamTransformation {
         return GestureUtils.isDraggingGesture(firstPtrDownX, firstPtrDownY, secondPtrDownX,
                 secondPtrDownY, firstPtrX, firstPtrY, secondPtrX, secondPtrY,
                 MAX_DRAGGING_ANGLE_COS);
+    }
+
+    private int computeClickLocation(Point outLocation) {
+        MotionEvent lastExploreEvent = mInjectedPointerTracker.getLastInjectedHoverEventForClick();
+        if (lastExploreEvent != null) {
+            final int lastExplorePointerIndex = lastExploreEvent.getActionIndex();
+            outLocation.x = (int) lastExploreEvent.getX(lastExplorePointerIndex);
+            outLocation.y = (int) lastExploreEvent.getY(lastExplorePointerIndex);
+            if (!mAms.accessibilityFocusOnlyInActiveWindow()
+                    || mLastTouchedWindowId == mAms.getActiveWindowId()) {
+                if (mAms.getAccessibilityFocusClickPointInScreen(outLocation)) {
+                    return CLICK_LOCATION_ACCESSIBILITY_FOCUS;
+                } else {
+                    return CLICK_LOCATION_LAST_TOUCH_EXPLORED;
+                }
+            }
+        }
+        if (mAms.getAccessibilityFocusClickPointInScreen(outLocation)) {
+            return CLICK_LOCATION_ACCESSIBILITY_FOCUS;
+        }
+        return CLICK_LOCATION_NONE;
     }
 
     /**
@@ -1320,49 +1323,19 @@ class TouchExplorer implements EventStreamTransformation {
                 return;
             }
 
-            int clickLocationX;
-            int clickLocationY;
-
             final int pointerId = mEvent.getPointerId(mEvent.getActionIndex());
             final int pointerIndex = mEvent.findPointerIndex(pointerId);
 
-            MotionEvent lastExploreEvent =
-                mInjectedPointerTracker.getLastInjectedHoverEventForClick();
-            if (lastExploreEvent == null) {
-                // No last touch explored event but there is accessibility focus in
-                // the active window. We click in the middle of the focus bounds.
-                Rect focusBounds = mTempRect;
-                if (mAms.getAccessibilityFocusBounds(focusBounds)) {
-                    clickLocationX = focusBounds.centerX();
-                    clickLocationY = focusBounds.centerY();
-                } else {
-                    // Out of luck - do nothing.
-                    return;
-                }
-            } else {
-                // If the click is within the active window but not within the
-                // accessibility focus bounds we click in the focus center.
-                final int lastExplorePointerIndex = lastExploreEvent.getActionIndex();
-                clickLocationX = (int) lastExploreEvent.getX(lastExplorePointerIndex);
-                clickLocationY = (int) lastExploreEvent.getY(lastExplorePointerIndex);
-                Rect activeWindowBounds = mTempRect;
-                if (mLastTouchedWindowId == mAms.getActiveWindowId()) {
-                    mAms.getActiveWindowBounds(activeWindowBounds);
-                    if (activeWindowBounds.contains(clickLocationX, clickLocationY)) {
-                        Rect focusBounds = mTempRect;
-                        if (mAms.getAccessibilityFocusBounds(focusBounds)) {
-                            if (!focusBounds.contains(clickLocationX, clickLocationY)) {
-                                clickLocationX = focusBounds.centerX();
-                                clickLocationY = focusBounds.centerY();
-                            }
-                        }
-                    }
-                }
+            Point clickLocation = mTempPoint;
+            final int result = computeClickLocation(clickLocation);
+
+            if (result == CLICK_LOCATION_NONE) {
+                return;
             }
 
             mLongPressingPointerId = pointerId;
-            mLongPressingPointerDeltaX = (int) mEvent.getX(pointerIndex) - clickLocationX;
-            mLongPressingPointerDeltaY = (int) mEvent.getY(pointerIndex) - clickLocationY;
+            mLongPressingPointerDeltaX = (int) mEvent.getX(pointerIndex) - clickLocation.x;
+            mLongPressingPointerDeltaY = (int) mEvent.getY(pointerIndex) - clickLocation.y;
 
             sendHoverExitAndTouchExplorationGestureEndIfNeeded(mPolicyFlags);
 

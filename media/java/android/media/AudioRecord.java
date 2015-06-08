@@ -18,10 +18,15 @@ package android.media;
 
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
+import java.util.Iterator;
 
+import android.os.Binder;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.util.Log;
 
 /**
@@ -99,6 +104,8 @@ public class AudioRecord
 
     private final static String TAG = "android.media.AudioRecord";
 
+    /** @hide */
+    public final static String SUBMIX_FIXED_VOLUME = "fixedVolume";
 
     //---------------------------------------------------------
     // Used exclusively by native code
@@ -180,6 +187,11 @@ public class AudioRecord
      * Audio session ID
      */
     private int mSessionId = AudioSystem.AUDIO_SESSION_ALLOCATE;
+    /**
+     * AudioAttributes
+     */
+    private AudioAttributes mAudioAttributes;
+    private boolean mIsSubmixFullVolume = false;
 
     //---------------------------------------------------------
     // Constructor, Finalize
@@ -189,8 +201,8 @@ public class AudioRecord
      * Though some invalid parameters will result in an {@link IllegalArgumentException} exception,
      * other errors do not.  Thus you should call {@link #getState()} immediately after construction
      * to confirm that the object is usable.
-     * @param audioSource the recording source. See {@link MediaRecorder.AudioSource} for
-     *    recording source definitions.
+     * @param audioSource the recording source (also referred to as capture preset).
+     *    See {@link MediaRecorder.AudioSource} for the capture preset definitions.
      * @param sampleRateInHz the sample rate expressed in Hertz. 44100Hz is currently the only
      *   rate that is guaranteed to work on all devices, but other rates such as 22050,
      *   16000, and 11025 may work on some devices.
@@ -211,24 +223,106 @@ public class AudioRecord
     public AudioRecord(int audioSource, int sampleRateInHz, int channelConfig, int audioFormat,
             int bufferSizeInBytes)
     throws IllegalArgumentException {
+        this((new AudioAttributes.Builder())
+                    .setInternalCapturePreset(audioSource)
+                    .build(),
+                (new AudioFormat.Builder())
+                    .setChannelMask(getChannelMaskFromLegacyConfig(channelConfig,
+                                        true/*allow legacy configurations*/))
+                    .setEncoding(audioFormat)
+                    .setSampleRate(sampleRateInHz)
+                    .build(),
+                bufferSizeInBytes,
+                AudioManager.AUDIO_SESSION_ID_GENERATE);
+    }
+
+    /**
+     * @hide
+     * CANDIDATE FOR PUBLIC API
+     * Class constructor with {@link AudioAttributes} and {@link AudioFormat}.
+     * @param attributes a non-null {@link AudioAttributes} instance. Use
+     *     {@link AudioAttributes.Builder#setCapturePreset(int)} for configuring the capture
+     *     preset for this instance.
+     * @param format a non-null {@link AudioFormat} instance describing the format of the data
+     *     that will be recorded through this AudioRecord. See {@link AudioFormat.Builder} for
+     *     configuring the audio format parameters such as encoding, channel mask and sample rate.
+     * @param bufferSizeInBytes the total size (in bytes) of the buffer where audio data is written
+     *   to during the recording. New audio data can be read from this buffer in smaller chunks
+     *   than this size. See {@link #getMinBufferSize(int, int, int)} to determine the minimum
+     *   required buffer size for the successful creation of an AudioRecord instance. Using values
+     *   smaller than getMinBufferSize() will result in an initialization failure.
+     * @param sessionId ID of audio session the AudioRecord must be attached to, or
+     *   {@link AudioManager#AUDIO_SESSION_ID_GENERATE} if the session isn't known at construction
+     *   time. See also {@link AudioManager#generateAudioSessionId()} to obtain a session ID before
+     *   construction.
+     * @throws IllegalArgumentException
+     */
+    public AudioRecord(AudioAttributes attributes, AudioFormat format, int bufferSizeInBytes,
+            int sessionId) throws IllegalArgumentException {
         mRecordingState = RECORDSTATE_STOPPED;
+
+        if (attributes == null) {
+            throw new IllegalArgumentException("Illegal null AudioAttributes");
+        }
+        if (format == null) {
+            throw new IllegalArgumentException("Illegal null AudioFormat");
+        }
 
         // remember which looper is associated with the AudioRecord instanciation
         if ((mInitializationLooper = Looper.myLooper()) == null) {
             mInitializationLooper = Looper.getMainLooper();
         }
 
-        audioParamCheck(audioSource, sampleRateInHz, channelConfig, audioFormat);
+        // is this AudioRecord using REMOTE_SUBMIX at full volume?
+        if (attributes.getCapturePreset() == MediaRecorder.AudioSource.REMOTE_SUBMIX) {
+            final AudioAttributes.Builder filteredAttr = new AudioAttributes.Builder();
+            final Iterator<String> tagsIter = attributes.getTags().iterator();
+            while (tagsIter.hasNext()) {
+                final String tag = tagsIter.next();
+                if (tag.equalsIgnoreCase(SUBMIX_FIXED_VOLUME)) {
+                    mIsSubmixFullVolume = true;
+                    Log.v(TAG, "Will record from REMOTE_SUBMIX at full fixed volume");
+                } else { // SUBMIX_FIXED_VOLUME: is not to be propagated to the native layers
+                    filteredAttr.addTag(tag);
+                }
+            }
+            filteredAttr.setInternalCapturePreset(attributes.getCapturePreset());
+            mAudioAttributes = filteredAttr.build();
+        } else {
+            mAudioAttributes = attributes;
+        }
+
+        int rate = 0;
+        if ((format.getPropertySetMask()
+                & AudioFormat.AUDIO_FORMAT_HAS_PROPERTY_SAMPLE_RATE) != 0)
+        {
+            rate = format.getSampleRate();
+        } else {
+            rate = AudioSystem.getPrimaryOutputSamplingRate();
+            if (rate <= 0) {
+                rate = 44100;
+            }
+        }
+
+        int encoding = AudioFormat.ENCODING_DEFAULT;
+        if ((format.getPropertySetMask() & AudioFormat.AUDIO_FORMAT_HAS_PROPERTY_ENCODING) != 0)
+        {
+            encoding = format.getEncoding();
+        }
+
+        audioParamCheck(attributes.getCapturePreset(), rate, encoding);
+
+        mChannelCount = AudioFormat.channelCountFromInChannelMask(format.getChannelMask());
+        mChannelMask = getChannelMaskFromLegacyConfig(format.getChannelMask(), false);
 
         audioBuffSizeCheck(bufferSizeInBytes);
 
-        // native initialization
         int[] session = new int[1];
-        session[0] = AudioSystem.AUDIO_SESSION_ALLOCATE;
+        session[0] = sessionId;
         //TODO: update native initialization when information about hardware init failure
         //      due to capture device already open is available.
         int initResult = native_setup( new WeakReference<AudioRecord>(this),
-                mRecordSource, mSampleRate, mChannelMask, mAudioFormat, mNativeBufferSizeInBytes,
+                mAudioAttributes, mSampleRate, mChannelMask, mAudioFormat, mNativeBufferSizeInBytes,
                 session);
         if (initResult != SUCCESS) {
             loge("Error code "+initResult+" when initializing native AudioRecord object.");
@@ -240,23 +334,49 @@ public class AudioRecord
         mState = STATE_INITIALIZED;
     }
 
-
     // Convenience method for the constructor's parameter checks.
-    // This and audioBuffSizeCheck are where constructor IllegalArgumentException-s are thrown
+    // This, getChannelMaskFromLegacyConfig and audioBuffSizeCheck are where constructor
+    // IllegalArgumentException-s are thrown
+    private static int getChannelMaskFromLegacyConfig(int inChannelConfig,
+            boolean allowLegacyConfig) {
+        int mask;
+        switch (inChannelConfig) {
+        case AudioFormat.CHANNEL_IN_DEFAULT: // AudioFormat.CHANNEL_CONFIGURATION_DEFAULT
+        case AudioFormat.CHANNEL_IN_MONO:
+        case AudioFormat.CHANNEL_CONFIGURATION_MONO:
+            mask = AudioFormat.CHANNEL_IN_MONO;
+            break;
+        case AudioFormat.CHANNEL_IN_STEREO:
+        case AudioFormat.CHANNEL_CONFIGURATION_STEREO:
+            mask = AudioFormat.CHANNEL_IN_STEREO;
+            break;
+        case (AudioFormat.CHANNEL_IN_FRONT | AudioFormat.CHANNEL_IN_BACK):
+            mask = inChannelConfig;
+            break;
+        default:
+            throw new IllegalArgumentException("Unsupported channel configuration.");
+        }
+
+        if (!allowLegacyConfig && ((inChannelConfig == AudioFormat.CHANNEL_CONFIGURATION_MONO)
+                || (inChannelConfig == AudioFormat.CHANNEL_CONFIGURATION_STEREO))) {
+            // only happens with the constructor that uses AudioAttributes and AudioFormat
+            throw new IllegalArgumentException("Unsupported deprecated configuration.");
+        }
+
+        return mask;
+    }
     // postconditions:
     //    mRecordSource is valid
-    //    mChannelCount is valid
-    //    mChannelMask is valid
     //    mAudioFormat is valid
     //    mSampleRate is valid
-    private void audioParamCheck(int audioSource, int sampleRateInHz,
-                                 int channelConfig, int audioFormat)
+    private void audioParamCheck(int audioSource, int sampleRateInHz, int audioFormat)
             throws IllegalArgumentException {
 
         //--------------
         // audio source
         if ( (audioSource < MediaRecorder.AudioSource.DEFAULT) ||
              ((audioSource > MediaRecorder.getAudioSourceMax()) &&
+              (audioSource != MediaRecorder.AudioSource.FM_TUNER) &&
               (audioSource != MediaRecorder.AudioSource.HOTWORD)) )  {
             throw new IllegalArgumentException("Invalid audio source.");
         }
@@ -269,28 +389,6 @@ public class AudioRecord
                     + "Hz is not a supported sample rate.");
         }
         mSampleRate = sampleRateInHz;
-
-        //--------------
-        // channel config
-        switch (channelConfig) {
-        case AudioFormat.CHANNEL_IN_DEFAULT: // AudioFormat.CHANNEL_CONFIGURATION_DEFAULT
-        case AudioFormat.CHANNEL_IN_MONO:
-        case AudioFormat.CHANNEL_CONFIGURATION_MONO:
-            mChannelCount = 1;
-            mChannelMask = AudioFormat.CHANNEL_IN_MONO;
-            break;
-        case AudioFormat.CHANNEL_IN_STEREO:
-        case AudioFormat.CHANNEL_CONFIGURATION_STEREO:
-            mChannelCount = 2;
-            mChannelMask = AudioFormat.CHANNEL_IN_STEREO;
-            break;
-        case (AudioFormat.CHANNEL_IN_FRONT | AudioFormat.CHANNEL_IN_BACK):
-            mChannelCount = 2;
-            mChannelMask = channelConfig;
-            break;
-        default:
-            throw new IllegalArgumentException("Unsupported channel configuration.");
-        }
 
         //--------------
         // audio format
@@ -347,7 +445,8 @@ public class AudioRecord
 
     @Override
     protected void finalize() {
-        native_finalize();
+        // will cause stop() to be called, and if appropriate, will handle fixed volume recording
+        release();
     }
 
 
@@ -514,6 +613,7 @@ public class AudioRecord
         // start recording
         synchronized(mRecordingStateLock) {
             if (native_start(MediaSyncEvent.SYNC_EVENT_NONE, 0) == SUCCESS) {
+                handleFullVolumeRec(true);
                 mRecordingState = RECORDSTATE_RECORDING;
             }
         }
@@ -536,6 +636,7 @@ public class AudioRecord
         // start recording
         synchronized(mRecordingStateLock) {
             if (native_start(syncEvent.getType(), syncEvent.getAudioSessionId()) == SUCCESS) {
+                handleFullVolumeRec(true);
                 mRecordingState = RECORDSTATE_RECORDING;
             }
         }
@@ -553,11 +654,25 @@ public class AudioRecord
 
         // stop recording
         synchronized(mRecordingStateLock) {
+            handleFullVolumeRec(false);
             native_stop();
             mRecordingState = RECORDSTATE_STOPPED;
         }
     }
 
+    private final IBinder mICallBack = new Binder();
+    private void handleFullVolumeRec(boolean starting) {
+        if (!mIsSubmixFullVolume) {
+            return;
+        }
+        final IBinder b = ServiceManager.getService(android.content.Context.AUDIO_SERVICE);
+        final IAudioService ias = IAudioService.Stub.asInterface(b);
+        try {
+            ias.forceRemoteSubmixFullVolume(starting, mICallBack);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error talking to AudioService when handling full submix volume", e);
+        }
+    }
 
     //---------------------------------------------------------
     // Audio data supply
@@ -804,9 +919,11 @@ public class AudioRecord
     //--------------------
 
     private native final int native_setup(Object audiorecord_this,
-            int recordSource, int sampleRate, int channelMask, int audioFormat,
+            Object /*AudioAttributes*/ attributes,
+            int sampleRate, int channelMask, int audioFormat,
             int buffSizeInBytes, int[] sessionId);
 
+    // TODO remove: implementation calls directly into implementation of native_release()
     private native final void native_finalize();
 
     private native final void native_release();

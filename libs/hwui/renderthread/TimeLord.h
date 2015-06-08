@@ -29,8 +29,9 @@ class RenderThread;
 class TimeLord {
 public:
     void setFrameInterval(nsecs_t intervalNanos) { mFrameIntervalNanos = intervalNanos; }
-    void vsyncReceived(nsecs_t vsync);
-    nsecs_t frameTimeMs();
+    // returns true if the vsync is newer, false if it was rejected for staleness
+    bool vsyncReceived(nsecs_t vsync);
+    nsecs_t computeFrameTimeMs();
 
 private:
     friend class RenderThread;

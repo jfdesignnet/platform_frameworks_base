@@ -17,12 +17,13 @@
 #ifndef ANDROID_HWUI_RENDERER_H
 #define ANDROID_HWUI_RENDERER_H
 
+#include <SkColorFilter.h>
+#include <SkPaint.h>
 #include <SkRegion.h>
 
 #include <utils/String8.h>
 
 #include "AssetAtlas.h"
-#include "SkPaint.h"
 
 namespace android {
 
@@ -67,6 +68,28 @@ public:
         return resultMode;
     }
 
+    // TODO: move to a method on android:Paint
+    static inline bool paintWillNotDraw(const SkPaint& paint) {
+        return paint.getAlpha() == 0
+                && !paint.getColorFilter()
+                && getXfermode(paint.getXfermode()) == SkXfermode::kSrcOver_Mode;
+    }
+
+    // TODO: move to a method on android:Paint
+    static inline bool paintWillNotDrawText(const SkPaint& paint) {
+        return paint.getAlpha() == 0
+                && paint.getLooper() == NULL
+                && !paint.getColorFilter()
+                && getXfermode(paint.getXfermode()) == SkXfermode::kSrcOver_Mode;
+    }
+
+    static bool isBlendedColorFilter(const SkColorFilter* filter) {
+        if (filter == NULL) {
+            return false;
+        }
+        return (filter->getFlags() & SkColorFilter::kAlphaUnchanged_Flag) == 0;
+    }
+
 // ----------------------------------------------------------------------------
 // Frame state operations
 // ----------------------------------------------------------------------------
@@ -78,14 +101,6 @@ public:
      * @param height The height in pixels of the underlysing surface
      */
     virtual void setViewport(int width, int height) = 0;
-
-    /**
-     * Sets the position and size of the spot shadow casting light.
-     *
-     * @param lightCenter The light's Y position, relative to the render target's top left
-     * @param lightRadius The light's radius
-     */
-    virtual void initializeLight(const Vector3& lightCenter, float lightRadius) = 0;
 
     /**
      * Prepares the renderer to draw a frame. This method must be invoked
@@ -168,15 +183,11 @@ public:
     virtual status_t drawColor(int color, SkXfermode::Mode mode) = 0;
 
     // Bitmap-based
-    virtual status_t drawBitmap(const SkBitmap* bitmap, float left, float top,
-            const SkPaint* paint) = 0;
-    virtual status_t drawBitmap(const SkBitmap* bitmap, const SkMatrix& matrix,
-            const SkPaint* paint) = 0;
+    virtual status_t drawBitmap(const SkBitmap* bitmap, const SkPaint* paint) = 0;
     virtual status_t drawBitmap(const SkBitmap* bitmap, float srcLeft, float srcTop,
             float srcRight, float srcBottom, float dstLeft, float dstTop,
             float dstRight, float dstBottom, const SkPaint* paint) = 0;
-    virtual status_t drawBitmapData(const SkBitmap* bitmap, float left, float top,
-            const SkPaint* paint) = 0;
+    virtual status_t drawBitmapData(const SkBitmap* bitmap, const SkPaint* paint) = 0;
     virtual status_t drawBitmapMesh(const SkBitmap* bitmap, int meshWidth, int meshHeight,
             const float* vertices, const int* colors, const SkPaint* paint) = 0;
     virtual status_t drawPatch(const SkBitmap* bitmap, const Res_png_9patch* patch,
@@ -209,7 +220,6 @@ public:
 // ----------------------------------------------------------------------------
 // Canvas draw operations - special
 // ----------------------------------------------------------------------------
-    virtual status_t drawLayer(Layer* layer, float x, float y) = 0;
     virtual status_t drawRenderNode(RenderNode* renderNode, Rect& dirty,
             int32_t replayFlags) = 0;
 

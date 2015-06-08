@@ -18,7 +18,7 @@ package android.content.pm;
 
 import static android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
 
-import java.util.HashSet;
+import android.util.ArraySet;
 
 /**
  * Per-user state information about a package.
@@ -28,18 +28,18 @@ public class PackageUserState {
     public boolean stopped;
     public boolean notLaunched;
     public boolean installed;
-    public boolean blocked; // Is the app restricted by owner / admin
+    public boolean hidden; // Is the app restricted by owner / admin
     public int enabled;
     public boolean blockUninstall;
 
     public String lastDisableAppCaller;
 
-    public HashSet<String> disabledComponents;
-    public HashSet<String> enabledComponents;
+    public ArraySet<String> disabledComponents;
+    public ArraySet<String> enabledComponents;
 
     public PackageUserState() {
         installed = true;
-        blocked = false;
+        hidden = false;
         enabled = COMPONENT_ENABLED_STATE_DEFAULT;
     }
 
@@ -48,12 +48,12 @@ public class PackageUserState {
         stopped = o.stopped;
         notLaunched = o.notLaunched;
         enabled = o.enabled;
-        blocked = o.blocked;
+        hidden = o.hidden;
         lastDisableAppCaller = o.lastDisableAppCaller;
         disabledComponents = o.disabledComponents != null
-                ? new HashSet<String>(o.disabledComponents) : null;
+                ? new ArraySet<String>(o.disabledComponents) : null;
         enabledComponents = o.enabledComponents != null
-                ? new HashSet<String>(o.enabledComponents) : null;
+                ? new ArraySet<String>(o.enabledComponents) : null;
         blockUninstall = o.blockUninstall;
     }
 }

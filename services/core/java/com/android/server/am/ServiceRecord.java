@@ -105,6 +105,8 @@ final class ServiceRecord extends Binder {
     long restartDelay;      // delay until next restart attempt.
     long restartTime;       // time of last restart.
     long nextRestartTime;   // time when restartDelay will expire.
+    boolean destroying;     // set when we have started destroying the service
+    long destroyTime;       // time at which destory was initiated.
 
     String stringName;      // caching of toString
     
@@ -248,6 +250,12 @@ final class ServiceRecord extends Binder {
                     pw.print(" executeFg="); pw.print(executeFg);
                     pw.print(" executingStart=");
                     TimeUtils.formatDuration(executingStart, now, pw);
+                    pw.println();
+        }
+        if (destroying || destroyTime != 0) {
+            pw.print(prefix); pw.print("destroying="); pw.print(destroying);
+                    pw.print(" destroyTime=");
+                    TimeUtils.formatDuration(destroyTime, now, pw);
                     pw.println();
         }
         if (crashCount != 0 || restartCount != 0
@@ -450,6 +458,9 @@ final class ServiceRecord extends Binder {
                                         appInfo.packageName, null));
                                 PendingIntent pi = PendingIntent.getActivity(ams.mContext, 0,
                                         runningIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+                                localForegroundNoti.color = ams.mContext.getResources().getColor(
+                                        com.android.internal
+                                                .R.color.system_notification_accent_color);
                                 localForegroundNoti.setLatestEventInfo(ctx,
                                         ams.mContext.getString(
                                                 com.android.internal.R.string
@@ -513,6 +524,31 @@ final class ServiceRecord extends Binder {
                 }
             });
         }
+    }
+
+    public void stripForegroundServiceFlagFromNotification() {
+        if (foregroundId == 0) {
+            return;
+        }
+
+        final int localForegroundId = foregroundId;
+        final int localUserId = userId;
+        final String localPackageName = packageName;
+
+        // Do asynchronous communication with notification manager to
+        // avoid deadlocks.
+        ams.mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                NotificationManagerInternal nmi = LocalServices.getService(
+                        NotificationManagerInternal.class);
+                if (nmi == null) {
+                    return;
+                }
+                nmi.removeForegroundServiceFlagFromNotification(localPackageName, localForegroundId,
+                        localUserId);
+            }
+        });
     }
     
     public void clearDeliveredStartsLocked() {

@@ -25,29 +25,33 @@ public class Constants {
         public static final boolean Verbose = false;
 
         public static class App {
-            // Enables the simulated task affiliations
-            public static final boolean EnableSimulatedTaskGroups = false;
-            // Enables the screenshot app->Recents transition
-            public static final boolean EnableScreenshotAppTransition = false;
+            // Enables debug drawing for the transition thumbnail
+            public static final boolean EnableTransitionThumbnailDebugMode = false;
             // Enables the filtering of tasks according to their grouping
             public static final boolean EnableTaskFiltering = false;
             // Enables clipping of tasks against each other
-            public static final boolean EnableTaskStackClipping = false;
+            public static final boolean EnableTaskStackClipping = true;
             // Enables tapping on the TaskBar to launch the task
             public static final boolean EnableTaskBarTouchEvents = true;
             // Enables app-info pane on long-pressing the icon
             public static final boolean EnableDevAppInfoOnLongPress = true;
+            // Enables debug mode
+            public static final boolean EnableDebugMode = false;
             // Enables the search bar layout
             public static final boolean EnableSearchLayout = true;
-            // Enables the dynamic shadows behind each task
-            public static final boolean EnableShadows = true;
+            // Enables the thumbnail alpha on the front-most task
+            public static final boolean EnableThumbnailAlphaOnFrontmost = false;
             // This disables the bitmap and icon caches
             public static final boolean DisableBackgroundCache = false;
-            // For debugging, this enables us to create mock recents tasks
+            // Enables the simulated task affiliations
+            public static final boolean EnableSimulatedTaskGroups = false;
+            // Defines the number of mock task affiliations per group
+            public static final int TaskAffiliationsGroupCount = 12;
+            // Enables us to create mock recents tasks
             public static final boolean EnableSystemServicesProxy = false;
-            // For debugging, this defines the number of mock recents packages to create
+            // Defines the number of mock recents packages to create
             public static final int SystemServicesProxyMockPackageCount = 3;
-            // For debugging, this defines the number of mock recents tasks to create
+            // Defines the number of mock recents tasks to create
             public static final int SystemServicesProxyMockTaskCount = 100;
         }
     }
@@ -60,13 +64,9 @@ public class Constants {
             public static String DebugModeVersion = "A";
         }
 
-        public static class RecentsTaskLoader {
-            // XXX: This should be calculated on the first load
-            public static final int PreloadFirstTasksCount = 5;
-        }
-
         public static class TaskStackView {
-            public static final int TaskStackOverscrollRange = 150;
+            public static final int TaskStackMinOverscrollRange = 32;
+            public static final int TaskStackMaxOverscrollRange = 128;
             public static final int FilterStartDelay = 25;
         }
     }

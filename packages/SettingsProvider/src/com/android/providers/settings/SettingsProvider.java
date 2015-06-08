@@ -20,6 +20,7 @@ import java.io.FileNotFoundException;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -36,13 +37,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.UserInfo;
-import android.content.res.AssetFileDescriptor;
 import android.database.AbstractCursor;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteQueryBuilder;
-import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
@@ -53,8 +52,8 @@ import android.os.Process;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.provider.MediaStore;
 import android.provider.Settings;
+import android.provider.Settings.Secure;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.LruCache;
@@ -94,6 +93,9 @@ public class SettingsProvider extends ContentProvider {
     // Each defined user has their own settings
     protected final SparseArray<DatabaseHelper> mOpenHelpers = new SparseArray<DatabaseHelper>();
 
+    // Keep the list of managed profiles synced here
+    private List<UserInfo> mManagedProfiles = null;
+
     // Over this size we don't reject loading or saving settings but
     // we do consider them broken/malicious and don't keep them in
     // memory at least:
@@ -119,6 +121,9 @@ public class SettingsProvider extends ContentProvider {
 
     private static final String DROPBOX_TAG_USERLOG = "restricted_profile_ssaid";
 
+    static final HashSet<String> sSecureCloneToManagedKeys;
+    static final HashSet<String> sSystemCloneToManagedKeys;
+
     static {
         // Keys (name column) from the 'secure' table that are now in the owner user's 'global'
         // table, shared across all users
@@ -142,6 +147,15 @@ public class SettingsProvider extends ContentProvider {
                 UserManager.ENSURE_VERIFY_APPS);
         sRestrictedKeys.put(Settings.Global.PREFERRED_NETWORK_MODE,
                 UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS);
+
+        sSecureCloneToManagedKeys = new HashSet<String>();
+        for (int i = 0; i < Settings.Secure.CLONE_TO_MANAGED_PROFILE.length; i++) {
+            sSecureCloneToManagedKeys.add(Settings.Secure.CLONE_TO_MANAGED_PROFILE[i]);
+        }
+        sSystemCloneToManagedKeys = new HashSet<String>();
+        for (int i = 0; i < Settings.System.CLONE_TO_MANAGED_PROFILE.length; i++) {
+            sSystemCloneToManagedKeys.add(Settings.System.CLONE_TO_MANAGED_PROFILE[i]);
+        }
     }
 
     private boolean settingMovedToGlobal(final String name) {
@@ -302,10 +316,10 @@ public class SettingsProvider extends ContentProvider {
         }
     }
 
-    private void checkUserRestrictions(String setting) {
+    private void checkUserRestrictions(String setting, int userId) {
         String userRestriction = sRestrictedKeys.get(setting);
         if (!TextUtils.isEmpty(userRestriction)
-            && mUserManager.hasUserRestriction(userRestriction)) {
+            && mUserManager.hasUserRestriction(userRestriction, new UserHandle(userId))) {
             throw new SecurityException(
                     "Permission denial: user is restricted from changing this setting.");
         }
@@ -334,8 +348,11 @@ public class SettingsProvider extends ContentProvider {
         }
 
         public void onEvent(int event, String path) {
-            int modsInFlight = sKnownMutationsInFlight.get(mUserHandle).get();
-            if (modsInFlight > 0) {
+            final AtomicInteger mutationCount;
+            synchronized (SettingsProvider.this) {
+                mutationCount = sKnownMutationsInFlight.get(mUserHandle);
+            }
+            if (mutationCount != null && mutationCount.get() > 0) {
                 // our own modification.
                 return;
             }
@@ -362,18 +379,22 @@ public class SettingsProvider extends ContentProvider {
 
         IntentFilter userFilter = new IntentFilter();
         userFilter.addAction(Intent.ACTION_USER_REMOVED);
+        userFilter.addAction(Intent.ACTION_USER_ADDED);
         getContext().registerReceiver(new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
+                final int userHandle = intent.getIntExtra(Intent.EXTRA_USER_HANDLE,
+                        UserHandle.USER_OWNER);
                 if (intent.getAction().equals(Intent.ACTION_USER_REMOVED)) {
-                    final int userHandle = intent.getIntExtra(Intent.EXTRA_USER_HANDLE,
-                            UserHandle.USER_OWNER);
-                    if (userHandle != UserHandle.USER_OWNER) {
-                        onUserRemoved(userHandle);
-                    }
+                    onUserRemoved(userHandle);
+                } else if (intent.getAction().equals(Intent.ACTION_USER_ADDED)) {
+                    onProfilesChanged();
                 }
             }
         }, userFilter);
+
+        onProfilesChanged();
+
         return true;
     }
 
@@ -391,6 +412,32 @@ public class SettingsProvider extends ContentProvider {
             sSystemCaches.delete(userHandle);
             sSecureCaches.delete(userHandle);
             sKnownMutationsInFlight.delete(userHandle);
+            onProfilesChanged();
+        }
+    }
+
+    /**
+     * Updates the list of managed profiles. It assumes that only the primary user
+     * can have managed profiles. Modify this code if that changes in the future.
+     */
+    void onProfilesChanged() {
+        synchronized (this) {
+            mManagedProfiles = mUserManager.getProfiles(UserHandle.USER_OWNER);
+            if (mManagedProfiles != null) {
+                // Remove the primary user from the list
+                for (int i = mManagedProfiles.size() - 1; i >= 0; i--) {
+                    if (mManagedProfiles.get(i).id == UserHandle.USER_OWNER) {
+                        mManagedProfiles.remove(i);
+                    }
+                }
+                // If there are no managed profiles, reset the variable
+                if (mManagedProfiles.size() == 0) {
+                    mManagedProfiles = null;
+                }
+            }
+            if (LOCAL_LOGV) {
+                Slog.d(TAG, "Managed Profiles = " + mManagedProfiles);
+            }
         }
     }
 
@@ -456,7 +503,14 @@ public class SettingsProvider extends ContentProvider {
     }
 
     private void fullyPopulateCaches(final int userHandle) {
-        DatabaseHelper dbHelper = mOpenHelpers.get(userHandle);
+        DatabaseHelper dbHelper;
+        synchronized (this) {
+            dbHelper = mOpenHelpers.get(userHandle);
+        }
+        if (dbHelper == null) {
+            // User is gone.
+            return;
+        }
         // Only populate the globals cache once, for the owning user
         if (userHandle == UserHandle.USER_OWNER) {
             fullyPopulateCache(dbHelper, TABLE_GLOBAL, sGlobalCache);
@@ -561,10 +615,15 @@ public class SettingsProvider extends ContentProvider {
 
         long oldId = Binder.clearCallingIdentity();
         try {
-            DatabaseHelper dbHelper = mOpenHelpers.get(callingUser);
+            DatabaseHelper dbHelper;
+            synchronized (this) {
+                dbHelper = mOpenHelpers.get(callingUser);
+            }
             if (null == dbHelper) {
                 establishDbTracking(callingUser);
-                dbHelper = mOpenHelpers.get(callingUser);
+                synchronized (this) {
+                    dbHelper = mOpenHelpers.get(callingUser);
+                }
             }
             return dbHelper;
         } finally {
@@ -601,6 +660,24 @@ public class SettingsProvider extends ContentProvider {
     }
 
     /**
+     * Checks if the calling user is a managed profile of the primary user.
+     * Currently only the primary user (USER_OWNER) can have managed profiles.
+     * @param callingUser the user trying to read/write settings
+     * @return true if it is a managed profile of the primary user
+     */
+    private boolean isManagedProfile(int callingUser) {
+        synchronized (this) {
+            if (mManagedProfiles == null) return false;
+            for (int i = mManagedProfiles.size() - 1; i >= 0; i--) {
+                if (mManagedProfiles.get(i).id == callingUser) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
      * Fast path that avoids the use of chatty remoted Cursors.
      */
     @Override
@@ -625,12 +702,27 @@ public class SettingsProvider extends ContentProvider {
         // Get methods
         if (Settings.CALL_METHOD_GET_SYSTEM.equals(method)) {
             if (LOCAL_LOGV) Slog.v(TAG, "call(system:" + request + ") for " + callingUser);
+            // Check if this request should be (re)directed to the primary user's db
+            if (callingUser != UserHandle.USER_OWNER
+                    && shouldShadowParentProfile(callingUser, sSystemCloneToManagedKeys, request)) {
+                callingUser = UserHandle.USER_OWNER;
+            }
             dbHelper = getOrEstablishDatabase(callingUser);
             cache = sSystemCaches.get(callingUser);
             return lookupValue(dbHelper, TABLE_SYSTEM, cache, request);
         }
         if (Settings.CALL_METHOD_GET_SECURE.equals(method)) {
             if (LOCAL_LOGV) Slog.v(TAG, "call(secure:" + request + ") for " + callingUser);
+            // Check if this is a setting to be copied from the primary user
+            if (shouldShadowParentProfile(callingUser, sSecureCloneToManagedKeys, request)) {
+                // If the request if for location providers and there's a restriction, return none
+                if (Secure.LOCATION_PROVIDERS_ALLOWED.equals(request)
+                        && mUserManager.hasUserRestriction(
+                                UserManager.DISALLOW_SHARE_LOCATION, new UserHandle(callingUser))) {
+                    return sSecureCaches.get(callingUser).putIfAbsent(request, "");
+                }
+                callingUser = UserHandle.USER_OWNER;
+            }
             dbHelper = getOrEstablishDatabase(callingUser);
             cache = sSecureCaches.get(callingUser);
             return lookupValue(dbHelper, TABLE_SECURE, cache, request);
@@ -667,19 +759,89 @@ public class SettingsProvider extends ContentProvider {
         values.put(Settings.NameValueTable.NAME, request);
         values.put(Settings.NameValueTable.VALUE, newValue);
         if (Settings.CALL_METHOD_PUT_SYSTEM.equals(method)) {
-            if (LOCAL_LOGV) Slog.v(TAG, "call_put(system:" + request + "=" + newValue + ") for " + callingUser);
+            if (LOCAL_LOGV) {
+                Slog.v(TAG, "call_put(system:" + request + "=" + newValue + ") for "
+                        + callingUser);
+            }
+            // Extra check for USER_OWNER to optimize for the 99%
+            if (callingUser != UserHandle.USER_OWNER && shouldShadowParentProfile(callingUser,
+                    sSystemCloneToManagedKeys, request)) {
+                // Don't write these settings, as they are cloned from the parent profile
+                return null;
+            }
             insertForUser(Settings.System.CONTENT_URI, values, callingUser);
+            // Clone the settings to the managed profiles so that notifications can be sent out
+            if (callingUser == UserHandle.USER_OWNER && mManagedProfiles != null
+                    && sSystemCloneToManagedKeys.contains(request)) {
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    for (int i = mManagedProfiles.size() - 1; i >= 0; i--) {
+                        if (LOCAL_LOGV) {
+                            Slog.v(TAG, "putting to additional user "
+                                    + mManagedProfiles.get(i).id);
+                        }
+                        insertForUser(Settings.System.CONTENT_URI, values,
+                                mManagedProfiles.get(i).id);
+                    }
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            }
         } else if (Settings.CALL_METHOD_PUT_SECURE.equals(method)) {
-            if (LOCAL_LOGV) Slog.v(TAG, "call_put(secure:" + request + "=" + newValue + ") for " + callingUser);
+            if (LOCAL_LOGV) {
+                Slog.v(TAG, "call_put(secure:" + request + "=" + newValue + ") for "
+                        + callingUser);
+            }
+            // Extra check for USER_OWNER to optimize for the 99%
+            if (callingUser != UserHandle.USER_OWNER && shouldShadowParentProfile(callingUser,
+                    sSecureCloneToManagedKeys, request)) {
+                // Don't write these settings, as they are cloned from the parent profile
+                return null;
+            }
             insertForUser(Settings.Secure.CONTENT_URI, values, callingUser);
+            // Clone the settings to the managed profiles so that notifications can be sent out
+            if (callingUser == UserHandle.USER_OWNER && mManagedProfiles != null
+                    && sSecureCloneToManagedKeys.contains(request)) {
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    for (int i = mManagedProfiles.size() - 1; i >= 0; i--) {
+                        if (LOCAL_LOGV) {
+                            Slog.v(TAG, "putting to additional user "
+                                    + mManagedProfiles.get(i).id);
+                        }
+                        try {
+                            insertForUser(Settings.Secure.CONTENT_URI, values,
+                                    mManagedProfiles.get(i).id);
+                        } catch (SecurityException e) {
+                            // Temporary fix, see b/17450158
+                            Slog.w(TAG, "Cannot clone request '" + request + "' with value '"
+                                    + newValue + "' to managed profile (id "
+                                    + mManagedProfiles.get(i).id + ")", e);
+                        }
+                    }
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            }
         } else if (Settings.CALL_METHOD_PUT_GLOBAL.equals(method)) {
-            if (LOCAL_LOGV) Slog.v(TAG, "call_put(global:" + request + "=" + newValue + ") for " + callingUser);
+            if (LOCAL_LOGV) {
+                Slog.v(TAG, "call_put(global:" + request + "=" + newValue + ") for "
+                        + callingUser);
+            }
             insertForUser(Settings.Global.CONTENT_URI, values, callingUser);
         } else {
             Slog.w(TAG, "call() with invalid method: " + method);
         }
 
         return null;
+    }
+
+    /**
+     * Check if the user is a managed profile and name is one of the settings to be cloned
+     * from the parent profile.
+     */
+    private boolean shouldShadowParentProfile(int userId, HashSet<String> keys, String name) {
+        return isManagedProfile(userId) && keys.contains(name);
     }
 
     // Looks up value 'key' in 'table' and returns either a single-pair Bundle,
@@ -800,8 +962,13 @@ public class SettingsProvider extends ContentProvider {
         checkWritePermissions(args);
         SettingsCache cache = cacheForTable(callingUser, args.table);
 
-        final AtomicInteger mutationCount = sKnownMutationsInFlight.get(callingUser);
-        mutationCount.incrementAndGet();
+        final AtomicInteger mutationCount;
+        synchronized (this) {
+            mutationCount = sKnownMutationsInFlight.get(callingUser);
+        }
+        if (mutationCount != null) {
+            mutationCount.incrementAndGet();
+        }
         DatabaseHelper dbH = getOrEstablishDatabase(
                 TABLE_GLOBAL.equals(args.table) ? UserHandle.USER_OWNER : callingUser);
         SQLiteDatabase db = dbH.getWritableDatabase();
@@ -809,7 +976,7 @@ public class SettingsProvider extends ContentProvider {
         try {
             int numValues = values.length;
             for (int i = 0; i < numValues; i++) {
-                checkUserRestrictions(values[i].getAsString(Settings.Secure.NAME));
+                checkUserRestrictions(values[i].getAsString(Settings.Secure.NAME), callingUser);
                 if (db.insert(args.table, null, values[i]) < 0) return 0;
                 SettingsCache.populate(cache, values[i]);
                 if (LOCAL_LOGV) Log.v(TAG, args.table + " <- " + values[i]);
@@ -817,7 +984,9 @@ public class SettingsProvider extends ContentProvider {
             db.setTransactionSuccessful();
         } finally {
             db.endTransaction();
-            mutationCount.decrementAndGet();
+            if (mutationCount != null) {
+                mutationCount.decrementAndGet();
+            }
         }
 
         sendNotify(uri, callingUser);
@@ -940,7 +1109,7 @@ public class SettingsProvider extends ContentProvider {
         // Check write permissions only after determining which table the insert will touch
         checkWritePermissions(args);
 
-        checkUserRestrictions(name);
+        checkUserRestrictions(name, desiredUserHandle);
 
         // The global table is stored under the owner, always
         if (TABLE_GLOBAL.equals(args.table)) {
@@ -953,12 +1122,19 @@ public class SettingsProvider extends ContentProvider {
             return Uri.withAppendedPath(url, name);
         }
 
-        final AtomicInteger mutationCount = sKnownMutationsInFlight.get(desiredUserHandle);
-        mutationCount.incrementAndGet();
+        final AtomicInteger mutationCount;
+        synchronized (this) {
+            mutationCount = sKnownMutationsInFlight.get(callingUser);
+        }
+        if (mutationCount != null) {
+            mutationCount.incrementAndGet();
+        }
         DatabaseHelper dbH = getOrEstablishDatabase(desiredUserHandle);
         SQLiteDatabase db = dbH.getWritableDatabase();
         final long rowId = db.insert(args.table, null, initialValues);
-        mutationCount.decrementAndGet();
+        if (mutationCount != null) {
+            mutationCount.decrementAndGet();
+        }
         if (rowId <= 0) return null;
 
         SettingsCache.populate(cache, initialValues);  // before we notify
@@ -985,12 +1161,19 @@ public class SettingsProvider extends ContentProvider {
         }
         checkWritePermissions(args);
 
-        final AtomicInteger mutationCount = sKnownMutationsInFlight.get(callingUser);
-        mutationCount.incrementAndGet();
+        final AtomicInteger mutationCount;
+        synchronized (this) {
+            mutationCount = sKnownMutationsInFlight.get(callingUser);
+        }
+        if (mutationCount != null) {
+            mutationCount.incrementAndGet();
+        }
         DatabaseHelper dbH = getOrEstablishDatabase(callingUser);
         SQLiteDatabase db = dbH.getWritableDatabase();
         int count = db.delete(args.table, args.where, args.args);
-        mutationCount.decrementAndGet();
+        if (mutationCount != null) {
+            mutationCount.decrementAndGet();
+        }
         if (count > 0) {
             invalidateCache(callingUser, args.table);  // before we notify
             sendNotify(url, callingUser);
@@ -1016,14 +1199,21 @@ public class SettingsProvider extends ContentProvider {
             callingUser = UserHandle.USER_OWNER;
         }
         checkWritePermissions(args);
-        checkUserRestrictions(initialValues.getAsString(Settings.Secure.NAME));
+        checkUserRestrictions(initialValues.getAsString(Settings.Secure.NAME), callingUser);
 
-        final AtomicInteger mutationCount = sKnownMutationsInFlight.get(callingUser);
-        mutationCount.incrementAndGet();
+        final AtomicInteger mutationCount;
+        synchronized (this) {
+            mutationCount = sKnownMutationsInFlight.get(callingUser);
+        }
+        if (mutationCount != null) {
+            mutationCount.incrementAndGet();
+        }
         DatabaseHelper dbH = getOrEstablishDatabase(callingUser);
         SQLiteDatabase db = dbH.getWritableDatabase();
         int count = db.update(args.table, initialValues, args.where, args.args);
-        mutationCount.decrementAndGet();
+        if (mutationCount != null) {
+            mutationCount.decrementAndGet();
+        }
         if (count > 0) {
             invalidateCache(callingUser, args.table);  // before we notify
             sendNotify(url, callingUser);
@@ -1035,77 +1225,8 @@ public class SettingsProvider extends ContentProvider {
 
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
-
-        /*
-         * When a client attempts to openFile the default ringtone or
-         * notification setting Uri, we will proxy the call to the current
-         * default ringtone's Uri (if it is in the media provider).
-         */
-        int ringtoneType = RingtoneManager.getDefaultType(uri);
-        // Above call returns -1 if the Uri doesn't match a default type
-        if (ringtoneType != -1) {
-            Context context = getContext();
-
-            // Get the current value for the default sound
-            Uri soundUri = RingtoneManager.getActualDefaultRingtoneUri(context, ringtoneType);
-
-            if (soundUri != null) {
-                // Proxy the openFile call to media provider
-                String authority = soundUri.getAuthority();
-                if (authority.equals(MediaStore.AUTHORITY)) {
-                    return context.getContentResolver().openFileDescriptor(soundUri, mode);
-                }
-            }
-        }
-
-        return super.openFile(uri, mode);
-    }
-
-    @Override
-    public AssetFileDescriptor openAssetFile(Uri uri, String mode) throws FileNotFoundException {
-
-        /*
-         * When a client attempts to openFile the default ringtone or
-         * notification setting Uri, we will proxy the call to the current
-         * default ringtone's Uri (if it is in the media provider).
-         */
-        int ringtoneType = RingtoneManager.getDefaultType(uri);
-        // Above call returns -1 if the Uri doesn't match a default type
-        if (ringtoneType != -1) {
-            Context context = getContext();
-
-            // Get the current value for the default sound
-            Uri soundUri = RingtoneManager.getActualDefaultRingtoneUri(context, ringtoneType);
-
-            if (soundUri != null) {
-                // Proxy the openFile call to media provider
-                String authority = soundUri.getAuthority();
-                if (authority.equals(MediaStore.AUTHORITY)) {
-                    ParcelFileDescriptor pfd = null;
-                    try {
-                        pfd = context.getContentResolver().openFileDescriptor(soundUri, mode);
-                        return new AssetFileDescriptor(pfd, 0, -1);
-                    } catch (FileNotFoundException ex) {
-                        // fall through and open the fallback ringtone below
-                    }
-                }
-
-                try {
-                    return super.openAssetFile(soundUri, mode);
-                } catch (FileNotFoundException ex) {
-                    // Since a non-null Uri was specified, but couldn't be opened,
-                    // fall back to the built-in ringtone.
-                    return context.getResources().openRawResourceFd(
-                            com.android.internal.R.raw.fallbackring);
-                }
-            }
-            // no need to fall through and have openFile() try again, since we
-            // already know that will fail.
-            throw new FileNotFoundException(); // or return null ?
-        }
-
-        // Note that this will end up calling openFile() above.
-        return super.openAssetFile(uri, mode);
+        throw new FileNotFoundException("Direct file access no longer supported; "
+                + "ringtone playback is available through android.media.Ringtone");
     }
 
     /**

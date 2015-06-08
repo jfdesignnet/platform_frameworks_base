@@ -21,6 +21,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.content.Context;
+import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.os.Vibrator;
 import android.util.Log;
@@ -28,11 +29,13 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.ScaleGestureDetector.OnScaleGestureListener;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 
 import com.android.systemui.statusbar.ExpandableNotificationRow;
 import com.android.systemui.statusbar.ExpandableView;
+import com.android.systemui.statusbar.FlingAnimationUtils;
 import com.android.systemui.statusbar.policy.ScrollAdapter;
 
 public class ExpandHelper implements Gefingerpoken {
@@ -48,7 +51,7 @@ public class ExpandHelper implements Gefingerpoken {
     private static final String TAG = "ExpandHelper";
     protected static final boolean DEBUG = false;
     protected static final boolean DEBUG_SCALE = false;
-    private static final long EXPAND_DURATION = 250;
+    private static final float EXPAND_DURATION = 0.3f;
 
     // Set to false to disable focus-based gestures (spread-finger vertical pull).
     private static final boolean USE_DRAG = true;
@@ -65,6 +68,11 @@ public class ExpandHelper implements Gefingerpoken {
     // level of glow for a touch, without overstretch
     // overstretch fills the range (GLOW_BASE, 1.0]
     private static final float GLOW_BASE = 0.5f;
+
+    private static final AudioAttributes VIBRATION_ATTRIBUTES = new AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+            .build();
 
     @SuppressWarnings("unused")
     private Context mContext;
@@ -106,6 +114,8 @@ public class ExpandHelper implements Gefingerpoken {
     private int mGravity;
 
     private ScrollAdapter mScrollAdapter;
+    private FlingAnimationUtils mFlingAnimationUtils;
+    private VelocityTracker mVelocityTracker;
 
     private OnScaleGestureListener mScaleGestureListener
             = new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -165,7 +175,6 @@ public class ExpandHelper implements Gefingerpoken {
         mScaler = new ViewScaler();
         mGravity = Gravity.TOP;
         mScaleAnimation = ObjectAnimator.ofFloat(mScaler, "height", 0f);
-        mScaleAnimation.setDuration(EXPAND_DURATION);
         mPopDuration = mContext.getResources().getInteger(R.integer.blinds_pop_duration_ms);
         mPullGestureMinXSpan = mContext.getResources().getDimension(R.dimen.pull_span_min);
 
@@ -173,6 +182,7 @@ public class ExpandHelper implements Gefingerpoken {
         mTouchSlop = configuration.getScaledTouchSlop();
 
         mSGD = new ScaleGestureDetector(context, mScaleGestureListener);
+        mFlingAnimationUtils = new FlingAnimationUtils(context, EXPAND_DURATION);
     }
 
     private void updateExpansion() {
@@ -254,6 +264,7 @@ public class ExpandHelper implements Gefingerpoken {
         if (!isEnabled()) {
             return false;
         }
+        trackVelocity(ev);
         final int action = ev.getAction();
         if (DEBUG_SCALE) Log.d(TAG, "intercept: act=" + MotionEvent.actionToString(action) +
                          " expanding=" + mExpanding +
@@ -273,6 +284,7 @@ public class ExpandHelper implements Gefingerpoken {
 
         if (mExpanding) {
             mLastMotionY = ev.getRawY();
+            maybeRecycleVelocityTracker(ev);
             return true;
         } else {
             if ((action == MotionEvent.ACTION_MOVE) && 0 != (mExpansionStyle & BLINDS)) {
@@ -317,12 +329,52 @@ public class ExpandHelper implements Gefingerpoken {
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP:
                 if (DEBUG) Log.d(TAG, "up/cancel");
-                finishExpanding(false);
+                finishExpanding(false, getCurrentVelocity());
                 clearView();
                 break;
             }
             mLastMotionY = ev.getRawY();
+            maybeRecycleVelocityTracker(ev);
             return mExpanding;
+        }
+    }
+
+    private void trackVelocity(MotionEvent event) {
+        int action = event.getActionMasked();
+        switch(action) {
+            case MotionEvent.ACTION_DOWN:
+                if (mVelocityTracker == null) {
+                    mVelocityTracker = VelocityTracker.obtain();
+                } else {
+                    mVelocityTracker.clear();
+                }
+                mVelocityTracker.addMovement(event);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                if (mVelocityTracker == null) {
+                    mVelocityTracker = VelocityTracker.obtain();
+                }
+                mVelocityTracker.addMovement(event);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void maybeRecycleVelocityTracker(MotionEvent event) {
+        if (mVelocityTracker != null && (event.getActionMasked() == MotionEvent.ACTION_CANCEL
+                || event.getActionMasked() == MotionEvent.ACTION_UP)) {
+            mVelocityTracker.recycle();
+            mVelocityTracker = null;
+        }
+    }
+
+    private float getCurrentVelocity() {
+        if (mVelocityTracker != null) {
+            mVelocityTracker.computeCurrentVelocity(1000);
+            return mVelocityTracker.getYVelocity();
+        } else {
+            return 0f;
         }
     }
 
@@ -343,6 +395,7 @@ public class ExpandHelper implements Gefingerpoken {
         if (!isEnabled()) {
             return false;
         }
+        trackVelocity(ev);
         final int action = ev.getActionMasked();
         if (DEBUG_SCALE) Log.d(TAG, "touch: act=" + MotionEvent.actionToString(action) +
                 " expanding=" + mExpanding +
@@ -432,11 +485,12 @@ public class ExpandHelper implements Gefingerpoken {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (DEBUG) Log.d(TAG, "up/cancel");
-                finishExpanding(false);
+                finishExpanding(false, getCurrentVelocity());
                 clearView();
                 break;
         }
         mLastMotionY = ev.getRawY();
+        maybeRecycleVelocityTracker(ev);
         return mResizedView != null;
     }
 
@@ -470,7 +524,7 @@ public class ExpandHelper implements Gefingerpoken {
         return true;
     }
 
-    private void finishExpanding(boolean force) {
+    private void finishExpanding(boolean force, float velocity) {
         if (!mExpanding) return;
 
         if (DEBUG) Log.d(TAG, "scale in finishing on view: " + mResizedView);
@@ -500,6 +554,7 @@ public class ExpandHelper implements Gefingerpoken {
                     mScaleAnimation.removeListener(this);
                 }
             });
+            mFlingAnimationUtils.apply(mScaleAnimation, currentHeight, targetHeight, velocity);
             mScaleAnimation.start();
         } else {
             mCallback.setUserLockedChild(mResizedView, false);
@@ -523,7 +578,7 @@ public class ExpandHelper implements Gefingerpoken {
      * Use this to abort any pending expansions in progress.
      */
     public void cancel() {
-        finishExpanding(true);
+        finishExpanding(true, 0f /* velocity */);
         clearView();
 
         // reset the gesture detector
@@ -550,7 +605,7 @@ public class ExpandHelper implements Gefingerpoken {
             mVibrator = (android.os.Vibrator)
                     mContext.getSystemService(Context.VIBRATOR_SERVICE);
         }
-        mVibrator.vibrate(duration, AudioManager.STREAM_SYSTEM);
+        mVibrator.vibrate(duration, VIBRATION_ATTRIBUTES);
     }
 }
 

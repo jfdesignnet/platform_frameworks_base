@@ -18,7 +18,6 @@ package android.widget;
 
 import android.content.Context;
 import android.content.res.Resources;
-import android.content.res.TypedArray;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
@@ -33,12 +32,15 @@ import com.android.internal.R;
  */
 class YearPickerView extends ListView implements AdapterView.OnItemClickListener,
         OnDateChangedListener {
-    private static final String TAG = "YearPickerView";
+    private final Calendar mMinDate = Calendar.getInstance();
+    private final Calendar mMaxDate = Calendar.getInstance();
+
+    private final YearAdapter mAdapter;
+    private final int mViewSize;
+    private final int mChildSize;
 
     private DatePickerController mController;
-    private YearAdapter mAdapter;
-    private int mViewSize;
-    private int mChildSize;
+
     private int mSelectedPosition = -1;
     private int mYearSelectedCircleColor;
 
@@ -47,7 +49,7 @@ class YearPickerView extends ListView implements AdapterView.OnItemClickListener
     }
 
     public YearPickerView(Context context, AttributeSet attrs) {
-        this(context, attrs, 0);
+        this(context, attrs, R.attr.listViewStyle);
     }
 
     public YearPickerView(Context context, AttributeSet attrs, int defStyleAttr) {
@@ -57,11 +59,11 @@ class YearPickerView extends ListView implements AdapterView.OnItemClickListener
     public YearPickerView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
 
-        ViewGroup.LayoutParams frame = new ViewGroup.LayoutParams(LayoutParams.MATCH_PARENT,
-                LayoutParams.WRAP_CONTENT);
+        final LayoutParams frame = new LayoutParams(
+                LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         setLayoutParams(frame);
 
-        Resources res = context.getResources();
+        final Resources res = context.getResources();
         mViewSize = res.getDimensionPixelOffset(R.dimen.datepicker_view_animator_height);
         mChildSize = res.getDimensionPixelOffset(R.dimen.datepicker_year_label_height);
 
@@ -72,28 +74,25 @@ class YearPickerView extends ListView implements AdapterView.OnItemClickListener
                 R.dimen.datepicker_year_picker_padding_top);
         setPadding(0, paddingTop, 0, 0);
 
-        // Use Theme attributes if possible
-        final TypedArray a = context.obtainStyledAttributes(attrs,
-                R.styleable.DatePicker, defStyleAttr, defStyleRes);
-
-        final int colorResId = a.getResourceId(
-                R.styleable.DatePicker_dateSelectorYearListSelectedCircleColor,
-                R.color.datepicker_default_circle_background_color_holo_light);
-        mYearSelectedCircleColor = res.getColor(colorResId);
-
-        a.recycle();
-
         setOnItemClickListener(this);
         setDividerHeight(0);
+
+        mAdapter = new YearAdapter(getContext(), R.layout.year_label_text_view);
+        setAdapter(mAdapter);
+    }
+
+    public void setRange(Calendar min, Calendar max) {
+        mMinDate.setTimeInMillis(min.getTimeInMillis());
+        mMaxDate.setTimeInMillis(max.getTimeInMillis());
+
+        updateAdapterData();
     }
 
     public void init(DatePickerController controller) {
         mController = controller;
         mController.registerOnDateChangedListener(this);
 
-        mAdapter = new YearAdapter(getContext(), R.layout.year_label_text_view);
         updateAdapterData();
-        setAdapter(mAdapter);
 
         onDateChanged();
     }
@@ -111,8 +110,9 @@ class YearPickerView extends ListView implements AdapterView.OnItemClickListener
 
     private void updateAdapterData() {
         mAdapter.clear();
-        final int maxYear = mController.getMaxYear();
-        for (int year = mController.getMinYear(); year <= maxYear; year++) {
+
+        final int maxYear = mMaxDate.get(Calendar.YEAR);
+        for (int year = mMinDate.get(Calendar.YEAR); year <= maxYear; year++) {
             mAdapter.add(year);
         }
     }
@@ -186,12 +186,13 @@ class YearPickerView extends ListView implements AdapterView.OnItemClickListener
         updateAdapterData();
         mAdapter.notifyDataSetChanged();
         postSetSelectionCentered(
-                mController.getSelectedDay().get(Calendar.YEAR) - mController.getMinYear());
+                mController.getSelectedDay().get(Calendar.YEAR) - mMinDate.get(Calendar.YEAR));
     }
 
     @Override
     public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
         super.onInitializeAccessibilityEvent(event);
+
         if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             event.setFromIndex(0);
             event.setToIndex(0);

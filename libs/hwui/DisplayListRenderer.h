@@ -24,6 +24,7 @@
 
 #include "DisplayListLogBuffer.h"
 #include "RenderNode.h"
+#include "ResourceCache.h"
 
 namespace android {
 namespace uirenderer {
@@ -44,6 +45,7 @@ namespace uirenderer {
 ///////////////////////////////////////////////////////////////////////////////
 
 class DeferredDisplayList;
+class DeferredLayerUpdater;
 class DisplayListRenderer;
 class DisplayListOp;
 class DrawOp;
@@ -56,6 +58,8 @@ class ANDROID_API DisplayListRenderer: public StatefulBaseRenderer {
 public:
     DisplayListRenderer();
     virtual ~DisplayListRenderer();
+
+    void insertReorderBarrier(bool enableReorder);
 
     DisplayListData* finishRecording();
 
@@ -105,15 +109,11 @@ public:
     virtual status_t drawColor(int color, SkXfermode::Mode mode);
 
     // Bitmap-based
-    virtual status_t drawBitmap(const SkBitmap* bitmap, float left, float top,
-            const SkPaint* paint);
-    virtual status_t drawBitmap(const SkBitmap* bitmap, const SkMatrix& matrix,
-            const SkPaint* paint);
+    virtual status_t drawBitmap(const SkBitmap* bitmap, const SkPaint* paint);
     virtual status_t drawBitmap(const SkBitmap* bitmap, float srcLeft, float srcTop,
             float srcRight, float srcBottom, float dstLeft, float dstTop,
             float dstRight, float dstBottom, const SkPaint* paint);
-    virtual status_t drawBitmapData(const SkBitmap* bitmap, float left, float top,
-            const SkPaint* paint);
+    virtual status_t drawBitmapData(const SkBitmap* bitmap, const SkPaint* paint);
     virtual status_t drawBitmapMesh(const SkBitmap* bitmap, int meshWidth, int meshHeight,
             const float* vertices, const int* colors, const SkPaint* paint);
     virtual status_t drawPatch(const SkBitmap* bitmap, const Res_png_9patch* patch,
@@ -125,6 +125,10 @@ public:
     virtual status_t drawRects(const float* rects, int count, const SkPaint* paint);
     virtual status_t drawRoundRect(float left, float top, float right, float bottom,
             float rx, float ry, const SkPaint* paint);
+    virtual status_t drawRoundRect(CanvasPropertyPrimitive* left, CanvasPropertyPrimitive* top,
+                CanvasPropertyPrimitive* right, CanvasPropertyPrimitive* bottom,
+                CanvasPropertyPrimitive* rx, CanvasPropertyPrimitive* ry,
+                CanvasPropertyPaint* paint);
     virtual status_t drawCircle(float x, float y, float radius, const SkPaint* paint);
     virtual status_t drawCircle(CanvasPropertyPrimitive* x, CanvasPropertyPrimitive* y,
                 CanvasPropertyPrimitive* radius, CanvasPropertyPaint* paint);
@@ -148,7 +152,7 @@ public:
 // ----------------------------------------------------------------------------
 // Canvas draw operations - special
 // ----------------------------------------------------------------------------
-    virtual status_t drawLayer(Layer* layer, float x, float y);
+    virtual status_t drawLayer(DeferredLayerUpdater* layerHandle, float x, float y);
     virtual status_t drawRenderNode(RenderNode* renderNode, Rect& dirty, int32_t replayFlags);
 
     // TODO: rename for consistency
@@ -158,17 +162,27 @@ public:
         mHighContrastText = highContrastText;
     }
 private:
-    void insertRestoreToCount();
-    void insertTranslate();
+    enum DeferredBarrierType {
+        kBarrier_None,
+        kBarrier_InOrder,
+        kBarrier_OutOfOrder,
+    };
+
+    void flushRestoreToCount();
+    void flushTranslate();
+    void flushReorderBarrier();
 
     LinearAllocator& alloc() { return mDisplayListData->allocator; }
-    void addStateOp(StateOp* op);
-    void addDrawOp(DrawOp* op);
-    void addOpInternal(DisplayListOp* op) {
-        insertRestoreToCount();
-        insertTranslate();
-        mDisplayListData->displayListOps.add(op);
-    }
+
+    // Each method returns final index of op
+    size_t addOpAndUpdateChunk(DisplayListOp* op);
+    // flushes any deferred operations, and appends the op
+    size_t flushAndAddOp(DisplayListOp* op);
+
+    size_t addStateOp(StateOp* op);
+    size_t addDrawOp(DrawOp* op);
+    size_t addRenderNodeOp(DrawRenderNodeOp* op);
+
 
     template<class T>
     inline const T* refBuffer(const T* srcBuffer, int32_t count) {
@@ -197,7 +211,7 @@ private:
             mDisplayListData->paths.add(pathCopy);
         }
         if (mDisplayListData->sourcePaths.indexOf(path) < 0) {
-            mCaches.resourceCache.incrementRefcount(path);
+            mResourceCache.incrementRefcount(path);
             mDisplayListData->sourcePaths.add(path);
         }
         return pathCopy;
@@ -207,11 +221,17 @@ private:
         if (!paint) return NULL;
 
         const SkPaint* paintCopy = mPaintMap.valueFor(paint);
-        if (paintCopy == NULL || paintCopy->getGenerationID() != paint->getGenerationID()) {
-            paintCopy = new SkPaint(*paint);
+        if (paintCopy == NULL
+                || paintCopy->getGenerationID() != paint->getGenerationID()
+                // We can't compare shader pointers because that will always
+                // change as we do partial copying via wrapping. However, if the
+                // shader changes the paint generationID will have changed and
+                // so we don't hit this comparison anyway
+                || !(paint->getShader() && paintCopy->getShader()
+                        && paint->getShader()->getGenerationID() == paintCopy->getShader()->getGenerationID())) {
+            paintCopy = copyPaint(paint);
             // replaceValueFor() performs an add if the entry doesn't exist
             mPaintMap.replaceValueFor(paint, paintCopy);
-            mDisplayListData->paints.add(paintCopy);
         }
 
         return paintCopy;
@@ -220,8 +240,15 @@ private:
     inline SkPaint* copyPaint(const SkPaint* paint) {
         if (!paint) return NULL;
         SkPaint* paintCopy = new SkPaint(*paint);
+        if (paint->getShader()) {
+            SkShader* shaderCopy = SkShader::CreateLocalMatrixShader(
+                    paint->getShader(), paint->getShader()->getLocalMatrix());
+            paintCopy->setShader(shaderCopy);
+            paintCopy->setGenerationID(paint->getGenerationID());
+            shaderCopy->setGenerationID(paint->getShader()->getGenerationID());
+            shaderCopy->unref();
+        }
         mDisplayListData->paints.add(paintCopy);
-
         return paintCopy;
     }
 
@@ -242,31 +269,25 @@ private:
         return regionCopy;
     }
 
-    inline Layer* refLayer(Layer* layer) {
-        mDisplayListData->layers.add(layer);
-        mCaches.resourceCache.incrementRefcount(layer);
-        return layer;
-    }
-
     inline const SkBitmap* refBitmap(const SkBitmap* bitmap) {
         // Note that this assumes the bitmap is immutable. There are cases this won't handle
         // correctly, such as creating the bitmap from scratch, drawing with it, changing its
         // contents, and drawing again. The only fix would be to always copy it the first time,
         // which doesn't seem worth the extra cycles for this unlikely case.
         mDisplayListData->bitmapResources.add(bitmap);
-        mCaches.resourceCache.incrementRefcount(bitmap);
+        mResourceCache.incrementRefcount(bitmap);
         return bitmap;
     }
 
     inline const SkBitmap* refBitmapData(const SkBitmap* bitmap) {
         mDisplayListData->ownedBitmapResources.add(bitmap);
-        mCaches.resourceCache.incrementRefcount(bitmap);
+        mResourceCache.incrementRefcount(bitmap);
         return bitmap;
     }
 
     inline const Res_png_9patch* refPatch(const Res_png_9patch* patch) {
         mDisplayListData->patchResources.add(patch);
-        mCaches.resourceCache.incrementRefcount(patch);
+        mResourceCache.incrementRefcount(patch);
         return patch;
     }
 
@@ -274,12 +295,13 @@ private:
     DefaultKeyedVector<const SkPath*, const SkPath*> mPathMap;
     DefaultKeyedVector<const SkRegion*, const SkRegion*> mRegionMap;
 
-    Caches& mCaches;
+    ResourceCache& mResourceCache;
     DisplayListData* mDisplayListData;
 
     float mTranslateX;
     float mTranslateY;
-    bool mHasTranslate;
+    bool mHasDeferredTranslate;
+    DeferredBarrierType mDeferredBarrierType;
     bool mHighContrastText;
 
     int mRestoreSaveCount;

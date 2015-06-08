@@ -17,7 +17,9 @@
 package android.hardware.camera2;
 
 import android.hardware.camera2.impl.CameraMetadataNative;
+import android.hardware.camera2.impl.CaptureResultExtras;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -43,16 +45,27 @@ import java.util.List;
  *
  * <p>{@link TotalCaptureResult} objects are immutable.</p>
  *
- * @see CameraDevice.CaptureListener#onCaptureCompleted
+ * @see CameraDevice.CaptureCallback#onCaptureCompleted
  */
 public final class TotalCaptureResult extends CaptureResult {
 
+    private final List<CaptureResult> mPartialResults;
+
     /**
-     * Takes ownership of the passed-in properties object
+     * Takes ownership of the passed-in camera metadata and the partial results
+     *
+     * @param partials a list of partial results; {@code null} will be substituted for an empty list
      * @hide
      */
-    public TotalCaptureResult(CameraMetadataNative results, CaptureRequest parent, int sequenceId) {
-        super(results, parent, sequenceId);
+    public TotalCaptureResult(CameraMetadataNative results, CaptureRequest parent,
+            CaptureResultExtras extras, List<CaptureResult> partials) {
+        super(results, parent, extras);
+
+        if (partials == null) {
+            mPartialResults = new ArrayList<>();
+        } else {
+            mPartialResults = partials;
+        }
     }
 
     /**
@@ -63,6 +76,8 @@ public final class TotalCaptureResult extends CaptureResult {
      */
     public TotalCaptureResult(CameraMetadataNative results, int sequenceId) {
         super(results, sequenceId);
+
+        mPartialResults = new ArrayList<>();
     }
 
     /**
@@ -71,14 +86,13 @@ public final class TotalCaptureResult extends CaptureResult {
      * <p>The list is returned is unmodifiable; attempting to modify it will result in a
      * {@code UnsupportedOperationException} being thrown.</p>
      *
-     * <p>The list size will be inclusive between {@code 1} and
-     * {@link CameraCharacteristics#REQUEST_PARTIAL_RESULT_COUNT}, in ascending order
-     * of when {@link CameraCaptureSession.CaptureListener#onCaptureProgressed} was invoked.</p>
+     * <p>The list size will be inclusive between {@code 0} and
+     * {@link CameraCharacteristics#REQUEST_PARTIAL_RESULT_COUNT}, with elements in ascending order
+     * of when {@link CameraCaptureSession.CaptureCallback#onCaptureProgressed} was invoked.</p>
      *
      * @return unmodifiable list of partial results
      */
     public List<CaptureResult> getPartialResults() {
-        // TODO
-        return Collections.unmodifiableList(null);
+        return Collections.unmodifiableList(mPartialResults);
     }
 }

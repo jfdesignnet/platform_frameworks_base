@@ -58,6 +58,11 @@ enum LayerType {
     // TODO: LayerTypeSurfaceTexture? Maybe?
 };
 
+enum ClippingFlags {
+    CLIP_TO_BOUNDS =      0x1 << 0,
+    CLIP_TO_CLIP_BOUNDS = 0x1 << 1,
+};
+
 class ANDROID_API LayerProperties {
 public:
     bool setType(LayerType type) {
@@ -135,10 +140,35 @@ public:
     RenderProperties();
     virtual ~RenderProperties();
 
+    static bool setFlag(int flag, bool newValue, int* outFlags) {
+        if (newValue) {
+            if (!(flag & *outFlags)) {
+                *outFlags |= flag;
+                return true;
+            }
+            return false;
+        } else {
+            if (flag & *outFlags) {
+                *outFlags &= ~flag;
+                return true;
+            }
+            return false;
+        }
+    }
+
     RenderProperties& operator=(const RenderProperties& other);
 
     bool setClipToBounds(bool clipToBounds) {
-        return RP_SET(mPrimitiveFields.mClipToBounds, clipToBounds);
+        return setFlag(CLIP_TO_BOUNDS, clipToBounds, &mPrimitiveFields.mClippingFlags);
+    }
+
+    bool setClipBounds(const Rect& clipBounds) {
+        bool ret = setFlag(CLIP_TO_CLIP_BOUNDS, true, &mPrimitiveFields.mClippingFlags);
+        return RP_SET(mPrimitiveFields.mClipBounds, clipBounds) || ret;
+    }
+
+    bool setClipBoundsEmpty() {
+        return setFlag(CLIP_TO_CLIP_BOUNDS, false, &mPrimitiveFields.mClippingFlags);
     }
 
     bool setProjectBackwards(bool shouldProject) {
@@ -179,7 +209,7 @@ public:
     }
 
     bool setAlpha(float alpha) {
-        alpha = fminf(1.0f, fmaxf(0.0f, alpha));
+        alpha = MathUtils::clampAlpha(alpha);
         return RP_SET(mPrimitiveFields.mAlpha, alpha);
     }
 
@@ -283,7 +313,6 @@ public:
     }
 
     bool setScaleX(float scaleX) {
-        LOG_ALWAYS_FATAL_IF(scaleX > 1000000, "invalid scaleX %e", scaleX);
         return RP_SET_AND_DIRTY(mPrimitiveFields.mScaleX, scaleX);
     }
 
@@ -292,7 +321,6 @@ public:
     }
 
     bool setScaleY(float scaleY) {
-        LOG_ALWAYS_FATAL_IF(scaleY > 1000000, "invalid scaleY %e", scaleY);
         return RP_SET_AND_DIRTY(mPrimitiveFields.mScaleY, scaleY);
     }
 
@@ -433,7 +461,7 @@ public:
         return false;
     }
 
-    bool offsetLeftRight(float offset) {
+    bool offsetLeftRight(int offset) {
         if (offset != 0) {
             mPrimitiveFields.mLeft += offset;
             mPrimitiveFields.mRight += offset;
@@ -442,7 +470,7 @@ public:
         return false;
     }
 
-    bool offsetTopBottom(float offset) {
+    bool offsetTopBottom(int offset) {
         if (offset != 0) {
             mPrimitiveFields.mTop += offset;
             mPrimitiveFields.mBottom += offset;
@@ -477,8 +505,23 @@ public:
         return mComputedFields.mTransformMatrix;
     }
 
+    int getClippingFlags() const {
+        return mPrimitiveFields.mClippingFlags;
+    }
+
     bool getClipToBounds() const {
-        return mPrimitiveFields.mClipToBounds;
+        return mPrimitiveFields.mClippingFlags & CLIP_TO_BOUNDS;
+    }
+
+    void getClippingRectForFlags(uint32_t flags, Rect* outRect) const {
+        if (flags & CLIP_TO_BOUNDS) {
+            outRect->set(0, 0, getWidth(), getHeight());
+            if (flags & CLIP_TO_CLIP_BOUNDS) {
+                outRect->intersect(mPrimitiveFields.mClipBounds);
+            }
+        } else {
+            outRect->set(mPrimitiveFields.mClipBounds);
+        }
     }
 
     bool getHasOverlappingRendering() const {
@@ -500,19 +543,6 @@ public:
     void debugOutputProperties(const int level) const;
 
     void updateMatrix();
-
-    bool hasClippingPath() const {
-        return mPrimitiveFields.mRevealClip.willClip();
-    }
-
-    const SkPath* getClippingPath() const {
-        return mPrimitiveFields.mRevealClip.getPath();
-    }
-
-    SkRegion::Op getClippingPathOp() const {
-        return mPrimitiveFields.mRevealClip.isInverseClip()
-                ? SkRegion::kDifference_Op : SkRegion::kIntersect_Op;
-    }
 
     Outline& mutableOutline() {
         return mPrimitiveFields.mOutline;
@@ -539,15 +569,20 @@ public:
         return getClipToBounds() && (getZ() <= 0 || getOutline().isEmpty());
     }
 
-private:
+    bool hasShadow() const {
+        return getZ() > 0.0f
+                && getOutline().getPath() != NULL
+                && getOutline().getAlpha() != 0.0f;
+    }
 
+private:
     // Rendering properties
     struct PrimitiveFields {
         PrimitiveFields();
 
         Outline mOutline;
         RevealClip mRevealClip;
-        bool mClipToBounds;
+        int mClippingFlags;
         bool mProjectBackwards;
         bool mProjectionReceiver;
         float mAlpha;
@@ -561,6 +596,7 @@ private:
         int mWidth, mHeight;
         bool mPivotExplicitlySet;
         bool mMatrixOrPivotDirty;
+        Rect mClipBounds;
     } mPrimitiveFields;
 
     SkMatrix* mStaticMatrix;

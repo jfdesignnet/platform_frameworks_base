@@ -16,6 +16,7 @@
 
 package android.media;
 
+import android.net.NetworkUtils;
 import android.os.IBinder;
 import android.os.StrictMode;
 import android.util.Log;
@@ -25,10 +26,12 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.net.CookieHandler;
 import java.net.CookieManager;
+import java.net.Proxy;
 import java.net.URL;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.NoRouteToHostException;
+import java.net.ProtocolException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -47,6 +50,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     private InputStream mInputStream = null;
 
     private boolean mAllowCrossDomainRedirect = true;
+    private boolean mAllowCrossProtocolRedirect = true;
 
     // from com.squareup.okhttp.internal.http
     private final static int HTTP_TEMP_REDIRECT = 307;
@@ -91,6 +95,8 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     private boolean filterOutInternalHeaders(String key, String val) {
         if ("android-allow-cross-domain-redirect".equalsIgnoreCase(key)) {
             mAllowCrossDomainRedirect = parseBoolean(val);
+            // cross-protocol redirects are also controlled by this flag
+            mAllowCrossProtocolRedirect = mAllowCrossDomainRedirect;
         } else {
             return false;
         }
@@ -134,6 +140,29 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
         }
     }
 
+    private static final boolean isLocalHost(URL url) {
+        if (url == null) {
+            return false;
+        }
+
+        String host = url.getHost();
+
+        if (host == null) {
+            return false;
+        }
+
+        try {
+            if (host.equalsIgnoreCase("localhost")) {
+                return true;
+            }
+            if (NetworkUtils.numericToInetAddress(host).isLoopbackAddress()) {
+                return true;
+            }
+        } catch (IllegalArgumentException iex) {
+        }
+        return false;
+    }
+
     private void seekTo(long offset) throws IOException {
         teardownConnection();
 
@@ -142,8 +171,17 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
             int redirectCount = 0;
 
             URL url = mURL;
+
+            // do not use any proxy for localhost (127.0.0.1)
+            boolean noProxy = isLocalHost(url);
+
             while (true) {
-                mConnection = (HttpURLConnection)url.openConnection();
+                if (noProxy) {
+                    mConnection = (HttpURLConnection)url.openConnection(Proxy.NO_PROXY);
+                } else {
+                    mConnection = (HttpURLConnection)url.openConnection();
+                }
+
                 // handle redirects ourselves if we do not allow cross-domain redirect
                 mConnection.setInstanceFollowRedirects(mAllowCrossDomainRedirect);
 
@@ -190,8 +228,12 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
                         !url.getProtocol().equals("http")) {
                     throw new NoRouteToHostException("Unsupported protocol redirect");
                 }
+                boolean sameProtocol = mURL.getProtocol().equals(url.getProtocol());
+                if (!mAllowCrossProtocolRedirect && !sameProtocol) {
+                    throw new NoRouteToHostException("Cross-protocol redirects are disallowed");
+                }
                 boolean sameHost = mURL.getHost().equals(url.getHost());
-                if (!sameHost) {
+                if (!mAllowCrossDomainRedirect && !sameHost) {
                     throw new NoRouteToHostException("Cross-domain redirects are disallowed");
                 }
 
@@ -241,7 +283,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
             if (offset > 0 && response != HttpURLConnection.HTTP_PARTIAL) {
                 // Some servers simply ignore "Range" requests and serve
                 // data from the start of the content.
-                throw new IOException();
+                throw new ProtocolException();
             }
 
             mInputStream =
@@ -289,6 +331,9 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
             }
 
             return n;
+        } catch (ProtocolException e) {
+            Log.w(TAG, "readAt " + offset + " / " + size + " => " + e);
+            return MEDIA_ERROR_UNSUPPORTED;
         } catch (NoRouteToHostException e) {
             Log.w(TAG, "readAt " + offset + " / " + size + " => " + e);
             return MEDIA_ERROR_UNSUPPORTED;

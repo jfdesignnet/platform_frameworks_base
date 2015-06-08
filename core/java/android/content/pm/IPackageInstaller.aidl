@@ -16,23 +16,35 @@
 
 package android.content.pm;
 
-import android.content.pm.IPackageDeleteObserver;
-import android.content.pm.IPackageInstallerObserver;
+import android.content.pm.IPackageDeleteObserver2;
+import android.content.pm.IPackageInstallerCallback;
 import android.content.pm.IPackageInstallerSession;
-import android.content.pm.InstallSessionInfo;
-import android.content.pm.InstallSessionParams;
-import android.os.ParcelFileDescriptor;
+import android.content.pm.PackageInstaller;
+import android.content.pm.ParceledListSlice;
+import android.content.IntentSender;
+
+import android.graphics.Bitmap;
 
 /** {@hide} */
 interface IPackageInstaller {
-    int createSession(String installerPackageName, in InstallSessionParams params, int userId);
+    int createSession(in PackageInstaller.SessionParams params, String installerPackageName, int userId);
+
+    void updateSessionAppIcon(int sessionId, in Bitmap appIcon);
+    void updateSessionAppLabel(int sessionId, String appLabel);
+
+    void abandonSession(int sessionId);
+
     IPackageInstallerSession openSession(int sessionId);
 
-    List<InstallSessionInfo> getSessions(int userId);
+    PackageInstaller.SessionInfo getSessionInfo(int sessionId);
 
-    void registerObserver(IPackageInstallerObserver observer, int userId);
-    void unregisterObserver(IPackageInstallerObserver observer, int userId);
+    ParceledListSlice getAllSessions(int userId);
+    ParceledListSlice getMySessions(String installerPackageName, int userId);
 
-    void uninstall(String packageName, int flags, in IPackageDeleteObserver observer, int userId);
-    void uninstallSplit(String packageName, String splitName, int flags, in IPackageDeleteObserver observer, int userId);
+    void registerCallback(IPackageInstallerCallback callback, int userId);
+    void unregisterCallback(IPackageInstallerCallback callback);
+
+    void uninstall(String packageName, int flags, in IntentSender statusReceiver, int userId);
+
+    void setPermissionsResult(int sessionId, boolean accepted);
 }

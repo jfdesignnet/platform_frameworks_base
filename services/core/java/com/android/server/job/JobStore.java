@@ -50,15 +50,9 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
 /**
- * Maintain a list of classes, and accessor methods/logic for these jobs.
- * This class offers the following functionality:
- *     - When a job is added, it will determine if the job requirements have changed (update) and
- *       whether the controllers need to be updated.
- *     - Persists JobInfos, figures out when to to rewrite the JobInfo to disk.
- *     - Handles rescheduling of jobs.
- *       - When a periodic job is executed and must be re-added.
- *       - When a job fails and the client requests that it be retried with backoff.
- *       - This class <strong>is not</strong> thread-safe.
+ * Maintains the master list of jobs that the job scheduler is tracking. These jobs are compared by
+ * reference, so none of the functions in this class should make a copy.
+ * Also handles read/write of persisted jobs.
  *
  * Note on locking:
  *      All callers to this class must <strong>lock on the class object they are calling</strong>.
@@ -88,19 +82,26 @@ public class JobStore {
         synchronized (sSingletonLock) {
             if (sSingleton == null) {
                 sSingleton = new JobStore(jobManagerService.getContext(),
-                        Environment.getDataDirectory(), jobManagerService);
+                        Environment.getDataDirectory());
             }
             return sSingleton;
         }
     }
 
+    /**
+     * @return A freshly initialized job store object, with no loaded jobs.
+     */
     @VisibleForTesting
-    public static JobStore initAndGetForTesting(Context context, File dataDir,
-                                                 JobMapReadFinishedListener callback) {
-        return new JobStore(context, dataDir, callback);
+    public static JobStore initAndGetForTesting(Context context, File dataDir) {
+        JobStore jobStoreUnderTest = new JobStore(context, dataDir);
+        jobStoreUnderTest.clear();
+        return jobStoreUnderTest;
     }
 
-    private JobStore(Context context, File dataDir, JobMapReadFinishedListener callback) {
+    /**
+     * Construct the instance of the job store. This results in a blocking read from disk.
+     */
+    private JobStore(Context context, File dataDir) {
         mContext = context;
         mDirtyOperations = 0;
 
@@ -111,7 +112,7 @@ public class JobStore {
 
         mJobSet = new ArraySet<JobStatus>();
 
-        readJobMapFromDiskAsync(callback);
+        readJobMapFromDisk(mJobSet);
     }
 
     /**
@@ -145,6 +146,10 @@ public class JobStore {
         return false;
     }
 
+    boolean containsJob(JobStatus jobStatus) {
+        return mJobSet.contains(jobStatus);
+    }
+
     public int size() {
         return mJobSet.size();
     }
@@ -173,6 +178,10 @@ public class JobStore {
         maybeWriteStatusToDiskAsync();
     }
 
+    /**
+     * @param userHandle User for whom we are querying the list of jobs.
+     * @return A list of all the jobs scheduled by the provided user. Never null.
+     */
     public List<JobStatus> getJobsByUser(int userHandle) {
         List<JobStatus> matchingJobs = new ArrayList<JobStatus>();
         Iterator<JobStatus> it = mJobSet.iterator();
@@ -187,7 +196,7 @@ public class JobStore {
 
     /**
      * @param uid Uid of the requesting app.
-     * @return All JobStatus objects for a given uid from the master list.
+     * @return All JobStatus objects for a given uid from the master list. Never null.
      */
     public List<JobStatus> getJobsByUid(int uid) {
         List<JobStatus> matchingJobs = new ArrayList<JobStatus>();
@@ -249,12 +258,9 @@ public class JobStore {
         }
     }
 
-    private void readJobMapFromDiskAsync(JobMapReadFinishedListener callback) {
-        mIoHandler.post(new ReadJobMapFromDiskRunnable(callback));
-    }
-
-    public void readJobMapFromDisk(JobMapReadFinishedListener callback) {
-        new ReadJobMapFromDiskRunnable(callback).run();
+    @VisibleForTesting
+    public void readJobMapFromDisk(ArraySet<JobStatus> jobSet) {
+        new ReadJobMapFromDiskRunnable(jobSet).run();
     }
 
     /**
@@ -398,13 +404,18 @@ public class JobStore {
     }
 
     /**
-     * Runnable that reads list of persisted job from xml.
-     * NOTE: This Runnable locks on JobStore.this
+     * Runnable that reads list of persisted job from xml. This is run once at start up, so doesn't
+     * need to go through {@link JobStore#add(com.android.server.job.controllers.JobStatus)}.
      */
     private class ReadJobMapFromDiskRunnable implements Runnable {
-        private JobMapReadFinishedListener mCallback;
-        public ReadJobMapFromDiskRunnable(JobMapReadFinishedListener callback) {
-            mCallback = callback;
+        private final ArraySet<JobStatus> jobSet;
+
+        /**
+         * @param jobSet Reference to the (empty) set of JobStatus objects that back the JobStore,
+         *               so that after disk read we can populate it directly.
+         */
+        ReadJobMapFromDiskRunnable(ArraySet<JobStatus> jobSet) {
+            this.jobSet = jobSet;
         }
 
         @Override
@@ -414,11 +425,13 @@ public class JobStore {
                 FileInputStream fis = mJobsFile.openRead();
                 synchronized (JobStore.this) {
                     jobs = readJobMapImpl(fis);
+                    if (jobs != null) {
+                        for (int i=0; i<jobs.size(); i++) {
+                            this.jobSet.add(jobs.get(i));
+                        }
+                    }
                 }
                 fis.close();
-                if (jobs != null) {
-                    mCallback.onJobMapReadFinished(jobs);
-                }
             } catch (FileNotFoundException e) {
                 if (JobSchedulerService.DEBUG) {
                     Slog.d(TAG, "Could not find jobs file, probably there was nothing to load.");
@@ -504,7 +517,7 @@ public class JobStore {
             // Read out job identifier attributes.
             try {
                 jobBuilder = buildBuilderFromXml(parser);
-                jobBuilder.setIsPersisted(true);
+                jobBuilder.setPersisted(true);
                 uid = Integer.valueOf(parser.getAttributeValue(null, "uid"));
             } catch (NumberFormatException e) {
                 Slog.e(TAG, "Error parsing job's required fields, skipping");
@@ -611,11 +624,11 @@ public class JobStore {
         private void buildConstraintsFromXml(JobInfo.Builder jobBuilder, XmlPullParser parser) {
             String val = parser.getAttributeValue(null, "unmetered");
             if (val != null) {
-                jobBuilder.setRequiredNetworkCapabilities(JobInfo.NetworkType.UNMETERED);
+                jobBuilder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED);
             }
             val = parser.getAttributeValue(null, "connectivity");
             if (val != null) {
-                jobBuilder.setRequiredNetworkCapabilities(JobInfo.NetworkType.ANY);
+                jobBuilder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
             }
             val = parser.getAttributeValue(null, "idle");
             if (val != null) {

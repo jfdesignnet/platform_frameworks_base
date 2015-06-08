@@ -16,10 +16,14 @@
 
 package android.app;
 
+import android.app.usage.IUsageStatsManager;
+import android.app.usage.UsageStatsManager;
+import android.appwidget.AppWidgetManager;
 import android.os.Build;
-
 import android.service.persistentdata.IPersistentDataBlockService;
 import android.service.persistentdata.PersistentDataBlockManager;
+
+import com.android.internal.appwidget.IAppWidgetService;
 import com.android.internal.policy.PolicyManager;
 import com.android.internal.util.Preconditions;
 
@@ -72,6 +76,7 @@ import android.location.ILocationManager;
 import android.location.LocationManager;
 import android.media.AudioManager;
 import android.media.MediaRouter;
+import android.media.projection.MediaProjectionManager;
 import android.media.session.MediaSessionManager;
 import android.media.tv.ITvInputManager;
 import android.media.tv.TvInputManager;
@@ -87,8 +92,6 @@ import android.net.nsd.INsdManager;
 import android.net.nsd.NsdManager;
 import android.net.wifi.IWifiManager;
 import android.net.wifi.WifiManager;
-import android.net.wifi.passpoint.IWifiPasspointManager;
-import android.net.wifi.passpoint.WifiPasspointManager;
 import android.net.wifi.p2p.IWifiP2pManager;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.net.wifi.IWifiScanner;
@@ -117,12 +120,12 @@ import android.os.SystemVibrator;
 import android.os.UserManager;
 import android.os.storage.IMountService;
 import android.os.storage.StorageManager;
-import android.phone.PhoneManager;
 import android.print.IPrintManager;
 import android.print.PrintManager;
 import android.service.fingerprint.IFingerprintService;
 import android.service.fingerprint.FingerprintManager;
-import android.telecomm.TelecommManager;
+import android.telecom.TelecomManager;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.content.ClipboardManager;
 import android.util.AndroidRuntimeException;
@@ -145,9 +148,7 @@ import android.app.trust.TrustManager;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.app.IAppOpsService;
-import com.android.internal.appwidget.IAppWidgetService.Stub;
 import com.android.internal.os.IDropBoxManagerService;
-import com.android.internal.telecomm.ITelecommService;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -409,8 +410,7 @@ class ContextImpl extends Context {
         registerService(CONNECTIVITY_SERVICE, new ServiceFetcher() {
                 public Object createService(ContextImpl ctx) {
                     IBinder b = ServiceManager.getService(CONNECTIVITY_SERVICE);
-                    return new ConnectivityManager(IConnectivityManager.Stub.asInterface(b),
-                        ctx.getPackageName());
+                    return new ConnectivityManager(IConnectivityManager.Stub.asInterface(b));
                 }});
 
         registerService(COUNTRY_DETECTOR, new StaticServiceFetcher() {
@@ -562,14 +562,14 @@ class ContextImpl extends Context {
                     return new TelephonyManager(ctx.getOuterContext());
                 }});
 
-        registerService(TELECOMM_SERVICE, new ServiceFetcher() {
-                public Object createService(ContextImpl ctx) {
-                    return new TelecommManager(ctx.getOuterContext());
-                }});
+        registerService(TELEPHONY_SUBSCRIPTION_SERVICE, new ServiceFetcher() {
+            public Object createService(ContextImpl ctx) {
+                return new SubscriptionManager(ctx.getOuterContext());
+            }});
 
-        registerService(PHONE_SERVICE, new ServiceFetcher() {
+        registerService(TELECOM_SERVICE, new ServiceFetcher() {
                 public Object createService(ContextImpl ctx) {
-                    return new PhoneManager(ctx.getOuterContext());
+                    return new TelecomManager(ctx.getOuterContext());
                 }});
 
         registerService(UI_MODE_SERVICE, new ServiceFetcher() {
@@ -601,13 +601,6 @@ class ContextImpl extends Context {
                     IBinder b = ServiceManager.getService(WIFI_SERVICE);
                     IWifiManager service = IWifiManager.Stub.asInterface(b);
                     return new WifiManager(ctx.getOuterContext(), service);
-                }});
-
-        registerService(WIFI_PASSPOINT_SERVICE, new ServiceFetcher() {
-                public Object createService(ContextImpl ctx) {
-                    IBinder b = ServiceManager.getService(WIFI_PASSPOINT_SERVICE);
-                    IWifiPasspointManager service = IWifiPasspointManager.Stub.asInterface(b);
-                    return new WifiPasspointManager(ctx.getOuterContext(), service);
                 }});
 
         registerService(WIFI_P2P_SERVICE, new ServiceFetcher() {
@@ -727,7 +720,8 @@ class ContextImpl extends Context {
                 IBinder iBinder = ServiceManager.getService(TV_INPUT_SERVICE);
                 ITvInputManager service = ITvInputManager.Stub.asInterface(iBinder);
                 return new TvInputManager(service, UserHandle.myUserId());
-            }});
+            }
+        });
 
         registerService(NETWORK_SCORE_SERVICE, new ServiceFetcher() {
             public Object createService(ContextImpl ctx) {
@@ -736,9 +730,12 @@ class ContextImpl extends Context {
         });
 
         registerService(USAGE_STATS_SERVICE, new ServiceFetcher() {
-                public Object createService(ContextImpl ctx) {
-                return new UsageStatsManager(ctx.getOuterContext());
-        }});
+            public Object createService(ContextImpl ctx) {
+                IBinder iBinder = ServiceManager.getService(USAGE_STATS_SERVICE);
+                IUsageStatsManager service = IUsageStatsManager.Stub.asInterface(iBinder);
+                return new UsageStatsManager(ctx.getOuterContext(), service);
+            }
+        });
 
         registerService(JOB_SCHEDULER_SERVICE, new ServiceFetcher() {
             public Object createService(ContextImpl ctx) {
@@ -749,9 +746,28 @@ class ContextImpl extends Context {
         registerService(PERSISTENT_DATA_BLOCK_SERVICE, new ServiceFetcher() {
             public Object createService(ContextImpl ctx) {
                 IBinder b = ServiceManager.getService(PERSISTENT_DATA_BLOCK_SERVICE);
-                return new PersistentDataBlockManager(
-                        IPersistentDataBlockService.Stub.asInterface(b));
-        }});
+                IPersistentDataBlockService persistentDataBlockService =
+                        IPersistentDataBlockService.Stub.asInterface(b);
+                if (persistentDataBlockService != null) {
+                    return new PersistentDataBlockManager(persistentDataBlockService);
+                } else {
+                    // not supported
+                    return null;
+                }
+            }
+        });
+
+        registerService(MEDIA_PROJECTION_SERVICE, new ServiceFetcher() {
+                public Object createService(ContextImpl ctx) {
+                    return new MediaProjectionManager(ctx);
+                }
+        });
+
+        registerService(APPWIDGET_SERVICE, new ServiceFetcher() {
+            public Object createService(ContextImpl ctx) {
+                IBinder b = ServiceManager.getService(APPWIDGET_SERVICE);
+                return new AppWidgetManager(ctx, IAppWidgetService.Stub.asInterface(b));
+            }});
     }
 
     static ContextImpl getImpl(Context context) {
@@ -1236,7 +1252,7 @@ class ContextImpl extends Context {
             ActivityManagerNative.getDefault().startActivityAsUser(
                 mMainThread.getApplicationThread(), getBasePackageName(), intent,
                 intent.resolveTypeIfNeeded(getContentResolver()),
-                null, null, 0, Intent.FLAG_ACTIVITY_NEW_TASK, null, null, options,
+                null, null, 0, Intent.FLAG_ACTIVITY_NEW_TASK, null, options,
                 user.getIdentifier());
         } catch (RemoteException re) {
         }
@@ -1660,7 +1676,7 @@ class ContextImpl extends Context {
 
     private void validateServiceIntent(Intent service) {
         if (service.getComponent() == null && service.getPackage() == null) {
-            if (getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.L) {
+            if (getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.LOLLIPOP) {
                 IllegalArgumentException ex = new IllegalArgumentException(
                         "Service Intent must be explicit: " + service);
                 throw ex;
@@ -1853,6 +1869,21 @@ class ContextImpl extends Context {
         }
     }
 
+    /** @hide */
+    @Override
+    public int checkPermission(String permission, int pid, int uid, IBinder callerToken) {
+        if (permission == null) {
+            throw new IllegalArgumentException("permission is null");
+        }
+
+        try {
+            return ActivityManagerNative.getDefault().checkPermissionWithToken(
+                    permission, pid, uid, callerToken);
+        } catch (RemoteException e) {
+            return PackageManager.PERMISSION_DENIED;
+        }
+    }
+
     @Override
     public int checkCallingPermission(String permission) {
         if (permission == null) {
@@ -1941,7 +1972,19 @@ class ContextImpl extends Context {
         try {
             return ActivityManagerNative.getDefault().checkUriPermission(
                     ContentProvider.getUriWithoutUserId(uri), pid, uid, modeFlags,
-                    resolveUserId(uri));
+                    resolveUserId(uri), null);
+        } catch (RemoteException e) {
+            return PackageManager.PERMISSION_DENIED;
+        }
+    }
+
+    /** @hide */
+    @Override
+    public int checkUriPermission(Uri uri, int pid, int uid, int modeFlags, IBinder callerToken) {
+        try {
+            return ActivityManagerNative.getDefault().checkUriPermission(
+                    ContentProvider.getUriWithoutUserId(uri), pid, uid, modeFlags,
+                    resolveUserId(uri), callerToken);
         } catch (RemoteException e) {
             return PackageManager.PERMISSION_DENIED;
         }
@@ -2081,6 +2124,25 @@ class ContextImpl extends Context {
     }
 
     @Override
+    public Context createApplicationContext(ApplicationInfo application, int flags)
+            throws NameNotFoundException {
+        LoadedApk pi = mMainThread.getPackageInfo(application, mResources.getCompatibilityInfo(),
+                flags | CONTEXT_REGISTER_PACKAGE);
+        if (pi != null) {
+            final boolean restricted = (flags & CONTEXT_RESTRICTED) == CONTEXT_RESTRICTED;
+            ContextImpl c = new ContextImpl(this, mMainThread, pi, mActivityToken,
+                    new UserHandle(UserHandle.getUserId(application.uid)), restricted,
+                    mDisplay, mOverrideConfiguration);
+            if (c.mResources != null) {
+                return c;
+            }
+        }
+
+        throw new PackageManager.NameNotFoundException(
+                "Application package " + application.packageName + " not found");
+    }
+
+    @Override
     public Context createPackageContext(String packageName, int flags)
             throws NameNotFoundException {
         return createPackageContextAsUser(packageName, flags,
@@ -2207,7 +2269,6 @@ class ContextImpl extends Context {
         mUser = user;
 
         mPackageInfo = packageInfo;
-        mContentResolver = new ApplicationContentResolver(this, mainThread, user);
         mResourcesManager = ResourcesManager.getInstance();
         mDisplay = display;
         mOverrideConfiguration = overrideConfiguration;
@@ -2254,10 +2315,12 @@ class ContextImpl extends Context {
                 mOpPackageName = mBasePackageName;
             }
         }
+
+        mContentResolver = new ApplicationContentResolver(this, mainThread, user);
     }
 
-    void installSystemApplicationInfo(ApplicationInfo info) {
-        mPackageInfo.installSystemApplicationInfo(info);
+    void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
+        mPackageInfo.installSystemApplicationInfo(info, classLoader);
     }
 
     final void scheduleFinalCleanup(String who, String what) {
@@ -2356,7 +2419,7 @@ class ContextImpl extends Context {
                         int res = -1;
                         try {
                             res = mount.mkdirs(getPackageName(), dir.getAbsolutePath());
-                        } catch (RemoteException e) {
+                        } catch (Exception ignored) {
                         }
                         if (res != 0) {
                             Log.w(TAG, "Failed to ensure directory: " + dir);

@@ -25,19 +25,50 @@ import android.graphics.drawable.Drawable;
 public abstract class ViewOutlineProvider {
     /**
      * Default outline provider for Views, which queries the Outline from the View's background,
-     * or returns <code>false</code> if the View does not have a background.
+     * or generates a 0 alpha, rectangular Outline the size of the View if a background
+     * isn't present.
      *
      * @see Drawable#getOutline(Outline)
      */
     public static final ViewOutlineProvider BACKGROUND = new ViewOutlineProvider() {
         @Override
-        public boolean getOutline(View view, Outline outline) {
+        public void getOutline(View view, Outline outline) {
             Drawable background = view.getBackground();
-            if (background == null) {
-                // no background, no outline
-                return false;
+            if (background != null) {
+                background.getOutline(outline);
+            } else {
+                outline.setRect(0, 0, view.getWidth(), view.getHeight());
+                outline.setAlpha(0.0f);
             }
-            return background.getOutline(outline);
+        }
+    };
+
+    /**
+     * Maintains the outline of the View to match its rectangular bounds,
+     * at <code>1.0f</code> alpha.
+     *
+     * This can be used to enable Views that are opaque but lacking a background cast a shadow.
+     */
+    public static final ViewOutlineProvider BOUNDS = new ViewOutlineProvider() {
+        @Override
+        public void getOutline(View view, Outline outline) {
+            outline.setRect(0, 0, view.getWidth(), view.getHeight());
+        }
+    };
+
+    /**
+     * Maintains the outline of the View to match its rectangular padded bounds,
+     * at <code>1.0f</code> alpha.
+     *
+     * This can be used to enable Views that are opaque but lacking a background cast a shadow.
+     */
+    public static final ViewOutlineProvider PADDED_BOUNDS = new ViewOutlineProvider() {
+        @Override
+        public void getOutline(View view, Outline outline) {
+            outline.setRect(view.getPaddingLeft(),
+                    view.getPaddingTop(),
+                    view.getWidth() - view.getPaddingRight(),
+                    view.getHeight() - view.getPaddingBottom());
         }
     };
 
@@ -48,10 +79,10 @@ public abstract class ViewOutlineProvider {
      * View's size changes, or if {@link View#invalidateOutline()} is called
      * explicitly.
      *
+     * The input outline is empty and has an alpha of <code>1.0f</code>.
+     *
      * @param view The view building the outline.
      * @param outline The empty outline to be populated.
-     * @return true if this View should have an outline, else false. The outline must be
-     *         populated by this method, and non-empty if true is returned.
      */
-    public abstract boolean getOutline(View view, Outline outline);
+    public abstract void getOutline(View view, Outline outline);
 }

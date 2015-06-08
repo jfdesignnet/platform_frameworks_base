@@ -20,7 +20,6 @@
 #define LOG_TAG "Minikin"
 #include <cutils/log.h>
 
-#include <minikin/MinikinFont.h>
 #include "MinikinSkia.h"
 
 namespace android {
@@ -40,7 +39,7 @@ bool MinikinFontSkia::GetGlyph(uint32_t codepoint, uint32_t *glyph) const {
     uint16_t glyph16;
     paint.textToGlyphs(&codepoint, sizeof(codepoint), &glyph16);
     *glyph  = glyph16;
-    return !!glyph;
+    return !!glyph16;
 }
 
 static void MinikinFontSkia_SetSkiaPaint(const MinikinFont* font, SkPaint* skPaint, const MinikinPaint& paint) {

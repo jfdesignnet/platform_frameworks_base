@@ -16,6 +16,7 @@
 
 package android.graphics.drawable;
 
+import android.annotation.NonNull;
 import android.graphics.*;
 import android.graphics.PorterDuff.Mode;
 import android.content.res.ColorStateList;
@@ -87,6 +88,14 @@ public class ColorDrawable extends Drawable {
         return this;
     }
 
+    /**
+     * @hide
+     */
+    public void clearMutated() {
+        super.clearMutated();
+        mMutated = false;
+    }
+
     @Override
     public void draw(Canvas canvas) {
         final ColorFilter colorFilter = mPaint.getColorFilter();
@@ -156,7 +165,7 @@ public class ColorDrawable extends Drawable {
     /**
      * Sets the color filter applied to this color.
      * <p>
-     * Only supported on version {@link android.os.Build.VERSION_CODES#L} and
+     * Only supported on version {@link android.os.Build.VERSION_CODES#LOLLIPOP} and
      * above. Calling this method has no effect on earlier versions.
      *
      * @see android.graphics.drawable.Drawable#setColorFilter(ColorFilter)
@@ -167,15 +176,17 @@ public class ColorDrawable extends Drawable {
     }
 
     @Override
-    public void setTint(ColorStateList tint, Mode tintMode) {
-        final ColorState state = mColorState;
-        if (state.mTint != tint || state.mTintMode != tintMode) {
-            state.mTint = tint;
-            state.mTintMode = tintMode;
+    public void setTintList(ColorStateList tint) {
+        mColorState.mTint = tint;
+        mTintFilter = updateTintFilter(mTintFilter, tint, mColorState.mTintMode);
+        invalidateSelf();
+    }
 
-            mTintFilter = updateTintFilter(mTintFilter, tint, tintMode);
-            invalidateSelf();
-        }
+    @Override
+    public void setTintMode(Mode tintMode) {
+        mColorState.mTintMode = tintMode;
+        mTintFilter = updateTintFilter(mTintFilter, mColorState.mTint, tintMode);
+        invalidateSelf();
     }
 
     @Override
@@ -209,6 +220,12 @@ public class ColorDrawable extends Drawable {
     }
 
     @Override
+    public void getOutline(@NonNull Outline outline) {
+        outline.setRect(getBounds());
+        outline.setAlpha(getAlpha() / 255.0f);
+    }
+
+    @Override
     public void inflate(Resources r, XmlPullParser parser, AttributeSet attrs, Theme theme)
             throws XmlPullParserException, IOException {
         super.inflate(r, parser, attrs, theme);
@@ -232,6 +249,11 @@ public class ColorDrawable extends Drawable {
 
         state.mBaseColor = a.getColor(R.styleable.ColorDrawable_color, state.mBaseColor);
         state.mUseColor = state.mBaseColor;
+    }
+
+    @Override
+    public boolean canApplyTheme() {
+        return mColorState.canApplyTheme() || super.canApplyTheme();
     }
 
     @Override
@@ -259,8 +281,8 @@ public class ColorDrawable extends Drawable {
         @ViewDebug.ExportedProperty
         int mUseColor;  // basecolor modulated by setAlpha()
         int mChangingConfigurations;
-        ColorStateList mTint;
-        Mode mTintMode;
+        ColorStateList mTint = null;
+        Mode mTintMode = DEFAULT_TINT_MODE;
 
         ColorState() {
             // Empty constructor.
@@ -282,17 +304,12 @@ public class ColorDrawable extends Drawable {
 
         @Override
         public Drawable newDrawable() {
-            return new ColorDrawable(this, null, null);
+            return new ColorDrawable(this);
         }
 
         @Override
         public Drawable newDrawable(Resources res) {
-            return new ColorDrawable(this, res, null);
-        }
-
-        @Override
-        public Drawable newDrawable(Resources res, Theme theme) {
-            return new ColorDrawable(this, res, theme);
+            return new ColorDrawable(this);
         }
 
         @Override
@@ -301,14 +318,8 @@ public class ColorDrawable extends Drawable {
         }
     }
 
-    private ColorDrawable(ColorState state, Resources res, Theme theme) {
-        if (theme != null && state.canApplyTheme()) {
-            mColorState = new ColorState(state);
-            applyTheme(theme);
-        } else {
-            mColorState = state;
-        }
-
+    private ColorDrawable(ColorState state) {
+        mColorState = state;
         mTintFilter = updateTintFilter(mTintFilter, state.mTint, state.mTintMode);
     }
 }

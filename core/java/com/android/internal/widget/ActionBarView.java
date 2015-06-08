@@ -19,8 +19,6 @@ package com.android.internal.widget;
 import android.animation.LayoutTransition;
 import android.app.ActionBar;
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
@@ -29,9 +27,7 @@ import android.os.Parcelable;
 import android.text.Layout;
 import android.text.TextUtils;
 import android.util.AttributeSet;
-import android.util.TypedValue;
 import android.view.CollapsibleActionView;
-import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -111,10 +107,10 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
     private int mProgressBarPadding;
     private int mItemPadding;
 
-    private int mTitleStyleRes;
-    private int mSubtitleStyleRes;
-    private int mProgressStyle;
-    private int mIndeterminateProgressStyle;
+    private final int mTitleStyleRes;
+    private final int mSubtitleStyleRes;
+    private final int mProgressStyle;
+    private final int mIndeterminateProgressStyle;
 
     private boolean mUserTitle;
     private boolean mIncludeTabs;
@@ -135,6 +131,7 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
 
     private ExpandedActionViewMenuPresenter mExpandedMenuPresenter;
     View mExpandedActionView;
+    private int mDefaultUpDescription = R.string.action_bar_up_description;
 
     Window.Callback mWindowCallback;
 
@@ -187,7 +184,7 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
         mExpandedHomeLayout.setShowUp(true);
         mExpandedHomeLayout.setOnClickListener(mExpandedActionViewUpListener);
         mExpandedHomeLayout.setContentDescription(getResources().getText(
-                R.string.action_bar_up_description));
+                mDefaultUpDescription));
 
         // This needs to highlight/be focusable on its own.
         // TODO: Clean up the handoff between expanded/normal.
@@ -579,7 +576,7 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
             homeDesc = mHomeDescription;
         } else {
             if ((mDisplayOptions & ActionBar.DISPLAY_HOME_AS_UP) != 0) {
-                homeDesc = mContext.getResources().getText(R.string.action_bar_up_description);
+                homeDesc = mContext.getResources().getText(mDefaultUpDescription);
             } else {
                 homeDesc = mContext.getResources().getText(R.string.action_bar_home_description);
             }
@@ -1315,6 +1312,11 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
         mHomeLayout.setUpIndicator(indicator);
     }
 
+    @Override
+    public void setDefaultNavigationIcon(Drawable icon) {
+        mHomeLayout.setDefaultUpIndicator(icon);
+    }
+
     public void setNavigationIcon(int resId) {
         mHomeLayout.setUpIndicator(resId);
     }
@@ -1328,6 +1330,31 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
         mHomeDescriptionRes = resId;
         mHomeDescription = resId != 0 ? getResources().getText(resId) : null;
         updateHomeAccessibility(mUpGoerFive.isEnabled());
+    }
+
+    @Override
+    public void setDefaultNavigationContentDescription(int defaultNavigationContentDescription) {
+        if (mDefaultUpDescription == defaultNavigationContentDescription) {
+            return;
+        }
+        mDefaultUpDescription = defaultNavigationContentDescription;
+        updateHomeAccessibility(mUpGoerFive.isEnabled());
+    }
+
+    @Override
+    public void setMenuCallbacks(MenuPresenter.Callback presenterCallback,
+            MenuBuilder.Callback menuBuilderCallback) {
+        if (mActionMenuPresenter != null) {
+            mActionMenuPresenter.setCallback(presenterCallback);
+        }
+        if (mOptionsMenu != null) {
+            mOptionsMenu.setCallback(menuBuilderCallback);
+        }
+    }
+
+    @Override
+    public Menu getMenu() {
+        return mOptionsMenu;
     }
 
     static class SavedState extends BaseSavedState {
@@ -1370,6 +1397,7 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
         private int mStartOffset;
         private int mUpIndicatorRes;
         private Drawable mDefaultUpIndicator;
+        private Drawable mUpIndicator;
 
         private static final long DEFAULT_TRANSITION_DURATION = 150;
 
@@ -1399,13 +1427,30 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
         }
 
         public void setUpIndicator(Drawable d) {
-            mUpView.setImageDrawable(d != null ? d : mDefaultUpIndicator);
+            mUpIndicator = d;
             mUpIndicatorRes = 0;
+            updateUpIndicator();
+        }
+
+        public void setDefaultUpIndicator(Drawable d) {
+            mDefaultUpIndicator = d;
+            updateUpIndicator();
         }
 
         public void setUpIndicator(int resId) {
             mUpIndicatorRes = resId;
-            mUpView.setImageDrawable(resId != 0 ? getContext().getDrawable(resId) : null);
+            mUpIndicator = null;
+            updateUpIndicator();
+        }
+
+        private void updateUpIndicator() {
+            if (mUpIndicator != null) {
+                mUpView.setImageDrawable(mUpIndicator);
+            } else if (mUpIndicatorRes != 0) {
+                mUpView.setImageDrawable(getContext().getDrawable(mUpIndicatorRes));
+            } else {
+                mUpView.setImageDrawable(mDefaultUpIndicator);
+            }
         }
 
         @Override
@@ -1413,7 +1458,7 @@ public class ActionBarView extends AbsActionBarView implements DecorToolbar {
             super.onConfigurationChanged(newConfig);
             if (mUpIndicatorRes != 0) {
                 // Reload for config change
-                setUpIndicator(mUpIndicatorRes);
+                updateUpIndicator();
             }
         }
 

@@ -16,11 +16,11 @@
 
 package android.content.res;
 
+import android.annotation.Nullable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.Log;
-import android.util.Pools.SynchronizedPool;
 import android.util.TypedValue;
 
 import com.android.internal.util.XmlUtils;
@@ -37,15 +37,11 @@ import java.util.Arrays;
  * the positions of the attributes given to obtainStyledAttributes.
  */
 public class TypedArray {
-    private static final SynchronizedPool<TypedArray> mPool = new SynchronizedPool<TypedArray>(5);
 
     static TypedArray obtain(Resources res, int len) {
-        final TypedArray attrs = mPool.acquire();
+        final TypedArray attrs = res.mTypedArrayPool.acquire();
         if (attrs != null) {
             attrs.mLength = len;
-            attrs.mResources = res;
-            attrs.mMetrics = res.getDisplayMetrics();
-            attrs.mAssets = res.getAssets();
             attrs.mRecycled = false;
 
             final int fullLen = len * AssetManager.STYLE_NUM_ENTRIES;
@@ -63,9 +59,10 @@ public class TypedArray {
                 new int[1+len], len);
     }
 
-    private Resources mResources;
-    private DisplayMetrics mMetrics;
-    private AssetManager mAssets;
+    private final Resources mResources;
+    private final DisplayMetrics mMetrics;
+    private final AssetManager mAssets;
+
     private boolean mRecycled;
 
     /*package*/ XmlBlock.Parser mXml;
@@ -400,6 +397,8 @@ public class TypedArray {
                 return csl.getDefaultColor();
             }
             return defValue;
+        } else if (type == TypedValue.TYPE_ATTRIBUTE) {
+            throw new RuntimeException("Failed to resolve attribute at index " + index);
         }
 
         throw new UnsupportedOperationException("Can't convert to color: type=0x"
@@ -422,6 +421,9 @@ public class TypedArray {
 
         final TypedValue value = mValue;
         if (getValueAt(index*AssetManager.STYLE_NUM_ENTRIES, value)) {
+            if (value.type == TypedValue.TYPE_ATTRIBUTE) {
+                throw new RuntimeException("Failed to resolve attribute at index " + index);
+            }
             return mResources.loadColorStateList(value, value.resourceId);
         }
         return null;
@@ -449,6 +451,8 @@ public class TypedArray {
         } else if (type >= TypedValue.TYPE_FIRST_INT
             && type <= TypedValue.TYPE_LAST_INT) {
             return data[index+AssetManager.STYLE_DATA];
+        } else if (type == TypedValue.TYPE_ATTRIBUTE) {
+            throw new RuntimeException("Failed to resolve attribute at index " + index);
         }
 
         throw new UnsupportedOperationException("Can't convert to integer: type=0x"
@@ -484,6 +488,8 @@ public class TypedArray {
         } else if (type == TypedValue.TYPE_DIMENSION) {
             return TypedValue.complexToDimension(
                 data[index+AssetManager.STYLE_DATA], mMetrics);
+        } else if (type == TypedValue.TYPE_ATTRIBUTE) {
+            throw new RuntimeException("Failed to resolve attribute at index " + index);
         }
 
         throw new UnsupportedOperationException("Can't convert to dimension: type=0x"
@@ -520,6 +526,8 @@ public class TypedArray {
         } else if (type == TypedValue.TYPE_DIMENSION) {
             return TypedValue.complexToDimensionPixelOffset(
                 data[index+AssetManager.STYLE_DATA], mMetrics);
+        } else if (type == TypedValue.TYPE_ATTRIBUTE) {
+            throw new RuntimeException("Failed to resolve attribute at index " + index);
         }
 
         throw new UnsupportedOperationException("Can't convert to dimension: type=0x"
@@ -557,6 +565,8 @@ public class TypedArray {
         } else if (type == TypedValue.TYPE_DIMENSION) {
             return TypedValue.complexToDimensionPixelSize(
                 data[index+AssetManager.STYLE_DATA], mMetrics);
+        } else if (type == TypedValue.TYPE_ATTRIBUTE) {
+            throw new RuntimeException("Failed to resolve attribute at index " + index);
         }
 
         throw new UnsupportedOperationException("Can't convert to dimension: type=0x"
@@ -589,6 +599,8 @@ public class TypedArray {
         } else if (type == TypedValue.TYPE_DIMENSION) {
             return TypedValue.complexToDimensionPixelSize(
                 data[index+AssetManager.STYLE_DATA], mMetrics);
+        } else if (type == TypedValue.TYPE_ATTRIBUTE) {
+            throw new RuntimeException("Failed to resolve attribute at index " + index);
         }
 
         throw new RuntimeException(getPositionDescription()
@@ -655,6 +667,8 @@ public class TypedArray {
         } else if (type == TypedValue.TYPE_FRACTION) {
             return TypedValue.complexToFraction(
                 data[index+AssetManager.STYLE_DATA], base, pbase);
+        } else if (type == TypedValue.TYPE_ATTRIBUTE) {
+            throw new RuntimeException("Failed to resolve attribute at index " + index);
         }
 
         throw new UnsupportedOperationException("Can't convert to fraction: type=0x"
@@ -715,15 +729,13 @@ public class TypedArray {
     }
 
     /**
-     * Retrieve the Drawable for the attribute at <var>index</var>.  This
-     * gets the resource ID of the selected attribute, and uses
-     * {@link Resources#getDrawable Resources.getDrawable} of the owning
-     * Resources object to retrieve its Drawable.
+     * Retrieve the Drawable for the attribute at <var>index</var>.
      *
      * @param index Index of attribute to retrieve.
      *
      * @return Drawable for the attribute, or null if not defined.
      */
+    @Nullable
     public Drawable getDrawable(int index) {
         if (mRecycled) {
             throw new RuntimeException("Cannot make calls to a recycled instance!");
@@ -731,14 +743,8 @@ public class TypedArray {
 
         final TypedValue value = mValue;
         if (getValueAt(index*AssetManager.STYLE_NUM_ENTRIES, value)) {
-            if (false) {
-                System.out.println("******************************************************************");
-                System.out.println("Got drawable resource: type="
-                                   + value.type
-                                   + " str=" + value.string
-                                   + " int=0x" + Integer.toHexString(value.data)
-                                   + " cookie=" + value.assetCookie);
-                System.out.println("******************************************************************");
+            if (value.type == TypedValue.TYPE_ATTRIBUTE) {
+                throw new RuntimeException("Failed to resolve attribute at index " + index);
             }
             return mResources.loadDrawable(value, value.resourceId, mTheme);
         }
@@ -762,15 +768,6 @@ public class TypedArray {
 
         final TypedValue value = mValue;
         if (getValueAt(index*AssetManager.STYLE_NUM_ENTRIES, value)) {
-            if (false) {
-                System.out.println("******************************************************************");
-                System.out.println("Got drawable resource: type="
-                                   + value.type
-                                   + " str=" + value.string
-                                   + " int=0x" + Integer.toHexString(value.data)
-                                   + " cookie=" + value.assetCookie);
-                System.out.println("******************************************************************");
-            }
             return mResources.getTextArray(value.resourceId);
         }
         return null;
@@ -810,6 +807,9 @@ public class TypedArray {
 
     /**
      * Determines whether there is an attribute at <var>index</var>.
+     * <p>
+     * <strong>Note:</strong> If the attribute was set to {@code @empty} or
+     * {@code @undefined}, this method returns {@code false}.
      *
      * @param index Index of attribute to retrieve.
      *
@@ -824,6 +824,27 @@ public class TypedArray {
         final int[] data = mData;
         final int type = data[index+AssetManager.STYLE_TYPE];
         return type != TypedValue.TYPE_NULL;
+    }
+
+    /**
+     * Determines whether there is an attribute at <var>index</var>, returning
+     * {@code true} if the attribute was explicitly set to {@code @empty} and
+     * {@code false} only if the attribute was undefined.
+     *
+     * @param index Index of attribute to retrieve.
+     *
+     * @return True if the attribute has a value or is empty, false otherwise.
+     */
+    public boolean hasValueOrEmpty(int index) {
+        if (mRecycled) {
+            throw new RuntimeException("Cannot make calls to a recycled instance!");
+        }
+
+        index *= AssetManager.STYLE_NUM_ENTRIES;
+        final int[] data = mData;
+        final int type = data[index+AssetManager.STYLE_TYPE];
+        return type != TypedValue.TYPE_NULL
+                || data[index+AssetManager.STYLE_DATA] == TypedValue.DATA_NULL_EMPTY;
     }
 
     /**
@@ -870,17 +891,12 @@ public class TypedArray {
         }
 
         mRecycled = true;
-        mResources = null;
-        mMetrics = null;
-        mAssets = null;
 
         // These may have been set by the client.
         mXml = null;
         mTheme = null;
 
-        synchronized (mPool) {
-            mPool.release(this);
-        }
+        mResources.mTypedArrayPool.release(this);
     }
 
     /**
@@ -982,8 +998,8 @@ public class TypedArray {
 
     /*package*/ TypedArray(Resources resources, int[] data, int[] indices, int len) {
         mResources = resources;
-        mMetrics = mResources.getDisplayMetrics();
-        mAssets = mResources.getAssets();
+        mMetrics = mResources.mMetrics;
+        mAssets = mResources.mAssets;
         mData = data;
         mIndices = indices;
         mLength = len;

@@ -16,9 +16,8 @@
 
 package android.animation;
 
+import android.view.RenderNodeAnimator;
 import android.view.View;
-
-import java.util.ArrayList;
 
 /**
  * Reveals a View with an animated clipping circle.
@@ -27,115 +26,21 @@ import java.util.ArrayList;
  *
  * @hide
  */
-public class RevealAnimator extends ValueAnimator {
-    private final static String LOGTAG = "RevealAnimator";
-    private ValueAnimator.AnimatorListener mListener;
-    private ValueAnimator.AnimatorUpdateListener mUpdateListener;
-    private RevealCircle mReuseRevealCircle = new RevealCircle(0);
-    private RevealAnimator(final View clipView, final int x, final int y,
-            float startRadius, float endRadius, final boolean inverseClip) {
+public class RevealAnimator extends RenderNodeAnimator {
 
-        setObjectValues(new RevealCircle(startRadius), new RevealCircle(endRadius));
-        setEvaluator(new RevealCircleEvaluator(mReuseRevealCircle));
+    private View mClipView;
 
-        mUpdateListener = new ValueAnimator.AnimatorUpdateListener() {
-                @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                RevealCircle circle = (RevealCircle) animation.getAnimatedValue();
-                float radius = circle.getRadius();
-                clipView.setRevealClip(true, inverseClip, x, y, radius);
-            }
-        };
-        mListener = new AnimatorListenerAdapter() {
-                @Override
-            public void onAnimationCancel(Animator animation) {
-                clipView.setRevealClip(false, false, 0, 0, 0);
-            }
-
-                @Override
-            public void onAnimationEnd(Animator animation) {
-                clipView.setRevealClip(false, false, 0, 0, 0);
-            }
-        };
-        addUpdateListener(mUpdateListener);
-        addListener(mListener);
+    public RevealAnimator(View clipView, int x, int y,
+            float startRadius, float endRadius) {
+        super(x, y, startRadius, endRadius);
+        mClipView = clipView;
+        setTarget(mClipView);
     }
 
-    public static RevealAnimator ofRevealCircle(View clipView, int x, int y,
-            float startRadius, float endRadius, boolean inverseClip) {
-        RevealAnimator anim = new RevealAnimator(clipView, x, y,
-                startRadius, endRadius, inverseClip);
-        return anim;
-    }
-
-
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public void removeAllUpdateListeners() {
-        super.removeAllUpdateListeners();
-        addUpdateListener(mUpdateListener);
+    protected void onFinished() {
+        mClipView.setRevealClip(false, 0, 0, 0);
+        super.onFinished();
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void removeAllListeners() {
-        super.removeAllListeners();
-        addListener(mListener);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public ArrayList<AnimatorListener> getListeners() {
-        ArrayList<AnimatorListener> allListeners =
-                (ArrayList<AnimatorListener>) super.getListeners().clone();
-        allListeners.remove(mListener);
-        return allListeners;
-    }
-
-    private class RevealCircle {
-        float mRadius;
-
-        public RevealCircle(float radius) {
-            mRadius = radius;
-        }
-
-        public void setRadius(float radius) {
-            mRadius = radius;
-        }
-
-        public float getRadius() {
-            return mRadius;
-        }
-    }
-
-    private class RevealCircleEvaluator implements TypeEvaluator<RevealCircle> {
-
-        private RevealCircle mRevealCircle;
-
-        public RevealCircleEvaluator() {
-        }
-
-        public RevealCircleEvaluator(RevealCircle reuseCircle) {
-            mRevealCircle = reuseCircle;
-        }
-
-        @Override
-        public RevealCircle evaluate(float fraction, RevealCircle startValue,
-                RevealCircle endValue) {
-            float currentRadius = startValue.mRadius
-                    + ((endValue.mRadius - startValue.mRadius) * fraction);
-            if (mRevealCircle == null) {
-                return new RevealCircle(currentRadius);
-            } else {
-                mRevealCircle.setRadius(currentRadius);
-                return mRevealCircle;
-            }
-        }
-    }
 }

@@ -131,6 +131,10 @@ public final class PdfRenderer implements AutoCloseable {
      * </p>
      *
      * @param input Seekable file descriptor to read from.
+     *
+     * @throws java.io.IOException If an error occurs while reading the file.
+     * @throws java.lang.SecurityException If the file requires a password or
+     *         the security scheme is not supported.
      */
     public PdfRenderer(@NonNull ParcelFileDescriptor input) throws IOException {
         if (input == null) {
@@ -195,6 +199,7 @@ public final class PdfRenderer implements AutoCloseable {
     public Page openPage(int index) {
         throwIfClosed();
         throwIfPageOpened();
+        throwIfPageNotInDocument(index);
         mCurrentPage = new Page(index);
         return mCurrentPage;
     }
@@ -234,6 +239,12 @@ public final class PdfRenderer implements AutoCloseable {
     private void throwIfPageOpened() {
         if (mCurrentPage != null) {
             throw new IllegalStateException("Current page not closed");
+        }
+    }
+
+    private void throwIfPageNotInDocument(int pageIndex) {
+        if (pageIndex < 0 || pageIndex >= mPageCount) {
+            throw new IllegalArgumentException("Invalid page index");
         }
     }
 

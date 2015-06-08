@@ -306,15 +306,6 @@
         </activity>
 
         <activity
-                android:name="CirclePropActivity"
-                android:label="Draw/Circle Props">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="com.android.test.hwui.TEST" />
-            </intent-filter>
-        </activity>
-
-        <activity
                 android:name="ClearActivity"
                 android:label="Window/Clear">
             <intent-filter>
@@ -344,6 +335,24 @@
         <activity
                 android:name="CanvasTextureViewActivity"
                 android:label="TextureView/Canvas">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.android.test.hwui.TEST" />
+            </intent-filter>
+        </activity>
+
+        <activity
+                android:name="HardwareCanvasTextureViewActivity"
+                android:label="TextureView/HardwareCanvas">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.android.test.hwui.TEST" />
+            </intent-filter>
+        </activity>
+
+        <activity
+                android:name="HardwareCanvasSurfaceViewActivity"
+                android:label="SurfaceView/HardwareCanvas">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="com.android.test.hwui.TEST" />
@@ -920,5 +929,24 @@
                 <category android:name="com.android.test.hwui.TEST" />
             </intent-filter>
         </activity>
+
+        <activity
+                android:name="CirclePropActivity"
+                android:label="Animation/Circle Props">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.android.test.hwui.TEST" />
+            </intent-filter>
+        </activity>
+
+        <activity
+                android:name="RevealActivity"
+                android:label="Animation/Reveal Animation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.android.test.hwui.TEST" />
+            </intent-filter>
+        </activity>
+
     </application>
 </manifest>

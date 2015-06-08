@@ -27,7 +27,7 @@
 namespace android {
 namespace uirenderer {
 
-#define RECT_STRING "%7.2f %7.2f %7.2f %7.2f"
+#define RECT_STRING "%5.2f %5.2f %5.2f %5.2f"
 #define RECT_ARGS(r) \
     (r).left, (r).top, (r).right, (r).bottom
 #define SK_RECT_ARGS(r) \
@@ -239,6 +239,13 @@ public:
         top = floorf(top);
         right = ceilf(right);
         bottom = ceilf(bottom);
+    }
+
+    void expandToCoverVertex(float x, float y) {
+        left = fminf(left, x);
+        top = fminf(top, y);
+        right = fmaxf(right, x);
+        bottom = fmaxf(bottom, y);
     }
 
     void dump(const char* label = NULL) const {

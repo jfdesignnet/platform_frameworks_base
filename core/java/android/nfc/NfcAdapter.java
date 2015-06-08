@@ -20,6 +20,7 @@ import java.util.HashMap;
 
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SystemApi;
 import android.app.Activity;
 import android.app.ActivityThread;
 import android.app.OnActivityPausedListener;
@@ -29,7 +30,6 @@ import android.content.IntentFilter;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.nfc.BeamShareData;
 import android.nfc.tech.MifareClassic;
 import android.nfc.tech.Ndef;
 import android.nfc.tech.NfcA;
@@ -261,6 +261,7 @@ public final class NfcAdapter {
     public static final String EXTRA_READER_PRESENCE_CHECK_DELAY = "presence";
 
     /** @hide */
+    @SystemApi
     public static final int FLAG_NDEF_PUSH_NO_CONFIRM = 0x1;
 
     /** @hide */
@@ -310,6 +311,8 @@ public final class NfcAdapter {
 
     final NfcActivityManager mNfcActivityManager;
     final Context mContext;
+    final HashMap<NfcUnlockHandler, INfcUnlockHandler> mNfcUnlockHandlers;
+    final Object mLock;
 
     /**
      * A callback to be invoked when the system finds a tag while the foreground activity is
@@ -381,13 +384,19 @@ public final class NfcAdapter {
         public Uri[] createBeamUris(NfcEvent event);
     }
 
-
     /**
-     * A callback to be invoked when an application has registered for receiving
-     * tags at the lockscreen.
+     * A callback to be invoked when an application has registered as a
+     * handler to unlock the device given an NFC tag at the lockscreen.
+     * @hide
      */
-    public interface NfcLockscreenDispatch {
-        public boolean onTagDetected(Tag tag);
+    @SystemApi
+    public interface NfcUnlockHandler {
+        /**
+         * Called at the lock screen to attempt to unlock the device with the given tag.
+         * @param tag the detected tag, to be used to unlock the device
+         * @return true if the device was successfully unlocked
+         */
+        public boolean onUnlockAttempted(Tag tag);
     }
 
 
@@ -523,6 +532,8 @@ public final class NfcAdapter {
     NfcAdapter(Context context) {
         mContext = context;
         mNfcActivityManager = new NfcActivityManager(this);
+        mNfcUnlockHandlers = new HashMap<NfcUnlockHandler, INfcUnlockHandler>();
+        mLock = new Object();
     }
 
     /**
@@ -652,6 +663,7 @@ public final class NfcAdapter {
      *
      * @hide
      */
+    @SystemApi
     public boolean enable() {
         try {
             return sService.enable();
@@ -679,13 +691,54 @@ public final class NfcAdapter {
      *
      * @hide
      */
-
+    @SystemApi
     public boolean disable() {
         try {
             return sService.disable(true);
         } catch (RemoteException e) {
             attemptDeadServiceRecovery(e);
             return false;
+        }
+    }
+
+    /**
+     * Disable NFC hardware.
+     * @hide
+    */
+    @SystemApi
+    public boolean disable(boolean persist) {
+        try {
+            return sService.disable(persist);
+        } catch (RemoteException e) {
+            attemptDeadServiceRecovery(e);
+            return false;
+        }
+    }
+
+    /**
+     * Pauses polling for a {@code timeoutInMs} millis. If polling must be resumed before timeout,
+     * use {@link #resumePolling()}.
+     * @hide
+     */
+    public void pausePolling(int timeoutInMs) {
+        try {
+            sService.pausePolling(timeoutInMs);
+        } catch (RemoteException e) {
+            attemptDeadServiceRecovery(e);
+        }
+    }
+
+    /**
+     * Resumes default polling for the current device state if polling is paused. Calling
+     * this while polling is not paused is a no-op.
+     *
+     * @hide
+     */
+    public void resumePolling() {
+        try {
+            sService.resumePolling();
+        } catch (RemoteException e) {
+            attemptDeadServiceRecovery(e);
         }
     }
 
@@ -932,6 +985,7 @@ public final class NfcAdapter {
     /**
      * @hide
      */
+    @SystemApi
     public void setNdefPushMessage(NdefMessage message, Activity activity, int flags) {
         if (activity == null) {
             throw new NullPointerException("activity cannot be null");
@@ -1359,6 +1413,7 @@ public final class NfcAdapter {
      * <p>This API is for the Settings application.
      * @hide
      */
+    @SystemApi
     public boolean enableNdefPush() {
         try {
             return sService.enableNdefPush();
@@ -1373,6 +1428,7 @@ public final class NfcAdapter {
      * <p>This API is for the Settings application.
      * @hide
      */
+    @SystemApi
     public boolean disableNdefPush() {
         try {
             return sService.disableNdefPush();
@@ -1443,15 +1499,48 @@ public final class NfcAdapter {
         }
     }
 
-    public boolean registerLockscreenDispatch(final NfcLockscreenDispatch lockscreenDispatch,
-                                           String[] techList) {
+    /**
+     * Registers a new NFC unlock handler with the NFC service.
+     *
+     * <p />NFC unlock handlers are intended to unlock the keyguard in the presence of a trusted
+     * NFC device. The handler should return true if it successfully authenticates the user and
+     * unlocks the keyguard.
+     *
+     * <p /> The parameter {@code tagTechnologies} determines which Tag technologies will be polled for
+     * at the lockscreen. Polling for less tag technologies reduces latency, and so it is
+     * strongly recommended to only provide the Tag technologies that the handler is expected to
+     * receive. There must be at least one tag technology provided, otherwise the unlock handler
+     * is ignored.
+     *
+     * @hide
+     */
+    @SystemApi
+    public boolean addNfcUnlockHandler(final NfcUnlockHandler unlockHandler,
+                                       String[] tagTechnologies) {
+        // If there are no tag technologies, don't bother adding unlock handler
+        if (tagTechnologies.length == 0) {
+            return false;
+        }
+
         try {
-            sService.registerLockscreenDispatch(new INfcLockscreenDispatch.Stub() {
-                @Override
-                public boolean onTagDetected(Tag tag) throws RemoteException {
-                    return lockscreenDispatch.onTagDetected(tag);
+            synchronized (mLock) {
+                if (mNfcUnlockHandlers.containsKey(unlockHandler)) {
+                    // update the tag technologies
+                    sService.removeNfcUnlockHandler(mNfcUnlockHandlers.get(unlockHandler));
+                    mNfcUnlockHandlers.remove(unlockHandler);
                 }
-            }, Tag.techListFromStrings(techList));
+
+                INfcUnlockHandler.Stub iHandler = new INfcUnlockHandler.Stub() {
+                    @Override
+                    public boolean onUnlockAttempted(Tag tag) throws RemoteException {
+                        return unlockHandler.onUnlockAttempted(tag);
+                    }
+                };
+
+                sService.addNfcUnlockHandler(iHandler,
+                        Tag.getTechCodesFromStrings(tagTechnologies));
+                mNfcUnlockHandlers.put(unlockHandler, iHandler);
+            }
         } catch (RemoteException e) {
             attemptDeadServiceRecovery(e);
             return false;
@@ -1461,6 +1550,28 @@ public final class NfcAdapter {
         }
 
         return true;
+    }
+
+    /**
+     * Removes a previously registered unlock handler. Also removes the tag technologies
+     * associated with the removed unlock handler.
+     *
+     * @hide
+     */
+    @SystemApi
+    public boolean removeNfcUnlockHandler(NfcUnlockHandler unlockHandler) {
+        try {
+            synchronized (mLock) {
+                if (mNfcUnlockHandlers.containsKey(unlockHandler)) {
+                    sService.removeNfcUnlockHandler(mNfcUnlockHandlers.remove(unlockHandler));
+                }
+
+                return true;
+            }
+        } catch (RemoteException e) {
+            attemptDeadServiceRecovery(e);
+            return false;
+        }
     }
 
     /**

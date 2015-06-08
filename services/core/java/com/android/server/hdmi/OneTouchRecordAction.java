@@ -16,30 +16,115 @@
 
 package com.android.server.hdmi;
 
+import static android.hardware.hdmi.HdmiControlManager.ONE_TOUCH_RECORD_CHECK_RECORDER_CONNECTION;
+import static android.hardware.hdmi.HdmiControlManager.ONE_TOUCH_RECORD_RECORDING_ANALOGUE_SERVICE;
+import static android.hardware.hdmi.HdmiControlManager.ONE_TOUCH_RECORD_RECORDING_CURRENTLY_SELECTED_SOURCE;
+import static android.hardware.hdmi.HdmiControlManager.ONE_TOUCH_RECORD_RECORDING_DIGITAL_SERVICE;
+import static android.hardware.hdmi.HdmiControlManager.ONE_TOUCH_RECORD_RECORDING_EXTERNAL_INPUT;
+
+import android.util.Slog;
+
+import com.android.server.hdmi.HdmiControlService.SendMessageCallback;
+
 /**
  * Feature action that performs one touch record.
- * This class only provides a skeleton of one touch play and has no detail implementaion.
  */
-public class OneTouchRecordAction extends FeatureAction {
-    private final int mRecorderAddress;
+public class OneTouchRecordAction extends HdmiCecFeatureAction {
+    private static final String TAG = "OneTouchRecordAction";
 
-    OneTouchRecordAction(HdmiCecLocalDevice source, int recorderAddress) {
+    // Timer out for waiting <Record Status> 120s
+    private static final int RECORD_STATUS_TIMEOUT_MS = 120000;
+
+    // State that waits for <Record Status> once sending <Record On>
+    private static final int STATE_WAITING_FOR_RECORD_STATUS = 1;
+    // State that describes recording in progress.
+    private static final int STATE_RECORDING_IN_PROGRESS = 2;
+
+    private final int mRecorderAddress;
+    private final byte[] mRecordSource;
+
+    OneTouchRecordAction(HdmiCecLocalDevice source, int recorderAddress, byte[] recordSource) {
         super(source);
         mRecorderAddress = recorderAddress;
+        mRecordSource = recordSource;
     }
 
     @Override
     boolean start() {
-        return false;
+        sendRecordOn();
+        return true;
+    }
+
+    private void sendRecordOn() {
+        sendCommand(HdmiCecMessageBuilder.buildRecordOn(getSourceAddress(), mRecorderAddress,
+                mRecordSource),
+                new SendMessageCallback() {
+                @Override
+                    public void onSendCompleted(int error) {
+                        // if failed to send <Record On>, display error message and finish action.
+                        if (error != Constants.SEND_RESULT_SUCCESS) {
+                            tv().announceOneTouchRecordResult(
+                                    mRecorderAddress,
+                                    ONE_TOUCH_RECORD_CHECK_RECORDER_CONNECTION);
+                            finish();
+                            return;
+                        }
+                    }
+                });
+        mState = STATE_WAITING_FOR_RECORD_STATUS;
+        addTimer(mState, RECORD_STATUS_TIMEOUT_MS);
     }
 
     @Override
     boolean processCommand(HdmiCecMessage cmd) {
+        if (mState != STATE_WAITING_FOR_RECORD_STATUS || mRecorderAddress != cmd.getSource()) {
+            return false;
+        }
+
+        switch (cmd.getOpcode()) {
+            case Constants.MESSAGE_RECORD_STATUS:
+                return handleRecordStatus(cmd);
+        }
         return false;
+    }
+
+    private boolean handleRecordStatus(HdmiCecMessage cmd) {
+        // Only handle message coming from original recorder.
+        if (cmd.getSource() != mRecorderAddress) {
+            return false;
+        }
+
+        int recordStatus = cmd.getParams()[0];
+        tv().announceOneTouchRecordResult(mRecorderAddress, recordStatus);
+        Slog.i(TAG, "Got record status:" + recordStatus + " from " + cmd.getSource());
+
+        // If recording started successfully, change state and keep this action until <Record Off>
+        // received. Otherwise, finish action.
+        switch (recordStatus) {
+            case ONE_TOUCH_RECORD_RECORDING_CURRENTLY_SELECTED_SOURCE:
+            case ONE_TOUCH_RECORD_RECORDING_DIGITAL_SERVICE:
+            case ONE_TOUCH_RECORD_RECORDING_ANALOGUE_SERVICE:
+            case ONE_TOUCH_RECORD_RECORDING_EXTERNAL_INPUT:
+                mState = STATE_RECORDING_IN_PROGRESS;
+                mActionTimer.clearTimerMessage();
+                break;
+            default:
+                finish();
+                break;
+        }
+        return true;
     }
 
     @Override
     void handleTimerEvent(int state) {
+        if (mState != state) {
+            Slog.w(TAG, "Timeout in invalid state:[Expected:" + mState + ", Actual:" + state + "]");
+            return;
+        }
+
+        tv().announceOneTouchRecordResult(mRecorderAddress,
+                ONE_TOUCH_RECORD_CHECK_RECORDER_CONNECTION);
+        finish();
     }
 
     int getRecorderAddress() {

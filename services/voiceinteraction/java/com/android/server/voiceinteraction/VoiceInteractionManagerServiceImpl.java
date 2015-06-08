@@ -253,7 +253,7 @@ class VoiceInteractionManagerServiceImpl {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
             return mAm.startVoiceActivity(mComponent.getPackageName(), callingPid, callingUid,
                     intent, resolvedType, mActiveSession.mSession, mActiveSession.mInteractor,
-                    0, null, null, null, mUser);
+                    0, null, null, mUser);
         } catch (RemoteException e) {
             throw new IllegalStateException("Unexpected remote error", e);
         }
@@ -300,12 +300,31 @@ class VoiceInteractionManagerServiceImpl {
     }
 
     void shutdownLocked() {
+        try {
+            if (mService != null) {
+                mService.shutdown();
+            }
+        } catch (RemoteException e) {
+            Slog.w(TAG, "RemoteException in shutdown", e);
+        }
+
         if (mBound) {
             mContext.unbindService(mConnection);
             mBound = false;
         }
         if (mValid) {
             mContext.unregisterReceiver(mBroadcastReceiver);
+        }
+    }
+
+    void notifySoundModelsChangedLocked() {
+        if (mService == null) {
+            Slog.w(TAG, "Not bound to voice interaction service " + mComponent);
+        }
+        try {
+            mService.soundModelsChanged();
+        } catch (RemoteException e) {
+            Slog.w(TAG, "RemoteException while calling soundModelsChanged", e);
         }
     }
 }

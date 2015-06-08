@@ -17,19 +17,18 @@ package com.android.server.hdmi;
 
 import android.hardware.hdmi.HdmiControlManager;
 import android.hardware.hdmi.IHdmiControlCallback;
+import android.hardware.hdmi.HdmiPlaybackClient.OneTouchPlayCallback;
 import android.os.RemoteException;
 import android.util.Slog;
 
 /**
- * Feature action that performs one touch play against TV/Display device.
- *
- * This action is initiated via {@link HdmiControlManager#oneTouchPlay()} from
- * the Android system working as playback device to turn on the TV, and switch the input.
- *
- * <p>Package-private, accessed by {@link HdmiControlService} only.
+ * Feature action that performs one touch play against TV/Display device. This action is initiated
+ * via {@link android.hardware.hdmi.HdmiPlaybackClient#oneTouchPlay(OneTouchPlayCallback)} from the
+ * Android system working as playback device to turn on the TV, and switch the input.
+ * <p>
+ * Package-private, accessed by {@link HdmiControlService} only.
  */
-
-final class OneTouchPlayAction extends FeatureAction {
+final class OneTouchPlayAction extends HdmiCecFeatureAction {
     private static final String TAG = "OneTouchPlayAction";
 
     // State in which the action is waiting for <Report Power Status>. In normal situation
@@ -83,7 +82,7 @@ final class OneTouchPlayAction extends FeatureAction {
     private void broadcastActiveSource() {
         sendCommand(HdmiCecMessageBuilder.buildActiveSource(getSourceAddress(), getSourcePath()));
         // Because only playback device can create this action, it's safe to cast.
-        playback().markActiveSource();
+        playback().setActiveSource(true);
     }
 
     private void queryDevicePowerStatus() {
@@ -93,7 +92,8 @@ final class OneTouchPlayAction extends FeatureAction {
 
     @Override
     boolean processCommand(HdmiCecMessage cmd) {
-        if (mState != STATE_WAITING_FOR_REPORT_POWER_STATUS) {
+        if (mState != STATE_WAITING_FOR_REPORT_POWER_STATUS
+                || mTargetAddress != cmd.getSource()) {
             return false;
         }
         if (cmd.getOpcode() == Constants.MESSAGE_REPORT_POWER_STATUS) {

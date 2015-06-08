@@ -18,9 +18,12 @@ package android.widget;
 
 import com.android.internal.R;
 
+import android.annotation.Nullable;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
+import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.Gravity;
@@ -41,10 +44,18 @@ import android.view.accessibility.AccessibilityNodeInfo;
  */
 public class CheckedTextView extends TextView implements Checkable {
     private boolean mChecked;
+
     private int mCheckMarkResource;
     private Drawable mCheckMarkDrawable;
+    private ColorStateList mCheckMarkTintList = null;
+    private PorterDuff.Mode mCheckMarkTintMode = null;
+    private boolean mHasCheckMarkTint = false;
+    private boolean mHasCheckMarkTintMode = false;
+
     private int mBasePadding;
     private int mCheckMarkWidth;
+    private int mCheckMarkGravity = Gravity.END;
+
     private boolean mNeedRequestlayout;
 
     private static final int[] CHECKED_STATE_SET = {
@@ -69,15 +80,30 @@ public class CheckedTextView extends TextView implements Checkable {
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.CheckedTextView, defStyleAttr, defStyleRes);
 
-        Drawable d = a.getDrawable(R.styleable.CheckedTextView_checkMark);
+        final Drawable d = a.getDrawable(R.styleable.CheckedTextView_checkMark);
         if (d != null) {
             setCheckMarkDrawable(d);
         }
 
-        boolean checked = a.getBoolean(R.styleable.CheckedTextView_checked, false);
+        if (a.hasValue(R.styleable.CheckedTextView_checkMarkTintMode)) {
+            mCheckMarkTintMode = Drawable.parseTintMode(a.getInt(
+                    R.styleable.CheckedTextView_checkMarkTintMode, -1), mCheckMarkTintMode);
+            mHasCheckMarkTintMode = true;
+        }
+
+        if (a.hasValue(R.styleable.CheckedTextView_checkMarkTint)) {
+            mCheckMarkTintList = a.getColorStateList(R.styleable.CheckedTextView_checkMarkTint);
+            mHasCheckMarkTint = true;
+        }
+
+        mCheckMarkGravity = a.getInt(R.styleable.CheckedTextView_checkMarkGravity, Gravity.END);
+
+        final boolean checked = a.getBoolean(R.styleable.CheckedTextView_checked, false);
         setChecked(checked);
 
         a.recycle();
+
+        applyCheckMarkTint();
     }
 
     public void toggle() {
@@ -153,6 +179,7 @@ public class CheckedTextView extends TextView implements Checkable {
 
             mCheckMarkWidth = d.getIntrinsicWidth();
             d.setState(getDrawableState());
+            applyCheckMarkTint();
         } else {
             mCheckMarkWidth = 0;
         }
@@ -161,6 +188,92 @@ public class CheckedTextView extends TextView implements Checkable {
         // Do padding resolution. This will call internalSetPadding() and do a
         // requestLayout() if needed.
         resolvePadding();
+    }
+
+    /**
+     * Applies a tint to the check mark drawable. Does not modify the
+     * current tint mode, which is {@link PorterDuff.Mode#SRC_IN} by default.
+     * <p>
+     * Subsequent calls to {@link #setCheckMarkDrawable(Drawable)} will
+     * automatically mutate the drawable and apply the specified tint and
+     * tint mode using
+     * {@link Drawable#setTintList(ColorStateList)}.
+     *
+     * @param tint the tint to apply, may be {@code null} to clear tint
+     *
+     * @attr ref android.R.styleable#CheckedTextView_checkMarkTint
+     * @see #getCheckMarkTintList()
+     * @see Drawable#setTintList(ColorStateList)
+     */
+    public void setCheckMarkTintList(@Nullable ColorStateList tint) {
+        mCheckMarkTintList = tint;
+        mHasCheckMarkTint = true;
+
+        applyCheckMarkTint();
+    }
+
+    /**
+     * Returns the tint applied to the check mark drawable, if specified.
+     *
+     * @return the tint applied to the check mark drawable
+     * @attr ref android.R.styleable#CheckedTextView_checkMarkTint
+     * @see #setCheckMarkTintList(ColorStateList)
+     */
+    @Nullable
+    public ColorStateList getCheckMarkTintList() {
+        return mCheckMarkTintList;
+    }
+
+    /**
+     * Specifies the blending mode used to apply the tint specified by
+     * {@link #setCheckMarkTintList(ColorStateList)} to the check mark
+     * drawable. The default mode is {@link PorterDuff.Mode#SRC_IN}.
+     *
+     * @param tintMode the blending mode used to apply the tint, may be
+     *                 {@code null} to clear tint
+     * @attr ref android.R.styleable#CheckedTextView_checkMarkTintMode
+     * @see #setCheckMarkTintList(ColorStateList)
+     * @see Drawable#setTintMode(PorterDuff.Mode)
+     */
+    public void setCheckMarkTintMode(@Nullable PorterDuff.Mode tintMode) {
+        mCheckMarkTintMode = tintMode;
+        mHasCheckMarkTintMode = true;
+
+        applyCheckMarkTint();
+    }
+
+    /**
+     * Returns the blending mode used to apply the tint to the check mark
+     * drawable, if specified.
+     *
+     * @return the blending mode used to apply the tint to the check mark
+     *         drawable
+     * @attr ref android.R.styleable#CheckedTextView_checkMarkTintMode
+     * @see #setCheckMarkTintMode(PorterDuff.Mode)
+     */
+    @Nullable
+    public PorterDuff.Mode getCheckMarkTintMode() {
+        return mCheckMarkTintMode;
+    }
+
+    private void applyCheckMarkTint() {
+        if (mCheckMarkDrawable != null && (mHasCheckMarkTint || mHasCheckMarkTintMode)) {
+            mCheckMarkDrawable = mCheckMarkDrawable.mutate();
+
+            if (mHasCheckMarkTint) {
+                mCheckMarkDrawable.setTintList(mCheckMarkTintList);
+            }
+
+            if (mHasCheckMarkTintMode) {
+                mCheckMarkDrawable.setTintMode(mCheckMarkTintMode);
+            }
+
+            // The drawable (or one of its children) may not have been
+            // stateful before applying the tint, so let's try again.
+            if (mCheckMarkDrawable.isStateful()) {
+                mCheckMarkDrawable.setState(getDrawableState());
+            }
+        }
     }
 
     @RemotableViewMethod
@@ -207,7 +320,7 @@ public class CheckedTextView extends TextView implements Checkable {
     @Override
     protected void internalSetPadding(int left, int top, int right, int bottom) {
         super.internalSetPadding(left, top, right, bottom);
-        setBasePadding(isLayoutRtl());
+        setBasePadding(isCheckMarkAtStart());
     }
 
     @Override
@@ -220,7 +333,7 @@ public class CheckedTextView extends TextView implements Checkable {
         resetPaddingToInitialValues();
         int newPadding = (mCheckMarkDrawable != null) ?
                 mCheckMarkWidth + mBasePadding : mBasePadding;
-        if (isLayoutRtl()) {
+        if (isCheckMarkAtStart()) {
             mNeedRequestlayout |= (mPaddingLeft != newPadding);
             mPaddingLeft = newPadding;
         } else {
@@ -233,12 +346,18 @@ public class CheckedTextView extends TextView implements Checkable {
         }
     }
 
-    private void setBasePadding(boolean isLayoutRtl) {
-        if (isLayoutRtl) {
+    private void setBasePadding(boolean checkmarkAtStart) {
+        if (checkmarkAtStart) {
             mBasePadding = mPaddingLeft;
         } else {
             mBasePadding = mPaddingRight;
         }
+    }
+
+    private boolean isCheckMarkAtStart() {
+        final int gravity = Gravity.getAbsoluteGravity(mCheckMarkGravity, getLayoutDirection());
+        final int hgrav = gravity & Gravity.HORIZONTAL_GRAVITY_MASK;
+        return hgrav == Gravity.LEFT;
     }
 
     @Override
@@ -261,13 +380,13 @@ public class CheckedTextView extends TextView implements Checkable {
                     break;
             }
             
-            final boolean isLayoutRtl = isLayoutRtl();
+            final boolean checkMarkAtStart = isCheckMarkAtStart();
             final int width = getWidth();
             final int top = y;
             final int bottom = top + height;
             final int left;
             final int right;
-            if (isLayoutRtl) {
+            if (checkMarkAtStart) {
                 left = mBasePadding;
                 right = left + mCheckMarkWidth;
             } else {

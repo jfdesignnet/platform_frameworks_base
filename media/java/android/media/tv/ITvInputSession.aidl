@@ -19,6 +19,7 @@ package android.media.tv;
 import android.graphics.Rect;
 import android.media.tv.TvTrackInfo;
 import android.net.Uri;
+import android.os.Bundle;
 import android.view.Surface;
 
 /**
@@ -28,16 +29,21 @@ import android.view.Surface;
 oneway interface ITvInputSession {
     void release();
 
+    void setMain(boolean isMain);
     void setSurface(in Surface surface);
+    void dispatchSurfaceChanged(int format, int width, int height);
     // TODO: Remove this once it becomes irrelevant for applications to handle audio focus. The plan
     // is to introduce some new concepts that will solve a number of problems in audio policy today.
     void setVolume(float volume);
-    void tune(in Uri channelUri);
+    void tune(in Uri channelUri, in Bundle params);
     void setCaptionEnabled(boolean enabled);
-    void selectTrack(in TvTrackInfo track);
-    void unselectTrack(in TvTrackInfo track);
+    void selectTrack(int type, in String trackId);
+
+    void appPrivateCommand(in String action, in Bundle data);
 
     void createOverlayView(in IBinder windowToken, in Rect frame);
     void relayoutOverlayView(in Rect frame);
     void removeOverlayView();
+
+    void requestUnblockContent(in String unblockedRating);
 }

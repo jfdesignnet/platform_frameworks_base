@@ -30,6 +30,7 @@ import android.hardware.camera2.marshal.impl.MarshalQueryableBoolean;
 import android.hardware.camera2.marshal.impl.MarshalQueryableBlackLevelPattern;
 import android.hardware.camera2.marshal.impl.MarshalQueryableColorSpaceTransform;
 import android.hardware.camera2.marshal.impl.MarshalQueryableEnum;
+import android.hardware.camera2.marshal.impl.MarshalQueryableHighSpeedVideoConfiguration;
 import android.hardware.camera2.marshal.impl.MarshalQueryableMeteringRectangle;
 import android.hardware.camera2.marshal.impl.MarshalQueryableNativeByteToInteger;
 import android.hardware.camera2.marshal.impl.MarshalQueryablePair;
@@ -45,6 +46,7 @@ import android.hardware.camera2.marshal.impl.MarshalQueryableStreamConfiguration
 import android.hardware.camera2.marshal.impl.MarshalQueryableStreamConfigurationDuration;
 import android.hardware.camera2.marshal.impl.MarshalQueryableString;
 import android.hardware.camera2.params.Face;
+import android.hardware.camera2.params.HighSpeedVideoConfiguration;
 import android.hardware.camera2.params.LensShadingMap;
 import android.hardware.camera2.params.StreamConfiguration;
 import android.hardware.camera2.params.StreamConfigurationDuration;
@@ -225,6 +227,7 @@ public class CameraMetadataNative implements Parcelable {
 
     private static final String CELLID_PROCESS = "CELLID";
     private static final String GPS_PROCESS = "GPS";
+    private static final int FACE_LANDMARK_SIZE = 6;
 
     private static String translateLocationProviderToProcess(final String provider) {
         if (provider == null) {
@@ -345,7 +348,7 @@ public class CameraMetadataNative implements Parcelable {
         // Check if key has been overridden to use a wrapper class on the java side.
         GetCommand g = sGetCommandMap.get(key);
         if (g != null) {
-            return (T) g.getValue(this, key);
+            return g.getValue(this, key);
         }
         return getBase(key);
     }
@@ -475,7 +478,7 @@ public class CameraMetadataNative implements Parcelable {
                     @Override
                     @SuppressWarnings("unchecked")
                     public <T> T getValue(CameraMetadataNative metadata, Key<T> key) {
-                        return (T) metadata.getFaceRectangles();
+                        return (T) metadata.getFaces();
                     }
                 });
         sGetCommandMap.put(
@@ -483,7 +486,7 @@ public class CameraMetadataNative implements Parcelable {
                     @Override
                     @SuppressWarnings("unchecked")
                     public <T> T getValue(CameraMetadataNative metadata, Key<T> key) {
-                        return (T) metadata.getFaces();
+                        return (T) metadata.getFaceRectangles();
                     }
                 });
         sGetCommandMap.put(
@@ -585,10 +588,81 @@ public class CameraMetadataNative implements Parcelable {
         return availableFormats;
     }
 
-    private Face[] getFaces() {
-        final int FACE_LANDMARK_SIZE = 6;
+    private boolean setFaces(Face[] faces) {
+        if (faces == null) {
+            return false;
+        }
 
+        int numFaces = faces.length;
+
+        // Detect if all faces are SIMPLE or not; count # of valid faces
+        boolean fullMode = true;
+        for (Face face : faces) {
+            if (face == null) {
+                numFaces--;
+                Log.w(TAG, "setFaces - null face detected, skipping");
+                continue;
+            }
+
+            if (face.getId() == Face.ID_UNSUPPORTED) {
+                fullMode = false;
+            }
+        }
+
+        Rect[] faceRectangles = new Rect[numFaces];
+        byte[] faceScores = new byte[numFaces];
+        int[] faceIds = null;
+        int[] faceLandmarks = null;
+
+        if (fullMode) {
+            faceIds = new int[numFaces];
+            faceLandmarks = new int[numFaces * FACE_LANDMARK_SIZE];
+        }
+
+        int i = 0;
+        for (Face face : faces) {
+            if (face == null) {
+                continue;
+            }
+
+            faceRectangles[i] = face.getBounds();
+            faceScores[i] = (byte)face.getScore();
+
+            if (fullMode) {
+                faceIds[i] = face.getId();
+
+                int j = 0;
+
+                faceLandmarks[i * FACE_LANDMARK_SIZE + j++] = face.getLeftEyePosition().x;
+                faceLandmarks[i * FACE_LANDMARK_SIZE + j++] = face.getLeftEyePosition().y;
+                faceLandmarks[i * FACE_LANDMARK_SIZE + j++] = face.getRightEyePosition().x;
+                faceLandmarks[i * FACE_LANDMARK_SIZE + j++] = face.getRightEyePosition().y;
+                faceLandmarks[i * FACE_LANDMARK_SIZE + j++] = face.getMouthPosition().x;
+                faceLandmarks[i * FACE_LANDMARK_SIZE + j++] = face.getMouthPosition().y;
+            }
+
+            i++;
+        }
+
+        set(CaptureResult.STATISTICS_FACE_RECTANGLES, faceRectangles);
+        set(CaptureResult.STATISTICS_FACE_IDS, faceIds);
+        set(CaptureResult.STATISTICS_FACE_LANDMARKS, faceLandmarks);
+        set(CaptureResult.STATISTICS_FACE_SCORES, faceScores);
+
+        return true;
+    }
+
+    private Face[] getFaces() {
         Integer faceDetectMode = get(CaptureResult.STATISTICS_FACE_DETECT_MODE);
+        byte[] faceScores = get(CaptureResult.STATISTICS_FACE_SCORES);
+        Rect[] faceRectangles = get(CaptureResult.STATISTICS_FACE_RECTANGLES);
+        int[] faceIds = get(CaptureResult.STATISTICS_FACE_IDS);
+        int[] faceLandmarks = get(CaptureResult.STATISTICS_FACE_LANDMARKS);
+
+        if (areValuesAllNull(faceDetectMode, faceScores, faceRectangles, faceIds, faceLandmarks)) {
+            return null;
+        }
+
         if (faceDetectMode == null) {
             Log.w(TAG, "Face detect mode metadata is null, assuming the mode is SIMPLE");
             faceDetectMode = CaptureResult.STATISTICS_FACE_DETECT_MODE_SIMPLE;
@@ -604,8 +678,6 @@ public class CameraMetadataNative implements Parcelable {
         }
 
         // Face scores and rectangles are required by SIMPLE and FULL mode.
-        byte[] faceScores = get(CaptureResult.STATISTICS_FACE_SCORES);
-        Rect[] faceRectangles = get(CaptureResult.STATISTICS_FACE_RECTANGLES);
         if (faceScores == null || faceRectangles == null) {
             Log.w(TAG, "Expect face scores and rectangles to be non-null");
             return new Face[0];
@@ -617,8 +689,6 @@ public class CameraMetadataNative implements Parcelable {
         // To be safe, make number of faces is the minimal of all face info metadata length.
         int numFaces = Math.min(faceScores.length, faceRectangles.length);
         // Face id and landmarks are only required by FULL mode.
-        int[] faceIds = get(CaptureResult.STATISTICS_FACE_IDS);
-        int[] faceLandmarks = get(CaptureResult.STATISTICS_FACE_LANDMARKS);
         if (faceDetectMode == CaptureResult.STATISTICS_FACE_DETECT_MODE_FULL) {
             if (faceIds == null || faceLandmarks == null) {
                 Log.w(TAG, "Expect face ids and landmarks to be non-null for FULL mode," +
@@ -651,9 +721,12 @@ public class CameraMetadataNative implements Parcelable {
                 if (faceScores[i] <= Face.SCORE_MAX &&
                         faceScores[i] >= Face.SCORE_MIN &&
                         faceIds[i] >= 0) {
-                    Point leftEye = new Point(faceLandmarks[i*6], faceLandmarks[i*6+1]);
-                    Point rightEye = new Point(faceLandmarks[i*6+2], faceLandmarks[i*6+3]);
-                    Point mouth = new Point(faceLandmarks[i*6+4], faceLandmarks[i*6+5]);
+                    Point leftEye = new Point(faceLandmarks[i*FACE_LANDMARK_SIZE],
+                            faceLandmarks[i*FACE_LANDMARK_SIZE+1]);
+                    Point rightEye = new Point(faceLandmarks[i*FACE_LANDMARK_SIZE+2],
+                            faceLandmarks[i*FACE_LANDMARK_SIZE+3]);
+                    Point mouth = new Point(faceLandmarks[i*FACE_LANDMARK_SIZE+4],
+                            faceLandmarks[i*FACE_LANDMARK_SIZE+5]);
                     Face face = new Face(faceRectangles[i], faceScores[i], faceIds[i],
                             leftEye, rightEye, mouth);
                     faceList.add(face);
@@ -686,22 +759,32 @@ public class CameraMetadataNative implements Parcelable {
 
     private LensShadingMap getLensShadingMap() {
         float[] lsmArray = getBase(CaptureResult.STATISTICS_LENS_SHADING_MAP);
+        Size s = get(CameraCharacteristics.LENS_INFO_SHADING_MAP_SIZE);
+
+        // Do not warn if lsmArray is null while s is not. This is valid.
         if (lsmArray == null) {
-            Log.w(TAG, "getLensShadingMap - Lens shading map was null.");
             return null;
         }
-        Size s = get(CameraCharacteristics.LENS_INFO_SHADING_MAP_SIZE);
+
+        if (s == null) {
+            Log.w(TAG, "getLensShadingMap - Lens shading map size was null.");
+            return null;
+        }
+
         LensShadingMap map = new LensShadingMap(lsmArray, s.getHeight(), s.getWidth());
         return map;
     }
 
     private Location getGpsLocation() {
         String processingMethod = get(CaptureResult.JPEG_GPS_PROCESSING_METHOD);
-        Location l = new Location(translateProcessToLocationProvider(processingMethod));
-
         double[] coords = get(CaptureResult.JPEG_GPS_COORDINATES);
         Long timeStamp = get(CaptureResult.JPEG_GPS_TIMESTAMP);
 
+        if (areValuesAllNull(processingMethod, coords, timeStamp)) {
+            return null;
+        }
+
+        Location l = new Location(translateProcessToLocationProvider(processingMethod));
         if (timeStamp != null) {
             l.setTime(timeStamp);
         } else {
@@ -747,8 +830,11 @@ public class CameraMetadataNative implements Parcelable {
                 CameraCharacteristics.SCALER_AVAILABLE_MIN_FRAME_DURATIONS);
         StreamConfigurationDuration[] stallDurations = getBase(
                 CameraCharacteristics.SCALER_AVAILABLE_STALL_DURATIONS);
+        HighSpeedVideoConfiguration[] highSpeedVideoConfigurations = getBase(
+                CameraCharacteristics.CONTROL_AVAILABLE_HIGH_SPEED_VIDEO_CONFIGURATIONS);
 
-        return new StreamConfigurationMap(configurations, minFrameDurations, stallDurations);
+        return new StreamConfigurationMap(
+                configurations, minFrameDurations, stallDurations, highSpeedVideoConfigurations);
     }
 
     private <T> Integer getMaxRegions(Key<T> key) {
@@ -801,7 +887,13 @@ public class CameraMetadataNative implements Parcelable {
         float[] red = getBase(CaptureRequest.TONEMAP_CURVE_RED);
         float[] green = getBase(CaptureRequest.TONEMAP_CURVE_GREEN);
         float[] blue = getBase(CaptureRequest.TONEMAP_CURVE_BLUE);
+
+        if (areValuesAllNull(red, green, blue)) {
+            return null;
+        }
+
         if (red == null || green == null || blue == null) {
+            Log.w(TAG, "getTonemapCurve - missing tone curve components");
             return null;
         }
         TonemapCurve tc = new TonemapCurve(red, green, blue);
@@ -858,6 +950,13 @@ public class CameraMetadataNative implements Parcelable {
             @Override
             public <T> void setValue(CameraMetadataNative metadata, T value) {
                 metadata.setFaceRectangles((Rect[]) value);
+            }
+        });
+        sSetCommandMap.put(CaptureResult.STATISTICS_FACES.getNativeKey(),
+                new SetCommand() {
+            @Override
+            public <T> void setValue(CameraMetadataNative metadata, T value) {
+                metadata.setFaces((Face[])value);
             }
         });
         sSetCommandMap.put(CaptureRequest.TONEMAP_CURVE.getNativeKey(), new SetCommand() {
@@ -1115,6 +1214,7 @@ public class CameraMetadataNative implements Parcelable {
                 new MarshalQueryableStreamConfigurationDuration(),
                 new MarshalQueryableRggbChannelVector(),
                 new MarshalQueryableBlackLevelPattern(),
+                new MarshalQueryableHighSpeedVideoConfiguration(),
 
                 // generic parcelable marshaler (MUST BE LAST since it has lowest priority)
                 new MarshalQueryableParcelable(),
@@ -1126,6 +1226,18 @@ public class CameraMetadataNative implements Parcelable {
         if (VERBOSE) {
             Log.v(TAG, "Registered metadata marshalers");
         }
+    }
+
+    /** Check if input arguments are all {@code null}.
+     *
+     * @param objs Input arguments for null check
+     * @return {@code true} if input arguments are all {@code null}, otherwise {@code false}
+     */
+    private static boolean areValuesAllNull(Object... objs) {
+        for (Object o : objs) {
+            if (o != null) return false;
+        }
+        return true;
     }
 
     static {

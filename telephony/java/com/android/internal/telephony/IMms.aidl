@@ -19,6 +19,7 @@ package com.android.internal.telephony;
 import android.app.PendingIntent;
 import android.content.ContentValues;
 import android.net.Uri;
+import android.os.Bundle;
 
 /**
  * Service interface to handle MMS API requests
@@ -29,13 +30,17 @@ interface IMms {
      *
      * @param subId the SIM id
      * @param callingPkg the package name of the calling app
-     * @param pdu the MMS message encoded in standard MMS PDU format
+     * @param contentUri the content uri from which to read MMS message encoded in standard MMS
+     *  PDU format
      * @param locationUrl the optional location url for where this message should be sent to
+     * @param configOverrides the carrier-specific messaging configuration values to override for
+     *  sending the message. See {@link android.telephony.MessagingConfigurationManager} for the
+     *  value names and types.
      * @param sentIntent if not NULL this <code>PendingIntent</code> is
      *  broadcast when the message is successfully sent, or failed
      */
-    void sendMessage(long subId, String callingPkg, in byte[] pdu, String locationUrl,
-            in PendingIntent sentIntent);
+    void sendMessage(int subId, String callingPkg, in Uri contentUri,
+            String locationUrl, in Bundle configOverrides, in PendingIntent sentIntent);
 
     /**
      * Download an MMS message using known location and transaction id
@@ -44,84 +49,23 @@ interface IMms {
      * @param callingPkg the package name of the calling app
      * @param locationUrl the location URL of the MMS message to be downloaded, usually obtained
      *  from the MMS WAP push notification
+     * @param contentUri a contentUri to which the downloaded MMS message will be written
+     * @param configOverrides the carrier-specific messaging configuration values to override for
+     *  downloading the message. See {@link android.telephony.MessagingConfigurationManager} for the
+     *  value names and types.
      * @param downloadedIntent if not NULL this <code>PendingIntent</code> is
      *  broadcast when the message is downloaded, or the download is failed
      */
-    void downloadMessage(long subId, String callingPkg, String locationUrl,
+    void downloadMessage(int subId, String callingPkg, String locationUrl,
+            in Uri contentUri, in Bundle configOverrides,
             in PendingIntent downloadedIntent);
 
     /**
-     * Update the status of a pending (send-by-IP) MMS message handled by the carrier app.
-     * If the carrier app fails to send this message, it would be resent via carrier network.
+     * Get carrier-dependent configuration values.
      *
-     * @param messageRef the reference number of the MMS message.
-     * @param success True if and only if the message was sent successfully. If its value is
-     *  false, this message should be resent via carrier network
+     * @param subId the SIM id
      */
-    void updateMmsSendStatus(int messageRef, boolean success);
-
-    /**
-     * Update the status of a pending (download-by-IP) MMS message handled by the carrier app.
-     * If the carrier app fails to download this message, it would be re-downloaded via carrier
-     * network.
-     *
-     * @param messageRef the reference number of the MMS message.
-     * @param pdu non-empty if downloaded successfully, otherwise, it is empty and the message
-     *  will be downloaded via carrier network
-     */
-    void updateMmsDownloadStatus(int messageRef, in byte[] pdu);
-
-    /**
-     * Get carrier-dependent configuration value as boolean. For example, if multipart SMS
-     * is supported.
-     *
-     * @param name the configuration name
-     * @param defaultValue the default value if fail to find the name
-     */
-    boolean getCarrierConfigBoolean(String name, boolean defaultValue);
-
-    /**
-     * Get carrier-dependent configuration value as int. For example, the MMS message size limit.
-     *
-     * @param name the configuration name
-     * @param defaultValue the default value if fail to find the name
-     */
-    int getCarrierConfigInt(String name, int defaultValue);
-
-    /**
-     * Get carrier-dependent configuration value as String. For example, extra HTTP headers for
-     * MMS request.
-     *
-     * @param name the configuration name
-     * @param defaultValue the default value if fail to find the name
-     */
-    String getCarrierConfigString(String name, String defaultValue);
-
-    /**
-     * Set carrier-dependent configuration value as boolean. For example, if multipart SMS
-     * is supported.
-     *
-     * @param name the configuration name
-     * @param value the configuration value
-     */
-    void setCarrierConfigBoolean(String callingPkg, String name, boolean value);
-
-    /**
-     * Set carrier-dependent configuration value as int. For example, the MMS message size limit.
-     *
-     * @param name the configuration name
-     * @param value the configuration value
-     */
-    void setCarrierConfigInt(String callingPkg, String name, int value);
-
-    /**
-     * Set carrier-dependent configuration value as String. For example, extra HTTP headers for
-     * MMS request.
-     *
-     * @param name the configuration name
-     * @param value the configuration value
-     */
-    void setCarrierConfigString(String callingPkg, String name, String value);
+    Bundle getCarrierConfigValues(int subId);
 
     /**
      * Import a text message into system's SMS store
@@ -142,14 +86,14 @@ interface IMms {
       * Import a multimedia message into system's MMS store
       *
       * @param callingPkg the package name of the calling app
-      * @param pdu the PDU of the message to import
+      * @param contentUri the content uri from which to read PDU of the message to import
       * @param messageId the optional message id
       * @param timestampSecs the message timestamp in seconds
       * @param seen if the message is seen
       * @param read if the message is read
       * @return the message URI, null if failed
       */
-    Uri importMultimediaMessage(String callingPkg, in byte[] pdu, String messageId,
+    Uri importMultimediaMessage(String callingPkg, in Uri contentUri, String messageId,
             long timestampSecs, boolean seen, boolean read);
 
     /**
@@ -183,6 +127,16 @@ interface IMms {
             in ContentValues statusValues);
 
     /**
+     * Archive or unarchive a stored conversation
+     *
+     * @param callingPkg the package name of the calling app
+     * @param conversationId the ID of the message conversation
+     * @param archived true to archive the conversation, false otherwise
+     * @return true if update is successful, false otherwise
+     */
+    boolean archiveStoredConversation(String callingPkg, long conversationId, boolean archived);
+
+    /**
      * Add a text message draft to system SMS store
      *
      * @param callingPkg the package name of the calling app
@@ -196,10 +150,10 @@ interface IMms {
      * Add a multimedia message draft to system MMS store
      *
      * @param callingPkg the package name of the calling app
-     * @param pdu the PDU data of the draft MMS
+     * @param contentUri the content Uri from which to read PDU data of the draft MMS
      * @return the URI of the stored draft message
      */
-    Uri addMultimediaMessageDraft(String callingPkg, in byte[] pdu);
+    Uri addMultimediaMessageDraft(String callingPkg, in Uri contentUri);
 
     /**
      * Send a system stored MMS message
@@ -210,11 +164,14 @@ interface IMms {
      * @param subId the SIM id
      * @param callingPkg the package name of the calling app
      * @param messageUri the URI of the stored message
+     * @param configOverrides the carrier-specific messaging configuration values to override for
+     *  sending the message. See {@link android.telephony.MessagingConfigurationManager} for the
+     *  value names and types.
      * @param sentIntent if not NULL this <code>PendingIntent</code> is
      *  broadcast when the message is successfully sent, or failed
      */
-    void sendStoredMessage(long subId, String callingPkg, in Uri messageUri,
-            in PendingIntent sentIntent);
+    void sendStoredMessage(int subId, String callingPkg, in Uri messageUri,
+            in Bundle configOverrides, in PendingIntent sentIntent);
 
     /**
      * Turns on/off the flag to automatically write sent/received SMS/MMS messages into system

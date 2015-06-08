@@ -16,7 +16,7 @@
 
 package com.android.server.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.hardware.hdmi.HdmiControlManager;
 import android.hardware.hdmi.HdmiTvClient;
 import android.hardware.hdmi.IHdmiControlCallback;
@@ -32,7 +32,7 @@ import com.android.server.hdmi.HdmiControlService.SendMessageCallback;
  * for a new active source. It does its best to wake up the target in standby mode
  * before issuing the command &gt;Set Stream path&lt;.
  */
-final class DeviceSelectAction extends FeatureAction {
+final class DeviceSelectAction extends HdmiCecFeatureAction {
     private static final String TAG = "DeviceSelect";
 
     // Time in milliseconds we wait for the device power status to switch to 'Standby'
@@ -40,9 +40,6 @@ final class DeviceSelectAction extends FeatureAction {
 
     // Time in milliseconds we wait for the device power status to turn to 'On'.
     private static final int TIMEOUT_POWER_ON_MS = 5 * 1000;
-
-    // Time in milliseconds we wait for <Active Source>.
-    private static final int TIMEOUT_ACTIVE_SOURCE_MS = 20 * 1000;
 
     // The number of times we try to wake up the target device before we give up
     // and just send <Set Stream Path>.
@@ -61,12 +58,7 @@ final class DeviceSelectAction extends FeatureAction {
     // maximum 100 seconds (20 * 5) before we give up and just send <Set Stream Path>.
     private static final int STATE_WAIT_FOR_DEVICE_POWER_ON = 3;
 
-    // State in which we wait for the <Active Source> in response to the command
-    // <Set Stream Path> we have sent. We wait as much as TIMEOUT_ACTIVE_SOURCE_MS
-    // before we give up and mark the action as failure.
-    private static final int STATE_WAIT_FOR_ACTIVE_SOURCE = 4;
-
-    private final HdmiCecDeviceInfo mTarget;
+    private final HdmiDeviceInfo mTarget;
     private final IHdmiControlCallback mCallback;
     private final HdmiCecMessage mGivePowerStatus;
 
@@ -80,7 +72,7 @@ final class DeviceSelectAction extends FeatureAction {
      * @param callback callback object
      */
     public DeviceSelectAction(HdmiCecLocalDeviceTv source,
-            HdmiCecDeviceInfo target, IHdmiControlCallback callback) {
+            HdmiDeviceInfo target, IHdmiControlCallback callback) {
         super(source);
         mCallback = callback;
         mTarget = target;
@@ -103,7 +95,7 @@ final class DeviceSelectAction extends FeatureAction {
         sendCommand(mGivePowerStatus, new SendMessageCallback() {
             @Override
             public void onSendCompleted(int error) {
-                if (error == Constants.SEND_RESULT_NAK) {
+                if (error != Constants.SEND_RESULT_SUCCESS) {
                     invokeCallback(HdmiControlManager.RESULT_COMMUNICATION_FAILED);
                     finish();
                     return;
@@ -126,16 +118,6 @@ final class DeviceSelectAction extends FeatureAction {
             case STATE_WAIT_FOR_REPORT_POWER_STATUS:
                 if (opcode == Constants.MESSAGE_REPORT_POWER_STATUS) {
                     return handleReportPowerStatus(params[0]);
-                }
-                return false;
-            case STATE_WAIT_FOR_ACTIVE_SOURCE:
-                if (opcode == Constants.MESSAGE_ACTIVE_SOURCE) {
-                    int activePath = HdmiUtils.twoBytesToInt(params);
-                    ActiveSourceHandler
-                            .create((HdmiCecLocalDeviceTv) localDevice(), mCallback)
-                            .process(cmd.getSource(), activePath);
-                    finish();
-                    return true;
                 }
                 return false;
             default:
@@ -186,10 +168,14 @@ final class DeviceSelectAction extends FeatureAction {
     }
 
     private void sendSetStreamPath() {
+        // Turn the active source invalidated, which remains so till <Active Source> comes from
+        // the selected device.
+        tv().getActiveSource().invalidate();
+        tv().setActivePath(mTarget.getPhysicalAddress());
         sendCommand(HdmiCecMessageBuilder.buildSetStreamPath(
                 getSourceAddress(), mTarget.getPhysicalAddress()));
-        mState = STATE_WAIT_FOR_ACTIVE_SOURCE;
-        addTimer(mState, TIMEOUT_ACTIVE_SOURCE_MS);
+        invokeCallback(HdmiControlManager.RESULT_SUCCESS);
+        finish();
     }
 
     @Override
@@ -211,10 +197,6 @@ final class DeviceSelectAction extends FeatureAction {
             case STATE_WAIT_FOR_DEVICE_POWER_ON:
                 mPowerStatusCounter++;
                 queryDevicePowerStatus();
-                break;
-            case STATE_WAIT_FOR_ACTIVE_SOURCE:
-                invokeCallback(HdmiControlManager.RESULT_TIMEOUT);
-                finish();
                 break;
         }
     }

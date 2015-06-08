@@ -234,9 +234,9 @@ status_t parseStyledString(Bundle* bundle,
             const String8 element8(element16);
 
             size_t nslen;
-            const uint16_t* ns = inXml->getElementNamespace(&nslen);
+            const char16_t* ns = inXml->getElementNamespace(&nslen);
             if (ns == NULL) {
-                ns = (const uint16_t*)"\0\0";
+                ns = (const char16_t*)"\0\0";
                 nslen = 0;
             }
             const String8 nspace(String16(ns, nslen));
@@ -291,9 +291,9 @@ moveon:
 
         } else if (code == ResXMLTree::END_TAG) {
             size_t nslen;
-            const uint16_t* ns = inXml->getElementNamespace(&nslen);
+            const char16_t* ns = inXml->getElementNamespace(&nslen);
             if (ns == NULL) {
-                ns = (const uint16_t*)"\0\0";
+                ns = (const char16_t*)"\0\0";
                 nslen = 0;
             }
             const String8 nspace(String16(ns, nslen));
@@ -422,7 +422,7 @@ static String8 make_prefix(int depth)
 }
 
 static String8 build_namespace(const Vector<namespace_entry>& namespaces,
-        const uint16_t* ns)
+        const char16_t* ns)
 {
     String8 str;
     if (ns != NULL) {
@@ -453,9 +453,9 @@ void printXMLBlock(ResXMLTree* block)
         int i;
         if (code == ResXMLTree::START_TAG) {
             size_t len;
-            const uint16_t* ns16 = block->getElementNamespace(&len);
+            const char16_t* ns16 = block->getElementNamespace(&len);
             String8 elemNs = build_namespace(namespaces, ns16);
-            const uint16_t* com16 = block->getComment(&len);
+            const char16_t* com16 = block->getComment(&len);
             if (com16) {
                 printf("%s <!-- %s -->\n", prefix.string(), String8(com16).string());
             }
@@ -503,7 +503,7 @@ void printXMLBlock(ResXMLTree* block)
         } else if (code == ResXMLTree::START_NAMESPACE) {
             namespace_entry ns;
             size_t len;
-            const uint16_t* prefix16 = block->getNamespacePrefix(&len);
+            const char16_t* prefix16 = block->getNamespacePrefix(&len);
             if (prefix16) {
                 ns.prefix = String8(prefix16);
             } else {
@@ -518,7 +518,7 @@ void printXMLBlock(ResXMLTree* block)
             depth--;
             const namespace_entry& ns = namespaces.top();
             size_t len;
-            const uint16_t* prefix16 = block->getNamespacePrefix(&len);
+            const char16_t* prefix16 = block->getNamespacePrefix(&len);
             String8 pr;
             if (prefix16) {
                 pr = String8(prefix16);
@@ -620,6 +620,12 @@ sp<XMLNode> XMLNode::parse(const sp<AaptFile>& file)
     close(fd);
     return state.root;
 }
+
+XMLNode::XMLNode()
+    : mNextAttributeIndex(0x80000000)
+    , mStartLineNumber(0)
+    , mEndLineNumber(0)
+    , mUTF8(false) {}
 
 XMLNode::XMLNode(const String8& filename, const String16& s1, const String16& s2, bool isNamespace)
     : mNextAttributeIndex(0x80000000)
@@ -806,6 +812,32 @@ status_t XMLNode::addAttribute(const String16& ns, const String16& name,
         e.string = value;
         mAttributes.add(e);
         mAttributeOrder.add(e.index, mAttributes.size()-1);
+    }
+    return NO_ERROR;
+}
+
+status_t XMLNode::removeAttribute(size_t index)
+{
+    if (getType() == TYPE_CDATA) {
+        return UNKNOWN_ERROR;
+    }
+
+    if (index >= mAttributes.size()) {
+        return UNKNOWN_ERROR;
+    }
+
+    const attribute_entry& e = mAttributes[index];
+    const uint32_t key = e.nameResId ? e.nameResId : e.index;
+    mAttributeOrder.removeItem(key);
+    mAttributes.removeAt(index);
+
+    // Shift all the indices.
+    const size_t attrCount = mAttributeOrder.size();
+    for (size_t i = 0; i < attrCount; i++) {
+        size_t attrIdx = mAttributeOrder[i];
+        if (attrIdx > index) {
+            mAttributeOrder.replaceValueAt(i, attrIdx - 1);
+        }
     }
     return NO_ERROR;
 }
@@ -997,6 +1029,30 @@ status_t XMLNode::assignResourceIds(const sp<AaptAssets>& assets,
     }
 
     return hasErrors ? UNKNOWN_ERROR : NO_ERROR;
+}
+
+sp<XMLNode> XMLNode::clone() const {
+    sp<XMLNode> copy = new XMLNode();
+    copy->mNamespacePrefix = mNamespacePrefix;
+    copy->mNamespaceUri = mNamespaceUri;
+    copy->mElementName = mElementName;
+
+    const size_t childCount = mChildren.size();
+    for (size_t i = 0; i < childCount; i++) {
+        copy->mChildren.add(mChildren[i]->clone());
+    }
+
+    copy->mAttributes = mAttributes;
+    copy->mAttributeOrder = mAttributeOrder;
+    copy->mNextAttributeIndex = mNextAttributeIndex;
+    copy->mChars = mChars;
+    memcpy(&copy->mCharsValue, &mCharsValue, sizeof(mCharsValue));
+    copy->mComment = mComment;
+    copy->mFilename = mFilename;
+    copy->mStartLineNumber = mStartLineNumber;
+    copy->mEndLineNumber = mEndLineNumber;
+    copy->mUTF8 = mUTF8;
+    return copy;
 }
 
 status_t XMLNode::flatten(const sp<AaptFile>& dest,

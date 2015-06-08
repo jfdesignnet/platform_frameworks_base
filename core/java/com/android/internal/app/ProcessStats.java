@@ -1079,7 +1079,9 @@ public final class ProcessStats implements Parcelable {
         ProcessDataCollection totals = new ProcessDataCollection(screenStates,
                 memStates, procStates);
         computeProcessData(proc, totals, now);
-        if (totals.totalTime != 0 || totals.numPss != 0) {
+        double percentage = (double) totals.totalTime / (double) totalTime * 100;
+        // We don't print percentages < .01, so just drop those.
+        if (percentage >= 0.005 || totals.numPss != 0) {
             if (prefix != null) {
                 pw.print(prefix);
             }
@@ -2159,13 +2161,14 @@ public final class ProcessStats implements Parcelable {
             boolean dumpAll, boolean activeOnly) {
         long totalTime = dumpSingleTime(null, null, mMemFactorDurations, mMemFactor,
                 mStartTime, now);
+        boolean sepNeeded = false;
         if (mSysMemUsageTable != null) {
             pw.println("System memory usage:");
             dumpSysMemUsage(pw, "  ", ALL_SCREEN_ADJ, ALL_MEM_ADJ);
+            sepNeeded = true;
         }
         ArrayMap<String, SparseArray<SparseArray<PackageState>>> pkgMap = mPackages.getMap();
         boolean printedHeader = false;
-        boolean sepNeeded = false;
         for (int ip=0; ip<pkgMap.size(); ip++) {
             final String pkgName = pkgMap.keyAt(ip);
             final SparseArray<SparseArray<PackageState>> uids = pkgMap.valueAt(ip);
@@ -2193,6 +2196,7 @@ public final class ProcessStats implements Parcelable {
                     }
                     if (NPROCS > 0 || NSRVS > 0) {
                         if (!printedHeader) {
+                            if (sepNeeded) pw.println();
                             pw.println("Per-Package Stats:");
                             printedHeader = true;
                             sepNeeded = true;
@@ -2468,7 +2472,7 @@ public final class ProcessStats implements Parcelable {
                 totalMem.totalTime, totalPss, totalMem.sysMemSamples);
         totalPss = printMemoryCategory(pw, "  ", "Free   ", totalMem.sysMemFreeWeight,
                 totalMem.totalTime, totalPss, totalMem.sysMemSamples);
-        totalPss = printMemoryCategory(pw, "  ", "Z-Ram   ", totalMem.sysMemZRamWeight,
+        totalPss = printMemoryCategory(pw, "  ", "Z-Ram  ", totalMem.sysMemZRamWeight,
                 totalMem.totalTime, totalPss, totalMem.sysMemSamples);
         pw.print("  TOTAL  : ");
         printSizeValue(pw, totalPss);
@@ -2744,6 +2748,7 @@ public final class ProcessStats implements Parcelable {
         pw.print("total");
         dumpAdjTimesCheckin(pw, ",", mMemFactorDurations, mMemFactor,
                 mStartTime, now);
+        pw.println();
         if (mSysMemUsageTable != null) {
             pw.print("sysmemusage");
             for (int i=0; i<mSysMemUsageTableSize; i++) {
@@ -3568,6 +3573,10 @@ public final class ProcessStats implements Parcelable {
 
         public boolean isInUse() {
             return mOwner != null || mRestarting;
+        }
+
+        public boolean isRestarting() {
+            return mRestarting;
         }
 
         void add(ServiceState other) {

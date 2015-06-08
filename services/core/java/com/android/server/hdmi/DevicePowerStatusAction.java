@@ -17,20 +17,20 @@ package com.android.server.hdmi;
  */
 
 import android.hardware.hdmi.HdmiControlManager;
+import android.hardware.hdmi.HdmiPlaybackClient;
+import android.hardware.hdmi.HdmiPlaybackClient.DisplayStatusCallback;
 import android.hardware.hdmi.IHdmiControlCallback;
 import android.os.RemoteException;
 import android.util.Slog;
 
 /**
- * Feature action that queries the power status of other device.
- *
- * This action is initiated via {@link HdmiControlManager#queryDisplayStatus()} from
- * the Android system working as playback device to get the power status of TV device.
- *
- * <p>Package-private, accessed by {@link HdmiControlService} only.
+ * Feature action that queries the power status of other device. This action is initiated via
+ * {@link HdmiPlaybackClient#queryDisplayStatus(DisplayStatusCallback)} from the Android system
+ * working as playback device to get the power status of TV device.
+ * <p>
+ * Package-private, accessed by {@link HdmiControlService} only.
  */
-
-final class DevicePowerStatusAction extends FeatureAction {
+final class DevicePowerStatusAction extends HdmiCecFeatureAction {
     private static final String TAG = "DevicePowerStatusAction";
 
     // State in which the action is waiting for <Report Power Status>.
@@ -70,7 +70,8 @@ final class DevicePowerStatusAction extends FeatureAction {
 
     @Override
     boolean processCommand(HdmiCecMessage cmd) {
-        if (mState != STATE_WAITING_FOR_REPORT_POWER_STATUS) {
+        if (mState != STATE_WAITING_FOR_REPORT_POWER_STATUS
+               || mTargetAddress != cmd.getSource()) {
             return false;
         }
         if (cmd.getOpcode() == Constants.MESSAGE_REPORT_POWER_STATUS) {

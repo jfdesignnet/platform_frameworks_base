@@ -84,15 +84,23 @@ public class TvStatusBar extends BaseStatusBar {
     }
 
     @Override
-    public void setHardKeyboardStatus(boolean available, boolean enabled) {
-    }
-
-    @Override
     public void toggleRecentApps() {
     }
 
     @Override // CommandQueue
     public void setWindowState(int window, int state) {
+    }
+
+    @Override // CommandQueue
+    public void buzzBeepBlinked() {
+    }
+
+    @Override // CommandQueue
+    public void notificationLightOff() {
+    }
+
+    @Override // CommandQueue
+    public void notificationLightPulse(int argb, int onMillis, int offMillis) {
     }
 
     @Override
@@ -169,5 +177,9 @@ public class TvStatusBar extends BaseStatusBar {
 
     @Override
     public void onActivationReset(ActivatableNotificationView view) {
+    }
+
+    @Override
+    public void showScreenPinningRequest() {
     }
 }

@@ -49,6 +49,10 @@ LayerCache::~LayerCache() {
 // Size management
 ///////////////////////////////////////////////////////////////////////////////
 
+size_t LayerCache::getCount() {
+    return mCache.size();
+}
+
 uint32_t LayerCache::getSize() {
     return mSize;
 }
@@ -79,7 +83,8 @@ void LayerCache::deleteLayer(Layer* layer) {
         LAYER_LOGD("Destroying layer %dx%d, fbo %d", layer->getWidth(), layer->getHeight(),
                 layer->getFbo());
         mSize -= layer->getWidth() * layer->getHeight() * 4;
-        Caches::getInstance().resourceCache.decrementRefcount(layer);
+        layer->state = Layer::kState_DeletedFromCache;
+        layer->decStrong(0);
     }
 }
 
@@ -102,13 +107,14 @@ Layer* LayerCache::get(RenderState& renderState, const uint32_t width, const uin
         mCache.removeAt(index);
 
         layer = entry.mLayer;
+        layer->state = Layer::kState_RemovedFromCache;
         mSize -= layer->getWidth() * layer->getHeight() * 4;
 
         LAYER_LOGD("Reusing layer %dx%d", layer->getWidth(), layer->getHeight());
     } else {
         LAYER_LOGD("Creating new layer %dx%d", entry.mWidth, entry.mHeight);
 
-        layer = new Layer(renderState, entry.mWidth, entry.mHeight);
+        layer = new Layer(Layer::kType_DisplayList, renderState, entry.mWidth, entry.mHeight);
         layer->setBlend(true);
         layer->setEmpty(true);
         layer->setFbo(0);
@@ -162,8 +168,11 @@ bool LayerCache::put(Layer* layer) {
         mCache.add(entry);
         mSize += size;
 
+        layer->state = Layer::kState_InCache;
         return true;
     }
+
+    layer->state = Layer::kState_FailedToCache;
     return false;
 }
 

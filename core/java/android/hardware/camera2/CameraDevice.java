@@ -130,15 +130,6 @@ public abstract class CameraDevice implements AutoCloseable {
     public abstract String getId();
 
     /**
-     * <p>Set up a new output set of Surfaces for the camera device.</p>
-     *
-     * @deprecated Use {@link #createCaptureSession} instead
-     * @hide
-     */
-    @Deprecated
-    public abstract void configureOutputs(List<Surface> outputs) throws CameraAccessException;
-
-    /**
      * <p>Create a new camera capture session by providing the target output set of Surfaces to the
      * camera device.</p>
      *
@@ -156,20 +147,20 @@ public abstract class CameraDevice implements AutoCloseable {
      * <ul>
      *
      * <li>For drawing to a {@link android.view.SurfaceView SurfaceView}: Once the SurfaceView's
-     *   Surface is {@link android.view.SurfaceHolder.Callback#surfaceCreated created}, set the
-     *   size of the Surface with {@link android.view.SurfaceHolder#setFixedSize} to be one of the
-     *   sizes returned by
-     *   {@link StreamConfigurationMap#getOutputSizes(Class) getOutputSizes(SurfaceHolder.class)}
-     *   and then obtain the Surface by calling {@link android.view.SurfaceHolder#getSurface}.</li>
+     *   Surface is {@link android.view.SurfaceHolder.Callback#surfaceCreated created}, set the size
+     *   of the Surface with {@link android.view.SurfaceHolder#setFixedSize} to be one of the sizes
+     *   returned by {@link StreamConfigurationMap#getOutputSizes(Class)
+     *   getOutputSizes(SurfaceHolder.class)} and then obtain the Surface by calling {@link
+     *   android.view.SurfaceHolder#getSurface}. If the size is not set by the application, it will
+     *   be rounded to the nearest supported size less than 1080p, by the camera device.</li>
      *
-     * <li>For accessing through an OpenGL texture via a
-     *   {@link android.graphics.SurfaceTexture SurfaceTexture}: Set the size of
-     *   the SurfaceTexture with
-     *   {@link android.graphics.SurfaceTexture#setDefaultBufferSize} to be one
-     *   of the sizes returned by
+     * <li>For accessing through an OpenGL texture via a {@link android.graphics.SurfaceTexture
+     *   SurfaceTexture}: Set the size of the SurfaceTexture with {@link
+     *   android.graphics.SurfaceTexture#setDefaultBufferSize} to be one of the sizes returned by
      *   {@link StreamConfigurationMap#getOutputSizes(Class) getOutputSizes(SurfaceTexture.class)}
-     *   before creating a Surface from the SurfaceTexture with
-     *   {@link Surface#Surface}.</li>
+     *   before creating a Surface from the SurfaceTexture with {@link Surface#Surface}. If the size
+     *   is not set by the application, it will be set to be the smallest supported size less than
+     *   1080p, by the camera device.</li>
      *
      * <li>For recording with {@link android.media.MediaCodec}: Call
      *   {@link android.media.MediaCodec#createInputSurface} after configuring
@@ -198,6 +189,8 @@ public abstract class CameraDevice implements AutoCloseable {
      *   corresponding supported sizes by passing the chosen output format into
      *   {@link StreamConfigurationMap#getOutputSizes(int)}. Then obtain a
      *   {@link android.view.Surface} from it with {@link android.media.ImageReader#getSurface()}.
+     *   If the ImageReader size is not set to a supported size, it will be rounded to a supported
+     *   size less than 1080p by the camera device.
      *   </li>
      *
      * </ul>
@@ -208,8 +201,8 @@ public abstract class CameraDevice implements AutoCloseable {
      * <p>It can take several hundred milliseconds for the session's configuration to complete,
      * since camera hardware may need to be powered on or reconfigured. Once the configuration is
      * complete and the session is ready to actually capture data, the provided
-     * {@link CameraCaptureSession.StateListener}'s
-     * {@link CameraCaptureSession.StateListener#onConfigured} callback will be called.</p>
+     * {@link CameraCaptureSession.StateCallback}'s
+     * {@link CameraCaptureSession.StateCallback#onConfigured} callback will be called.</p>
      *
      * <p>If a prior CameraCaptureSession already exists when a new one is created, the previous
      * session is closed. Any in-progress capture requests made on the prior session will be
@@ -225,14 +218,154 @@ public abstract class CameraDevice implements AutoCloseable {
      * <p>Configuring a session with an empty or null list will close the current session, if
      * any. This can be used to release the current session's target surfaces for another use.</p>
      *
+     * <p>While any of the sizes from {@link StreamConfigurationMap#getOutputSizes} can be used when
+     * a single output stream is configured, a given camera device may not be able to support all
+     * combination of sizes, formats, and targets when multiple outputs are configured at once.  The
+     * tables below list the maximum guaranteed resolutions for combinations of streams and targets,
+     * given the capabilities of the camera device.</p>
+     *
+     * <p>If an application tries to create a session using a set of targets that exceed the limits
+     * described in the below tables, one of three possibilities may occur. First, the session may
+     * be successfully created and work normally. Second, the session may be successfully created,
+     * but the camera device won't meet the frame rate guarantees as described in
+     * {@link StreamConfigurationMap#getOutputMinFrameDuration}. Or third, if the output set
+     * cannot be used at all, session creation will fail entirely, with
+     * {@link CameraCaptureSession.StateListener#onConfigureFailed} being invoked.</p>
+     *
+     * <p>For the type column, {@code PRIV} refers to any target whose available sizes are found
+     * using {@link StreamConfigurationMap#getOutputSizes(Class)} with no direct application-visible
+     * format, {@code YUV} refers to a target Surface using the
+     * {@link android.graphics.ImageFormat#YUV_420_888} format, {@code JPEG} refers to the
+     * {@link android.graphics.ImageFormat#JPEG} format, and {@code RAW} refers to the
+     * {@link android.graphics.ImageFormat#RAW_SENSOR} format.</p>
+     *
+     * <p>For the maximum size column, {@code PREVIEW} refers to the best size match to the
+     * device's screen resolution, or to 1080p ({@code 1920x1080}), whichever is
+     * smaller. {@code RECORD} refers to the camera device's maximum supported recording resolution,
+     * as determined by {@link android.media.CamcorderProfile}. And {@code MAXIMUM} refers to the
+     * camera device's maximum output resolution for that format or target from
+     * {@link StreamConfigurationMap#getOutputSizes}.</p>
+     *
+     * <p>To use these tables, determine the number and the formats/targets of outputs needed, and
+     * find the row(s) of the table with those targets. The sizes indicate the maximum set of sizes
+     * that can be used; it is guaranteed that for those targets, the listed sizes and anything
+     * smaller from the list given by {@link StreamConfigurationMap#getOutputSizes} can be
+     * successfully used to create a session.  For example, if a row indicates that a 8 megapixel
+     * (MP) YUV_420_888 output can be used together with a 2 MP {@code PRIV} output, then a session
+     * can be created with targets {@code [8 MP YUV, 2 MP PRIV]} or targets {@code [2 MP YUV, 2 MP
+     * PRIV]}; but a session with targets {@code [8 MP YUV, 4 MP PRIV]}, targets {@code [4 MP YUV, 4
+     * MP PRIV]}, or targets {@code [8 MP PRIV, 2 MP YUV]} would not be guaranteed to work, unless
+     * some other row of the table lists such a combination.</p>
+     *
+     * <style scoped>
+     *  #rb { border-right-width: thick; }
+     * </style>
+     * <p>Legacy devices ({@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL}
+     * {@code == }{@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY LEGACY}) support at
+     * least the following stream combinations:
+     *
+     * <table>
+     * <tr><th colspan="7">LEGACY-level guaranteed configurations</th></tr>
+     * <tr> <th colspan="2" id="rb">Target 1</th> <th colspan="2" id="rb">Target 2</th>  <th colspan="2" id="rb">Target 3</th> <th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr> <th>Type</th><th id="rb">Max size</th> <th>Type</th><th id="rb">Max size</th> <th>Type</th><th id="rb">Max size</th></tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td colspan="2" id="rb"></td> <td>Simple preview, GPU video processing, or no-preview video recording.</td> </tr>
+     * <tr> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td colspan="2" id="rb"></td> <td>No-viewfinder still image capture.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td colspan="2" id="rb"></td> <td>In-application video/image processing.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td>Standard still imaging.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td>In-app processing plus still capture.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td colspan="2" id="rb"></td> <td>Standard recording.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td colspan="2" id="rb"></td> <td>Preview plus in-app processing.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>Still capture plus in-app processing.</td> </tr>
+     * </table><br>
+     * </p>
+     *
+     * <p>Limited-capability ({@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL}
+     * {@code == }{@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED}) devices
+     * support at least the following stream combinations in addition to those for
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY LEGACY} devices:
+     *
+     * <table>
+     * <tr><th colspan="7">LIMITED-level additional guaranteed configurations</th></tr>
+     * <tr><th colspan="2" id="rb">Target 1</th><th colspan="2" id="rb">Target 2</th><th colspan="2" id="rb">Target 3</th> <th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th></tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code PRIV}</td><td id="rb">{@code RECORD }</td> <td colspan="2" id="rb"></td> <td>High-resolution video recording with preview.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code RECORD }</td> <td colspan="2" id="rb"></td> <td>High-resolution in-app video processing with preview.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code RECORD }</td> <td colspan="2" id="rb"></td> <td>Two-input in-app video processing.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code PRIV}</td><td id="rb">{@code RECORD }</td> <td>{@code JPEG}</td><td id="rb">{@code RECORD }</td> <td>High-resolution recording with video snapshot.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code RECORD }</td> <td>{@code JPEG}</td><td id="rb">{@code RECORD }</td> <td>High-resolution in-app processing with video snapshot.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>Two-input in-app processing with still capture.</td> </tr>
+     * </table><br>
+     * </p>
+     *
+     * <p>FULL-capability ({@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL}
+     * {@code == }{@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_FULL FULL}) devices
+     * support at least the following stream combinations in addition to those for
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED} devices:
+     *
+     * <table>
+     * <tr><th colspan="7">FULL-capability additional guaranteed configurations</th></tr>
+     * <tr><th colspan="2" id="rb">Target 1</th><th colspan="2" id="rb">Target 2</th><th colspan="2" id="rb">Target 3</th> <th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code PRIV}</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td>Maximum-resolution GPU processing with preview.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td>Maximum-resolution in-app processing with preview.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td>Maximum-resolution two-input in-app processsing.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>Video recording with maximum-size video snapshot</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code 640x480}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code MAXIMUM}</td> <td>Standard video recording plus maximum-resolution in-app processing.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code 640x480}</td> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code MAXIMUM}</td> <td>Preview plus two-input maximum-resolution in-app processing.</td> </tr>
+     * </table><br>
+     * </p>
+     *
+     * <p>RAW-capability ({@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES} includes
+     * {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_RAW RAW}) devices additionally support
+     * at least the following stream combinations on both
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_FULL FULL} and
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED} devices:
+     *
+     * <table>
+     * <tr><th colspan="7">RAW-capability additional guaranteed configurations</th></tr>
+     * <tr><th colspan="2" id="rb">Target 1</th><th colspan="2" id="rb">Target 2</th><th colspan="2" id="rb">Target 3</th> <th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th> </tr>
+     * <tr> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td colspan="2" id="rb"></td> <td>No-preview DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td>Standard DNG capture.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td colspan="2" id="rb"></td> <td>In-app processing plus DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td>Video recording with DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td>Preview with in-app processing and DNG capture.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td>Two-input in-app processing plus DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td>Still capture with simultaneous JPEG and DNG.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code RAW }</td><td id="rb">{@code MAXIMUM}</td> <td>In-app processing with simultaneous JPEG and DNG.</td> </tr>
+     * </table><br>
+     * </p>
+     *
+     * <p>BURST-capability ({@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES} includes
+     * {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE BURST_CAPTURE}) devices
+     * support at least the below stream combinations in addition to those for
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED} devices. Note that all
+     * FULL-level devices support the BURST capability, and the below list is a strict subset of the
+     * list for FULL-level devices, so this table is only relevant for LIMITED-level devices that
+     * support the BURST_CAPTURE capability.
+     *
+     * <table>
+     * <tr><th colspan="5">BURST-capability additional guaranteed configurations</th></tr>
+     * <tr><th colspan="2" id="rb">Target 1</th><th colspan="2" id="rb">Target 2</th><th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code PRIV}</td><td id="rb">{@code MAXIMUM}</td> <td>Maximum-resolution GPU processing with preview.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code MAXIMUM}</td> <td>Maximum-resolution in-app processing with preview.</td> </tr>
+     * <tr> <td>{@code YUV }</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV }</td><td id="rb">{@code MAXIMUM}</td> <td>Maximum-resolution two-input in-app processsing.</td> </tr>
+     * </table><br>
+     * </p>
+     *
+     * <p>Since the capabilities of camera devices vary greatly, a given camera device may support
+     * target combinations with sizes outside of these guarantees, but this can only be tested for
+     * by attempting to create a session with such targets.</p>
+     *
      * @param outputs The new set of Surfaces that should be made available as
      *                targets for captured image data.
-     * @param listener The listener to notify about the status of the new capture session.
-     * @param handler The handler on which the listener should be invoked, or {@code null} to use
+     * @param callback The callback to notify about the status of the new capture session.
+     * @param handler The handler on which the callback should be invoked, or {@code null} to use
      *                the current thread's {@link android.os.Looper looper}.
      *
      * @throws IllegalArgumentException if the set of output Surfaces do not meet the requirements,
-     *                                  the listener is null, or the handler is null but the current
+     *                                  the callback is null, or the handler is null but the current
      *                                  thread has no looper.
      * @throws CameraAccessException if the camera device is no longer connected or has
      *                               encountered a fatal error
@@ -244,7 +377,7 @@ public abstract class CameraDevice implements AutoCloseable {
      * @see StreamConfigurationMap#getOutputSizes(Class)
      */
     public abstract void createCaptureSession(List<Surface> outputs,
-            CameraCaptureSession.StateListener listener, Handler handler)
+            CameraCaptureSession.StateCallback callback, Handler handler)
             throws CameraAccessException;
 
     /**
@@ -276,76 +409,14 @@ public abstract class CameraDevice implements AutoCloseable {
             throws CameraAccessException;
 
     /**
-     * <p>Submit a request for an image to be captured by this CameraDevice.</p>
-     *
-     * @deprecated Use {@link CameraCaptureSession#capture} instead
-     * @hide
-     */
-    @Deprecated
-    public abstract int capture(CaptureRequest request, CaptureListener listener, Handler handler)
-            throws CameraAccessException;
-
-    /**
-     * Submit a list of requests to be captured in sequence as a burst.
-     *
-     * @deprecated Use {@link CameraCaptureSession#captureBurst} instead
-     * @hide
-     */
-    @Deprecated
-    public abstract int captureBurst(List<CaptureRequest> requests, CaptureListener listener,
-            Handler handler) throws CameraAccessException;
-
-    /**
-     * Request endlessly repeating capture of images by this CameraDevice.
-     *
-     * @deprecated Use {@link CameraCaptureSession#setRepeatingRequest} instead
-     * @hide
-     */
-    @Deprecated
-    public abstract int setRepeatingRequest(CaptureRequest request, CaptureListener listener,
-            Handler handler) throws CameraAccessException;
-
-    /**
-     * <p>Request endlessly repeating capture of a sequence of images by this
-     * CameraDevice.</p>
-     *
-     * @deprecated Use {@link CameraCaptureSession#setRepeatingBurst} instead
-     * @hide
-     */
-    @Deprecated
-    public abstract int setRepeatingBurst(List<CaptureRequest> requests, CaptureListener listener,
-            Handler handler) throws CameraAccessException;
-
-    /**
-     * <p>Cancel any ongoing repeating capture set by either
-     * {@link #setRepeatingRequest setRepeatingRequest} or
-     * {@link #setRepeatingBurst}.
-     *
-     * @deprecated Use {@link CameraCaptureSession#stopRepeating} instead
-     * @hide
-     */
-    @Deprecated
-    public abstract void stopRepeating() throws CameraAccessException;
-
-    /**
-     * Flush all captures currently pending and in-progress as fast as
-     * possible.
-     *
-     * @deprecated Use {@link CameraCaptureSession#abortCaptures} instead
-     * @hide
-     */
-    @Deprecated
-    public abstract void flush() throws CameraAccessException;
-
-    /**
      * Close the connection to this camera device as quickly as possible.
      *
      * <p>Immediately after this call, all calls to the camera device or active session interface
      * will throw a {@link IllegalStateException}, except for calls to close(). Once the device has
-     * fully shut down, the {@link StateListener#onClosed} callback will be called, and the camera
+     * fully shut down, the {@link StateCallback#onClosed} callback will be called, and the camera
      * is free to be re-opened.</p>
      *
-     * <p>Immediately after this call, besides the final {@link StateListener#onClosed} calls, no
+     * <p>Immediately after this call, besides the final {@link StateCallback#onClosed} calls, no
      * further callbacks from the device or the active session will occur, and any remaining
      * submitted capture requests will be discarded, as if
      * {@link CameraCaptureSession#abortCaptures} had been called, except that no success or failure
@@ -356,114 +427,24 @@ public abstract class CameraDevice implements AutoCloseable {
     public abstract void close();
 
     /**
-     * <p>A listener for tracking the progress of a {@link CaptureRequest}
-     * submitted to the camera device.</p>
+     * A callback objects for receiving updates about the state of a camera device.
      *
-     * @deprecated Use {@link CameraCaptureSession.CaptureListener} instead
-     * @hide
-     */
-    @Deprecated
-    public static abstract class CaptureListener {
-
-        /**
-         * This constant is used to indicate that no images were captured for
-         * the request.
-         *
-         * @hide
-         */
-        public static final int NO_FRAMES_CAPTURED = -1;
-
-        /**
-         * This method is called when the camera device has started capturing
-         * the output image for the request, at the beginning of image exposure.
-         *
-         * @see android.media.MediaActionSound
-         */
-        public void onCaptureStarted(CameraDevice camera,
-                CaptureRequest request, long timestamp) {
-            // default empty implementation
-        }
-
-        /**
-         * This method is called when some results from an image capture are
-         * available.
-         *
-         * @hide
-         */
-        public void onCapturePartial(CameraDevice camera,
-                CaptureRequest request, CaptureResult result) {
-            // default empty implementation
-        }
-
-        /**
-         * This method is called when an image capture makes partial forward progress; some
-         * (but not all) results from an image capture are available.
-         *
-         */
-        public void onCaptureProgressed(CameraDevice camera,
-                CaptureRequest request, CaptureResult partialResult) {
-            // default empty implementation
-        }
-
-        /**
-         * This method is called when an image capture has fully completed and all the
-         * result metadata is available.
-         */
-        public void onCaptureCompleted(CameraDevice camera,
-                CaptureRequest request, TotalCaptureResult result) {
-            // default empty implementation
-        }
-
-        /**
-         * This method is called instead of {@link #onCaptureCompleted} when the
-         * camera device failed to produce a {@link CaptureResult} for the
-         * request.
-         */
-        public void onCaptureFailed(CameraDevice camera,
-                CaptureRequest request, CaptureFailure failure) {
-            // default empty implementation
-        }
-
-        /**
-         * This method is called independently of the others in CaptureListener,
-         * when a capture sequence finishes and all {@link CaptureResult}
-         * or {@link CaptureFailure} for it have been returned via this listener.
-         */
-        public void onCaptureSequenceCompleted(CameraDevice camera,
-                int sequenceId, long frameNumber) {
-            // default empty implementation
-        }
-
-        /**
-         * This method is called independently of the others in CaptureListener,
-         * when a capture sequence aborts before any {@link CaptureResult}
-         * or {@link CaptureFailure} for it have been returned via this listener.
-         */
-        public void onCaptureSequenceAborted(CameraDevice camera,
-                int sequenceId) {
-            // default empty implementation
-        }
-    }
-
-    /**
-     * A listener for notifications about the state of a camera
-     * device.
+     * <p>A callback instance must be provided to the {@link CameraManager#openCamera} method to
+     * open a camera device.</p>
      *
-     * <p>A listener must be provided to the {@link CameraManager#openCamera}
-     * method to open a camera device.</p>
-     *
-     * <p>These events include notifications about the device completing startup (
+     * <p>These state updates include notifications about the device completing startup (
      * allowing for {@link #createCaptureSession} to be called), about device
      * disconnection or closure, and about unexpected device errors.</p>
      *
      * <p>Events about the progress of specific {@link CaptureRequest CaptureRequests} are provided
-     * through a {@link CameraCaptureSession.CaptureListener} given to the
+     * through a {@link CameraCaptureSession.CaptureCallback} given to the
      * {@link CameraCaptureSession#capture}, {@link CameraCaptureSession#captureBurst},
-     * {@link CameraCaptureSession#setRepeatingRequest}, or {@link CameraCaptureSession#setRepeatingBurst} methods.
+     * {@link CameraCaptureSession#setRepeatingRequest}, or
+     * {@link CameraCaptureSession#setRepeatingBurst} methods.
      *
      * @see CameraManager#openCamera
      */
-    public static abstract class StateListener {
+    public static abstract class StateCallback {
        /**
          * An error code that can be reported by {@link #onError}
          * indicating that the camera device is in use already.
@@ -542,40 +523,6 @@ public abstract class CameraDevice implements AutoCloseable {
         public abstract void onOpened(CameraDevice camera); // Must implement
 
         /**
-         * The method called when a camera device has no outputs configured.
-         *
-         * @deprecated Use {@link #onOpened} instead.
-         * @hide
-         */
-        @Deprecated
-        public void onUnconfigured(CameraDevice camera) {
-            // Default empty implementation
-        }
-
-        /**
-         * The method called when a camera device begins processing
-         * {@link CaptureRequest capture requests}.
-         *
-         * @deprecated Use {@link CameraCaptureSession.StateListener#onActive} instead.
-         * @hide
-         */
-        @Deprecated
-        public void onActive(CameraDevice camera) {
-            // Default empty implementation
-        }
-
-        /**
-         * The method called when a camera device is busy.
-         *
-         * @deprecated Use {@link CameraCaptureSession.StateListener#onConfigured} instead.
-         * @hide
-         */
-        @Deprecated
-        public void onBusy(CameraDevice camera) {
-            // Default empty implementation
-        }
-
-        /**
          * The method called when a camera device has been closed with
          * {@link CameraDevice#close}.
          *
@@ -587,18 +534,6 @@ public abstract class CameraDevice implements AutoCloseable {
          * @param camera the camera device that has become closed
          */
         public void onClosed(CameraDevice camera) {
-            // Default empty implementation
-        }
-
-        /**
-         * The method called when a camera device has finished processing all
-         * submitted capture requests and has reached an idle state.
-         *
-         * @deprecated Use {@link CameraCaptureSession.StateListener#onReady} instead.
-         * @hide
-         */
-        @Deprecated
-        public void onIdle(CameraDevice camera) {
             // Default empty implementation
         }
 
@@ -615,7 +550,7 @@ public abstract class CameraDevice implements AutoCloseable {
          * of a removable camera device; or the camera being needed for a
          * higher-priority use case.</p>
          *
-         * <p>There may still be capture listener callbacks that are called
+         * <p>There may still be capture callbacks that are invoked
          * after this method is called, or new image buffers that are delivered
          * to active outputs.</p>
          *
@@ -624,7 +559,7 @@ public abstract class CameraDevice implements AutoCloseable {
          *
          * <p>You should clean up the camera with {@link CameraDevice#close} after
          * this happens, as it is not recoverable until opening the camera again
-         * after it becomes {@link CameraManager.AvailabilityListener#onCameraAvailable available}.
+         * after it becomes {@link CameraManager.AvailabilityCallback#onCameraAvailable available}.
          * </p>
          *
          * @param camera the device that has been disconnected
@@ -643,7 +578,7 @@ public abstract class CameraDevice implements AutoCloseable {
          * {@link CameraAccessException#CAMERA_ERROR CAMERA_ERROR} reason.
          * </p>
          *
-         * <p>There may still be capture completion or camera stream listeners
+         * <p>There may still be capture completion or camera stream callbacks
          * that will be called after this error is received.</p>
          *
          * <p>You should clean up the camera with {@link CameraDevice#close} after
@@ -651,7 +586,7 @@ public abstract class CameraDevice implements AutoCloseable {
          *
          * @param camera The device reporting the error
          * @param error The error code, one of the
-         *     {@code StateListener.ERROR_*} values.
+         *     {@code StateCallback.ERROR_*} values.
          *
          * @see #ERROR_CAMERA_DEVICE
          * @see #ERROR_CAMERA_SERVICE
@@ -659,6 +594,13 @@ public abstract class CameraDevice implements AutoCloseable {
          * @see #ERROR_CAMERA_IN_USE
          */
         public abstract void onError(CameraDevice camera, int error); // Must implement
+    }
+
+    /**
+     * Temporary for migrating to Callback naming
+     * @hide
+     */
+    public static abstract class StateListener extends StateCallback {
     }
 
     /**

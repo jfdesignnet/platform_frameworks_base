@@ -17,24 +17,19 @@ package com.android.onemedia;
 
 import android.content.Context;
 import android.content.Intent;
-import android.media.routing.MediaRouteSelector;
-import android.media.routing.MediaRouter;
-import android.media.routing.MediaRouter.ConnectionRequest;
-import android.media.routing.MediaRouter.DestinationInfo;
-import android.media.routing.MediaRouter.RouteInfo;
+import android.graphics.Bitmap;
+import android.media.MediaMetadata;
 import android.media.session.MediaSession;
+import android.media.session.MediaSession.QueueItem;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.os.Bundle;
-import android.support.media.protocols.MediaPlayerProtocol;
-import android.support.media.protocols.MediaPlayerProtocol.MediaStatus;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.KeyEvent;
 
 import com.android.onemedia.playback.LocalRenderer;
-import com.android.onemedia.playback.OneMRPRenderer;
 import com.android.onemedia.playback.Renderer;
 import com.android.onemedia.playback.RequestUtils;
 
@@ -45,11 +40,13 @@ public class PlayerSession {
     private static final String TAG = "PlayerSession";
 
     protected MediaSession mSession;
-    protected MediaRouter mRouter;
     protected Context mContext;
     protected Renderer mRenderer;
     protected MediaSession.Callback mCallback;
     protected Renderer.Listener mRenderListener;
+    protected MediaMetadata.Builder mMetadataBuilder;
+    protected ArrayList<MediaSession.QueueItem> mQueue;
+    protected boolean mUseQueue;
 
     protected PlaybackState mPlaybackState;
     protected Listener mListener;
@@ -64,8 +61,11 @@ public class PlayerSession {
         PlaybackState.Builder psBob = new PlaybackState.Builder();
         psBob.setActions(PlaybackState.ACTION_PAUSE | PlaybackState.ACTION_PLAY);
         mPlaybackState = psBob.build();
+        mQueue = new ArrayList<MediaSession.QueueItem>();
 
         mRenderer.registerListener(mRenderListener);
+
+        initMetadata();
     }
 
     public void createSession() {
@@ -75,23 +75,13 @@ public class PlayerSession {
                 .getSystemService(Context.MEDIA_SESSION_SERVICE);
         Log.d(TAG, "Creating session for package " + mContext.getBasePackageName());
 
-        mRouter = new MediaRouter(mContext);
-        mRouter.addSelector(new MediaRouteSelector.Builder()
-                .addRequiredProtocol(MediaPlayerProtocol.class)
-                .build());
-        mRouter.addSelector(new MediaRouteSelector.Builder()
-                .setRequiredFeatures(MediaRouter.ROUTE_FEATURE_LIVE_AUDIO)
-                .setOptionalFeatures(MediaRouter.ROUTE_FEATURE_LIVE_VIDEO)
-                .build());
-        mRouter.setRoutingCallback(new RoutingCallback(), null);
-
         mSession = new MediaSession(mContext, "OneMedia");
-        mSession.addCallback(mCallback);
-        mSession.addTransportControlsCallback(new TransportCallback());
+        mSession.setCallback(mCallback);
         mSession.setPlaybackState(mPlaybackState);
-        mSession.setFlags(MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
-        mSession.setMediaRouter(mRouter);
+        mSession.setFlags(MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
+                | MediaSession.FLAG_HANDLES_MEDIA_BUTTONS);
         mSession.setActive(true);
+        updateMetadata();
     }
 
     public void onDestroy() {
@@ -106,10 +96,6 @@ public class PlayerSession {
         if (mSession != null) {
             mSession.release();
             mSession = null;
-        }
-        if (mRouter != null) {
-            mRouter.release();
-            mRouter = null;
         }
     }
 
@@ -130,6 +116,25 @@ public class PlayerSession {
         mRenderer.setNextContent(request);
     }
 
+    public void setIcon(Bitmap icon) {
+        mMetadataBuilder.putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, icon);
+        mQueue.clear();
+        mQueue.add(new QueueItem(mMetadataBuilder.build().getDescription(), 11));
+        updateMetadata();
+    }
+
+    private void updateMetadata() {
+        // This is a mild abuse of metadata and shouldn't be duplicated in real
+        // code
+        if (mSession != null && mSession.isActive()) {
+            mSession.setMetadata(mMetadataBuilder.build());
+            // Just toggle the queue every time we update for testing
+            mSession.setQueue(mUseQueue ? mQueue : null);
+            mSession.setQueueTitle(mUseQueue ? "Queue title" : null);
+            mUseQueue = !mUseQueue;
+        }
+    }
+
     private void updateState(int newState) {
         float rate = newState == PlaybackState.STATE_PLAYING ? 1 : 0;
         long position = mRenderer == null ? -1 : mRenderer.getSeekPosition();
@@ -138,6 +143,16 @@ public class PlayerSession {
         bob.setErrorMessage(null);
         mPlaybackState = bob.build();
         mSession.setPlaybackState(mPlaybackState);
+    }
+
+    private void initMetadata() {
+        mMetadataBuilder = new MediaMetadata.Builder();
+        mMetadataBuilder.putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE,
+                "OneMedia display title");
+        mMetadataBuilder.putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE,
+                "OneMedia display subtitle");
+
+        mQueue.add(new QueueItem(mMetadataBuilder.build().getDescription(), 11));
     }
 
     public interface Listener {
@@ -230,26 +245,6 @@ public class PlayerSession {
 
     private class SessionCb extends MediaSession.Callback {
         @Override
-        public void onMediaButtonEvent(Intent mediaRequestIntent) {
-            if (Intent.ACTION_MEDIA_BUTTON.equals(mediaRequestIntent.getAction())) {
-                KeyEvent event = (KeyEvent) mediaRequestIntent
-                        .getParcelableExtra(Intent.EXTRA_KEY_EVENT);
-                switch (event.getKeyCode()) {
-                    case KeyEvent.KEYCODE_MEDIA_PLAY:
-                        Log.d(TAG, "play button received");
-                        mRenderer.onPlay();
-                        break;
-                    case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                        Log.d(TAG, "pause button received");
-                        mRenderer.onPause();
-                        break;
-                }
-            }
-        }
-    }
-
-    private class TransportCallback extends MediaSession.TransportControlsCallback {
-        @Override
         public void onPlay() {
             mRenderer.onPlay();
         }
@@ -257,65 +252,6 @@ public class PlayerSession {
         @Override
         public void onPause() {
             mRenderer.onPause();
-        }
-    }
-
-    private class RoutingCallback extends MediaRouter.RoutingCallback {
-        @Override
-        public void onConnectionStateChanged(int state) {
-            if (state == MediaRouter.CONNECTION_STATE_CONNECTING) {
-                if (mRenderer != null) {
-                    mRenderer.onStop();
-                }
-                mRenderer = null;
-                updateState(PlaybackState.STATE_CONNECTING);
-                return;
-            }
-
-            MediaRouter.ConnectionInfo connection = mRouter.getConnection();
-            if (connection != null) {
-                MediaPlayerProtocol protocol =
-                        connection.getProtocolObject(MediaPlayerProtocol.class);
-                if (protocol != null) {
-                    Log.d(TAG, "Connected to route using media player protocol");
-
-                    protocol.setCallback(new PlayerCallback(), null);
-                    mRenderer = new OneMRPRenderer(protocol);
-                    updateState(PlaybackState.STATE_NONE);
-                    return;
-                }
-            }
-
-            // Use local route
-            mRenderer = new LocalRenderer(mContext, null);
-            mRenderer.registerListener(mRenderListener);
-            updateState(PlaybackState.STATE_NONE);
-        }
-    }
-
-    private class PlayerCallback extends MediaPlayerProtocol.Callback {
-        @Override
-        public void onStatusUpdated(MediaStatus status, Bundle extras) {
-            if (status != null) {
-                Log.d(TAG, "Received status update: " + status.toBundle());
-                switch (status.getPlayerState()) {
-                    case MediaStatus.PLAYER_STATE_BUFFERING:
-                        updateState(PlaybackState.STATE_BUFFERING);
-                        break;
-                    case MediaStatus.PLAYER_STATE_IDLE:
-                        updateState(PlaybackState.STATE_STOPPED);
-                        break;
-                    case MediaStatus.PLAYER_STATE_PAUSED:
-                        updateState(PlaybackState.STATE_PAUSED);
-                        break;
-                    case MediaStatus.PLAYER_STATE_PLAYING:
-                        updateState(PlaybackState.STATE_PLAYING);
-                        break;
-                    case MediaStatus.PLAYER_STATE_UNKNOWN:
-                        updateState(PlaybackState.STATE_NONE);
-                        break;
-                }
-            } 
         }
     }
 }

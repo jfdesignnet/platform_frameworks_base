@@ -21,6 +21,10 @@ import android.util.Slog;
 
 import com.android.internal.telephony.TelephonyProperties;
 
+import dalvik.system.VMRuntime;
+
+import java.util.Objects;
+
 /**
  * Information about the current build, extracted from system properties.
  */
@@ -51,7 +55,7 @@ public class Build {
      * @deprecated Use {@link #SUPPORTED_ABIS} instead.
      */
     @Deprecated
-    public static final String CPU_ABI = getString("ro.product.cpu.abi");
+    public static final String CPU_ABI;
 
     /**
      * The name of the second instruction set (CPU type + ABI convention) of native code.
@@ -59,7 +63,7 @@ public class Build {
      * @deprecated Use {@link #SUPPORTED_ABIS} instead.
      */
     @Deprecated
-    public static final String CPU_ABI2 = getString("ro.product.cpu.abi2");
+    public static final String CPU_ABI2;
 
     /** The manufacturer of the product/hardware. */
     public static final String MANUFACTURER = getString("ro.product.manufacturer");
@@ -96,8 +100,7 @@ public class Build {
      *
      * See {@link #SUPPORTED_32_BIT_ABIS} and {@link #SUPPORTED_64_BIT_ABIS}.
      */
-    public static final String[] SUPPORTED_ABIS = SystemProperties.get("ro.product.cpu.abilist")
-            .split(",");
+    public static final String[] SUPPORTED_ABIS = getStringList("ro.product.cpu.abilist", ",");
 
     /**
      * An ordered list of <b>32 bit</b> ABIs supported by this device. The most preferred ABI
@@ -106,7 +109,7 @@ public class Build {
      * See {@link #SUPPORTED_ABIS} and {@link #SUPPORTED_64_BIT_ABIS}.
      */
     public static final String[] SUPPORTED_32_BIT_ABIS =
-            SystemProperties.get("ro.product.cpu.abilist32").split(",");
+            getStringList("ro.product.cpu.abilist32", ",");
 
     /**
      * An ordered list of <b>64 bit</b> ABIs supported by this device. The most preferred ABI
@@ -115,8 +118,29 @@ public class Build {
      * See {@link #SUPPORTED_ABIS} and {@link #SUPPORTED_32_BIT_ABIS}.
      */
     public static final String[] SUPPORTED_64_BIT_ABIS =
-            SystemProperties.get("ro.product.cpu.abilist64").split(",");
+            getStringList("ro.product.cpu.abilist64", ",");
 
+
+    static {
+        /*
+         * Adjusts CPU_ABI and CPU_ABI2 depending on whether or not a given process is 64 bit.
+         * 32 bit processes will always see 32 bit ABIs in these fields for backward
+         * compatibility.
+         */
+        final String[] abiList;
+        if (VMRuntime.getRuntime().is64Bit()) {
+            abiList = SUPPORTED_64_BIT_ABIS;
+        } else {
+            abiList = SUPPORTED_32_BIT_ABIS;
+        }
+
+        CPU_ABI = abiList[0];
+        if (abiList.length > 1) {
+            CPU_ABI2 = abiList[1];
+        } else {
+            CPU_ABI2 = "";
+        }
+    }
 
     /** Various version strings. */
     public static class VERSION {
@@ -155,7 +179,7 @@ public class Build {
         public static final String CODENAME = getString("ro.build.version.codename");
 
         private static final String[] ALL_CODENAMES
-                = getString("ro.build.version.all_codenames").split(",");
+                = getStringList("ro.build.version.all_codenames", ",");
 
         /**
          * @hide
@@ -464,7 +488,7 @@ public class Build {
         public static final int JELLY_BEAN = 16;
 
         /**
-         * Android 4.2: Moar jelly beans!
+         * November 2012: Android 4.2, Moar jelly beans!
          *
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
@@ -484,12 +508,12 @@ public class Build {
         public static final int JELLY_BEAN_MR1 = 17;
 
         /**
-         * Android 4.3: Jelly Bean MR2, the revenge of the beans.
+         * July 2013: Android 4.3, the revenge of the beans.
          */
         public static final int JELLY_BEAN_MR2 = 18;
 
         /**
-         * Android 4.4: KitKat, another tasty treat.
+         * October 2013: Android 4.4, KitKat, another tasty treat.
          *
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
@@ -532,7 +556,13 @@ public class Build {
         public static final int KITKAT_WATCH = 20;
 
         /**
-         * L!
+         * Temporary until we completely switch to {@link #LOLLIPOP}.
+         * @hide
+         */
+        public static final int L = 21;
+
+        /**
+         * Lollipop.  A flat one with beautiful shadows.  But still tasty.
          *
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
@@ -540,9 +570,32 @@ public class Build {
          * <li> {@link android.content.Context#bindService Context.bindService} now
          * requires an explicit Intent, and will throw an exception if given an implicit
          * Intent.</li>
+         * <li> {@link android.app.Notification.Builder Notification.Builder} will
+         * not have the colors of their various notification elements adjusted to better
+         * match the new material design look.</li>
+         * <li> {@link android.os.Message} will validate that a message is not currently
+         * in use when it is recycled.</li>
+         * <li> Hardware accelerated drawing in windows will be enabled automatically
+         * in most places.</li>
+         * <li> {@link android.widget.Spinner} throws an exception if attaching an
+         * adapter with more than one item type.</li>
+         * <li> If the app is a launcher, the launcher will be available to the user
+         * even when they are using corporate profiles (which requires that the app
+         * use {@link android.content.pm.LauncherApps} to correctly populate its
+         * apps UI).</li>
+         * <li> Calling {@link android.app.Service#stopForeground Service.stopForeground}
+         * with removeNotification false will modify the still posted notification so that
+         * it is no longer forced to be ongoing.</li>
+         * <li> A {@link android.service.dreams.DreamService} must require the
+         * {@link android.Manifest.permission#BIND_DREAM_SERVICE} permission to be usable.</li>
          * </ul>
          */
-        public static final int L = CUR_DEVELOPMENT;
+        public static final int LOLLIPOP = 21;
+
+        /**
+         * Lollipop with an extra sugar coating on the outside!
+         */
+        public static final int LOLLIPOP_MR1 = 22;
     }
     
     /** The type of build, like "user" or "eng". */
@@ -590,6 +643,32 @@ public class Build {
         }
     }
 
+    /**
+     * Check that device fingerprint is defined and that it matches across
+     * various partitions.
+     *
+     * @hide
+     */
+    public static boolean isFingerprintConsistent() {
+        final String system = SystemProperties.get("ro.build.fingerprint");
+        final String vendor = SystemProperties.get("ro.vendor.build.fingerprint");
+
+        if (TextUtils.isEmpty(system)) {
+            Slog.e(TAG, "Required ro.build.fingerprint is empty!");
+            return false;
+        }
+
+        if (!TextUtils.isEmpty(vendor)) {
+            if (!Objects.equals(system, vendor)) {
+                Slog.e(TAG, "Mismatched fingerprints; system reported " + system
+                        + " but vendor reported " + vendor);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // The following properties only make sense for internal engineering builds.
     public static final long TIME = getLong("ro.build.date.utc") * 1000;
     public static final String USER = getString("ro.build.user");
@@ -612,6 +691,15 @@ public class Build {
 
     private static String getString(String property) {
         return SystemProperties.get(property, UNKNOWN);
+    }
+
+    private static String[] getStringList(String property, String separator) {
+        String value = SystemProperties.get(property);
+        if (value.isEmpty()) {
+            return new String[0];
+        } else {
+            return value.split(separator);
+        }
     }
 
     private static long getLong(String property) {

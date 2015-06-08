@@ -16,10 +16,12 @@
 
 package android.media.tv;
 
+import android.annotation.SystemApi;
+import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentUris;
-import android.media.tv.TvContract.Programs;
 import android.net.Uri;
+import android.os.IBinder;
 import android.provider.BaseColumns;
 import android.util.ArraySet;
 
@@ -52,12 +54,25 @@ public final class TvContract {
 
     private static final String PATH_CHANNEL = "channel";
     private static final String PATH_PROGRAM = "program";
-    private static final String PATH_INPUT = "input";
+    private static final String PATH_PASSTHROUGH = "passthrough";
+
+    /**
+     * An optional query, update or delete URI parameter that allows the caller to specify TV input
+     * ID to filter channels.
+     * @hide
+     */
+    public static final String PARAM_INPUT = "input";
+
+    /**
+     * An optional query, update or delete URI parameter that allows the caller to specify channel
+     * ID to filter programs.
+     * @hide
+     */
+    public static final String PARAM_CHANNEL = "channel";
 
     /**
      * An optional query, update or delete URI parameter that allows the caller to specify start
      * time (in milliseconds since the epoch) to filter programs.
-     *
      * @hide
      */
     public static final String PARAM_START_TIME = "start_time";
@@ -65,7 +80,6 @@ public final class TvContract {
     /**
      * An optional query, update or delete URI parameter that allows the caller to specify end time
      * (in milliseconds since the epoch) to filter programs.
-     *
      * @hide
      */
     public static final String PARAM_END_TIME = "end_time";
@@ -74,7 +88,6 @@ public final class TvContract {
      * A query, update or delete URI parameter that allows the caller to operate on all or
      * browsable-only channels. If set to "true", the rows that contain non-browsable channels are
      * not affected.
-     *
      * @hide
      */
     public static final String PARAM_BROWSABLE_ONLY = "browsable_only";
@@ -82,10 +95,19 @@ public final class TvContract {
     /**
      * A optional query, update or delete URI parameter that allows the caller to specify canonical
      * genre to filter programs.
-     *
      * @hide
      */
     public static final String PARAM_CANONICAL_GENRE = "canonical_genre";
+
+    /**
+     * Builds an ID that uniquely identifies a TV input service.
+     *
+     * @param name The {@link ComponentName} of the TV input service to build ID for.
+     * @return the ID for the given TV input service.
+     */
+    public static final String buildInputId(ComponentName name) {
+        return name.flattenToShortString();
+    }
 
     /**
      * Builds a URI that points to a specific channel.
@@ -94,6 +116,17 @@ public final class TvContract {
      */
     public static final Uri buildChannelUri(long channelId) {
         return ContentUris.withAppendedId(Channels.CONTENT_URI, channelId);
+    }
+
+    /**
+     * Build a special channel URI intended to be used with pass-through inputs. (e.g. HDMI)
+     *
+     * @param inputId The ID of the pass-through input to build a channels URI for.
+     * @see TvInputInfo#isPassthroughInput()
+     */
+    public static final Uri buildChannelUriForPassthroughInput(String inputId) {
+        return new Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT).authority(AUTHORITY)
+                .appendPath(PATH_PASSTHROUGH).appendPath(inputId).build();
     }
 
     /**
@@ -111,61 +144,65 @@ public final class TvContract {
      * @param channelUri The URI of the channel whose logo is pointed to.
      */
     public static final Uri buildChannelLogoUri(Uri channelUri) {
-        if (!PATH_CHANNEL.equals(channelUri.getPathSegments().get(0))) {
+        if (!isChannelUriForTunerInput(channelUri)) {
             throw new IllegalArgumentException("Not a channel: " + channelUri);
         }
         return Uri.withAppendedPath(channelUri, Channels.Logo.CONTENT_DIRECTORY);
     }
 
     /**
-     * Builds a URI that points to all browsable channels from a given TV input.
+     * Builds a URI that points to all channels from a given TV input.
      *
-     * @param inputId The ID of the TV input to build a channels URI for.
+     * @param inputId The ID of the TV input to build a channels URI for. If {@code null}, builds a
+     *            URI for all the TV inputs.
      */
     public static final Uri buildChannelsUriForInput(String inputId) {
-        return buildChannelsUriForInput(inputId, true);
+        return buildChannelsUriForInput(inputId, false);
     }
 
     /**
      * Builds a URI that points to all or browsable-only channels from a given TV input.
      *
-     * @param inputId The ID of the TV input to build a channels URI for.
+     * @param inputId The ID of the TV input to build a channels URI for. If {@code null}, builds a
+     *            URI for all the TV inputs.
      * @param browsableOnly If set to {@code true} the URI points to only browsable channels. If set
      *            to {@code false} the URI points to all channels regardless of whether they are
      *            browsable or not.
+     * @hide
      */
+    @SystemApi
     public static final Uri buildChannelsUriForInput(String inputId, boolean browsableOnly) {
-        return new Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT).authority(AUTHORITY)
-                .appendPath(PATH_INPUT).appendPath(inputId).appendPath(PATH_CHANNEL)
-                .appendQueryParameter(PARAM_BROWSABLE_ONLY, String.valueOf(browsableOnly)).build();
+        Uri.Builder builder = Channels.CONTENT_URI.buildUpon();
+        if (inputId != null) {
+            builder.appendQueryParameter(PARAM_INPUT, inputId);
+        }
+        return builder.appendQueryParameter(PARAM_BROWSABLE_ONLY, String.valueOf(browsableOnly))
+                .build();
     }
 
     /**
      * Builds a URI that points to all or browsable-only channels which have programs with the given
      * genre from the given TV input.
      *
-     * @param inputId The ID of the TV input to build a channels URI for. If null, builds a URI for
-     *            all the TV inputs.
-     * @param genre {@link Programs.Genres} to search.
+     * @param inputId The ID of the TV input to build a channels URI for. If {@code null}, builds a
+     *            URI for all the TV inputs.
+     * @param genre {@link Programs.Genres} to search. If {@code null}, builds a URI for all genres.
      * @param browsableOnly If set to {@code true} the URI points to only browsable channels. If set
      *            to {@code false} the URI points to all channels regardless of whether they are
      *            browsable or not.
      * @hide
      */
-    public static final Uri buildChannelsUriForCanonicalGenre(String inputId, String genre,
+    @SystemApi
+    public static final Uri buildChannelsUriForInput(String inputId, String genre,
             boolean browsableOnly) {
+        if (genre == null) {
+            return buildChannelsUriForInput(inputId, browsableOnly);
+        }
         if (!Programs.Genres.isCanonical(genre)) {
             throw new IllegalArgumentException("Not a canonical genre: '" + genre + "'");
         }
-
-        Uri uri;
-        if (inputId == null) {
-            uri = new Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT).authority(AUTHORITY)
-                    .appendPath(PATH_CHANNEL).build();
-        } else {
-            uri = buildChannelsUriForInput(inputId, browsableOnly);
-        }
-        return uri.buildUpon().appendQueryParameter(PARAM_CANONICAL_GENRE, genre).build();
+        return buildChannelsUriForInput(inputId, browsableOnly).buildUpon()
+                .appendQueryParameter(PARAM_CANONICAL_GENRE, genre).build();
     }
 
     /**
@@ -183,9 +220,8 @@ public final class TvContract {
      * @param channelId The ID of the channel to return programs for.
      */
     public static final Uri buildProgramsUriForChannel(long channelId) {
-        return new Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT).authority(AUTHORITY)
-                .appendPath(PATH_CHANNEL).appendPath(String.valueOf(channelId))
-                .appendPath(PATH_PROGRAM).build();
+        return Programs.CONTENT_URI.buildUpon()
+                .appendQueryParameter(PARAM_CHANNEL, String.valueOf(channelId)).build();
     }
 
     /**
@@ -194,7 +230,7 @@ public final class TvContract {
      * @param channelUri The URI of the channel to return programs for.
      */
     public static final Uri buildProgramsUriForChannel(Uri channelUri) {
-        if (!PATH_CHANNEL.equals(channelUri.getPathSegments().get(0))) {
+        if (!isChannelUriForTunerInput(channelUri)) {
             throw new IllegalArgumentException("Not a channel: " + channelUri);
         }
         return buildProgramsUriForChannel(ContentUris.parseId(channelUri));
@@ -229,7 +265,7 @@ public final class TvContract {
      */
     public static final Uri buildProgramsUriForChannel(Uri channelUri, long startTime,
             long endTime) {
-        if (!PATH_CHANNEL.equals(channelUri.getPathSegments().get(0))) {
+        if (!isChannelUriForTunerInput(channelUri)) {
             throw new IllegalArgumentException("Not a channel: " + channelUri);
         }
         return buildProgramsUriForChannel(ContentUris.parseId(channelUri), startTime, endTime);
@@ -245,41 +281,47 @@ public final class TvContract {
         return ContentUris.withAppendedId(WatchedPrograms.CONTENT_URI, watchedProgramId);
     }
 
-    /**
-     * Extracts the {@link Channels#COLUMN_INPUT_ID} from a given URI.
-     *
-     * @param channelsUri A URI constructed by {@link #buildChannelsUriForInput(String)},
-     *            {@link #buildChannelsUriForInput(String, boolean)}, or
-     *            {@link #buildChannelsUriForCanonicalGenre(String, String, boolean)}.
-     * @hide
-     */
-    public static final String getInputId(Uri channelsUri) {
-        final List<String> paths = channelsUri.getPathSegments();
-        if (paths.size() < 3) {
-            throw new IllegalArgumentException("Not channels: " + channelsUri);
-        }
-        if (!PATH_INPUT.equals(paths.get(0)) || !PATH_CHANNEL.equals(paths.get(2))) {
-            throw new IllegalArgumentException("Not channels: " + channelsUri);
-        }
-        return paths.get(1);
+    private static final boolean isTvUri(Uri uri) {
+        return uri != null && ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
+                && AUTHORITY.equals(uri.getAuthority());
+    }
+
+    private static final boolean isTwoSegmentUriStartingWith(Uri uri, String pathSegment) {
+        List<String> pathSegments = uri.getPathSegments();
+        return pathSegments.size() == 2 && pathSegment.equals(pathSegments.get(0));
     }
 
     /**
-     * Extracts the {@link Channels#_ID} from a given URI.
-     *
-     * @param programsUri A URI constructed by {@link #buildProgramsUriForChannel(Uri)} or
-     *            {@link #buildProgramsUriForChannel(Uri, long, long)}.
+     * Returns true, if {@code uri} is a channel URI.
      * @hide
      */
-    public static final String getChannelId(Uri programsUri) {
-        final List<String> paths = programsUri.getPathSegments();
-        if (paths.size() < 3) {
-            throw new IllegalArgumentException("Not programs: " + programsUri);
-        }
-        if (!PATH_CHANNEL.equals(paths.get(0)) || !PATH_PROGRAM.equals(paths.get(2))) {
-            throw new IllegalArgumentException("Not programs: " + programsUri);
-        }
-        return paths.get(1);
+    public static final boolean isChannelUri(Uri uri) {
+        return isChannelUriForTunerInput(uri) || isChannelUriForPassthroughInput(uri);
+    }
+
+    /**
+     * Returns true, if {@code uri} is a channel URI for a tuner input.
+     * @hide
+     */
+    public static final boolean isChannelUriForTunerInput(Uri uri) {
+        return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_CHANNEL);
+    }
+
+    /**
+     * Returns true, if {@code uri} is a channel URI for a passthrough input.
+     * @hide
+     */
+    @SystemApi
+    public static final boolean isChannelUriForPassthroughInput(Uri uri) {
+        return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_PASSTHROUGH);
+    }
+
+    /**
+     * Returns true, if {@code uri} is a program URI.
+     * @hide
+     */
+    public static final boolean isProgramUri(Uri uri) {
+        return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_PROGRAM);
     }
 
 
@@ -316,88 +358,85 @@ public final class TvContract {
         public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/channel";
 
         /** A generic channel type. */
-        public static final int TYPE_OTHER = 0x0;
+        public static final String TYPE_OTHER = "TYPE_OTHER";
 
         /** The channel type for NTSC. */
-        public static final int TYPE_NTSC = 0x1;
+        public static final String TYPE_NTSC = "TYPE_NTSC";
 
         /** The channel type for PAL. */
-        public static final int TYPE_PAL = 0x2;
+        public static final String TYPE_PAL = "TYPE_PAL";
 
         /** The channel type for SECAM. */
-        public static final int TYPE_SECAM = 0x3;
-
-        /** The special channel type used for pass-through inputs such as HDMI. */
-        public static final int TYPE_PASSTHROUGH = 0x00010000;
+        public static final String TYPE_SECAM = "TYPE_SECAM";
 
         /** The channel type for DVB-T (terrestrial). */
-        public static final int TYPE_DVB_T = 0x00020000;
+        public static final String TYPE_DVB_T = "TYPE_DVB_T";
 
         /** The channel type for DVB-T2 (terrestrial). */
-        public static final int TYPE_DVB_T2 = 0x00020001;
+        public static final String TYPE_DVB_T2 = "TYPE_DVB_T2";
 
         /** The channel type for DVB-S (satellite). */
-        public static final int TYPE_DVB_S = 0x00020100;
+        public static final String TYPE_DVB_S = "TYPE_DVB_S";
 
         /** The channel type for DVB-S2 (satellite). */
-        public static final int TYPE_DVB_S2 = 0x00020101;
+        public static final String TYPE_DVB_S2 = "TYPE_DVB_S2";
 
         /** The channel type for DVB-C (cable). */
-        public static final int TYPE_DVB_C = 0x00020200;
+        public static final String TYPE_DVB_C = "TYPE_DVB_C";
 
         /** The channel type for DVB-C2 (cable). */
-        public static final int TYPE_DVB_C2 = 0x00020201;
+        public static final String TYPE_DVB_C2 = "TYPE_DVB_C2";
 
         /** The channel type for DVB-H (handheld). */
-        public static final int TYPE_DVB_H = 0x00020300;
+        public static final String TYPE_DVB_H = "TYPE_DVB_H";
 
         /** The channel type for DVB-SH (satellite). */
-        public static final int TYPE_DVB_SH = 0x00020400;
+        public static final String TYPE_DVB_SH = "TYPE_DVB_SH";
 
         /** The channel type for ATSC (terrestrial). */
-        public static final int TYPE_ATSC_T = 0x00030000;
+        public static final String TYPE_ATSC_T = "TYPE_ATSC_T";
 
         /** The channel type for ATSC (cable). */
-        public static final int TYPE_ATSC_C = 0x00030200;
+        public static final String TYPE_ATSC_C = "TYPE_ATSC_C";
 
         /** The channel type for ATSC-M/H (mobile/handheld). */
-        public static final int TYPE_ATSC_M_H = 0x00030300;
+        public static final String TYPE_ATSC_M_H = "TYPE_ATSC_M_H";
 
         /** The channel type for ISDB-T (terrestrial). */
-        public static final int TYPE_ISDB_T = 0x00040000;
+        public static final String TYPE_ISDB_T = "TYPE_ISDB_T";
 
         /** The channel type for ISDB-Tb (Brazil). */
-        public static final int TYPE_ISDB_TB = 0x00040100;
+        public static final String TYPE_ISDB_TB = "TYPE_ISDB_TB";
 
         /** The channel type for ISDB-S (satellite). */
-        public static final int TYPE_ISDB_S = 0x00040200;
+        public static final String TYPE_ISDB_S = "TYPE_ISDB_S";
 
         /** The channel type for ISDB-C (cable). */
-        public static final int TYPE_ISDB_C = 0x00040300;
+        public static final String TYPE_ISDB_C = "TYPE_ISDB_C";
 
         /** The channel type for 1seg (handheld). */
-        public static final int TYPE_1SEG = 0x00040400;
+        public static final String TYPE_1SEG = "TYPE_1SEG";
 
         /** The channel type for DTMB (terrestrial). */
-        public static final int TYPE_DTMB = 0x00050000;
+        public static final String TYPE_DTMB = "TYPE_DTMB";
 
         /** The channel type for CMMB (handheld). */
-        public static final int TYPE_CMMB = 0x00050100;
+        public static final String TYPE_CMMB = "TYPE_CMMB";
 
         /** The channel type for T-DMB (terrestrial). */
-        public static final int TYPE_T_DMB = 0x00060000;
+        public static final String TYPE_T_DMB = "TYPE_T_DMB";
 
         /** The channel type for S-DMB (satellite). */
-        public static final int TYPE_S_DMB = 0x00060100;
+        public static final String TYPE_S_DMB = "TYPE_S_DMB";
 
         /** A generic service type. */
-        public static final int SERVICE_TYPE_OTHER = 0x0;
+        public static final String SERVICE_TYPE_OTHER = "SERVICE_TYPE_OTHER";
 
         /** The service type for regular TV channels that have both audio and video. */
-        public static final int SERVICE_TYPE_AUDIO_VIDEO = 0x1;
+        public static final String SERVICE_TYPE_AUDIO_VIDEO = "SERVICE_TYPE_AUDIO_VIDEO";
 
         /** The service type for radio channels that have audio only. */
-        public static final int SERVICE_TYPE_AUDIO = 0x2;
+        public static final String SERVICE_TYPE_AUDIO = "SERVICE_TYPE_AUDIO";
 
         /** The video format for 240p. */
         public static final String VIDEO_FORMAT_240P = "VIDEO_FORMAT_240P";
@@ -475,8 +514,10 @@ public final class TvContract {
         }
 
         /**
-         * The ID of the TV input that provides this TV channel.
+         * The ID of the TV input service that provides this TV channel.
          * <p>
+         * Use {@link #buildInputId} to build the ID.
+         * </p><p>
          * This is a required field.
          * </p><p>
          * Type: TEXT
@@ -488,18 +529,17 @@ public final class TvContract {
          * The predefined type of this TV channel.
          * <p>
          * This is primarily used to indicate which broadcast standard (e.g. ATSC, DVB or ISDB) the
-         * current channel conforms to, with an exception being {@link #TYPE_PASSTHROUGH}, which is
-         * a special channel type used only by pass-through inputs such as HDMI. The value should
-         * match to one of the followings: {@link #TYPE_OTHER}, {@link #TYPE_PASSTHROUGH},
-         * {@link #TYPE_DVB_T}, {@link #TYPE_DVB_T2}, {@link #TYPE_DVB_S}, {@link #TYPE_DVB_S2},
-         * {@link #TYPE_DVB_C}, {@link #TYPE_DVB_C2}, {@link #TYPE_DVB_H}, {@link #TYPE_DVB_SH},
-         * {@link #TYPE_ATSC_T}, {@link #TYPE_ATSC_C}, {@link #TYPE_ATSC_M_H}, {@link #TYPE_ISDB_T},
-         * {@link #TYPE_ISDB_TB}, {@link #TYPE_ISDB_S}, {@link #TYPE_ISDB_C} {@link #TYPE_1SEG},
-         * {@link #TYPE_DTMB}, {@link #TYPE_CMMB}, {@link #TYPE_T_DMB}, {@link #TYPE_S_DMB}
+         * current channel conforms to. The value should match to one of the followings:
+         * {@link #TYPE_OTHER}, {@link #TYPE_DVB_T}, {@link #TYPE_DVB_T2}, {@link #TYPE_DVB_S},
+         * {@link #TYPE_DVB_S2}, {@link #TYPE_DVB_C}, {@link #TYPE_DVB_C2}, {@link #TYPE_DVB_H},
+         * {@link #TYPE_DVB_SH}, {@link #TYPE_ATSC_T}, {@link #TYPE_ATSC_C},
+         * {@link #TYPE_ATSC_M_H}, {@link #TYPE_ISDB_T}, {@link #TYPE_ISDB_TB},
+         * {@link #TYPE_ISDB_S}, {@link #TYPE_ISDB_C}, {@link #TYPE_1SEG}, {@link #TYPE_DTMB},
+         * {@link #TYPE_CMMB}, {@link #TYPE_T_DMB}, {@link #TYPE_S_DMB}
          * </p><p>
          * This is a required field.
          * </p><p>
-         * Type: INTEGER
+         * Type: TEXT
          * </p>
          */
         public static final String COLUMN_TYPE = "type";
@@ -515,7 +555,7 @@ public final class TvContract {
          * </p><p>
          * This is a required field.
          * </p><p>
-         * Type: INTEGER
+         * Type: TEXT
          * </p>
          */
         public static final String COLUMN_SERVICE_TYPE = "service_type";
@@ -630,7 +670,7 @@ public final class TvContract {
          * {@link Programs#COLUMN_VIDEO_HEIGHT} to get more accurate video resolution.
          * </p><p>
          * Type: TEXT
-         * </p><p>
+         * </p>
          * @see #getVideoResolution
          */
         public static final String COLUMN_VIDEO_FORMAT = "video_format";
@@ -640,40 +680,29 @@ public final class TvContract {
          * <p>
          * A value of 1 indicates the channel is included in the channel list that applications use
          * to browse channels, a value of 0 indicates the channel is not included in the list. If
-         * not specified, this value is set to 1 (browsable) by default.
+         * not specified, this value is set to 0 (not browsable) by default.
          * </p><p>
          * Type: INTEGER (boolean)
          * </p>
+         * @hide
          */
+        @SystemApi
         public static final String COLUMN_BROWSABLE = "browsable";
 
         /**
          * The flag indicating whether this TV channel is searchable or not.
          * <p>
          * In some regions, it is not allowed to surface search results for a given channel without
-         * broadcaster's consent. This is used to impose such restriction. A value of 1 indicates
-         * the channel is searchable and can be included in search results, a value of 0 indicates
-         * the channel and its TV programs are hidden from search. If not specified, this value is
-         * set to 1 (searchable) by default.
-         * </p>
-         * <p>
-         * Type: INTEGER (boolean)
-         * </p>
-         */
-        public static final String COLUMN_SEARCHABLE = "searchable";
-
-        /**
-         * The flag indicating whether this TV channel is scrambled by conditional access or not.
-         * <p>
-         * This is used for indicating that this channel is protected by a conditional access
-         * system. A value of 1 indicates the channel is scrambled and the user is required
-         * to contact the service provider to watch this channel. A value of 0 indicates the channel
-         * is not scrambled. If not specified, this value is set to 0 (not scrambled) by default.
+         * broadcaster's consent. This is used to impose such restriction. Channels marked with
+         * "not searchable" cannot be used by other services except for the system service that
+         * shows the TV content. A value of 1 indicates the channel is searchable and can be
+         * included in search results, a value of 0 indicates the channel and its TV programs are
+         * hidden from search. If not specified, this value is set to 1 (searchable) by default.
          * </p><p>
          * Type: INTEGER (boolean)
          * </p>
          */
-        public static final String COLUMN_CONDITIONAL_ACCESS = "conditional_access";
+        public static final String COLUMN_SEARCHABLE = "searchable";
 
         /**
          * The flag indicating whether this TV channel is locked or not.
@@ -689,6 +718,7 @@ public final class TvContract {
          * </p>
          * @hide
          */
+        @SystemApi
         public static final String COLUMN_LOCKED = "locked";
 
         /**
@@ -723,14 +753,12 @@ public final class TvContract {
          * To access this directory, append {@link Channels.Logo#CONTENT_DIRECTORY} to the raw
          * channel URI.  The resulting URI represents an image file, and should be interacted
          * using ContentResolver.openAssetFileDescriptor.
-         * </p>
-         * <p>
+         * </p><p>
          * Note that this sub-directory also supports opening the logo as an asset file in write
          * mode.  Callers can create or replace the primary logo associated with this channel by
          * opening the asset file and writing the full-size photo contents into it.  When the file
          * is closed, the image will be parsed, sized down if necessary, and stored.
-         * </p>
-         * <p>
+         * </p><p>
          * Usage example:
          * <pre>
          * public void writeChannelLogo(long channelId, byte[] logo) {
@@ -774,7 +802,7 @@ public final class TvContract {
         public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/program";
 
         /**
-         * The ID of the TV channel that contains this TV program.
+         * The ID of the TV channel that provides this TV program.
          * <p>
          * This is a part of the channel URI and matches to {@link BaseColumns#_ID}.
          * </p><p>
@@ -786,14 +814,51 @@ public final class TvContract {
         /**
          * The title of this TV program.
          * <p>
+         * If this program is an episodic TV show, it is recommended that the title is the series
+         * title and its related fields ({@link #COLUMN_SEASON_NUMBER},
+         * {@link #COLUMN_EPISODE_NUMBER}, and {@link #COLUMN_EPISODE_TITLE}) are filled in.
+         * </p><p>
          * Type: TEXT
          * </p>
          **/
         public static final String COLUMN_TITLE = "title";
 
         /**
+         * The season number of this TV program for episodic TV shows.
+         * <p>
+         * Can be empty.
+         * </p><p>
+         * Type: INTEGER
+         * </p>
+         **/
+        public static final String COLUMN_SEASON_NUMBER = "season_number";
+
+        /**
+         * The episode number of this TV program for episodic TV shows.
+         * <p>
+         * Can be empty.
+         * </p><p>
+         * Type: INTEGER
+         * </p>
+         **/
+        public static final String COLUMN_EPISODE_NUMBER = "episode_number";
+
+        /**
+         * The episode title of this TV program for episodic TV shows.
+         * <p>
+         * Can be empty.
+         * </p><p>
+         * Type: TEXT
+         * </p>
+         **/
+        public static final String COLUMN_EPISODE_TITLE = "episode_title";
+
+        /**
          * The start time of this TV program, in milliseconds since the epoch.
          * <p>
+         * The value should be equal to or larger than {@link #COLUMN_END_TIME_UTC_MILLIS} of the
+         * previous program in the same channel.
+         * </p><p>
          * Type: INTEGER (long)
          * </p>
          */
@@ -802,6 +867,9 @@ public final class TvContract {
         /**
          * The end time of this TV program, in milliseconds since the epoch.
          * <p>
+         * The value should be equal to or less than {@link #COLUMN_START_TIME_UTC_MILLIS} of the
+         * next program in the same channel.
+         * </p><p>
          * Type: INTEGER (long)
          * </p>
          */
@@ -883,8 +951,8 @@ public final class TvContract {
         /**
          * The comma-separated audio languages of this TV program.
          * <p>
-         * This is used to describe available audio languages included in the program. Use
-         * 3-character language code as specified by ISO 639-2.
+         * This is used to describe available audio languages included in the program. Use either
+         * ISO 639-1 or 639-2/T codes.
          * </p><p>
          * Type: TEXT
          * </p>
@@ -990,6 +1058,24 @@ public final class TvContract {
             /** The genre for Gaming. */
             public static final String GAMING = "GAMING";
 
+            /** The genre for Arts. */
+            public static final String ARTS = "ARTS";
+
+            /** The genre for Entertainment. */
+            public static final String ENTERTAINMENT = "ENTERTAINMENT";
+
+            /** The genre for Life Style. */
+            public static final String LIFE_STYLE = "LIFE_STYLE";
+
+            /** The genre for Music. */
+            public static final String MUSIC = "MUSIC";
+
+            /** The genre for Premier. */
+            public static final String PREMIER = "PREMIER";
+
+            /** The genre for Tech/Science. */
+            public static final String TECH_SCIENCE = "TECH_SCIENCE";
+
             private static final ArraySet<String> CANONICAL_GENRES = new ArraySet<String>();
             static {
                 CANONICAL_GENRES.add(FAMILY_KIDS);
@@ -1003,6 +1089,12 @@ public final class TvContract {
                 CANONICAL_GENRES.add(ANIMAL_WILDLIFE);
                 CANONICAL_GENRES.add(NEWS);
                 CANONICAL_GENRES.add(GAMING);
+                CANONICAL_GENRES.add(ARTS);
+                CANONICAL_GENRES.add(ENTERTAINMENT);
+                CANONICAL_GENRES.add(LIFE_STYLE);
+                CANONICAL_GENRES.add(MUSIC);
+                CANONICAL_GENRES.add(PREMIER);
+                CANONICAL_GENRES.add(TECH_SCIENCE);
             }
 
             private Genres() {}
@@ -1042,6 +1134,7 @@ public final class TvContract {
              * @return {@code true} if the genre is canonical, otherwise {@code false}.
              * @hide
              */
+            @SystemApi
             public static boolean isCanonical(String genre) {
                 return CANONICAL_GENRES.contains(genre);
             }
@@ -1051,9 +1144,9 @@ public final class TvContract {
     /**
      * Column definitions for the TV programs that the user watched. Applications do not have access
      * to this table.
-     *
      * @hide
      */
+    @SystemApi
     public static final class WatchedPrograms implements BaseTvColumns {
 
         /** The content:// style URI for this table. */
@@ -1086,7 +1179,7 @@ public final class TvContract {
         public static final String COLUMN_WATCH_END_TIME_UTC_MILLIS = "watch_end_time_utc_millis";
 
         /**
-         * The channel ID that contains this TV program.
+         * The ID of the TV channel that provides this TV program.
          * <p>
          * Type: INTEGER (long)
          * </p>
@@ -1124,6 +1217,32 @@ public final class TvContract {
          * </p>
          */
         public static final String COLUMN_DESCRIPTION = "description";
+
+        /**
+         * Extra parameters given to {@link TvInputService.Session#tune(Uri, android.os.Bundle)
+         * TvInputService.Session.tune(Uri, android.os.Bundle)} when tuning to the channel that
+         * provides this TV program. (Used internally.)
+         * <p>
+         * This column contains an encoded string that represents comma-separated key-value pairs of
+         * the tune parameters. (Ex. "[key1]=[value1], [key2]=[value2]"). '%' is used as an escape
+         * character for '%', '=', and ','.
+         * </p><p>
+         * Type: TEXT
+         * </p>
+         */
+        public static final String COLUMN_INTERNAL_TUNE_PARAMS = "tune_params";
+
+        /**
+         * The session token of this TV program. (Used internally.)
+         * <p>
+         * This contains a String representation of {@link IBinder} for
+         * {@link TvInputService.Session} that provides the current TV program. It is used
+         * internally to distinguish watched programs entries from different TV input sessions.
+         * </p><p>
+         * Type: TEXT
+         * </p>
+         */
+        public static final String COLUMN_INTERNAL_SESSION_TOKEN = "session_token";
 
         private WatchedPrograms() {}
     }

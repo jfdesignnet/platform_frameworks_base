@@ -16,9 +16,13 @@
 
 package android.hardware.soundtrigger;
 
+import android.media.AudioFormat;
 import android.os.Handler;
+import android.os.Parcel;
+import android.os.Parcelable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.UUID;
 
 /**
@@ -43,7 +47,7 @@ public class SoundTrigger {
      * ID used to target any API call to this paricular module. Module
      * properties are returned by listModules() method.
      ****************************************************************************/
-    public static class ModuleProperties {
+    public static class ModuleProperties implements Parcelable {
         /** Unique module ID provided by the native service */
         public final int id;
 
@@ -83,11 +87,15 @@ public class SoundTrigger {
         /** Rated power consumption when detection is active with TDB silence/sound/speech ratio */
         public final int powerConsumptionMw;
 
+        /** Returns the trigger (key phrase) capture in the binary data of the
+         * recognition callback event */
+        public final boolean returnsTriggerInEvent;
+
         ModuleProperties(int id, String implementor, String description,
                 String uuid, int version, int maxSoundModels, int maxKeyphrases,
                 int maxUsers, int recognitionModes, boolean supportsCaptureTransition,
                 int maxBufferMs, boolean supportsConcurrentCapture,
-                int powerConsumptionMw) {
+                int powerConsumptionMw, boolean returnsTriggerInEvent) {
             this.id = id;
             this.implementor = implementor;
             this.description = description;
@@ -101,6 +109,74 @@ public class SoundTrigger {
             this.maxBufferMs = maxBufferMs;
             this.supportsConcurrentCapture = supportsConcurrentCapture;
             this.powerConsumptionMw = powerConsumptionMw;
+            this.returnsTriggerInEvent = returnsTriggerInEvent;
+        }
+
+        public static final Parcelable.Creator<ModuleProperties> CREATOR
+                = new Parcelable.Creator<ModuleProperties>() {
+            public ModuleProperties createFromParcel(Parcel in) {
+                return ModuleProperties.fromParcel(in);
+            }
+
+            public ModuleProperties[] newArray(int size) {
+                return new ModuleProperties[size];
+            }
+        };
+
+        private static ModuleProperties fromParcel(Parcel in) {
+            int id = in.readInt();
+            String implementor = in.readString();
+            String description = in.readString();
+            String uuid = in.readString();
+            int version = in.readInt();
+            int maxSoundModels = in.readInt();
+            int maxKeyphrases = in.readInt();
+            int maxUsers = in.readInt();
+            int recognitionModes = in.readInt();
+            boolean supportsCaptureTransition = in.readByte() == 1;
+            int maxBufferMs = in.readInt();
+            boolean supportsConcurrentCapture = in.readByte() == 1;
+            int powerConsumptionMw = in.readInt();
+            boolean returnsTriggerInEvent = in.readByte() == 1;
+            return new ModuleProperties(id, implementor, description, uuid, version,
+                    maxSoundModels, maxKeyphrases, maxUsers, recognitionModes,
+                    supportsCaptureTransition, maxBufferMs, supportsConcurrentCapture,
+                    powerConsumptionMw, returnsTriggerInEvent);
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(id);
+            dest.writeString(implementor);
+            dest.writeString(description);
+            dest.writeString(uuid.toString());
+            dest.writeInt(version);
+            dest.writeInt(maxSoundModels);
+            dest.writeInt(maxKeyphrases);
+            dest.writeInt(maxUsers);
+            dest.writeInt(recognitionModes);
+            dest.writeByte((byte) (supportsCaptureTransition ? 1 : 0));
+            dest.writeInt(maxBufferMs);
+            dest.writeByte((byte) (supportsConcurrentCapture ? 1 : 0));
+            dest.writeInt(powerConsumptionMw);
+            dest.writeByte((byte) (returnsTriggerInEvent ? 1 : 0));
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public String toString() {
+            return "ModuleProperties [id=" + id + ", implementor=" + implementor + ", description="
+                    + description + ", uuid=" + uuid + ", version=" + version + ", maxSoundModels="
+                    + maxSoundModels + ", maxKeyphrases=" + maxKeyphrases + ", maxUsers="
+                    + maxUsers + ", recognitionModes=" + recognitionModes
+                    + ", supportsCaptureTransition=" + supportsCaptureTransition + ", maxBufferMs="
+                    + maxBufferMs + ", supportsConcurrentCapture=" + supportsConcurrentCapture
+                    + ", powerConsumptionMw=" + powerConsumptionMw
+                    + ", returnsTriggerInEvent=" + returnsTriggerInEvent + "]";
         }
     }
 
@@ -123,13 +199,54 @@ public class SoundTrigger {
         /** Sound model type (e.g. TYPE_KEYPHRASE); */
         public final int type;
 
+        /** Unique sound model vendor identifier */
+        public final UUID vendorUuid;
+
         /** Opaque data. For use by vendor implementation and enrollment application */
         public final byte[] data;
 
-        public SoundModel(UUID uuid, int type, byte[] data) {
+        public SoundModel(UUID uuid, UUID vendorUuid, int type, byte[] data) {
             this.uuid = uuid;
+            this.vendorUuid = vendorUuid;
             this.type = type;
             this.data = data;
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + Arrays.hashCode(data);
+            result = prime * result + type;
+            result = prime * result + ((uuid == null) ? 0 : uuid.hashCode());
+            result = prime * result + ((vendorUuid == null) ? 0 : vendorUuid.hashCode());
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (!(obj instanceof SoundModel))
+                return false;
+            SoundModel other = (SoundModel) obj;
+            if (!Arrays.equals(data, other.data))
+                return false;
+            if (type != other.type)
+                return false;
+            if (uuid == null) {
+                if (other.uuid != null)
+                    return false;
+            } else if (!uuid.equals(other.uuid))
+                return false;
+            if (vendorUuid == null) {
+                if (other.vendorUuid != null)
+                    return false;
+            } else if (!vendorUuid.equals(other.vendorUuid))
+                return false;
+            return true;
         }
     }
 
@@ -137,7 +254,7 @@ public class SoundTrigger {
      * A Keyphrase describes a key phrase that can be detected by a
      * {@link KeyphraseSoundModel}
      ****************************************************************************/
-    public static class Keyphrase {
+    public static class Keyphrase implements Parcelable {
         /** Unique identifier for this keyphrase */
         public final int id;
 
@@ -161,6 +278,96 @@ public class SoundTrigger {
             this.text = text;
             this.users = users;
         }
+
+        public static final Parcelable.Creator<Keyphrase> CREATOR
+                = new Parcelable.Creator<Keyphrase>() {
+            public Keyphrase createFromParcel(Parcel in) {
+                return Keyphrase.fromParcel(in);
+            }
+
+            public Keyphrase[] newArray(int size) {
+                return new Keyphrase[size];
+            }
+        };
+
+        private static Keyphrase fromParcel(Parcel in) {
+            int id = in.readInt();
+            int recognitionModes = in.readInt();
+            String locale = in.readString();
+            String text = in.readString();
+            int[] users = null;
+            int numUsers = in.readInt();
+            if (numUsers >= 0) {
+                users = new int[numUsers];
+                in.readIntArray(users);
+            }
+            return new Keyphrase(id, recognitionModes, locale, text, users);
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(id);
+            dest.writeInt(recognitionModes);
+            dest.writeString(locale);
+            dest.writeString(text);
+            if (users != null) {
+                dest.writeInt(users.length);
+                dest.writeIntArray(users);
+            } else {
+                dest.writeInt(-1);
+            }
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + ((text == null) ? 0 : text.hashCode());
+            result = prime * result + id;
+            result = prime * result + ((locale == null) ? 0 : locale.hashCode());
+            result = prime * result + recognitionModes;
+            result = prime * result + Arrays.hashCode(users);
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            Keyphrase other = (Keyphrase) obj;
+            if (text == null) {
+                if (other.text != null)
+                    return false;
+            } else if (!text.equals(other.text))
+                return false;
+            if (id != other.id)
+                return false;
+            if (locale == null) {
+                if (other.locale != null)
+                    return false;
+            } else if (!locale.equals(other.locale))
+                return false;
+            if (recognitionModes != other.recognitionModes)
+                return false;
+            if (!Arrays.equals(users, other.users))
+                return false;
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "Keyphrase [id=" + id + ", recognitionModes=" + recognitionModes + ", locale="
+                    + locale + ", text=" + text + ", users=" + Arrays.toString(users) + "]";
+        }
     }
 
     /*****************************************************************************
@@ -168,13 +375,84 @@ public class SoundTrigger {
      * It contains data needed by the hardware to detect a certain number of key phrases
      * and the list of corresponding {@link Keyphrase} descriptors.
      ****************************************************************************/
-    public static class KeyphraseSoundModel extends SoundModel {
+    public static class KeyphraseSoundModel extends SoundModel implements Parcelable {
         /** Key phrases in this sound model */
         public final Keyphrase[] keyphrases; // keyword phrases in model
 
-        public KeyphraseSoundModel(UUID id, byte[] data, Keyphrase[] keyphrases) {
-            super(id, TYPE_KEYPHRASE, data);
+        public KeyphraseSoundModel(
+                UUID uuid, UUID vendorUuid, byte[] data, Keyphrase[] keyphrases) {
+            super(uuid, vendorUuid, TYPE_KEYPHRASE, data);
             this.keyphrases = keyphrases;
+        }
+
+        public static final Parcelable.Creator<KeyphraseSoundModel> CREATOR
+                = new Parcelable.Creator<KeyphraseSoundModel>() {
+            public KeyphraseSoundModel createFromParcel(Parcel in) {
+                return KeyphraseSoundModel.fromParcel(in);
+            }
+
+            public KeyphraseSoundModel[] newArray(int size) {
+                return new KeyphraseSoundModel[size];
+            }
+        };
+
+        private static KeyphraseSoundModel fromParcel(Parcel in) {
+            UUID uuid = UUID.fromString(in.readString());
+            UUID vendorUuid = null;
+            int length = in.readInt();
+            if (length >= 0) {
+                vendorUuid = UUID.fromString(in.readString());
+            }
+            byte[] data = in.readBlob();
+            Keyphrase[] keyphrases = in.createTypedArray(Keyphrase.CREATOR);
+            return new KeyphraseSoundModel(uuid, vendorUuid, data, keyphrases);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeString(uuid.toString());
+            if (vendorUuid == null) {
+                dest.writeInt(-1);
+            } else {
+                dest.writeInt(vendorUuid.toString().length());
+                dest.writeString(vendorUuid.toString());
+            }
+            dest.writeBlob(data);
+            dest.writeTypedArray(keyphrases, flags);
+        }
+
+        @Override
+        public String toString() {
+            return "KeyphraseSoundModel [keyphrases=" + Arrays.toString(keyphrases)
+                    + ", uuid=" + uuid + ", vendorUuid=" + vendorUuid
+                    + ", type=" + type + ", data=" + (data == null ? 0 : data.length) + "]";
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = super.hashCode();
+            result = prime * result + Arrays.hashCode(keyphrases);
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (!super.equals(obj))
+                return false;
+            if (!(obj instanceof KeyphraseSoundModel))
+                return false;
+            KeyphraseSoundModel other = (KeyphraseSoundModel) obj;
+            if (!Arrays.equals(keyphrases, other.keyphrases))
+                return false;
+            return true;
         }
     }
 
@@ -203,7 +481,7 @@ public class SoundTrigger {
      *  {@link StatusListener#onRecognition(RecognitionEvent)}
      *  callback upon recognition success or failure.
      */
-    public static class RecognitionEvent {
+    public static class RecognitionEvent implements Parcelable {
         /** Recognition status e.g {@link #RECOGNITION_STATUS_SUCCESS} */
         public final int status;
         /** Sound Model corresponding to this event callback */
@@ -218,19 +496,157 @@ public class SoundTrigger {
         public final int captureDelayMs;
         /** Duration in ms of audio captured before the start of the trigger. 0 if none. */
         public final int capturePreambleMs;
+        /** True if  the trigger (key phrase capture is present in binary data */
+        public final boolean triggerInData;
+        /** Audio format of either the trigger in event data or to use for capture of the
+          * rest of the utterance */
+        public AudioFormat captureFormat;
         /** Opaque data for use by system applications who know about voice engine internals,
          * typically during enrollment. */
         public final byte[] data;
 
-        RecognitionEvent(int status, int soundModelHandle, boolean captureAvailable,
-                int captureSession, int captureDelayMs, int capturePreambleMs, byte[] data) {
+        public RecognitionEvent(int status, int soundModelHandle, boolean captureAvailable,
+                int captureSession, int captureDelayMs, int capturePreambleMs,
+                boolean triggerInData, AudioFormat captureFormat, byte[] data) {
             this.status = status;
             this.soundModelHandle = soundModelHandle;
             this.captureAvailable = captureAvailable;
             this.captureSession = captureSession;
             this.captureDelayMs = captureDelayMs;
             this.capturePreambleMs = capturePreambleMs;
+            this.triggerInData = triggerInData;
+            this.captureFormat = captureFormat;
             this.data = data;
+        }
+
+        public static final Parcelable.Creator<RecognitionEvent> CREATOR
+                = new Parcelable.Creator<RecognitionEvent>() {
+            public RecognitionEvent createFromParcel(Parcel in) {
+                return RecognitionEvent.fromParcel(in);
+            }
+
+            public RecognitionEvent[] newArray(int size) {
+                return new RecognitionEvent[size];
+            }
+        };
+
+        private static RecognitionEvent fromParcel(Parcel in) {
+            int status = in.readInt();
+            int soundModelHandle = in.readInt();
+            boolean captureAvailable = in.readByte() == 1;
+            int captureSession = in.readInt();
+            int captureDelayMs = in.readInt();
+            int capturePreambleMs = in.readInt();
+            boolean triggerInData = in.readByte() == 1;
+            AudioFormat captureFormat = null;
+            if (in.readByte() == 1) {
+                int sampleRate = in.readInt();
+                int encoding = in.readInt();
+                int channelMask = in.readInt();
+                captureFormat = (new AudioFormat.Builder())
+                        .setChannelMask(channelMask)
+                        .setEncoding(encoding)
+                        .setSampleRate(sampleRate)
+                        .build();
+            }
+            byte[] data = in.readBlob();
+            return new RecognitionEvent(status, soundModelHandle, captureAvailable, captureSession,
+                    captureDelayMs, capturePreambleMs, triggerInData, captureFormat, data);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(status);
+            dest.writeInt(soundModelHandle);
+            dest.writeByte((byte) (captureAvailable ? 1 : 0));
+            dest.writeInt(captureSession);
+            dest.writeInt(captureDelayMs);
+            dest.writeInt(capturePreambleMs);
+            dest.writeByte((byte) (triggerInData ? 1 : 0));
+            if (captureFormat != null) {
+                dest.writeByte((byte)1);
+                dest.writeInt(captureFormat.getSampleRate());
+                dest.writeInt(captureFormat.getEncoding());
+                dest.writeInt(captureFormat.getChannelMask());
+            } else {
+                dest.writeByte((byte)0);
+            }
+            dest.writeBlob(data);
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + (captureAvailable ? 1231 : 1237);
+            result = prime * result + captureDelayMs;
+            result = prime * result + capturePreambleMs;
+            result = prime * result + captureSession;
+            result = prime * result + (triggerInData ? 1231 : 1237);
+            if (captureFormat != null) {
+                result = prime * result + captureFormat.getSampleRate();
+                result = prime * result + captureFormat.getEncoding();
+                result = prime * result + captureFormat.getChannelMask();
+            }
+            result = prime * result + Arrays.hashCode(data);
+            result = prime * result + soundModelHandle;
+            result = prime * result + status;
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            RecognitionEvent other = (RecognitionEvent) obj;
+            if (captureAvailable != other.captureAvailable)
+                return false;
+            if (captureDelayMs != other.captureDelayMs)
+                return false;
+            if (capturePreambleMs != other.capturePreambleMs)
+                return false;
+            if (captureSession != other.captureSession)
+                return false;
+            if (!Arrays.equals(data, other.data))
+                return false;
+            if (soundModelHandle != other.soundModelHandle)
+                return false;
+            if (status != other.status)
+                return false;
+            if (triggerInData != other.triggerInData)
+                return false;
+            if (captureFormat.getSampleRate() != other.captureFormat.getSampleRate())
+                return false;
+            if (captureFormat.getEncoding() != other.captureFormat.getEncoding())
+                return false;
+            if (captureFormat.getChannelMask() != other.captureFormat.getChannelMask())
+                return false;
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "RecognitionEvent [status=" + status + ", soundModelHandle=" + soundModelHandle
+                    + ", captureAvailable=" + captureAvailable + ", captureSession="
+                    + captureSession + ", captureDelayMs=" + captureDelayMs
+                    + ", capturePreambleMs=" + capturePreambleMs
+                    + ", triggerInData=" + triggerInData
+                    + ((captureFormat == null) ? "" :
+                        (", sampleRate=" + captureFormat.getSampleRate()))
+                    + ((captureFormat == null) ? "" :
+                        (", encoding=" + captureFormat.getEncoding()))
+                    + ((captureFormat == null) ? "" :
+                        (", channelMask=" + captureFormat.getChannelMask()))
+                    + ", data=" + (data == null ? 0 : data.length) + "]";
         }
     }
 
@@ -239,10 +655,15 @@ public class SoundTrigger {
      *  {@link SoundTriggerModule#startRecognition(int, RecognitionConfig)} to configure the
      *  recognition request.
      */
-    public static class RecognitionConfig {
+    public static class RecognitionConfig implements Parcelable {
         /** True if the DSP should capture the trigger sound and make it available for further
          * capture. */
         public final boolean captureRequested;
+        /**
+         * True if the service should restart listening after the DSP triggers.
+         * Note: This config flag is currently used at the service layer rather than by the DSP.
+         */
+        public final boolean allowMultipleTriggers;
         /** List of all keyphrases in the sound model for which recognition should be performed with
          * options for each keyphrase. */
         public final KeyphraseRecognitionExtra keyphrases[];
@@ -250,11 +671,52 @@ public class SoundTrigger {
          * typically during enrollment. */
         public final byte[] data;
 
-        public RecognitionConfig(boolean captureRequested,
+        public RecognitionConfig(boolean captureRequested, boolean allowMultipleTriggers,
                 KeyphraseRecognitionExtra keyphrases[], byte[] data) {
             this.captureRequested = captureRequested;
+            this.allowMultipleTriggers = allowMultipleTriggers;
             this.keyphrases = keyphrases;
             this.data = data;
+        }
+
+        public static final Parcelable.Creator<RecognitionConfig> CREATOR
+                = new Parcelable.Creator<RecognitionConfig>() {
+            public RecognitionConfig createFromParcel(Parcel in) {
+                return RecognitionConfig.fromParcel(in);
+            }
+
+            public RecognitionConfig[] newArray(int size) {
+                return new RecognitionConfig[size];
+            }
+        };
+
+        private static RecognitionConfig fromParcel(Parcel in) {
+            boolean captureRequested = in.readByte() == 1;
+            boolean allowMultipleTriggers = in.readByte() == 1;
+            KeyphraseRecognitionExtra[] keyphrases =
+                    in.createTypedArray(KeyphraseRecognitionExtra.CREATOR);
+            byte[] data = in.readBlob();
+            return new RecognitionConfig(captureRequested, allowMultipleTriggers, keyphrases, data);
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeByte((byte) (captureRequested ? 1 : 0));
+            dest.writeByte((byte) (allowMultipleTriggers ? 1 : 0));
+            dest.writeTypedArray(keyphrases, flags);
+            dest.writeBlob(data);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public String toString() {
+            return "RecognitionConfig [captureRequested=" + captureRequested
+                    + ", allowMultipleTriggers=" + allowMultipleTriggers + ", keyphrases="
+                    + Arrays.toString(keyphrases) + ", data=" + Arrays.toString(data) + "]";
         }
     }
 
@@ -266,7 +728,7 @@ public class SoundTrigger {
      * should trigger a recognition.
      * - The user ID is derived from the system ID {@link android.os.UserHandle#getIdentifier()}.
      */
-    public static class ConfidenceLevel {
+    public static class ConfidenceLevel implements Parcelable {
         public final int userId;
         public final int confidenceLevel;
 
@@ -274,28 +736,163 @@ public class SoundTrigger {
             this.userId = userId;
             this.confidenceLevel = confidenceLevel;
         }
+
+        public static final Parcelable.Creator<ConfidenceLevel> CREATOR
+                = new Parcelable.Creator<ConfidenceLevel>() {
+            public ConfidenceLevel createFromParcel(Parcel in) {
+                return ConfidenceLevel.fromParcel(in);
+            }
+
+            public ConfidenceLevel[] newArray(int size) {
+                return new ConfidenceLevel[size];
+            }
+        };
+
+        private static ConfidenceLevel fromParcel(Parcel in) {
+            int userId = in.readInt();
+            int confidenceLevel = in.readInt();
+            return new ConfidenceLevel(userId, confidenceLevel);
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(userId);
+            dest.writeInt(confidenceLevel);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + confidenceLevel;
+            result = prime * result + userId;
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            ConfidenceLevel other = (ConfidenceLevel) obj;
+            if (confidenceLevel != other.confidenceLevel)
+                return false;
+            if (userId != other.userId)
+                return false;
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "ConfidenceLevel [userId=" + userId
+                    + ", confidenceLevel=" + confidenceLevel + "]";
+        }
     }
 
     /**
      *  Additional data conveyed by a {@link KeyphraseRecognitionEvent}
      *  for a key phrase detection.
      */
-    public static class KeyphraseRecognitionExtra {
-        /** The keyphrse ID */
+    public static class KeyphraseRecognitionExtra implements Parcelable {
+        /** The keyphrase ID */
         public final int id;
 
         /** Recognition modes matched for this event */
         public final int recognitionModes;
 
+        /** Confidence level for mode RECOGNITION_MODE_VOICE_TRIGGER when user identification
+         * is not performed */
+        public final int coarseConfidenceLevel;
+
         /** Confidence levels for all users recognized (KeyphraseRecognitionEvent) or to
          * be recognized (RecognitionConfig) */
         public final ConfidenceLevel[] confidenceLevels;
 
-        public KeyphraseRecognitionExtra(int id, int recognitionModes,
-                                  ConfidenceLevel[] confidenceLevels) {
+        public KeyphraseRecognitionExtra(int id, int recognitionModes, int coarseConfidenceLevel,
+                ConfidenceLevel[] confidenceLevels) {
             this.id = id;
             this.recognitionModes = recognitionModes;
+            this.coarseConfidenceLevel = coarseConfidenceLevel;
             this.confidenceLevels = confidenceLevels;
+        }
+
+        public static final Parcelable.Creator<KeyphraseRecognitionExtra> CREATOR
+                = new Parcelable.Creator<KeyphraseRecognitionExtra>() {
+            public KeyphraseRecognitionExtra createFromParcel(Parcel in) {
+                return KeyphraseRecognitionExtra.fromParcel(in);
+            }
+
+            public KeyphraseRecognitionExtra[] newArray(int size) {
+                return new KeyphraseRecognitionExtra[size];
+            }
+        };
+
+        private static KeyphraseRecognitionExtra fromParcel(Parcel in) {
+            int id = in.readInt();
+            int recognitionModes = in.readInt();
+            int coarseConfidenceLevel = in.readInt();
+            ConfidenceLevel[] confidenceLevels = in.createTypedArray(ConfidenceLevel.CREATOR);
+            return new KeyphraseRecognitionExtra(id, recognitionModes, coarseConfidenceLevel,
+                    confidenceLevels);
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(id);
+            dest.writeInt(recognitionModes);
+            dest.writeInt(coarseConfidenceLevel);
+            dest.writeTypedArray(confidenceLevels, flags);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + Arrays.hashCode(confidenceLevels);
+            result = prime * result + id;
+            result = prime * result + recognitionModes;
+            result = prime * result + coarseConfidenceLevel;
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            KeyphraseRecognitionExtra other = (KeyphraseRecognitionExtra) obj;
+            if (!Arrays.equals(confidenceLevels, other.confidenceLevels))
+                return false;
+            if (id != other.id)
+                return false;
+            if (recognitionModes != other.recognitionModes)
+                return false;
+            if (coarseConfidenceLevel != other.coarseConfidenceLevel)
+                return false;
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "KeyphraseRecognitionExtra [id=" + id + ", recognitionModes=" + recognitionModes
+                    + ", coarseConfidenceLevel=" + coarseConfidenceLevel
+                    + ", confidenceLevels=" + Arrays.toString(confidenceLevels) + "]";
         }
     }
 
@@ -306,18 +903,217 @@ public class SoundTrigger {
         /** Indicates if the key phrase is present in the buffered audio available for capture */
         public final KeyphraseRecognitionExtra[] keyphraseExtras;
 
-        /** Additional data available for each recognized key phrases in the model */
-        public final boolean keyphraseInCapture;
-
-        KeyphraseRecognitionEvent(int status, int soundModelHandle, boolean captureAvailable,
-               int captureSession, int captureDelayMs, int capturePreambleMs, byte[] data,
-               boolean keyphraseInCapture, KeyphraseRecognitionExtra[] keyphraseExtras) {
+        public KeyphraseRecognitionEvent(int status, int soundModelHandle, boolean captureAvailable,
+               int captureSession, int captureDelayMs, int capturePreambleMs,
+               boolean triggerInData, AudioFormat captureFormat, byte[] data,
+               KeyphraseRecognitionExtra[] keyphraseExtras) {
             super(status, soundModelHandle, captureAvailable, captureSession, captureDelayMs,
-                  capturePreambleMs, data);
-            this.keyphraseInCapture = keyphraseInCapture;
+                  capturePreambleMs, triggerInData, captureFormat, data);
             this.keyphraseExtras = keyphraseExtras;
         }
+
+        public static final Parcelable.Creator<KeyphraseRecognitionEvent> CREATOR
+                = new Parcelable.Creator<KeyphraseRecognitionEvent>() {
+            public KeyphraseRecognitionEvent createFromParcel(Parcel in) {
+                return KeyphraseRecognitionEvent.fromParcel(in);
+            }
+
+            public KeyphraseRecognitionEvent[] newArray(int size) {
+                return new KeyphraseRecognitionEvent[size];
+            }
+        };
+
+        private static KeyphraseRecognitionEvent fromParcel(Parcel in) {
+            int status = in.readInt();
+            int soundModelHandle = in.readInt();
+            boolean captureAvailable = in.readByte() == 1;
+            int captureSession = in.readInt();
+            int captureDelayMs = in.readInt();
+            int capturePreambleMs = in.readInt();
+            boolean triggerInData = in.readByte() == 1;
+            AudioFormat captureFormat = null;
+            if (in.readByte() == 1) {
+                int sampleRate = in.readInt();
+                int encoding = in.readInt();
+                int channelMask = in.readInt();
+                captureFormat = (new AudioFormat.Builder())
+                        .setChannelMask(channelMask)
+                        .setEncoding(encoding)
+                        .setSampleRate(sampleRate)
+                        .build();
+            }
+            byte[] data = in.readBlob();
+            KeyphraseRecognitionExtra[] keyphraseExtras =
+                    in.createTypedArray(KeyphraseRecognitionExtra.CREATOR);
+            return new KeyphraseRecognitionEvent(status, soundModelHandle, captureAvailable,
+                    captureSession, captureDelayMs, capturePreambleMs, triggerInData,
+                    captureFormat, data, keyphraseExtras);
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(status);
+            dest.writeInt(soundModelHandle);
+            dest.writeByte((byte) (captureAvailable ? 1 : 0));
+            dest.writeInt(captureSession);
+            dest.writeInt(captureDelayMs);
+            dest.writeInt(capturePreambleMs);
+            dest.writeByte((byte) (triggerInData ? 1 : 0));
+            if (captureFormat != null) {
+                dest.writeByte((byte)1);
+                dest.writeInt(captureFormat.getSampleRate());
+                dest.writeInt(captureFormat.getEncoding());
+                dest.writeInt(captureFormat.getChannelMask());
+            } else {
+                dest.writeByte((byte)0);
+            }
+            dest.writeBlob(data);
+            dest.writeTypedArray(keyphraseExtras, flags);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = super.hashCode();
+            result = prime * result + Arrays.hashCode(keyphraseExtras);
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (!super.equals(obj))
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            KeyphraseRecognitionEvent other = (KeyphraseRecognitionEvent) obj;
+            if (!Arrays.equals(keyphraseExtras, other.keyphraseExtras))
+                return false;
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "KeyphraseRecognitionEvent [keyphraseExtras=" + Arrays.toString(keyphraseExtras)
+                    + ", status=" + status
+                    + ", soundModelHandle=" + soundModelHandle + ", captureAvailable="
+                    + captureAvailable + ", captureSession=" + captureSession + ", captureDelayMs="
+                    + captureDelayMs + ", capturePreambleMs=" + capturePreambleMs
+                    + ", triggerInData=" + triggerInData
+                    + ((captureFormat == null) ? "" :
+                        (", sampleRate=" + captureFormat.getSampleRate()))
+                    + ((captureFormat == null) ? "" :
+                        (", encoding=" + captureFormat.getEncoding()))
+                    + ((captureFormat == null) ? "" :
+                        (", channelMask=" + captureFormat.getChannelMask()))
+                    + ", data=" + (data == null ? 0 : data.length) + "]";
+        }
     }
+
+    /**
+     *  Status codes for {@link SoundModelEvent}
+     */
+    /** Sound Model was updated */
+    public static final int SOUNDMODEL_STATUS_UPDATED = 0;
+
+    /**
+     *  A SoundModelEvent is provided by the
+     *  {@link StatusListener#onSoundModelUpdate(SoundModelEvent)}
+     *  callback when a sound model has been updated by the implementation
+     */
+    public static class SoundModelEvent implements Parcelable {
+        /** Status e.g {@link #SOUNDMODEL_STATUS_UPDATED} */
+        public final int status;
+        /** The updated sound model handle */
+        public final int soundModelHandle;
+        /** New sound model data */
+        public final byte[] data;
+
+        SoundModelEvent(int status, int soundModelHandle, byte[] data) {
+            this.status = status;
+            this.soundModelHandle = soundModelHandle;
+            this.data = data;
+        }
+
+        public static final Parcelable.Creator<SoundModelEvent> CREATOR
+                = new Parcelable.Creator<SoundModelEvent>() {
+            public SoundModelEvent createFromParcel(Parcel in) {
+                return SoundModelEvent.fromParcel(in);
+            }
+
+            public SoundModelEvent[] newArray(int size) {
+                return new SoundModelEvent[size];
+            }
+        };
+
+        private static SoundModelEvent fromParcel(Parcel in) {
+            int status = in.readInt();
+            int soundModelHandle = in.readInt();
+            byte[] data = in.readBlob();
+            return new SoundModelEvent(status, soundModelHandle, data);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(status);
+            dest.writeInt(soundModelHandle);
+            dest.writeBlob(data);
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + Arrays.hashCode(data);
+            result = prime * result + soundModelHandle;
+            result = prime * result + status;
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            SoundModelEvent other = (SoundModelEvent) obj;
+            if (!Arrays.equals(data, other.data))
+                return false;
+            if (soundModelHandle != other.soundModelHandle)
+                return false;
+            if (status != other.status)
+                return false;
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "SoundModelEvent [status=" + status + ", soundModelHandle=" + soundModelHandle
+                    + ", data=" + (data == null ? 0 : data.length) + "]";
+        }
+    }
+
+    /**
+     *  Native service state. {@link StatusListener#onServiceStateChange(int)}
+     */
+    // Keep in sync with system/core/include/system/sound_trigger.h
+    /** Sound trigger service is enabled */
+    public static final int SERVICE_STATE_ENABLED = 0;
+    /** Sound trigger service is disabled */
+    public static final int SERVICE_STATE_DISABLED = 1;
 
     /**
      * Returns a list of descriptors for all harware modules loaded.
@@ -359,6 +1155,18 @@ public class SoundTrigger {
          * Called when recognition succeeds of fails
          */
         public abstract void onRecognition(RecognitionEvent event);
+
+        /**
+         * Called when a sound model has been updated
+         */
+        public abstract void onSoundModelUpdate(SoundModelEvent event);
+
+        /**
+         * Called when the sound trigger native service state changes.
+         * @param state Native service state. One of {@link SoundTrigger#SERVICE_STATE_ENABLED},
+         * {@link SoundTrigger#SERVICE_STATE_DISABLED}
+         */
+        public abstract void onServiceStateChange(int state);
 
         /**
          * Called when the sound trigger native service dies

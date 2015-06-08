@@ -66,7 +66,12 @@ static inline void ThrowOnError(
   }
 
   ALOGE("Error %d in '%s'", resultCode, methodName);
-  env->FatalError(methodName);
+  // TODO: this layer needs to be refactored to return error codes to Java
+  // raising a FatalError is harsh, and because FLP Hardware Provider is loaded inside the system
+  // service, it can cause the device to reboot, or remain in a reboot loop
+  // a simple exception is still dumped to logcat, but it is handled more gracefully
+  jclass exceptionClass = env->FindClass("java/lang/RuntimeException");
+  env->ThrowNew(exceptionClass, methodName);
 }
 
 static bool IsValidCallbackThread() {
@@ -364,7 +369,9 @@ static void TranslateGeofenceFromGeofenceHardwareRequestParcelable(
       "()I");
   options->last_transition = env->CallIntMethod(geofenceRequestObject, getLastTransition);
 
-  // TODO: set data.sources_to_use when available
+  jmethodID getSourceTechnologies =
+      env->GetMethodID(geofenceRequestClass, "getSourceTechnologies", "()I");
+  options->sources_to_use = env->CallIntMethod(geofenceRequestObject, getSourceTechnologies);
 
   env->DeleteLocalRef(geofenceRequestClass);
 }

@@ -25,11 +25,15 @@ import android.hardware.camera2.ICameraDeviceCallbacks;
 import android.hardware.camera2.ICameraDeviceUser;
 import android.hardware.camera2.utils.LongParcelable;
 import android.hardware.camera2.impl.CameraMetadataNative;
+import android.hardware.camera2.impl.CaptureResultExtras;
 import android.hardware.camera2.utils.CameraBinderDecorator;
 import android.hardware.camera2.utils.CameraRuntimeException;
 import android.os.ConditionVariable;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Message;
 import android.os.RemoteException;
 import android.util.Log;
 import android.util.SparseArray;
@@ -52,6 +56,7 @@ import java.util.List;
  * Keep up to date with ICameraDeviceUser.aidl.
  * </p>
  */
+@SuppressWarnings("deprecation")
 public class CameraDeviceUserShim implements ICameraDeviceUser {
     private static final String TAG = "CameraDeviceUserShim";
 
@@ -66,16 +71,29 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     private final SparseArray<Surface> mSurfaces;
     private final CameraCharacteristics mCameraCharacteristics;
     private final CameraLooper mCameraInit;
+    private final CameraCallbackThread mCameraCallbacks;
+
 
     protected CameraDeviceUserShim(int cameraId, LegacyCameraDevice legacyCamera,
-            CameraCharacteristics characteristics, CameraLooper cameraInit) {
+            CameraCharacteristics characteristics, CameraLooper cameraInit,
+            CameraCallbackThread cameraCallbacks) {
         mLegacyDevice = legacyCamera;
         mConfiguring = false;
         mSurfaces = new SparseArray<Surface>();
         mCameraCharacteristics = characteristics;
         mCameraInit = cameraInit;
+        mCameraCallbacks = cameraCallbacks;
 
         mSurfaceIdCounter = 0;
+    }
+
+    private static int translateErrorsFromCamera1(int errorCode) {
+        switch (errorCode) {
+            case CameraBinderDecorator.EACCES:
+                return CameraBinderDecorator.PERMISSION_DENIED;
+            default:
+                return errorCode;
+        }
     }
 
     /**
@@ -121,8 +139,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
             // Save the looper so that we can terminate this thread
             // after we are done with it.
             mLooper = Looper.myLooper();
-            mInitErrors = mCamera.cameraInitUnspecified(mCameraId);
-
+            mInitErrors = translateErrorsFromCamera1(mCamera.cameraInitUnspecified(mCameraId));
             mStartDone.open();
             Looper.loop();  // Blocks forever until #close is called.
         }
@@ -173,6 +190,123 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         }
     }
 
+    /**
+     * A thread to process callbacks to send back to the camera client.
+     *
+     * <p>This effectively emulates one-way binder semantics when in the same process as the
+     * callee.</p>
+     */
+    private static class CameraCallbackThread implements ICameraDeviceCallbacks {
+        private static final int CAMERA_ERROR = 0;
+        private static final int CAMERA_IDLE = 1;
+        private static final int CAPTURE_STARTED = 2;
+        private static final int RESULT_RECEIVED = 3;
+
+        private final HandlerThread mHandlerThread;
+        private Handler mHandler;
+
+        private final ICameraDeviceCallbacks mCallbacks;
+
+        public CameraCallbackThread(ICameraDeviceCallbacks callbacks) {
+            mCallbacks = callbacks;
+
+            mHandlerThread = new HandlerThread("LegacyCameraCallback");
+            mHandlerThread.start();
+        }
+
+        public void close() {
+            mHandlerThread.quitSafely();
+        }
+
+        @Override
+        public void onDeviceError(final int errorCode, final CaptureResultExtras resultExtras) {
+            Message msg = getHandler().obtainMessage(CAMERA_ERROR,
+                /*arg1*/ errorCode, /*arg2*/ 0,
+                /*obj*/ resultExtras);
+            getHandler().sendMessage(msg);
+        }
+
+        @Override
+        public void onDeviceIdle() {
+            Message msg = getHandler().obtainMessage(CAMERA_IDLE);
+            getHandler().sendMessage(msg);
+        }
+
+        @Override
+        public void onCaptureStarted(final CaptureResultExtras resultExtras, final long timestamp) {
+            Message msg = getHandler().obtainMessage(CAPTURE_STARTED,
+                    /*arg1*/ (int) (timestamp & 0xFFFFFFFFL),
+                    /*arg2*/ (int) ( (timestamp >> 32) & 0xFFFFFFFFL),
+                    /*obj*/ resultExtras);
+            getHandler().sendMessage(msg);
+        }
+
+        @Override
+        public void onResultReceived(final CameraMetadataNative result,
+                final CaptureResultExtras resultExtras) {
+            Object[] resultArray = new Object[] { result, resultExtras };
+            Message msg = getHandler().obtainMessage(RESULT_RECEIVED,
+                    /*obj*/ resultArray);
+            getHandler().sendMessage(msg);
+        }
+
+        @Override
+        public IBinder asBinder() {
+            // This is solely intended to be used for in-process binding.
+            return null;
+        }
+
+        private Handler getHandler() {
+            if (mHandler == null) {
+                mHandler = new CallbackHandler(mHandlerThread.getLooper());
+            }
+            return mHandler;
+        }
+
+        private class CallbackHandler extends Handler {
+            public CallbackHandler(Looper l) {
+                super(l);
+            }
+
+            @Override
+            public void handleMessage(Message msg) {
+                try {
+                    switch (msg.what) {
+                        case CAMERA_ERROR: {
+                            int errorCode = msg.arg1;
+                            CaptureResultExtras resultExtras = (CaptureResultExtras) msg.obj;
+                            mCallbacks.onDeviceError(errorCode, resultExtras);
+                            break;
+                        }
+                        case CAMERA_IDLE:
+                            mCallbacks.onDeviceIdle();
+                            break;
+                        case CAPTURE_STARTED: {
+                            long timestamp = msg.arg2 & 0xFFFFFFFFL;
+                            timestamp = (timestamp << 32) | (msg.arg1 & 0xFFFFFFFFL);
+                            CaptureResultExtras resultExtras = (CaptureResultExtras) msg.obj;
+                            mCallbacks.onCaptureStarted(resultExtras, timestamp);
+                            break;
+                        }
+                        case RESULT_RECEIVED: {
+                            Object[] resultArray = (Object[]) msg.obj;
+                            CameraMetadataNative result = (CameraMetadataNative) resultArray[0];
+                            CaptureResultExtras resultExtras = (CaptureResultExtras) resultArray[1];
+                            mCallbacks.onResultReceived(result, resultExtras);
+                            break;
+                        }
+                        default:
+                            throw new IllegalArgumentException(
+                                "Unknown callback message " + msg.what);
+                    }
+                } catch (RemoteException e) {
+                    throw new IllegalStateException(
+                        "Received remote exception during camera callback " + msg.what, e);
+                }
+            }
+        }
+    }
+
     public static CameraDeviceUserShim connectBinderShim(ICameraDeviceCallbacks callbacks,
                                                          int cameraId) {
         if (DEBUG) {
@@ -187,6 +321,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
 
         CameraLooper init = new CameraLooper(cameraId);
 
+        CameraCallbackThread threadCallbacks = new CameraCallbackThread(callbacks);
+
         // TODO: Make this async instead of blocking
         int initErrors = init.waitForOpen(OPEN_CAMERA_TIMEOUT_MS);
         Camera legacyCamera = init.getCamera();
@@ -194,14 +330,25 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         // Check errors old HAL initialization
         CameraBinderDecorator.throwOnError(initErrors);
 
+        // Disable shutter sounds (this will work unconditionally) for api2 clients
+        legacyCamera.disableShutterSound();
+
         CameraInfo info = new CameraInfo();
         Camera.getCameraInfo(cameraId, info);
 
+        Camera.Parameters legacyParameters = null;
+        try {
+            legacyParameters = legacyCamera.getParameters();
+        } catch (RuntimeException e) {
+            throw new CameraRuntimeException(CameraAccessException.CAMERA_ERROR,
+                    "Unable to get initial parameters", e);
+        }
+
         CameraCharacteristics characteristics =
-                LegacyMetadataMapper.createCharacteristics(legacyCamera.getParameters(), info);
+                LegacyMetadataMapper.createCharacteristics(legacyParameters, info);
         LegacyCameraDevice device = new LegacyCameraDevice(
-                cameraId, legacyCamera, characteristics, callbacks);
-        return new CameraDeviceUserShim(cameraId, device, characteristics, init);
+                cameraId, legacyCamera, characteristics, threadCallbacks);
+        return new CameraDeviceUserShim(cameraId, device, characteristics, init, threadCallbacks);
     }
 
     @Override
@@ -210,10 +357,15 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
             Log.d(TAG, "disconnect called.");
         }
 
+        if (mLegacyDevice.isClosed()) {
+            Log.w(TAG, "Cannot disconnect, device has already been closed.");
+        }
+
         try {
             mLegacyDevice.close();
         } finally {
             mCameraInit.close();
+            mCameraCallbacks.close();
         }
     }
 
@@ -223,6 +375,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "submitRequest called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot submit request, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (mConfiguring) {
                 Log.e(TAG, "Cannot submit request, configuration change in progress.");
@@ -238,6 +395,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "submitRequestList called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot submit request list, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (mConfiguring) {
                 Log.e(TAG, "Cannot submit request, configuration change in progress.");
@@ -252,6 +414,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "cancelRequest called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot cancel request, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (mConfiguring) {
                 Log.e(TAG, "Cannot cancel request, configuration change in progress.");
@@ -268,6 +435,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "beginConfigure called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot begin configure, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (mConfiguring) {
                 Log.e(TAG, "Cannot begin configure, configuration change already in progress.");
@@ -283,6 +455,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "endConfigure called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot end configure, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         ArrayList<Surface> surfaces = null;
         synchronized(mConfigureLock) {
             if (!mConfiguring) {
@@ -306,6 +483,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "deleteStream called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot delete stream, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (!mConfiguring) {
                 Log.e(TAG, "Cannot delete stream, beginConfigure hasn't been called yet.");
@@ -326,6 +508,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "createStream called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot create stream, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (!mConfiguring) {
                 Log.e(TAG, "Cannot create stream, beginConfigure hasn't been called yet.");
@@ -341,6 +528,10 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     public int createDefaultRequest(int templateId, /*out*/CameraMetadataNative request) {
         if (DEBUG) {
             Log.d(TAG, "createDefaultRequest called.");
+        }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot create default request, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
         }
 
         CameraMetadataNative template;
@@ -371,6 +562,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "waitUntilIdle called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot wait until idle, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (mConfiguring) {
                 Log.e(TAG, "Cannot wait until idle, configuration change in progress.");
@@ -386,13 +582,21 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         if (DEBUG) {
             Log.d(TAG, "flush called.");
         }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot flush, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
         synchronized(mConfigureLock) {
             if (mConfiguring) {
                 Log.e(TAG, "Cannot flush, configuration change in progress.");
                 return CameraBinderDecorator.INVALID_OPERATION;
             }
         }
-        // TODO: implement flush.
+        long lastFrame = mLegacyDevice.flush();
+        if (lastFrameNumber != null) {
+            lastFrameNumber.setNumber(lastFrame);
+        }
         return CameraBinderDecorator.NO_ERROR;
     }
 

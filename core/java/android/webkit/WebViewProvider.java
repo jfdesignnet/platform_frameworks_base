@@ -16,6 +16,7 @@
 
 package android.webkit;
 
+import android.annotation.SystemApi;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -53,6 +54,7 @@ import java.util.Map;
  *
  * @hide Not part of the public API; only required by system implementors.
  */
+@SystemApi
 public interface WebViewProvider {
     //-------------------------------------------------------------------------
     // Main interface for backend provider of the WebView class.
@@ -238,6 +240,8 @@ public interface WebViewProvider {
 
     public boolean canZoomOut();
 
+    public boolean zoomBy(float zoomFactor);
+
     public boolean zoomIn();
 
     public boolean zoomOut();
@@ -245,8 +249,6 @@ public interface WebViewProvider {
     public void dumpViewHierarchyWithProperties(BufferedWriter out, int level);
 
     public View findHierarchyView(String className, int hashCode);
-
-    public void preauthorizePermission(Uri origin, long resources);
 
     //-------------------------------------------------------------------------
     // Provider internal methods

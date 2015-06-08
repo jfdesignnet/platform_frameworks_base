@@ -37,7 +37,13 @@ interface IAccountManager {
     void hasFeatures(in IAccountManagerResponse response, in Account account, in String[] features);
     void getAccountsByFeatures(in IAccountManagerResponse response, String accountType, in String[] features);
     boolean addAccountExplicitly(in Account account, String password, in Bundle extras);
-    void removeAccount(in IAccountManagerResponse response, in Account account);
+    void removeAccount(in IAccountManagerResponse response, in Account account,
+        boolean expectActivityLaunch);
+    void removeAccountAsUser(in IAccountManagerResponse response, in Account account,
+        boolean expectActivityLaunch, int userId);
+    boolean removeAccountExplicitly(in Account account);
+    void copyAccountToUser(in IAccountManagerResponse response, in Account account,
+        int userFrom, int userTo);
     void invalidateAuthToken(String accountType, String authToken);
     String peekAuthToken(in Account account, String authTokenType);
     void setAuthToken(in Account account, String authTokenType, String authToken);
@@ -52,6 +58,9 @@ interface IAccountManager {
     void addAccount(in IAccountManagerResponse response, String accountType,
         String authTokenType, in String[] requiredFeatures, boolean expectActivityLaunch,
         in Bundle options);
+    void addAccountAsUser(in IAccountManagerResponse response, String accountType,
+        String authTokenType, in String[] requiredFeatures, boolean expectActivityLaunch,
+        in Bundle options, int userId);
     void updateCredentials(in IAccountManagerResponse response, in Account account,
         String authTokenType, boolean expectActivityLaunch, in Bundle options);
     void editProperties(in IAccountManagerResponse response, String accountType,
@@ -65,4 +74,10 @@ interface IAccountManager {
     boolean addSharedAccountAsUser(in Account account, int userId);
     Account[] getSharedAccountsAsUser(int userId);
     boolean removeSharedAccountAsUser(in Account account, int userId);
+
+    /* Account renaming. */
+    void renameAccount(in IAccountManagerResponse response, in Account accountToRename, String newName);
+    String getPreviousName(in Account account);
+    boolean renameSharedAccountAsUser(in Account accountToRename, String newName, int userId);
+
 }

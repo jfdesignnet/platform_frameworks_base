@@ -16,12 +16,22 @@
 
 package com.android.internal.app;
 
+import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.IntentSender;
+import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 import android.os.Parcelable;
 import android.util.Log;
+import android.util.Slog;
 
 public class ChooserActivity extends ResolverActivity {
+    private static final String TAG = "ChooserActivity";
+
+    private Bundle mReplacementExtras;
+    private IntentSender mChosenComponentSender;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         Intent intent = getIntent();
@@ -34,14 +44,9 @@ public class ChooserActivity extends ResolverActivity {
         }
         Intent target = (Intent)targetParcelable;
         if (target != null) {
-            final String action = target.getAction();
-            if (Intent.ACTION_SEND.equals(action) ||
-                    Intent.ACTION_SEND_MULTIPLE.equals(action)) {
-                target.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT |
-                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK |
-                        Intent.FLAG_ACTIVITY_AUTO_REMOVE_FROM_RECENTS);
-            }
+            modifyTargetIntent(target);
         }
+        mReplacementExtras = intent.getBundleExtra(Intent.EXTRA_REPLACEMENT_EXTRAS);
         CharSequence title = intent.getCharSequenceExtra(Intent.EXTRA_TITLE);
         int defaultTitleRes = 0;
         if (title == null) {
@@ -59,17 +64,57 @@ public class ChooserActivity extends ResolverActivity {
                     return;
                 }
                 final Intent in = (Intent) pa[i];
-                final String action = in.getAction();
-                if (Intent.ACTION_SEND.equals(action) ||
-                        Intent.ACTION_SEND_MULTIPLE.equals(action)) {
-                    in.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT |
-                            Intent.FLAG_ACTIVITY_MULTIPLE_TASK |
-                            Intent.FLAG_ACTIVITY_AUTO_REMOVE_FROM_RECENTS);
-                }
+                modifyTargetIntent(in);
                 initialIntents[i] = in;
             }
         }
+        mChosenComponentSender = intent.getParcelableExtra(
+                Intent.EXTRA_CHOSEN_COMPONENT_INTENT_SENDER);
+        setSafeForwardingMode(true);
         super.onCreate(savedInstanceState, target, title, defaultTitleRes, initialIntents,
                 null, false);
+    }
+
+    @Override
+    public Intent getReplacementIntent(ActivityInfo aInfo, Intent defIntent) {
+        Intent result = defIntent;
+        if (mReplacementExtras != null) {
+            final Bundle replExtras = mReplacementExtras.getBundle(aInfo.packageName);
+            if (replExtras != null) {
+                result = new Intent(defIntent);
+                result.putExtras(replExtras);
+            }
+        }
+        if (aInfo.name.equals(IntentForwarderActivity.FORWARD_INTENT_TO_USER_OWNER)
+                || aInfo.name.equals(IntentForwarderActivity.FORWARD_INTENT_TO_MANAGED_PROFILE)) {
+            result = Intent.createChooser(result,
+                    getIntent().getCharSequenceExtra(Intent.EXTRA_TITLE));
+        }
+        return result;
+    }
+
+    @Override
+    public void onActivityStarted(Intent intent) {
+        if (mChosenComponentSender != null) {
+            final ComponentName target = intent.getComponent();
+            if (target != null) {
+                final Intent fillIn = new Intent().putExtra(Intent.EXTRA_CHOSEN_COMPONENT, target);
+                try {
+                    mChosenComponentSender.sendIntent(this, Activity.RESULT_OK, fillIn, null, null);
+                } catch (IntentSender.SendIntentException e) {
+                    Slog.e(TAG, "Unable to launch supplied IntentSender to report "
+                            + "the chosen component: " + e);
+                }
+            }
+        }
+    }
+
+    private void modifyTargetIntent(Intent in) {
+        final String action = in.getAction();
+        if (Intent.ACTION_SEND.equals(action) ||
+                Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            in.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT |
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        }
     }
 }

@@ -49,14 +49,14 @@ import android.widget.PopupWindow.OnDismissListener;
  *
  * <p>See the <a href="{@docRoot}guide/topics/ui/controls/spinner.html">Spinners</a> guide.</p>
  *
- * @attr ref android.R.styleable#Spinner_dropDownHorizontalOffset
  * @attr ref android.R.styleable#Spinner_dropDownSelector
- * @attr ref android.R.styleable#Spinner_dropDownVerticalOffset
  * @attr ref android.R.styleable#Spinner_dropDownWidth
  * @attr ref android.R.styleable#Spinner_gravity
  * @attr ref android.R.styleable#Spinner_popupBackground
  * @attr ref android.R.styleable#Spinner_prompt
  * @attr ref android.R.styleable#Spinner_spinnerMode
+ * @attr ref android.R.styleable#ListPopupWindow_dropDownVerticalOffset
+ * @attr ref android.R.styleable#ListPopupWindow_dropDownHorizontalOffset
  */
 @Widget
 public class Spinner extends AbsSpinner implements OnClickListener {
@@ -209,17 +209,6 @@ public class Spinner extends AbsSpinner implements OnClickListener {
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             popup.setBackgroundDrawable(a.getDrawable(
                     com.android.internal.R.styleable.Spinner_popupBackground));
-            final int verticalOffset = a.getDimensionPixelOffset(
-                    com.android.internal.R.styleable.Spinner_dropDownVerticalOffset, 0);
-            if (verticalOffset != 0) {
-                popup.setVerticalOffset(verticalOffset);
-            }
-
-            final int horizontalOffset = a.getDimensionPixelOffset(
-                    com.android.internal.R.styleable.Spinner_dropDownHorizontalOffset, 0);
-            if (horizontalOffset != 0) {
-                popup.setHorizontalOffset(horizontalOffset);
-            }
 
             mPopup = popup;
             mForwardingListener = new ForwardingListener(this) {
@@ -303,7 +292,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @param pixels Vertical offset in pixels
      *
-     * @attr ref android.R.styleable#Spinner_dropDownVerticalOffset
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownVerticalOffset
      */
     public void setDropDownVerticalOffset(int pixels) {
         mPopup.setVerticalOffset(pixels);
@@ -315,7 +304,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @return Vertical offset in pixels
      *
-     * @attr ref android.R.styleable#Spinner_dropDownVerticalOffset
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownVerticalOffset
      */
     public int getDropDownVerticalOffset() {
         return mPopup.getVerticalOffset();
@@ -327,7 +316,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @param pixels Horizontal offset in pixels
      *
-     * @attr ref android.R.styleable#Spinner_dropDownHorizontalOffset
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownHorizontalOffset
      */
     public void setDropDownHorizontalOffset(int pixels) {
         mPopup.setHorizontalOffset(pixels);
@@ -339,7 +328,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @return Horizontal offset in pixels
      *
-     * @attr ref android.R.styleable#Spinner_dropDownHorizontalOffset
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownHorizontalOffset
      */
     public int getDropDownHorizontalOffset() {
         return mPopup.getHorizontalOffset();
@@ -428,7 +417,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      * {@link Adapter#getItemViewType(int) getItemViewType(int)} on the object
      * returned from {@link #getAdapter()} will always return 0. Calling
      * {@link Adapter#getViewTypeCount() getViewTypeCount()} will always return
-     * 1. On API {@link Build.VERSION_CODES#L} and above, attempting to set an
+     * 1. On API {@link Build.VERSION_CODES#LOLLIPOP} and above, attempting to set an
      * adapter with more than one view type will throw an
      * {@link IllegalArgumentException}.
      *
@@ -445,7 +434,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
         mRecycler.clear();
 
         final int targetSdkVersion = mContext.getApplicationInfo().targetSdkVersion;
-        if (targetSdkVersion >= Build.VERSION_CODES.L
+        if (targetSdkVersion >= Build.VERSION_CODES.LOLLIPOP
                 && adapter != null && adapter.getViewTypeCount() != 1) {
             throw new IllegalArgumentException("Spinner adapter view type count must be 1");
         }

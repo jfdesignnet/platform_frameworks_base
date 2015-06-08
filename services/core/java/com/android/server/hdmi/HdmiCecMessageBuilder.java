@@ -54,8 +54,8 @@ public class HdmiCecMessageBuilder {
     static HdmiCecMessage buildFeatureAbortCommand(int src, int dest, int originalOpcode,
             int reason) {
         byte[] params = new byte[] {
-                (byte) originalOpcode,
-                (byte) reason,
+                (byte) (originalOpcode & 0xFF),
+                (byte) (reason & 0xFF),
         };
         return buildCommand(src, dest, Constants.MESSAGE_FEATURE_ABORT, params);
     }
@@ -110,9 +110,9 @@ public class HdmiCecMessageBuilder {
         // Hdmi CEC uses lower-cased ISO 639-2 (3 letters code).
         String normalized = language.toLowerCase();
         byte[] params = new byte[] {
-                (byte) normalized.charAt(0),
-                (byte) normalized.charAt(1),
-                (byte) normalized.charAt(2),
+                (byte) (normalized.charAt(0) & 0xFF),
+                (byte) (normalized.charAt(1) & 0xFF),
+                (byte) (normalized.charAt(2) & 0xFF),
         };
         // <Set Menu Language> is broadcast message.
         return buildCommand(src, Constants.ADDR_BROADCAST,
@@ -155,7 +155,7 @@ public class HdmiCecMessageBuilder {
                 (byte) ((address >> 8) & 0xFF),
                 (byte) (address & 0xFF),
                 // One byte device type
-                (byte) deviceType
+                (byte) (deviceType & 0xFF)
         };
         // <Report Physical Address> is broadcast message.
         return buildCommand(src, Constants.ADDR_BROADCAST,
@@ -194,7 +194,7 @@ public class HdmiCecMessageBuilder {
      */
     static HdmiCecMessage buildCecVersion(int src, int dest, int version) {
         byte[] params = new byte[] {
-                (byte) version
+                (byte) (version & 0xFF)
         };
         return buildCommand(src, dest, Constants.MESSAGE_CEC_VERSION, params);
     }
@@ -332,9 +332,24 @@ public class HdmiCecMessageBuilder {
      */
     static HdmiCecMessage buildReportPowerStatus(int src, int dest, int powerStatus) {
         byte[] param = new byte[] {
-                (byte) (powerStatus)
+                (byte) (powerStatus & 0xFF)
         };
         return buildCommand(src, dest, Constants.MESSAGE_REPORT_POWER_STATUS, param);
+    }
+
+    /**
+     * Build &lt;Report Menu Status&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param menuStatus menu status of the device
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildReportMenuStatus(int src, int dest, int menuStatus) {
+        byte[] param = new byte[] {
+                (byte) (menuStatus & 0xFF)
+        };
+        return buildCommand(src, dest, Constants.MESSAGE_MENU_STATUS, param);
     }
 
     /**
@@ -376,7 +391,7 @@ public class HdmiCecMessageBuilder {
      * @return newly created {@link HdmiCecMessage}
      */
     static HdmiCecMessage buildUserControlPressed(int src, int dest, int uiCommand) {
-        return buildUserControlPressed(src, dest, new byte[] { (byte) uiCommand });
+        return buildUserControlPressed(src, dest, new byte[] { (byte) (uiCommand & 0xFF) });
     }
 
     /**
@@ -455,6 +470,101 @@ public class HdmiCecMessageBuilder {
         return buildCommand(src, dest, Constants.MESSAGE_VENDOR_COMMAND_WITH_ID, params);
     }
 
+    /**
+     * Build &lt;Record On&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param params parameter of command
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildRecordOn(int src, int dest, byte[] params) {
+        return buildCommand(src, dest, Constants.MESSAGE_RECORD_ON, params);
+    }
+
+    /**
+     * Build &lt;Record Off&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildRecordOff(int src, int dest) {
+        return buildCommand(src, dest, Constants.MESSAGE_RECORD_OFF);
+    }
+
+    /**
+     * Build &lt;Set Digital Timer&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param params byte array of timing information and digital service information to be recorded
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildSetDigitalTimer(int src, int dest, byte[] params) {
+        return buildCommand(src, dest, Constants.MESSAGE_SET_DIGITAL_TIMER, params);
+    }
+
+    /**
+     * Build &lt;Set Analogue Timer&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param params byte array of timing information and analog service information to be recorded
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildSetAnalogueTimer(int src, int dest, byte[] params) {
+        return buildCommand(src, dest, Constants.MESSAGE_SET_ANALOG_TIMER, params);
+    }
+
+    /**
+     * Build &lt;Set External Timer&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param params byte array of timing information and external source information to be recorded
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildSetExternalTimer(int src, int dest, byte[] params) {
+        return buildCommand(src, dest, Constants.MESSAGE_SET_EXTERNAL_TIMER, params);
+    }
+
+    /**
+     * Build &lt;Clear Digital Timer&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param params byte array of timing information and digital service information to be cleared
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildClearDigitalTimer(int src, int dest, byte[] params) {
+        return buildCommand(src, dest, Constants.MESSAGE_CLEAR_DIGITAL_TIMER, params);
+    }
+
+    /**
+     * Build &lt;Clear Analog Timer&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param params byte array of timing information and analog service information to be cleared
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildClearAnalogueTimer(int src, int dest, byte[] params) {
+        return buildCommand(src, dest, Constants.MESSAGE_CLEAR_ANALOG_TIMER, params);
+    }
+
+    /**
+     * Build &lt;Clear Digital Timer&gt; command.
+     *
+     * @param src source address of command
+     * @param dest destination address of command
+     * @param params byte array of timing information and external source information to be cleared
+     * @return newly created {@link HdmiCecMessage}
+     */
+    static HdmiCecMessage buildClearExternalTimer(int src, int dest, byte[] params) {
+        return buildCommand(src, dest, Constants.MESSAGE_CLEAR_EXTERNAL_TIMER, params);
+    }
+
     /***** Please ADD new buildXXX() methods above. ******/
 
     /**
@@ -484,7 +594,7 @@ public class HdmiCecMessageBuilder {
 
     private static byte[] physicalAddressToParam(int physicalAddress) {
         return new byte[] {
-                (byte) (physicalAddress >> 8),
+                (byte) ((physicalAddress >> 8) & 0xFF),
                 (byte) (physicalAddress & 0xFF)
         };
     }

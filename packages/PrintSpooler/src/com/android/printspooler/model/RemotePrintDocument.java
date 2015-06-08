@@ -55,7 +55,7 @@ import java.util.Arrays;
 public final class RemotePrintDocument {
     private static final String LOG_TAG = "RemotePrintDocument";
 
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
 
     private static final int STATE_INITIAL = 0;
     private static final int STATE_STARTED = 1;
@@ -74,7 +74,7 @@ public final class RemotePrintDocument {
 
     private final Looper mLooper;
     private final IPrintDocumentAdapter mPrintDocumentAdapter;
-    private final DocumentObserver mDocumentObserver;
+    private final RemoteAdapterDeathObserver mAdapterDeathObserver;
 
     private final UpdateResultCallbacks mUpdateCallbacks;
 
@@ -107,11 +107,13 @@ public final class RemotePrintDocument {
                                         mDocumentInfo.info.getPageCount());
                             }
                             // Notify we are done.
+                            mState = STATE_UPDATED;
                             notifyUpdateCompleted();
                         }
                     }
                 } else {
                     // We always notify after a write.
+                    mState = STATE_UPDATED;
                     notifyUpdateCompleted();
                 }
                 runPendingCommand();
@@ -135,7 +137,7 @@ public final class RemotePrintDocument {
     private final DeathRecipient mDeathRecipient = new DeathRecipient() {
         @Override
         public void binderDied() {
-            finish();
+            onPrintingAppDied();
         }
     };
 
@@ -144,8 +146,8 @@ public final class RemotePrintDocument {
     private AsyncCommand mCurrentCommand;
     private AsyncCommand mNextCommand;
 
-    public interface DocumentObserver {
-        public void onDestroy();
+    public interface RemoteAdapterDeathObserver {
+        public void onDied();
     }
 
     public interface UpdateResultCallbacks {
@@ -155,12 +157,12 @@ public final class RemotePrintDocument {
     }
 
     public RemotePrintDocument(Context context, IPrintDocumentAdapter adapter,
-            MutexFileProvider fileProvider, DocumentObserver destroyListener,
+            MutexFileProvider fileProvider, RemoteAdapterDeathObserver deathObserver,
             UpdateResultCallbacks callbacks) {
         mPrintDocumentAdapter = adapter;
         mLooper = context.getMainLooper();
         mContext = context;
-        mDocumentObserver = destroyListener;
+        mAdapterDeathObserver = deathObserver;
         mDocumentInfo = new RemotePrintDocumentInfo();
         mDocumentInfo.fileProvider = fileProvider;
         mUpdateCallbacks = callbacks;
@@ -180,7 +182,6 @@ public final class RemotePrintDocument {
         } catch (RemoteException re) {
             Log.e(LOG_TAG, "Error calling start()", re);
             mState = STATE_FAILED;
-            mDocumentObserver.onDestroy();
         }
     }
 
@@ -258,7 +259,8 @@ public final class RemotePrintDocument {
             Log.i(LOG_TAG, "[CALLED] finish()");
         }
         if (mState != STATE_STARTED && mState != STATE_UPDATED
-                && mState != STATE_FAILED && mState != STATE_CANCELING) {
+                && mState != STATE_FAILED && mState != STATE_CANCELING
+                && mState != STATE_CANCELED) {
             throw new IllegalStateException("Cannot finish in state:"
                     + stateToString(mState));
         }
@@ -266,9 +268,8 @@ public final class RemotePrintDocument {
             mPrintDocumentAdapter.finish();
             mState = STATE_FINISHED;
         } catch (RemoteException re) {
-            Log.e(LOG_TAG, "Error calling finish()", re);
+            Log.e(LOG_TAG, "Error calling finish()");
             mState = STATE_FAILED;
-            mDocumentObserver.onDestroy();
         }
     }
 
@@ -301,7 +302,18 @@ public final class RemotePrintDocument {
         mState = STATE_DESTROYED;
 
         disconnectFromRemoteDocument();
-        mDocumentObserver.onDestroy();
+    }
+
+    public void kill(String reason) {
+        if (DEBUG) {
+            Log.i(LOG_TAG, "[CALLED] kill()");
+        }
+
+        try {
+            mPrintDocumentAdapter.kill(reason);
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG, "Error calling kill()", re);
+        }
     }
 
     public boolean isUpdating() {
@@ -314,6 +326,11 @@ public final class RemotePrintDocument {
 
     public boolean hasUpdateError() {
         return mState == STATE_FAILED;
+    }
+
+    public boolean hasLaidOutPages() {
+        return mDocumentInfo.info != null
+                && mDocumentInfo.info.getPageCount() > 0;
     }
 
     public void clearUpdateError() {
@@ -1103,6 +1120,16 @@ public final class RemotePrintDocument {
         }
     }
 
+    private void onPrintingAppDied() {
+        mState = STATE_FAILED;
+        new Handler(mLooper).post(new Runnable() {
+            @Override
+            public void run() {
+                mAdapterDeathObserver.onDied();
+            }
+        });
+    }
+
     private static final class PrintDocumentAdapterObserver
             extends IPrintDocumentAdapterObserver.Stub {
         private final WeakReference<RemotePrintDocument> mWeakDocument;
@@ -1115,12 +1142,7 @@ public final class RemotePrintDocument {
         public void onDestroy() {
             final RemotePrintDocument document = mWeakDocument.get();
             if (document != null) {
-                new Handler(document.mLooper).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        document.mDocumentObserver.onDestroy();
-                    }
-                });
+                document.onPrintingAppDied();
             }
         }
     }

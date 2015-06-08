@@ -12,6 +12,7 @@ ifeq ($(USE_OPENGL_RENDERER),true)
 		font/CacheTexture.cpp \
 		font/Font.cpp \
 		AmbientShadow.cpp \
+		AnimationContext.cpp \
 		Animator.cpp \
 		AnimatorManager.cpp \
 		AssetAtlas.cpp \
@@ -99,6 +100,9 @@ ifeq ($(USE_OPENGL_RENDERER),true)
 	ifdef HWUI_COMPILE_FOR_PERF
 		LOCAL_CFLAGS += -fno-omit-frame-pointer -marm -mapcs
 	endif
+
+	# Defaults for ATRACE_TAG and LOG_TAG for libhwui
+	LOCAL_CFLAGS += -DATRACE_TAG=ATRACE_TAG_VIEW -DLOG_TAG=\"OpenGLRenderer\"
 
 	include $(BUILD_SHARED_LIBRARY)
 

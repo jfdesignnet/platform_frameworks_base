@@ -167,34 +167,35 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
 
     /**
      * Action sent to a device administrator to notify that the device is entering
-     * or exiting lock task mode from an authorized package.  The extra
-     * {@link #EXTRA_LOCK_TASK_ENTERING} will describe whether entering or exiting
-     * the mode.  If entering, the extra {@link #EXTRA_LOCK_TASK_PACKAGE} will describe
-     * the authorized package using lock task mode.
-     *
-     * @see DevicePolicyManager#isLockTaskPermitted
+     * lock task mode from an authorized package.  The extra {@link #EXTRA_LOCK_TASK_PACKAGE}
+     * will describe the authorized package using lock task mode.
      *
      * <p>The calling device admin must be the device owner or profile
      * owner to receive this broadcast.
+     *
+     * @see DevicePolicyManager#isLockTaskPermitted(String)
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_LOCK_TASK_CHANGED
-            = "android.app.action.ACTION_LOCK_TASK_CHANGED";
+    public static final String ACTION_LOCK_TASK_ENTERING
+            = "android.app.action.LOCK_TASK_ENTERING";
 
     /**
-     * A boolean describing whether the device is currently entering or exiting
-     * lock task mode.
+     * Action sent to a device administrator to notify that the device is exiting
+     * lock task mode from an authorized package.
      *
-     * @see #ACTION_LOCK_TASK_CHANGED
+     * <p>The calling device admin must be the device owner or profile
+     * owner to receive this broadcast.
+     *
+     * @see DevicePolicyManager#isLockTaskPermitted(String)
      */
-    public static final String EXTRA_LOCK_TASK_ENTERING =
-            "android.app.extra.LOCK_TASK_ENTERING";
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_LOCK_TASK_EXITING
+            = "android.app.action.LOCK_TASK_EXITING";
 
     /**
-     * A boolean describing whether the device is currently entering or exiting
-     * lock task mode.
+     * A string containing the name of the package entering lock task mode.
      *
-     * @see #ACTION_LOCK_TASK_CHANGED
+     * @see #ACTION_LOCK_TASK_ENTERING
      */
     public static final String EXTRA_LOCK_TASK_PACKAGE =
             "android.app.extra.LOCK_TASK_PACKAGE";
@@ -219,7 +220,7 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_PROFILE_PROVISIONING_COMPLETE =
-            "android.app.action.ACTION_PROFILE_PROVISIONING_COMPLETE";
+            "android.app.action.PROFILE_PROVISIONING_COMPLETE";
 
     /**
      * Name under which a DevicePolicy component publishes information
@@ -380,16 +381,24 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
     }
 
     /**
-     * Called when a device is entering or exiting lock task mode by a package
-     * authorized by {@link DevicePolicyManager#isLockTaskPermitted(String)}
+     * Called when a device is entering lock task mode by a package authorized
+     * by {@link DevicePolicyManager#isLockTaskPermitted(String)}
      *
      * @param context The running context as per {@link #onReceive}.
      * @param intent The received intent as per {@link #onReceive}.
-     * @param isEnteringLockTask Whether the device is entering or exiting lock task mode.
      * @param pkg If entering, the authorized package using lock task mode, otherwise null.
      */
-    public void onLockTaskModeChanged(Context context, Intent intent, boolean isEnteringLockTask,
-            String pkg) {
+    public void onLockTaskModeEntering(Context context, Intent intent, String pkg) {
+    }
+
+    /**
+     * Called when a device is exiting lock task mode by a package authorized
+     * by {@link DevicePolicyManager#isLockTaskPermitted(String)}
+     *
+     * @param context The running context as per {@link #onReceive}.
+     * @param intent The received intent as per {@link #onReceive}.
+     */
+    public void onLockTaskModeExiting(Context context, Intent intent) {
     }
 
     /**
@@ -421,10 +430,11 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
             onPasswordExpiring(context, intent);
         } else if (ACTION_PROFILE_PROVISIONING_COMPLETE.equals(action)) {
             onProfileProvisioningComplete(context, intent);
-        } else if (ACTION_LOCK_TASK_CHANGED.equals(action)) {
-            boolean isEntering = intent.getBooleanExtra(EXTRA_LOCK_TASK_ENTERING, false);
+        } else if (ACTION_LOCK_TASK_ENTERING.equals(action)) {
             String pkg = intent.getStringExtra(EXTRA_LOCK_TASK_PACKAGE);
-            onLockTaskModeChanged(context, intent, isEntering, pkg);
+            onLockTaskModeEntering(context, intent, pkg);
+        } else if (ACTION_LOCK_TASK_EXITING.equals(action)) {
+            onLockTaskModeExiting(context, intent);
         }
     }
 }

@@ -29,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import android.app.ActivityManager;
 import android.app.ActivityThread;
 import android.app.AppOpsManager;
 import android.content.Context;
@@ -36,7 +37,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
-import android.media.AudioService;
+import android.media.AudioAttributes;
 import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Bundle;
@@ -46,7 +47,6 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
-import android.os.UserManager;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.AtomicFile;
@@ -54,7 +54,6 @@ import android.util.Log;
 import android.util.Pair;
 import android.util.Slog;
 import android.util.SparseArray;
-import android.util.SparseIntArray;
 import android.util.TimeUtils;
 import android.util.Xml;
 
@@ -62,7 +61,6 @@ import com.android.internal.app.IAppOpsService;
 import com.android.internal.app.IAppOpsCallback;
 import com.android.internal.util.FastXmlSerializer;
 import com.android.internal.util.XmlUtils;
-import com.google.android.util.AbstractMessageParser.MusicTrack;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -80,10 +78,12 @@ public class AppOpsService extends IAppOpsService.Stub {
     final Handler mHandler;
 
     boolean mWriteScheduled;
+    boolean mFastWriteScheduled;
     final Runnable mWriteRunner = new Runnable() {
         public void run() {
             synchronized (AppOpsService.this) {
                 mWriteScheduled = false;
+                mFastWriteScheduled = false;
                 AsyncTask<Void, Void, Void> task = new AsyncTask<Void, Void, Void>() {
                     @Override protected Void doInBackground(Void... params) {
                         writeState();
@@ -98,8 +98,6 @@ public class AppOpsService extends IAppOpsService.Stub {
     final SparseArray<HashMap<String, Ops>> mUidOps
             = new SparseArray<HashMap<String, Ops>>();
 
-    private int mDeviceOwnerUid;
-    private final SparseIntArray mProfileOwnerUids = new SparseIntArray();
     private final SparseArray<boolean[]> mOpRestrictions = new SparseArray<boolean[]>();
 
     public final static class Ops extends SparseArray<Op> {
@@ -241,7 +239,7 @@ public class AppOpsService extends IAppOpsService.Stub {
                 }
             }
             if (changed) {
-                scheduleWriteLocked();
+                scheduleFastWriteLocked();
             }
         }
     }
@@ -254,7 +252,7 @@ public class AppOpsService extends IAppOpsService.Stub {
                     if (pkgs.size() <= 0) {
                         mUidOps.remove(uid);
                     }
-                    scheduleWriteLocked();
+                    scheduleFastWriteLocked();
                 }
             }
         }
@@ -264,7 +262,7 @@ public class AppOpsService extends IAppOpsService.Stub {
         synchronized (this) {
             if (mUidOps.indexOfKey(uid) >= 0) {
                 mUidOps.remove(uid);
-                scheduleWriteLocked();
+                scheduleFastWriteLocked();
             }
         }
     }
@@ -373,11 +371,10 @@ public class AppOpsService extends IAppOpsService.Stub {
 
     @Override
     public void setMode(int code, int uid, String packageName, int mode) {
-        if (Binder.getCallingPid() == Process.myPid()) {
-            return;
+        if (Binder.getCallingPid() != Process.myPid()) {
+            mContext.enforcePermission(android.Manifest.permission.UPDATE_APP_OPS_STATS,
+                    Binder.getCallingPid(), Binder.getCallingUid(), null);
         }
-        mContext.enforcePermission(android.Manifest.permission.UPDATE_APP_OPS_STATS,
-                Binder.getCallingPid(), Binder.getCallingUid(), null);
         verifyIncomingOp(code);
         ArrayList<Callback> repCbs = null;
         code = AppOpsManager.opToSwitch(code);
@@ -405,7 +402,7 @@ public class AppOpsService extends IAppOpsService.Stub {
                         // if there is nothing else interesting in it.
                         pruneOp(op, uid, packageName);
                     }
-                    scheduleWriteNowLocked();
+                    scheduleFastWriteLocked();
                 }
             }
         }
@@ -441,18 +438,31 @@ public class AppOpsService extends IAppOpsService.Stub {
     }
 
     @Override
-    public void resetAllModes() {
+    public void resetAllModes(int reqUserId, String reqPackageName) {
+        final int callingPid = Binder.getCallingPid();
+        final int callingUid = Binder.getCallingUid();
         mContext.enforcePermission(android.Manifest.permission.UPDATE_APP_OPS_STATS,
-                Binder.getCallingPid(), Binder.getCallingUid(), null);
+                callingPid, callingUid, null);
+        reqUserId = ActivityManager.handleIncomingUser(callingPid, callingUid, reqUserId,
+                true, true, "resetAllModes", null);
         HashMap<Callback, ArrayList<Pair<String, Integer>>> callbacks = null;
         synchronized (this) {
             boolean changed = false;
             for (int i=mUidOps.size()-1; i>=0; i--) {
                 HashMap<String, Ops> packages = mUidOps.valueAt(i);
+                if (reqUserId != UserHandle.USER_ALL
+                        && reqUserId != UserHandle.getUserId(mUidOps.keyAt(i))) {
+                    // Skip any ops for a different user
+                    continue;
+                }
                 Iterator<Map.Entry<String, Ops>> it = packages.entrySet().iterator();
                 while (it.hasNext()) {
                     Map.Entry<String, Ops> ent = it.next();
                     String packageName = ent.getKey();
+                    if (reqPackageName != null && !reqPackageName.equals(packageName)) {
+                        // Skip any ops for a different package
+                        continue;
+                    }
                     Ops pkgOps = ent.getValue();
                     for (int j=pkgOps.size()-1; j>=0; j--) {
                         Op curOp = pkgOps.valueAt(j);
@@ -478,7 +488,7 @@ public class AppOpsService extends IAppOpsService.Stub {
                 }
             }
             if (changed) {
-                scheduleWriteNowLocked();
+                scheduleFastWriteLocked();
             }
         }
         if (callbacks != null) {
@@ -577,9 +587,9 @@ public class AppOpsService extends IAppOpsService.Stub {
     }
 
     @Override
-    public int checkAudioOperation(int code, int stream, int uid, String packageName) {
+    public int checkAudioOperation(int code, int usage, int uid, String packageName) {
         synchronized (this) {
-            final int mode = checkRestrictionLocked(code, stream, uid, packageName);
+            final int mode = checkRestrictionLocked(code, usage, uid, packageName);
             if (mode != AppOpsManager.MODE_ALLOWED) {
                 return mode;
             }
@@ -587,10 +597,10 @@ public class AppOpsService extends IAppOpsService.Stub {
         return checkOperation(code, uid, packageName);
     }
 
-    private int checkRestrictionLocked(int code, int stream, int uid, String packageName) {
-        final SparseArray<Restriction> streamRestrictions = mAudioRestrictions.get(code);
-        if (streamRestrictions != null) {
-            final Restriction r = streamRestrictions.get(stream);
+    private int checkRestrictionLocked(int code, int usage, int uid, String packageName) {
+        final SparseArray<Restriction> usageRestrictions = mAudioRestrictions.get(code);
+        if (usageRestrictions != null) {
+            final Restriction r = usageRestrictions.get(usage);
             if (r != null && !r.exceptionPackages.contains(packageName)) {
                 return r.mode;
             }
@@ -599,17 +609,17 @@ public class AppOpsService extends IAppOpsService.Stub {
     }
 
     @Override
-    public void setAudioRestriction(int code, int stream, int uid, int mode,
+    public void setAudioRestriction(int code, int usage, int uid, int mode,
             String[] exceptionPackages) {
         verifyIncomingUid(uid);
         verifyIncomingOp(code);
         synchronized (this) {
-            SparseArray<Restriction> streamRestrictions = mAudioRestrictions.get(code);
-            if (streamRestrictions == null) {
-                streamRestrictions = new SparseArray<Restriction>();
-                mAudioRestrictions.put(code, streamRestrictions);
+            SparseArray<Restriction> usageRestrictions = mAudioRestrictions.get(code);
+            if (usageRestrictions == null) {
+                usageRestrictions = new SparseArray<Restriction>();
+                mAudioRestrictions.put(code, usageRestrictions);
             }
-            streamRestrictions.remove(stream);
+            usageRestrictions.remove(usage);
             if (mode != AppOpsManager.MODE_ALLOWED) {
                 final Restriction r = new Restriction();
                 r.mode = mode;
@@ -623,7 +633,7 @@ public class AppOpsService extends IAppOpsService.Stub {
                         }
                     }
                 }
-                streamRestrictions.put(stream, r);
+                usageRestrictions.put(usage, r);
             }
         }
     }
@@ -631,7 +641,7 @@ public class AppOpsService extends IAppOpsService.Stub {
     @Override
     public int checkPackage(int uid, String packageName) {
         synchronized (this) {
-            if (getOpsLocked(uid, packageName, true) != null) {
+            if (getOpsRawLocked(uid, packageName, true) != null) {
                 return AppOpsManager.MODE_ALLOWED;
             } else {
                 return AppOpsManager.MODE_ERRORED;
@@ -769,6 +779,15 @@ public class AppOpsService extends IAppOpsService.Stub {
     }
 
     private Ops getOpsLocked(int uid, String packageName, boolean edit) {
+        if (uid == 0) {
+            packageName = "root";
+        } else if (uid == Process.SHELL_UID) {
+            packageName = "com.android.shell";
+        }
+        return getOpsRawLocked(uid, packageName, edit);
+    }
+
+    private Ops getOpsRawLocked(int uid, String packageName, boolean edit) {
         HashMap<String, Ops> pkgOps = mUidOps.get(uid);
         if (pkgOps == null) {
             if (!edit) {
@@ -776,11 +795,6 @@ public class AppOpsService extends IAppOpsService.Stub {
             }
             pkgOps = new HashMap<String, Ops>();
             mUidOps.put(uid, pkgOps);
-        }
-        if (uid == 0) {
-            packageName = "root";
-        } else if (uid == Process.SHELL_UID) {
-            packageName = "com.android.shell";
         }
         Ops ops = pkgOps.get(packageName);
         if (ops == null) {
@@ -833,12 +847,13 @@ public class AppOpsService extends IAppOpsService.Stub {
         }
     }
 
-    private void scheduleWriteNowLocked() {
-        if (!mWriteScheduled) {
+    private void scheduleFastWriteLocked() {
+        if (!mFastWriteScheduled) {
             mWriteScheduled = true;
+            mFastWriteScheduled = true;
+            mHandler.removeCallbacks(mWriteRunner);
+            mHandler.postDelayed(mWriteRunner, 10*1000);
         }
-        mHandler.removeCallbacks(mWriteRunner);
-        mHandler.post(mWriteRunner);
     }
 
     private Op getOpLocked(int code, int uid, String packageName, boolean edit) {
@@ -876,15 +891,7 @@ public class AppOpsService extends IAppOpsService.Stub {
                     }
                 }
             }
-            if (userHandle == UserHandle.USER_OWNER) {
-                if (uid != mDeviceOwnerUid) {
-                    return true;
-                }
-            } else {
-                if (uid != mProfileOwnerUids.get(userHandle, -1)) {
-                    return true;
-                }
-            }
+            return true;
         }
         return false;
     }
@@ -1205,9 +1212,9 @@ public class AppOpsService extends IAppOpsService.Stub {
                             printedHeader = true;
                             needSep = true;
                         }
-                        final int stream = restrictions.keyAt(i);
+                        final int usage = restrictions.keyAt(i);
                         pw.print("    "); pw.print(op);
-                        pw.print(" stream="); pw.print(AudioService.streamToString(stream));
+                        pw.print(" usage="); pw.print(AudioAttributes.usageToString(usage));
                         Restriction r = restrictions.valueAt(i);
                         pw.print(": mode="); pw.println(r.mode);
                         if (!r.exceptionPackages.isEmpty()) {
@@ -1240,12 +1247,11 @@ public class AppOpsService extends IAppOpsService.Stub {
                             pw.print(" ago");
                         }
                         if (op.duration == -1) {
-                            pw.println(" (running)");
-                        } else {
-                            pw.print("; duration=");
-                                    TimeUtils.formatDuration(op.duration, pw);
-                                    pw.println();
+                            pw.print(" (running)");
+                        } else if (op.duration != 0) {
+                            pw.print("; duration="); TimeUtils.formatDuration(op.duration, pw);
                         }
+                        pw.println();
                     }
                 }
             }
@@ -1256,35 +1262,6 @@ public class AppOpsService extends IAppOpsService.Stub {
         private static final ArraySet<String> NO_EXCEPTIONS = new ArraySet<String>();
         int mode;
         ArraySet<String> exceptionPackages = NO_EXCEPTIONS;
-    }
-
-    @Override
-    public void setDeviceOwner(String packageName) throws RemoteException {
-        checkSystemUid("setDeviceOwner");
-        try {
-            mDeviceOwnerUid = mContext.getPackageManager().getPackageUid(packageName,
-                    UserHandle.USER_OWNER);
-        } catch (NameNotFoundException e) {
-            Log.e(TAG, "Could not find Device Owner UID");
-            mDeviceOwnerUid = -1;
-            throw new IllegalArgumentException("Could not find device owner package "
-                    + packageName);
-        }
-    }
-
-    @Override
-    public void setProfileOwner(String packageName, int userHandle) throws RemoteException {
-        checkSystemUid("setProfileOwner");
-        try {
-            int uid = mContext.getPackageManager().getPackageUid(packageName,
-                    userHandle);
-            mProfileOwnerUids.put(userHandle, uid);
-        } catch (NameNotFoundException e) {
-            Log.e(TAG, "Could not find Profile Owner UID");
-            mProfileOwnerUids.put(userHandle, -1);
-            throw new IllegalArgumentException("Could not find profile owner package "
-                    + packageName);
-        }
     }
 
     @Override
@@ -1309,10 +1286,6 @@ public class AppOpsService extends IAppOpsService.Stub {
     public void removeUser(int userHandle) throws RemoteException {
         checkSystemUid("removeUser");
         mOpRestrictions.remove(userHandle);
-        final int index = mProfileOwnerUids.indexOfKey(userHandle);
-        if (index >= 0) {
-            mProfileOwnerUids.removeAt(index);
-        }
     }
 
     private void checkSystemUid(String function) {

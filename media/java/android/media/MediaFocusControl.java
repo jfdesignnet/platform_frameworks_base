@@ -33,6 +33,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.media.PlayerRecord.RemotePlaybackState;
+import android.media.audiopolicy.IAudioPolicyCallback;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
@@ -78,7 +79,6 @@ public class MediaFocusControl implements OnFinished {
     private final Context mContext;
     private final ContentResolver mContentResolver;
     private final AudioService.VolumeController mVolumeController;
-    private final BroadcastReceiver mReceiver = new PackageIntentsReceiver();
     private final AppOpsManager mAppOps;
     private final KeyguardManager mKeyguardManager;
     private final AudioService mAudioService;
@@ -102,16 +102,6 @@ public class MediaFocusControl implements OnFinished {
         TelephonyManager tmgr = (TelephonyManager)
                 mContext.getSystemService(Context.TELEPHONY_SERVICE);
         tmgr.listen(mPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
-
-        // Register for package addition/removal/change intent broadcasts
-        //    for media button receiver persistence
-        IntentFilter pkgFilter = new IntentFilter();
-        pkgFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
-        pkgFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
-        pkgFilter.addAction(Intent.ACTION_PACKAGE_CHANGED);
-        pkgFilter.addAction(Intent.ACTION_PACKAGE_DATA_CLEARED);
-        pkgFilter.addDataScheme("package");
-        mContext.registerReceiver(mReceiver, pkgFilter);
 
         mAppOps = (AppOpsManager)mContext.getSystemService(Context.APP_OPS_SERVICE);
         mKeyguardManager =
@@ -321,7 +311,6 @@ public class MediaFocusControl implements OnFinished {
     //==========================================================================================
 
     // event handler messages
-    private static final int MSG_PERSIST_MEDIABUTTONRECEIVER = 0;
     private static final int MSG_RCDISPLAY_CLEAR = 1;
     private static final int MSG_RCDISPLAY_UPDATE = 2;
     private static final int MSG_REEVALUATE_REMOTE = 3;
@@ -362,10 +351,6 @@ public class MediaFocusControl implements OnFinished {
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
-                case MSG_PERSIST_MEDIABUTTONRECEIVER:
-                    onHandlePersistMediaButtonReceiver( (ComponentName) msg.obj );
-                    break;
-
                 case MSG_RCDISPLAY_CLEAR:
                     onRcDisplayClear();
                     break;
@@ -406,7 +391,8 @@ public class MediaFocusControl implements OnFinished {
     // AudioFocus
     //==========================================================================================
 
-    /* constant to identify focus stack entry that is used to hold the focus while the phone
+    /**
+     * Constant to identify a focus stack entry that is used to hold the focus while the phone
      * is ringing or during a call. Used by com.android.internal.telephony.CallManager when
      * entering and exiting calls.
      */
@@ -449,6 +435,9 @@ public class MediaFocusControl implements OnFinished {
         }
     }
 
+    /**
+     * Called synchronized on mAudioFocusLock
+     */
     private void notifyTopOfAudioFocusStack() {
         // notify the top of the stack it gained focus
         if (!mFocusStack.empty()) {
@@ -485,6 +474,7 @@ public class MediaFocusControl implements OnFinished {
                 stackIterator.next().dump(pw);
             }
         }
+        pw.println("\n Notify on duck: " + mNotifyFocusOwnerOnDuck +"\n");
     }
 
     /**
@@ -495,13 +485,19 @@ public class MediaFocusControl implements OnFinished {
      * @param signal if true and the listener was at the top of the focus stack, i.e. it was holding
      *   focus, notify the next item in the stack it gained focus.
      */
-    private void removeFocusStackEntry(String clientToRemove, boolean signal) {
+    private void removeFocusStackEntry(String clientToRemove, boolean signal,
+            boolean notifyFocusFollowers) {
         // is the current top of the focus stack abandoning focus? (because of request, not death)
         if (!mFocusStack.empty() && mFocusStack.peek().hasSameClient(clientToRemove))
         {
             //Log.i(TAG, "   removeFocusStackEntry() removing top of stack");
             FocusRequester fr = mFocusStack.pop();
             fr.release();
+            if (notifyFocusFollowers) {
+                final AudioFocusInfo afi = fr.toAudioFocusInfo();
+                afi.clearLossReceived();
+                notifyExtPolicyFocusLoss_syncAf(afi, false);
+            }
             if (signal) {
                 // notify the new top of the stack it gained focus
                 notifyTopOfAudioFocusStack();
@@ -554,14 +550,52 @@ public class MediaFocusControl implements OnFinished {
     /**
      * Helper function:
      * Returns true if the system is in a state where the focus can be reevaluated, false otherwise.
+     * The implementation guarantees that a state where focus cannot be immediately reassigned
+     * implies that an "locked" focus owner is at the top of the focus stack.
+     * Modifications to the implementation that break this assumption will cause focus requests to
+     * misbehave when honoring the AudioManager.AUDIOFOCUS_FLAG_DELAY_OK flag.
      */
     private boolean canReassignAudioFocus() {
         // focus requests are rejected during a phone call or when the phone is ringing
         // this is equivalent to IN_VOICE_COMM_FOCUS_ID having the focus
-        if (!mFocusStack.isEmpty() && mFocusStack.peek().hasSameClient(IN_VOICE_COMM_FOCUS_ID)) {
+        if (!mFocusStack.isEmpty() && isLockedFocusOwner(mFocusStack.peek())) {
             return false;
         }
         return true;
+    }
+
+    private boolean isLockedFocusOwner(FocusRequester fr) {
+        return (fr.hasSameClient(IN_VOICE_COMM_FOCUS_ID) || fr.isLockedFocusOwner());
+    }
+
+    /**
+     * Helper function
+     * Pre-conditions: focus stack is not empty, there is one or more locked focus owner
+     *                 at the top of the focus stack
+     * Push the focus requester onto the audio focus stack at the first position immediately
+     * following the locked focus owners.
+     * @return {@link AudioManager#AUDIOFOCUS_REQUEST_GRANTED} or
+     *     {@link AudioManager#AUDIOFOCUS_REQUEST_DELAYED}
+     */
+    private int pushBelowLockedFocusOwners(FocusRequester nfr) {
+        int lastLockedFocusOwnerIndex = mFocusStack.size();
+        for (int index = mFocusStack.size()-1; index >= 0; index--) {
+            if (isLockedFocusOwner(mFocusStack.elementAt(index))) {
+                lastLockedFocusOwnerIndex = index;
+            }
+        }
+        if (lastLockedFocusOwnerIndex == mFocusStack.size()) {
+            // this should not happen, but handle it and log an error
+            Log.e(TAG, "No exclusive focus owner found in propagateFocusLossFromGain_syncAf()",
+                    new Exception());
+            // no exclusive owner, push at top of stack, focus is granted, propagate change
+            propagateFocusLossFromGain_syncAf(nfr.getGainRequest());
+            mFocusStack.push(nfr);
+            return AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        } else {
+            mFocusStack.insertElementAt(nfr, lastLockedFocusOwnerIndex);
+            return AudioManager.AUDIOFOCUS_REQUEST_DELAYED;
+        }
     }
 
     /**
@@ -587,6 +621,86 @@ public class MediaFocusControl implements OnFinished {
         }
     }
 
+    /**
+     * Indicates whether to notify an audio focus owner when it loses focus
+     * with {@link AudioManager#AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK} if it will only duck.
+     * This variable being false indicates an AudioPolicy has been registered and has signaled
+     * it will handle audio ducking.
+     */
+    private boolean mNotifyFocusOwnerOnDuck = true;
+
+    protected void setDuckingInExtPolicyAvailable(boolean available) {
+        mNotifyFocusOwnerOnDuck = !available;
+    }
+
+    boolean mustNotifyFocusOwnerOnDuck() { return mNotifyFocusOwnerOnDuck; }
+
+    private ArrayList<IAudioPolicyCallback> mFocusFollowers = new ArrayList<IAudioPolicyCallback>();
+
+    void addFocusFollower(IAudioPolicyCallback ff) {
+        if (ff == null) {
+            return;
+        }
+        synchronized(mAudioFocusLock) {
+            boolean found = false;
+            for (IAudioPolicyCallback pcb : mFocusFollowers) {
+                if (pcb.asBinder().equals(ff.asBinder())) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                return;
+            } else {
+                mFocusFollowers.add(ff);
+            }
+        }
+    }
+
+    void removeFocusFollower(IAudioPolicyCallback ff) {
+        if (ff == null) {
+            return;
+        }
+        synchronized(mAudioFocusLock) {
+            for (IAudioPolicyCallback pcb : mFocusFollowers) {
+                if (pcb.asBinder().equals(ff.asBinder())) {
+                    mFocusFollowers.remove(pcb);
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Called synchronized on mAudioFocusLock
+     */
+    void notifyExtPolicyFocusGrant_syncAf(AudioFocusInfo afi, int requestResult) {
+        for (IAudioPolicyCallback pcb : mFocusFollowers) {
+            try {
+                // oneway
+                pcb.notifyAudioFocusGrant(afi, requestResult);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Can't call newAudioFocusLoser() on IAudioPolicyCallback "
+                        + pcb.asBinder(), e);
+            }
+        }
+    }
+
+    /**
+     * Called synchronized on mAudioFocusLock
+     */
+    void notifyExtPolicyFocusLoss_syncAf(AudioFocusInfo afi, boolean wasDispatched) {
+        for (IAudioPolicyCallback pcb : mFocusFollowers) {
+            try {
+                // oneway
+                pcb.notifyAudioFocusLoss(afi, wasDispatched);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Can't call newAudioFocusLoser() on IAudioPolicyCallback "
+                        + pcb.asBinder(), e);
+            }
+        }
+    }
+
     protected int getCurrentAudioFocus() {
         synchronized(mAudioFocusLock) {
             if (mFocusStack.empty()) {
@@ -597,10 +711,11 @@ public class MediaFocusControl implements OnFinished {
         }
     }
 
-    /** @see AudioManager#requestAudioFocus(AudioManager.OnAudioFocusChangeListener, int, int)  */
-    protected int requestAudioFocus(int mainStreamType, int focusChangeHint, IBinder cb,
-            IAudioFocusDispatcher fd, String clientId, String callingPackageName) {
-        Log.i(TAG, " AudioFocus  requestAudioFocus() from " + clientId);
+    /** @see AudioManager#requestAudioFocus(AudioManager.OnAudioFocusChangeListener, int, int, int) */
+    protected int requestAudioFocus(AudioAttributes aa, int focusChangeHint, IBinder cb,
+            IAudioFocusDispatcher fd, String clientId, String callingPackageName, int flags) {
+        Log.i(TAG, " AudioFocus  requestAudioFocus() from " + clientId + " req=" + focusChangeHint +
+                "flags=0x" + Integer.toHexString(flags));
         // we need a valid binder callback for clients
         if (!cb.pingBinder()) {
             Log.e(TAG, " AudioFocus DOA client for requestAudioFocus(), aborting.");
@@ -613,8 +728,16 @@ public class MediaFocusControl implements OnFinished {
         }
 
         synchronized(mAudioFocusLock) {
+            boolean focusGrantDelayed = false;
             if (!canReassignAudioFocus()) {
-                return AudioManager.AUDIOFOCUS_REQUEST_FAILED;
+                if ((flags & AudioManager.AUDIOFOCUS_FLAG_DELAY_OK) == 0) {
+                    return AudioManager.AUDIOFOCUS_REQUEST_FAILED;
+                } else {
+                    // request has AUDIOFOCUS_FLAG_DELAY_OK: focus can't be
+                    // granted right now, so the requester will be inserted in the focus stack
+                    // to receive focus later
+                    focusGrantDelayed = true;
+                }
             }
 
             // handle the potential premature death of the new holder of the focus
@@ -632,42 +755,64 @@ public class MediaFocusControl implements OnFinished {
             if (!mFocusStack.empty() && mFocusStack.peek().hasSameClient(clientId)) {
                 // if focus is already owned by this client and the reason for acquiring the focus
                 // hasn't changed, don't do anything
-                if (mFocusStack.peek().getGainRequest() == focusChangeHint) {
+                final FocusRequester fr = mFocusStack.peek();
+                if (fr.getGainRequest() == focusChangeHint && fr.getGrantFlags() == flags) {
                     // unlink death handler so it can be gc'ed.
                     // linkToDeath() creates a JNI global reference preventing collection.
                     cb.unlinkToDeath(afdh, 0);
+                    notifyExtPolicyFocusGrant_syncAf(fr.toAudioFocusInfo(),
+                            AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
                     return AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
                 }
                 // the reason for the audio focus request has changed: remove the current top of
                 // stack and respond as if we had a new focus owner
-                FocusRequester fr = mFocusStack.pop();
-                fr.release();
+                if (!focusGrantDelayed) {
+                    mFocusStack.pop();
+                    // the entry that was "popped" is the same that was "peeked" above
+                    fr.release();
+                }
             }
 
             // focus requester might already be somewhere below in the stack, remove it
-            removeFocusStackEntry(clientId, false /* signal */);
+            removeFocusStackEntry(clientId, false /* signal */, false /*notifyFocusFollowers*/);
 
-            // propagate the focus change through the stack
-            if (!mFocusStack.empty()) {
-                propagateFocusLossFromGain_syncAf(focusChangeHint);
+            final FocusRequester nfr = new FocusRequester(aa, focusChangeHint, flags, fd, cb,
+                    clientId, afdh, callingPackageName, Binder.getCallingUid(), this);
+            if (focusGrantDelayed) {
+                // focusGrantDelayed being true implies we can't reassign focus right now
+                // which implies the focus stack is not empty.
+                final int requestResult = pushBelowLockedFocusOwners(nfr);
+                if (requestResult != AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
+                    notifyExtPolicyFocusGrant_syncAf(nfr.toAudioFocusInfo(), requestResult);
+                }
+                return requestResult;
+            } else {
+                // propagate the focus change through the stack
+                if (!mFocusStack.empty()) {
+                    propagateFocusLossFromGain_syncAf(focusChangeHint);
+                }
+
+                // push focus requester at the top of the audio focus stack
+                mFocusStack.push(nfr);
             }
-
-            // push focus requester at the top of the audio focus stack
-            mFocusStack.push(new FocusRequester(mainStreamType, focusChangeHint, fd, cb,
-                    clientId, afdh, callingPackageName, Binder.getCallingUid()));
+            notifyExtPolicyFocusGrant_syncAf(nfr.toAudioFocusInfo(),
+                    AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
 
         }//synchronized(mAudioFocusLock)
 
         return AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
     }
 
-    /** @see AudioManager#abandonAudioFocus(AudioManager.OnAudioFocusChangeListener)  */
-    protected int abandonAudioFocus(IAudioFocusDispatcher fl, String clientId) {
+    /**
+     * @see AudioManager#abandonAudioFocus(AudioManager.OnAudioFocusChangeListener, AudioAttributes)
+     * */
+    protected int abandonAudioFocus(IAudioFocusDispatcher fl, String clientId, AudioAttributes aa) {
+        // AudioAttributes are currently ignored, to be used for zones
         Log.i(TAG, " AudioFocus  abandonAudioFocus() from " + clientId);
         try {
             // this will take care of notifying the new focus owner if needed
             synchronized(mAudioFocusLock) {
-                removeFocusStackEntry(clientId, true /*signal*/);
+                removeFocusStackEntry(clientId, true /*signal*/, true /*notifyFocusFollowers*/);
             }
         } catch (java.util.ConcurrentModificationException cme) {
             // Catching this exception here is temporary. It is here just to prevent
@@ -683,7 +828,7 @@ public class MediaFocusControl implements OnFinished {
 
     protected void unregisterAudioFocusClient(String clientId) {
         synchronized(mAudioFocusLock) {
-            removeFocusStackEntry(clientId, false);
+            removeFocusStackEntry(clientId, false, true /*notifyFocusFollowers*/);
         }
     }
 
@@ -872,29 +1017,6 @@ public class MediaFocusControl implements OnFinished {
         keyEvent = KeyEvent.changeAction(originalKeyEvent, KeyEvent.ACTION_UP);
         dispatchMediaKeyEvent(keyEvent, needWakeLock);
 
-    }
-
-    private class PackageIntentsReceiver extends BroadcastReceiver {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
-            if (action.equals(Intent.ACTION_PACKAGE_REMOVED)
-                    || action.equals(Intent.ACTION_PACKAGE_DATA_CLEARED)) {
-                if (!intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
-                    // a package is being removed, not replaced
-                    String packageName = intent.getData().getSchemeSpecificPart();
-                    if (packageName != null) {
-                        cleanupMediaButtonReceiverForPackage(packageName, true);
-                    }
-                }
-            } else if (action.equals(Intent.ACTION_PACKAGE_ADDED)
-                    || action.equals(Intent.ACTION_PACKAGE_CHANGED)) {
-                String packageName = intent.getData().getSchemeSpecificPart();
-                if (packageName != null) {
-                    cleanupMediaButtonReceiverForPackage(packageName, false);
-                }
-            }
-        }
     }
 
     private static boolean isValidMediaKeyEvent(KeyEvent keyEvent) {
@@ -1113,85 +1235,6 @@ public class MediaFocusControl implements OnFinished {
 
     /**
      * Helper function:
-     * Remove any entry in the remote control stack that has the same package name as packageName
-     * Pre-condition: packageName != null
-     */
-    private void cleanupMediaButtonReceiverForPackage(String packageName, boolean removeAll) {
-        synchronized(mPRStack) {
-            if (mPRStack.empty()) {
-                return;
-            } else {
-                final PackageManager pm = mContext.getPackageManager();
-                PlayerRecord oldTop = mPRStack.peek();
-                Iterator<PlayerRecord> stackIterator = mPRStack.iterator();
-                // iterate over the stack entries
-                // (using an iterator on the stack so we can safely remove an entry after having
-                //  evaluated it, traversal order doesn't matter here)
-                while(stackIterator.hasNext()) {
-                    PlayerRecord prse = stackIterator.next();
-                    if (removeAll
-                            && packageName.equals(prse.getMediaButtonIntent().getCreatorPackage()))
-                    {
-                        // a stack entry is from the package being removed, remove it from the stack
-                        stackIterator.remove();
-                        prse.destroy();
-                    } else if (prse.getMediaButtonReceiver() != null) {
-                        try {
-                            // Check to see if this receiver still exists.
-                            pm.getReceiverInfo(prse.getMediaButtonReceiver(), 0);
-                        } catch (PackageManager.NameNotFoundException e) {
-                            // Not found -- remove it!
-                            stackIterator.remove();
-                            prse.destroy();
-                        }
-                    }
-                }
-                if (mPRStack.empty()) {
-                    // no saved media button receiver
-                    mEventHandler.sendMessage(
-                            mEventHandler.obtainMessage(MSG_PERSIST_MEDIABUTTONRECEIVER, 0, 0,
-                                    null));
-                } else if (oldTop != mPRStack.peek()) {
-                    // the top of the stack has changed, save it in the system settings
-                    // by posting a message to persist it; only do this however if it has
-                    // a concrete component name (is not a transient registration)
-                    PlayerRecord prse = mPRStack.peek();
-                    if (prse.getMediaButtonReceiver() != null) {
-                        mEventHandler.sendMessage(
-                                mEventHandler.obtainMessage(MSG_PERSIST_MEDIABUTTONRECEIVER, 0, 0,
-                                        prse.getMediaButtonReceiver()));
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Helper function:
-     * Restore remote control receiver from the system settings.
-     */
-    protected void restoreMediaButtonReceiver() {
-        String receiverName = Settings.System.getStringForUser(mContentResolver,
-                Settings.System.MEDIA_BUTTON_RECEIVER, UserHandle.USER_CURRENT);
-        if ((null != receiverName) && !receiverName.isEmpty()) {
-            ComponentName eventReceiver = ComponentName.unflattenFromString(receiverName);
-            if (eventReceiver == null) {
-                // an invalid name was persisted
-                return;
-            }
-            // construct a PendingIntent targeted to the restored component name
-            // for the media button and register it
-            Intent mediaButtonIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
-            //     the associated intent will be handled by the component being registered
-            mediaButtonIntent.setComponent(eventReceiver);
-            PendingIntent pi = PendingIntent.getBroadcast(mContext,
-                    0/*requestCode, ignored*/, mediaButtonIntent, 0/*flags*/);
-            registerMediaButtonIntent(pi, eventReceiver, null /*token*/);
-        }
-    }
-
-    /**
-     * Helper function:
      * Push the new media button receiver "near" the top of the PlayerRecord stack.
      * "Near the top" is defined as:
      *   - at the top if the current PlayerRecord at the top is not playing
@@ -1258,13 +1301,6 @@ public class MediaFocusControl implements OnFinished {
                 }
             }
 
-            topChanged = (oldTopPrse != mPRStack.lastElement());
-            // post message to persist the default media button receiver
-            if (topChanged && (target != null)) {
-                mEventHandler.sendMessage( mEventHandler.obtainMessage(
-                        MSG_PERSIST_MEDIABUTTONRECEIVER, 0, 0, target/*obj*/) );
-            }
-
         } catch (ArrayIndexOutOfBoundsException e) {
             // not expected to happen, indicates improper concurrent modification or bad index
             Log.e(TAG, "Wrong index (inStack=" + inStackIndex + " lastPlaying=" + lastPlayingIndex
@@ -1307,13 +1343,6 @@ public class MediaFocusControl implements OnFinished {
             return true;
         }
         return false;
-    }
-
-    private void onHandlePersistMediaButtonReceiver(ComponentName receiver) {
-        Settings.System.putStringForUser(mContentResolver,
-                                         Settings.System.MEDIA_BUTTON_RECEIVER,
-                                         receiver == null ? "" : receiver.flattenToString(),
-                                         UserHandle.USER_CURRENT);
     }
 
     //==========================================================================================

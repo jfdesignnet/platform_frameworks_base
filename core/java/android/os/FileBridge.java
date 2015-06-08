@@ -75,6 +75,13 @@ public class FileBridge extends Thread {
         return mClosed;
     }
 
+    public void forceClose() {
+        IoUtils.closeQuietly(mTarget);
+        IoUtils.closeQuietly(mServer);
+        IoUtils.closeQuietly(mClient);
+        mClosed = true;
+    }
+
     public void setTargetFile(FileDescriptor target) {
         mTarget = target;
     }
@@ -89,12 +96,15 @@ public class FileBridge extends Thread {
         try {
             while (IoBridge.read(mServer, temp, 0, MSG_LENGTH) == MSG_LENGTH) {
                 final int cmd = Memory.peekInt(temp, 0, ByteOrder.BIG_ENDIAN);
-
                 if (cmd == CMD_WRITE) {
                     // Shuttle data into local file
                     int len = Memory.peekInt(temp, 4, ByteOrder.BIG_ENDIAN);
                     while (len > 0) {
                         int n = IoBridge.read(mServer, temp, 0, Math.min(temp.length, len));
+                        if (n == -1) {
+                            throw new IOException(
+                                    "Unexpected EOF; still expected " + len + " bytes");
+                        }
                         IoBridge.write(mTarget, temp, 0, n);
                         len -= n;
                     }
@@ -114,23 +124,25 @@ public class FileBridge extends Thread {
                 }
             }
 
-        } catch (ErrnoException e) {
-            Log.e(TAG, "Failed during bridge: ", e);
-        } catch (IOException e) {
-            Log.e(TAG, "Failed during bridge: ", e);
+        } catch (ErrnoException | IOException e) {
+            Log.wtf(TAG, "Failed during bridge", e);
         } finally {
-            IoUtils.closeQuietly(mTarget);
-            IoUtils.closeQuietly(mServer);
-            IoUtils.closeQuietly(mClient);
-            mClosed = true;
+            forceClose();
         }
     }
 
     public static class FileBridgeOutputStream extends OutputStream {
+        private final ParcelFileDescriptor mClientPfd;
         private final FileDescriptor mClient;
         private final byte[] mTemp = new byte[MSG_LENGTH];
 
+        public FileBridgeOutputStream(ParcelFileDescriptor clientPfd) {
+            mClientPfd = clientPfd;
+            mClient = clientPfd.getFileDescriptor();
+        }
+
         public FileBridgeOutputStream(FileDescriptor client) {
+            mClientPfd = null;
             mClient = client;
         }
 
@@ -140,6 +152,7 @@ public class FileBridge extends Thread {
                 writeCommandAndBlock(CMD_CLOSE, "close()");
             } finally {
                 IoBridge.closeAndSignalBlockedThreads(mClient);
+                IoUtils.closeQuietly(mClientPfd);
             }
         }
 

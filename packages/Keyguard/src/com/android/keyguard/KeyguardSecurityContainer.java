@@ -17,7 +17,10 @@ package com.android.keyguard;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.admin.DevicePolicyManager;
 import android.content.Context;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Slog;
@@ -32,6 +35,11 @@ import com.android.keyguard.KeyguardSecurityModel.SecurityMode;
 public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSecurityView {
     private static final boolean DEBUG = KeyguardConstants.DEBUG;
     private static final String TAG = "KeyguardSecurityView";
+
+    private static final int USER_TYPE_PRIMARY = 1;
+    private static final int USER_TYPE_WORK_PROFILE = 2;
+    private static final int USER_TYPE_SECONDARY_USER = 3;
+
     private KeyguardSecurityModel mSecurityModel;
     private boolean mEnableFallback; // TODO: This should get the value from KeyguardPatternView
     private LockPatternUtils mLockPatternUtils;
@@ -57,7 +65,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
     }
 
     public KeyguardSecurityContainer(Context context) {
-        this(null, null, 0);
+        this(context, null, 0);
     }
 
     public KeyguardSecurityContainer(Context context, AttributeSet attrs, int defStyle) {
@@ -73,16 +81,30 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
     @Override
     public void onResume(int reason) {
-        getSecurityView(mCurrentSecuritySelection).onResume(reason);
+        if (mCurrentSecuritySelection != SecurityMode.None) {
+            getSecurityView(mCurrentSecuritySelection).onResume(reason);
+        }
     }
 
     @Override
     public void onPause() {
-        getSecurityView(mCurrentSecuritySelection).onPause();
+        if (mCurrentSecuritySelection != SecurityMode.None) {
+            getSecurityView(mCurrentSecuritySelection).onPause();
+        }
     }
 
     public void startAppearAnimation() {
-        getSecurityView(mCurrentSecuritySelection).startAppearAnimation();
+        if (mCurrentSecuritySelection != SecurityMode.None) {
+            getSecurityView(mCurrentSecuritySelection).startAppearAnimation();
+        }
+    }
+
+    public boolean startDisappearAnimation(Runnable onFinishRunnable) {
+        if (mCurrentSecuritySelection != SecurityMode.None) {
+            return getSecurityView(mCurrentSecuritySelection).startDisappearAnimation(
+                    onFinishRunnable);
+        }
+        return false;
     }
 
     void updateSecurityViews(boolean isBouncing) {
@@ -97,6 +119,14 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         if (v != null) {
             v.announceForAccessibility(v.getContentDescription());
         }
+    }
+
+    public CharSequence getCurrentSecurityModeContentDescription() {
+        View v = (View) getSecurityView(mCurrentSecuritySelection);
+        if (v != null) {
+            return v.getContentDescription();
+        }
+        return "";
     }
 
     private KeyguardSecurityView getSecurityView(SecurityMode securityMode) {
@@ -117,12 +147,6 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
             mSecurityViewFlipper.addView(v);
             updateSecurityView(v, mIsBouncing);
             view = (KeyguardSecurityView)v;
-        }
-
-        if (view instanceof KeyguardSelectorView) {
-            KeyguardSelectorView selectorView = (KeyguardSelectorView) view;
-            View carrierText = selectorView.findViewById(R.id.keyguard_selector_fade_container);
-            selectorView.setCarrierArea(carrierText);
         }
 
         return view;
@@ -199,14 +223,41 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         }
     }
 
-    private void showAlmostAtWipeDialog(int attempts, int remaining) {
-        String message = mContext.getString(R.string.kg_failed_attempts_almost_at_wipe,
-                attempts, remaining);
+    private void showAlmostAtWipeDialog(int attempts, int remaining, int userType) {
+        String message = null;
+        switch (userType) {
+            case USER_TYPE_PRIMARY:
+                message = mContext.getString(R.string.kg_failed_attempts_almost_at_wipe,
+                        attempts, remaining);
+                break;
+            case USER_TYPE_SECONDARY_USER:
+                message = mContext.getString(R.string.kg_failed_attempts_almost_at_erase_user,
+                        attempts, remaining);
+                break;
+            case USER_TYPE_WORK_PROFILE:
+                message = mContext.getString(R.string.kg_failed_attempts_almost_at_erase_profile,
+                        attempts, remaining);
+                break;
+        }
         showDialog(null, message);
     }
 
-    private void showWipeDialog(int attempts) {
-        String message = mContext.getString(R.string.kg_failed_attempts_now_wiping, attempts);
+    private void showWipeDialog(int attempts, int userType) {
+        String message = null;
+        switch (userType) {
+            case USER_TYPE_PRIMARY:
+                message = mContext.getString(R.string.kg_failed_attempts_now_wiping,
+                        attempts);
+                break;
+            case USER_TYPE_SECONDARY_USER:
+                message = mContext.getString(R.string.kg_failed_attempts_now_erasing_user,
+                        attempts);
+                break;
+            case USER_TYPE_WORK_PROFILE:
+                message = mContext.getString(R.string.kg_failed_attempts_now_erasing_profile,
+                        attempts);
+                break;
+        }
         showDialog(null, message);
     }
 
@@ -227,9 +278,10 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
         SecurityMode mode = mSecurityModel.getSecurityMode();
         final boolean usingPattern = mode == KeyguardSecurityModel.SecurityMode.Pattern;
-
-        final int failedAttemptsBeforeWipe = mLockPatternUtils.getDevicePolicyManager()
-                .getMaximumFailedPasswordsForWipe(null, mLockPatternUtils.getCurrentUser());
+        final int currentUser = mLockPatternUtils.getCurrentUser();
+        final DevicePolicyManager dpm = mLockPatternUtils.getDevicePolicyManager();
+        final int failedAttemptsBeforeWipe =
+                dpm.getMaximumFailedPasswordsForWipe(null, currentUser);
 
         final int failedAttemptWarning = LockPatternUtils.FAILED_ATTEMPTS_BEFORE_RESET
                 - LockPatternUtils.FAILED_ATTEMPTS_BEFORE_TIMEOUT;
@@ -237,19 +289,27 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         final int remainingBeforeWipe = failedAttemptsBeforeWipe > 0 ?
                 (failedAttemptsBeforeWipe - failedAttempts)
                 : Integer.MAX_VALUE; // because DPM returns 0 if no restriction
-
         boolean showTimeout = false;
         if (remainingBeforeWipe < LockPatternUtils.FAILED_ATTEMPTS_BEFORE_WIPE_GRACE) {
-            // If we reach this code, it means the user has installed a DevicePolicyManager
-            // that requests device wipe after N attempts.  Once we get below the grace
-            // period, we'll post this dialog every time as a clear warning until the
-            // bombshell hits and the device is wiped.
+            // The user has installed a DevicePolicyManager that requests a user/profile to be wiped
+            // N attempts. Once we get below the grace period, we post this dialog every time as a
+            // clear warning until the deletion fires.
+            // Check which profile has the strictest policy for failed password attempts
+            final int expiringUser = dpm.getProfileWithMinimumFailedPasswordsForWipe(currentUser);
+            int userType = USER_TYPE_PRIMARY;
+            if (expiringUser == currentUser) {
+                if (expiringUser != UserHandle.USER_OWNER) {
+                    userType = USER_TYPE_SECONDARY_USER;
+                }
+            } else if (expiringUser != UserHandle.USER_NULL) {
+                userType = USER_TYPE_WORK_PROFILE;
+            } // If USER_NULL, which shouldn't happen, leave it as USER_TYPE_PRIMARY
             if (remainingBeforeWipe > 0) {
-                showAlmostAtWipeDialog(failedAttempts, remainingBeforeWipe);
+                showAlmostAtWipeDialog(failedAttempts, remainingBeforeWipe, userType);
             } else {
                 // Too many attempts. The device will be wiped shortly.
-                Slog.i(TAG, "Too many unlock attempts; device will be wiped!");
-                showWipeDialog(failedAttempts);
+                Slog.i(TAG, "Too many unlock attempts; user " + expiringUser + " will be wiped!");
+                showWipeDialog(failedAttempts, userType);
             }
         } else {
             showTimeout =
@@ -347,8 +407,6 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
                     showPrimarySecurityScreen(false);
                     break;
             }
-        } else {
-            showPrimarySecurityScreen(false);
         }
         if (finish) {
             mSecurityCallback.finish();
@@ -375,8 +433,10 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
             oldView.onPause();
             oldView.setKeyguardCallback(mNullCallback); // ignore requests from old view
         }
-        newView.onResume(KeyguardSecurityView.VIEW_REVEALED);
-        newView.setKeyguardCallback(mCallback);
+        if (securityMode != SecurityMode.None) {
+            newView.onResume(KeyguardSecurityView.VIEW_REVEALED);
+            newView.setKeyguardCallback(mCallback);
+        }
 
         // Find and show this child.
         final int childCount = mSecurityViewFlipper.getChildCount();
@@ -390,7 +450,8 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         }
 
         mCurrentSecuritySelection = securityMode;
-        mSecurityCallback.onSecurityModeChanged(securityMode, newView.needsInput());
+        mSecurityCallback.onSecurityModeChanged(securityMode,
+                securityMode != SecurityMode.None && newView.needsInput());
     }
 
     private KeyguardSecurityViewFlipper getFlipper() {
@@ -472,7 +533,6 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
     private int getSecurityViewIdForMode(SecurityMode securityMode) {
         switch (securityMode) {
-            case None: return R.id.keyguard_selector_view;
             case Pattern: return R.id.keyguard_pattern_view;
             case PIN: return R.id.keyguard_pin_view;
             case Password: return R.id.keyguard_password_view;
@@ -486,7 +546,6 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
     private int getLayoutIdFor(SecurityMode securityMode) {
         switch (securityMode) {
-            case None: return R.layout.keyguard_selector_view;
             case Pattern: return R.layout.keyguard_pattern_view;
             case PIN: return R.layout.keyguard_pin_view;
             case Password: return R.layout.keyguard_password_view;
@@ -501,6 +560,10 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
     public SecurityMode getSecurityMode() {
         return mSecurityModel.getSecurityMode();
+    }
+
+    public SecurityMode getCurrentSecurityMode() {
+        return mCurrentSecuritySelection;
     }
 
     public void verifyUnlock() {

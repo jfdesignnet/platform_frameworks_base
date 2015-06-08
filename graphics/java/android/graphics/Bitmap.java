@@ -19,7 +19,9 @@ package android.graphics;
 import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.Trace;
 import android.util.DisplayMetrics;
+import dalvik.system.VMRuntime;
 
 import java.io.OutputStream;
 import java.nio.Buffer;
@@ -46,13 +48,8 @@ public final class Bitmap implements Parcelable {
 
     /**
      * Backing buffer for the Bitmap.
-     * Made public for quick access from drawing methods -- do NOT modify
-     * from outside this class
-     *
-     * @hide
      */
-    @SuppressWarnings("UnusedDeclaration") // native code only
-    public byte[] mBuffer;
+    private byte[] mBuffer;
 
     @SuppressWarnings({"FieldCanBeLocal", "UnusedDeclaration"}) // Keep to finalize native resources
     private final BitmapFinalizer mFinalizer;
@@ -121,15 +118,18 @@ public final class Bitmap implements Parcelable {
         mIsMutable = isMutable;
         mRequestPremultiplied = requestPremultiplied;
         mBuffer = buffer;
+
         // we delete this in our finalizer
         mNativeBitmap = nativeBitmap;
-        mFinalizer = new BitmapFinalizer(nativeBitmap);
 
         mNinePatchChunk = ninePatchChunk;
         mNinePatchInsets = ninePatchInsets;
         if (density >= 0) {
             mDensity = density;
         }
+
+        int nativeAllocationByteCount = buffer == null ? getByteCount() : 0;
+        mFinalizer = new BitmapFinalizer(nativeBitmap, nativeAllocationByteCount);
     }
 
     /**
@@ -304,7 +304,7 @@ public final class Bitmap implements Parcelable {
      * there are no more references to this bitmap.
      */
     public void recycle() {
-        if (!mRecycled) {
+        if (!mRecycled && mFinalizer.mNativeBitmap != 0) {
             if (nativeRecycle(mNativeBitmap)) {
                 // return value indicates whether native pixel object was actually recycled.
                 // false indicates that it is still in use at the native level and these
@@ -1004,8 +1004,11 @@ public final class Bitmap implements Parcelable {
         if (quality < 0 || quality > 100) {
             throw new IllegalArgumentException("quality must be 0..100");
         }
-        return nativeCompress(mNativeBitmap, format.nativeInt, quality,
+        Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, "Bitmap.compress");
+        boolean result = nativeCompress(mNativeBitmap, format.nativeInt, quality,
                               stream, new byte[WORKING_COMPRESS_STORAGE]);
+        Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
+        return result;
     }
 
     /**
@@ -1568,10 +1571,19 @@ public final class Bitmap implements Parcelable {
     }
 
     private static class BitmapFinalizer {
-        private final long mNativeBitmap;
+        private long mNativeBitmap;
 
-        BitmapFinalizer(long nativeBitmap) {
+        // Native memory allocated for the duration of the Bitmap,
+        // if pixel data allocated into native memory, instead of java byte[]
+        private final int mNativeAllocationByteCount;
+
+        BitmapFinalizer(long nativeBitmap, int nativeAllocationByteCount) {
             mNativeBitmap = nativeBitmap;
+            mNativeAllocationByteCount = nativeAllocationByteCount;
+
+            if (mNativeAllocationByteCount != 0) {
+                VMRuntime.getRuntime().registerNativeAllocation(mNativeAllocationByteCount);
+            }
         }
 
         @Override
@@ -1581,7 +1593,11 @@ public final class Bitmap implements Parcelable {
             } catch (Throwable t) {
                 // Ignore
             } finally {
+                if (mNativeAllocationByteCount != 0) {
+                    VMRuntime.getRuntime().registerNativeFree(mNativeAllocationByteCount);
+                }
                 nativeDestructor(mNativeBitmap);
+                mNativeBitmap = 0;
             }
         }
     }

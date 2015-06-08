@@ -253,9 +253,6 @@ public class ViewPropertyAnimator {
     ViewPropertyAnimator(View view) {
         mView = view;
         view.ensureTransformationInfo();
-        if (view.getContext().getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.L) {
-            mRTBackend = new ViewPropertyAnimatorRT(view);
-        }
     }
 
     /**
@@ -433,6 +430,10 @@ public class ViewPropertyAnimator {
             }
         }
         mPendingAnimations.clear();
+        mPendingSetupAction = null;
+        mPendingCleanupAction = null;
+        mPendingOnStartAction = null;
+        mPendingOnEndAction = null;
         mView.removeCallbacks(mAnimationStarter);
         if (mRTBackend != null) {
             mRTBackend.cancelAll();

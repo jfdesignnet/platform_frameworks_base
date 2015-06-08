@@ -16,7 +16,7 @@
 
 package android.hardware.hdmi;
 
-import android.hardware.hdmi.HdmiCecDeviceInfo;
+import android.hardware.hdmi.HdmiDeviceInfo;
 
 /**
  * Callback interface definition for HDMI client to get informed of
@@ -27,9 +27,14 @@ import android.hardware.hdmi.HdmiCecDeviceInfo;
 oneway interface IHdmiDeviceEventListener {
 
     /**
-     * @param deviceInfo {@link HdmiCecDeviceInfo} of the logical device whose
+     * @param deviceInfo {@link HdmiDeviceInfo} of the logical device whose
      *                   status has changed
-     * @param activated true if the device gets activated
+     * @param status device status. It should be one of the following values
+     *        <ul>
+     *        <li>{@link HdmiControlManager#DEVICE_EVENT_ADD_DEVICE}
+     *        <li>{@link HdmiControlManager#DEVICE_EVENT_REMOVE_DEVICE}
+     *        <li>{@link HdmiControlManager#DEVICE_EVENT_UPDATE_DEVICE}
+     *        </ul>
      */
-    void onStatusChanged(in HdmiCecDeviceInfo deviceInfo, in boolean activated);
+    void onStatusChanged(in HdmiDeviceInfo deviceInfo, in int status);
 }

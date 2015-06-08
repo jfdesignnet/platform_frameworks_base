@@ -23,7 +23,6 @@ import android.text.TextUtils;
 import android.text.TextUtils.TruncateAt;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -41,7 +40,7 @@ import java.util.Objects;
  *               truncate.
  *   Second line: ellipsis if necessary
  */
-public class QSDualTileLabel extends FrameLayout {
+public class QSDualTileLabel extends LinearLayout {
 
     private final Context mContext;
     private final TextView mFirstLine;
@@ -54,12 +53,13 @@ public class QSDualTileLabel extends FrameLayout {
     public QSDualTileLabel(Context context) {
         super(context);
         mContext = context;
+        setOrientation(LinearLayout.VERTICAL);
 
         mHorizontalPaddingPx = mContext.getResources()
                 .getDimensionPixelSize(R.dimen.qs_dual_tile_padding_horizontal);
 
         mFirstLine = initTextView();
-        mFirstLine.setPadding(mHorizontalPaddingPx, 0, 0, 0);
+        mFirstLine.setPadding(mHorizontalPaddingPx, 0, mHorizontalPaddingPx, 0);
         final LinearLayout firstLineLayout = new LinearLayout(mContext);
         firstLineLayout.setPadding(0, 0, 0, 0);
         firstLineLayout.setOrientation(LinearLayout.HORIZONTAL);
@@ -70,13 +70,13 @@ public class QSDualTileLabel extends FrameLayout {
         mFirstLineCaret.setScaleType(ImageView.ScaleType.MATRIX);
         mFirstLineCaret.setClickable(false);
         firstLineLayout.addView(mFirstLineCaret);
-        addView(firstLineLayout, newFrameLayoutParams());
+        addView(firstLineLayout, newLinearLayoutParams());
 
         mSecondLine = initTextView();
         mSecondLine.setPadding(mHorizontalPaddingPx, 0, mHorizontalPaddingPx, 0);
         mSecondLine.setEllipsize(TruncateAt.END);
         mSecondLine.setVisibility(GONE);
-        addView(mSecondLine, newFrameLayoutParams());
+        addView(mSecondLine, newLinearLayoutParams());
 
         addOnLayoutChangeListener(new OnLayoutChangeListener() {
             @Override
@@ -89,7 +89,7 @@ public class QSDualTileLabel extends FrameLayout {
         });
     }
 
-    private static LayoutParams newFrameLayoutParams() {
+    private static LayoutParams newLinearLayoutParams() {
         final LayoutParams lp =
                 new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.CENTER_HORIZONTAL;
@@ -100,10 +100,8 @@ public class QSDualTileLabel extends FrameLayout {
         mFirstLineCaret.setImageDrawable(d);
         if (d != null) {
             final int h = d.getIntrinsicHeight();
-            final LayoutParams lp = (LayoutParams) mSecondLine.getLayoutParams();
-            lp.topMargin = h * 4 / 5;
-            mSecondLine.setLayoutParams(lp);
             mFirstLine.setMinHeight(h);
+            mFirstLine.setPadding(mHorizontalPaddingPx, 0, 0, 0);
         }
     }
 

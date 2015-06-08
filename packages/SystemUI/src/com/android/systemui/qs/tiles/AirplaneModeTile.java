@@ -29,7 +29,13 @@ import com.android.systemui.qs.QSTile;
 
 /** Quick settings tile: Airplane mode **/
 public class AirplaneModeTile extends QSTile<QSTile.BooleanState> {
+    private final AnimationIcon mEnable =
+            new AnimationIcon(R.drawable.ic_signal_airplane_enable_animation);
+    private final AnimationIcon mDisable =
+            new AnimationIcon(R.drawable.ic_signal_airplane_disable_animation);
     private final GlobalSetting mSetting;
+
+    private boolean mListening;
 
     public AirplaneModeTile(Host host) {
         super(host);
@@ -50,6 +56,8 @@ public class AirplaneModeTile extends QSTile<QSTile.BooleanState> {
     @Override
     public void handleClick() {
         setEnabled(!mState.value);
+        mEnable.setAllowAnimation(true);
+        mDisable.setAllowAnimation(true);
     }
 
     private void setEnabled(boolean enabled) {
@@ -66,19 +74,28 @@ public class AirplaneModeTile extends QSTile<QSTile.BooleanState> {
         state.visible = true;
         state.label = mContext.getString(R.string.quick_settings_airplane_mode_label);
         if (airplaneMode) {
-            state.iconId =  R.drawable.ic_qs_airplane_on;
+            state.icon = mEnable;
             state.contentDescription =  mContext.getString(
-                    R.string.accessibility_quick_settings_airplane,
-                    mContext.getString(R.string.accessibility_desc_on));
+                    R.string.accessibility_quick_settings_airplane_on);
         } else {
-            state.iconId = R.drawable.ic_qs_airplane_off;
+            state.icon = mDisable;
             state.contentDescription =  mContext.getString(
-                    R.string.accessibility_quick_settings_airplane,
-                    mContext.getString(R.string.accessibility_desc_off));
+                    R.string.accessibility_quick_settings_airplane_off);
+        }
+    }
+
+    @Override
+    protected String composeChangeAnnouncement() {
+        if (mState.value) {
+            return mContext.getString(R.string.accessibility_quick_settings_airplane_changed_on);
+        } else {
+            return mContext.getString(R.string.accessibility_quick_settings_airplane_changed_off);
         }
     }
 
     public void setListening(boolean listening) {
+        if (mListening == listening) return;
+        mListening = listening;
         if (listening) {
             final IntentFilter filter = new IntentFilter();
             filter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);

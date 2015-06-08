@@ -24,14 +24,15 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ContainerEncryptionParams;
 import android.content.pm.FeatureInfo;
-import android.content.pm.IPackageInstallObserver;
 import android.content.pm.IPackageInstallObserver2;
 import android.content.pm.IPackageInstaller;
 import android.content.pm.IPackageDeleteObserver;
+import android.content.pm.IPackageDeleteObserver2;
 import android.content.pm.IPackageDataObserver;
 import android.content.pm.IPackageMoveObserver;
 import android.content.pm.IPackageStatsObserver;
 import android.content.pm.InstrumentationInfo;
+import android.content.pm.KeySet;
 import android.content.pm.PackageInfo;
 import android.content.pm.ManifestDigest;
 import android.content.pm.PackageCleanItem;
@@ -109,6 +110,10 @@ interface IPackageManager {
     int getUidForSharedUser(String sharedUserName);
 
     int getFlagsForUid(int uid);
+
+    boolean isUidPrivileged(int uid);
+
+    String[] getAppOpPermissionPackages(String permissionName);
 
     ResolveInfo resolveIntent(in Intent intent, String resolvedType, int flags, int userId);
 
@@ -196,9 +201,21 @@ interface IPackageManager {
             in VerificationParams verificationParams,
             in String packageAbiOverride);
 
+    void installPackageAsUser(in String originPath,
+            in IPackageInstallObserver2 observer,
+            int flags,
+            in String installerPackageName,
+            in VerificationParams verificationParams,
+            in String packageAbiOverride,
+            int userId);
+
     void finishPackageInstall(int token);
 
     void setInstallerPackageName(in String targetPackage, in String installerPackageName);
+
+    /** @deprecated rawr, don't call AIDL methods directly! */
+    void deletePackageAsUser(in String packageName, IPackageDeleteObserver observer,
+            int userId, int flags);
 
     /**
      * Delete a package for a specific user.
@@ -208,8 +225,7 @@ interface IPackageManager {
      * @param userId the id of the user for whom to delete the package
      * @param flags - possible values: {@link #DONT_DELETE_DATA}
      */
-    void deletePackageAsUser(in String packageName, IPackageDeleteObserver observer,
-            int userId, int flags);
+    void deletePackage(in String packageName, IPackageDeleteObserver2 observer, int userId, int flags);
 
     String getInstallerPackageName(in String packageName);
 
@@ -231,7 +247,7 @@ interface IPackageManager {
             in ComponentName[] set, in ComponentName activity, int userId);
 
     void replacePreferredActivity(in IntentFilter filter, int match,
-            in ComponentName[] set, in ComponentName activity);
+            in ComponentName[] set, in ComponentName activity, int userId);
 
     void clearPackagePreferredActivities(String packageName);
 
@@ -242,13 +258,10 @@ interface IPackageManager {
 
     void clearPackagePersistentPreferredActivities(String packageName, int userId);
 
-    void addCrossProfileIntentFilter(in IntentFilter intentFilter, int sourceUserId, int targetUserId,
-            int flags);
+    void addCrossProfileIntentFilter(in IntentFilter intentFilter, String ownerPackage,
+            int ownerUserId, int sourceUserId, int targetUserId, int flags);
 
-    void addCrossProfileIntentsForPackage(in String packageName, int sourceUserId,
-            int targetUserId);
-
-    void clearCrossProfileIntentFilters(int sourceUserId);
+    void clearCrossProfileIntentFilters(int sourceUserId, String ownerPackage, int ownerUserId);
 
     /**
      * Report the set of 'Home' activity candidates, plus (if any) which of them
@@ -395,6 +408,8 @@ interface IPackageManager {
      */
     boolean performDexOptIfNeeded(String packageName, String instructionSet);
 
+    void forceDexOpt(String packageName);
+
     /**
      * Update status of external media on the package manager to scan and
      * install packages installed on the external media. Like say the
@@ -421,6 +436,7 @@ interface IPackageManager {
 
     boolean isFirstBoot();
     boolean isOnlyCoreApps();
+    boolean isUpgrade();
 
     void setPermissionEnforced(String permission, boolean enforced);
     boolean isPermissionEnforced(String permission);
@@ -428,16 +444,16 @@ interface IPackageManager {
     /** Reflects current DeviceStorageMonitorService state */
     boolean isStorageLow();
 
-    boolean setApplicationBlockedSettingAsUser(String packageName, boolean blocked, int userId);
-    boolean getApplicationBlockedSettingAsUser(String packageName, int userId);
+    boolean setApplicationHiddenSettingAsUser(String packageName, boolean hidden, int userId);
+    boolean getApplicationHiddenSettingAsUser(String packageName, int userId);
 
     IPackageInstaller getPackageInstaller();
 
     boolean setBlockUninstallForUser(String packageName, boolean blockUninstall, int userId);
     boolean getBlockUninstallForUser(String packageName, int userId);
 
-    IBinder getKeySetByAlias(String packageName, String alias);
-    IBinder getSigningKeySet(String packageName);
-    boolean isPackageSignedByKeySet(String packageName, IBinder ks);
-    boolean isPackageSignedByKeySetExactly(String packageName, IBinder ks);
+    KeySet getKeySetByAlias(String packageName, String alias);
+    KeySet getSigningKeySet(String packageName);
+    boolean isPackageSignedByKeySet(String packageName, in KeySet ks);
+    boolean isPackageSignedByKeySetExactly(String packageName, in KeySet ks);
 }

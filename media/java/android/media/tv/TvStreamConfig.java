@@ -16,6 +16,7 @@
 
 package android.media.tv;
 
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
@@ -23,6 +24,7 @@ import android.util.Log;
 /**
  * @hide
  */
+@SystemApi
 public class TvStreamConfig implements Parcelable {
     static final String TAG = TvStreamConfig.class.getSimpleName();
 
@@ -31,7 +33,6 @@ public class TvStreamConfig implements Parcelable {
 
     private int mStreamId;
     private int mType;
-    // TODO: Revisit if max widht/height really make sense.
     private int mMaxWidth;
     private int mMaxHeight;
     /**
@@ -84,6 +85,16 @@ public class TvStreamConfig implements Parcelable {
 
     public int getGeneration() {
         return mGeneration;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder b = new StringBuilder(128);
+        b.append("TvStreamConfig {");
+        b.append("mStreamId=").append(mStreamId).append(";");
+        b.append("mType=").append(mType).append(";");
+        b.append("mGeneration=").append(mGeneration).append("}");
+        return b.toString();
     }
 
     // Parcelable
@@ -153,5 +164,18 @@ public class TvStreamConfig implements Parcelable {
             config.mGeneration = mGeneration;
             return config;
         }
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) return false;
+        if (!(obj instanceof TvStreamConfig)) return false;
+
+        TvStreamConfig config = (TvStreamConfig) obj;
+        return config.mGeneration == mGeneration
+            && config.mStreamId == mStreamId
+            && config.mType == mType
+            && config.mMaxWidth == mMaxWidth
+            && config.mMaxHeight == mMaxHeight;
     }
 }

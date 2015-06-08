@@ -35,11 +35,13 @@ This is an optimized layout for a screen with a toolbar enabled.
         android:layout_alignParentTop="true"
         style="?attr/actionBarStyle"
         android:transitionName="android:action_bar"
+        android:touchscreenBlocksFocus="true"
         android:gravity="top">
         <Toolbar
             android:id="@+id/action_bar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:navigationContentDescription="@string/action_bar_up_description"
             style="?attr/toolbarStyle" />
         <com.android.internal.widget.ActionBarContextView
             android:id="@+id/action_context_bar"

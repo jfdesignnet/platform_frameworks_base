@@ -1,8 +1,7 @@
 package com.android.systemui.volume;
 
-import android.app.ActivityManagerNative;
 import android.content.Context;
-import android.content.Intent;
+import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.media.AudioManager;
 import android.media.IRemoteVolumeController;
@@ -11,18 +10,21 @@ import android.media.session.ISessionController;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
 import android.net.Uri;
-import android.os.AsyncTask;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Log;
 
 import com.android.systemui.R;
 import com.android.systemui.SystemUI;
 import com.android.systemui.keyguard.KeyguardViewMediator;
+import com.android.systemui.statusbar.phone.PhoneStatusBar;
 import com.android.systemui.statusbar.policy.ZenModeController;
 import com.android.systemui.statusbar.policy.ZenModeControllerImpl;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /*
  * Copyright (C) 2014 The Android Open Source Project
@@ -48,17 +50,19 @@ public class VolumeUI extends SystemUI {
 
     private final Handler mHandler = new Handler();
 
+    private boolean mEnabled;
     private AudioManager mAudioManager;
     private MediaSessionManager mMediaSessionManager;
     private VolumeController mVolumeController;
     private RemoteVolumeController mRemoteVolumeController;
 
-    private VolumePanel mDialogPanel;
     private VolumePanel mPanel;
     private int mDismissDelay;
 
     @Override
     public void start() {
+        mEnabled = mContext.getResources().getBoolean(R.bool.enable_volume_ui);
+        if (!mEnabled) return;
         mAudioManager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
         mMediaSessionManager = (MediaSessionManager) mContext
                 .getSystemService(Context.MEDIA_SESSION_SERVICE);
@@ -68,6 +72,22 @@ public class VolumeUI extends SystemUI {
         putComponent(VolumeComponent.class, mVolumeController);
         updateController();
         mContext.getContentResolver().registerContentObserver(SETTING_URI, false, mObserver);
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (mPanel != null) {
+            mPanel.onConfigurationChanged(newConfig);
+        }
+    }
+
+    @Override
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.print("mEnabled="); pw.println(mEnabled);
+        if (mPanel != null) {
+            mPanel.dump(fd, pw, args);
+        }
     }
 
     private void updateController() {
@@ -84,7 +104,7 @@ public class VolumeUI extends SystemUI {
 
     private void initPanel() {
         mDismissDelay = mContext.getResources().getInteger(R.integer.volume_panel_dismiss_delay);
-        mPanel = new VolumePanel(mContext, null, new ZenModeControllerImpl(mContext, mHandler));
+        mPanel = new VolumePanel(mContext, new ZenModeControllerImpl(mContext, mHandler));
         mPanel.setCallback(new VolumePanel.Callback() {
             @Override
             public void onZenSettings() {
@@ -107,7 +127,6 @@ public class VolumeUI extends SystemUI {
                 }
             }
         });
-        mDialogPanel = mPanel;
     }
 
     private final ContentObserver mObserver = new ContentObserver(mHandler) {
@@ -121,20 +140,9 @@ public class VolumeUI extends SystemUI {
     private final Runnable mStartZenSettings = new Runnable() {
         @Override
         public void run() {
-            AsyncTask.execute(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        // Dismiss the lock screen when Settings starts.
-                        ActivityManagerNative.getDefault().dismissKeyguardOnNextActivity();
-                    } catch (RemoteException e) {
-                    }
-                    final Intent intent = ZenModePanel.ZEN_SETTINGS;
-                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                    mContext.startActivityAsUser(intent, new UserHandle(UserHandle.USER_CURRENT));
-                }
-            });
-            mDialogPanel.postDismiss(mDismissDelay);
+            getComponent(PhoneStatusBar.class).startActivityDismissingKeyguard(
+                    ZenModePanel.ZEN_SETTINGS, true /* onlyProvisioned */, true /* dismissShade */);
+            mPanel.postDismiss(mDismissDelay);
         }
     };
 
@@ -170,17 +178,22 @@ public class VolumeUI extends SystemUI {
 
         @Override
         public void dismiss() throws RemoteException {
-            mPanel.postDismiss(0);
+            dismissNow();
         }
 
         @Override
         public ZenModeController getZenController() {
-            return mDialogPanel.getZenController();
+            return mPanel.getZenController();
         }
 
         @Override
-        public void setVolumePanel(VolumePanel panel) {
-            mPanel = panel == null ? mDialogPanel : panel;
+        public void dispatchDemoCommand(String command, Bundle args) {
+            mPanel.dispatchDemoCommand(command, args);
+        }
+
+        @Override
+        public void dismissNow() {
+            mPanel.postDismiss(0);
         }
     }
 
@@ -189,7 +202,7 @@ public class VolumeUI extends SystemUI {
         @Override
         public void remoteVolumeChanged(ISessionController binder, int flags)
                 throws RemoteException {
-            MediaController controller = new MediaController(binder);
+            MediaController controller = new MediaController(mContext, binder);
             mPanel.postRemoteVolumeChanged(controller, flags);
         }
 

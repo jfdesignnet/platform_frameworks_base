@@ -21,6 +21,7 @@ import android.bluetooth.le.AdvertiseSettings;
 import android.bluetooth.le.AdvertiseData;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanSettings;
+import android.bluetooth.le.ResultStorageDescriptor;
 import android.os.ParcelUuid;
 
 import android.bluetooth.IBluetoothGattCallback;
@@ -33,10 +34,9 @@ import android.bluetooth.IBluetoothGattServerCallback;
 interface IBluetoothGatt {
     List<BluetoothDevice> getDevicesMatchingConnectionStates(in int[] states);
 
-    void startScan(in int appIf, in boolean isServer);
-    void startScanWithUuids(in int appIf, in boolean isServer, in ParcelUuid[] ids);
-    void startScanWithFilters(in int appIf, in boolean isServer,
-                              in ScanSettings settings, in List<ScanFilter> filters);
+    void startScan(in int appIf, in boolean isServer, in ScanSettings settings,
+                   in List<ScanFilter> filters,
+                   in List scanStorages);
     void stopScan(in int appIf, in boolean isServer);
     void flushPendingBatchResults(in int appIf, in boolean isServer);
     void startMultiAdvertising(in int appIf,
@@ -76,6 +76,7 @@ interface IBluetoothGatt {
     void endReliableWrite(in int clientIf, in String address, in boolean execute);
     void readRemoteRssi(in int clientIf, in String address);
     void configureMTU(in int clientIf, in String address, in int mtu);
+    void connectionParameterUpdate(in int clientIf, in String address, in int connectionPriority);
 
     void registerServer(in ParcelUuid appId, in IBluetoothGattServerCallback callback);
     void unregisterServer(in int serverIf);

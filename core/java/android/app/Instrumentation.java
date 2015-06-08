@@ -45,6 +45,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.view.Window;
+import com.android.internal.content.ReferrerIntent;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -1042,7 +1043,7 @@ public class Instrumentation {
         activity.attach(context, aThread, this, token, 0, application, intent,
                 info, title, parent, id,
                 (Activity.NonConfigurationInstances)lastNonConfigurationInstance,
-                new Configuration(), null);
+                new Configuration(), null, null);
         return activity;
     }
 
@@ -1208,6 +1209,21 @@ public class Instrumentation {
      */
     public void callActivityOnNewIntent(Activity activity, Intent intent) {
         activity.onNewIntent(intent);
+    }
+
+    /**
+     * @hide
+     */
+    public void callActivityOnNewIntent(Activity activity, ReferrerIntent intent) {
+        final String oldReferrer = activity.mReferrer;
+        try {
+            if (intent != null) {
+                activity.mReferrer = intent.mReferrer;
+            }
+            callActivityOnNewIntent(activity, intent != null ? new Intent(intent) : null);
+        } finally {
+            activity.mReferrer = oldReferrer;
+        }
     }
 
     /**
@@ -1481,7 +1497,7 @@ public class Instrumentation {
                 .startActivity(whoThread, who.getBasePackageName(), intent,
                         intent.resolveTypeIfNeeded(who.getContentResolver()),
                         token, target != null ? target.mEmbeddedID : null,
-                        requestCode, 0, null, null, options);
+                        requestCode, 0, null, options);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
         }
@@ -1598,7 +1614,7 @@ public class Instrumentation {
                 .startActivity(whoThread, who.getBasePackageName(), intent,
                         intent.resolveTypeIfNeeded(who.getContentResolver()),
                         token, target != null ? target.mWho : null,
-                        requestCode, 0, null, null, options);
+                        requestCode, 0, null, options);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
         }
@@ -1658,11 +1674,82 @@ public class Instrumentation {
                 .startActivityAsUser(whoThread, who.getBasePackageName(), intent,
                         intent.resolveTypeIfNeeded(who.getContentResolver()),
                         token, target != null ? target.mEmbeddedID : null,
-                        requestCode, 0, null, null, options, user.getIdentifier());
+                        requestCode, 0, null, options, user.getIdentifier());
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
         }
         return null;
+    }
+
+    /**
+     * Special version!
+     * @hide
+     */
+    public ActivityResult execStartActivityAsCaller(
+            Context who, IBinder contextThread, IBinder token, Activity target,
+            Intent intent, int requestCode, Bundle options, int userId) {
+        IApplicationThread whoThread = (IApplicationThread) contextThread;
+        if (mActivityMonitors != null) {
+            synchronized (mSync) {
+                final int N = mActivityMonitors.size();
+                for (int i=0; i<N; i++) {
+                    final ActivityMonitor am = mActivityMonitors.get(i);
+                    if (am.match(who, null, intent)) {
+                        am.mHits++;
+                        if (am.isBlocking()) {
+                            return requestCode >= 0 ? am.getResult() : null;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        try {
+            intent.migrateExtraStreamToClipData();
+            intent.prepareToLeaveProcess();
+            int result = ActivityManagerNative.getDefault()
+                .startActivityAsCaller(whoThread, who.getBasePackageName(), intent,
+                        intent.resolveTypeIfNeeded(who.getContentResolver()),
+                        token, target != null ? target.mEmbeddedID : null,
+                        requestCode, 0, null, options, userId);
+            checkStartActivityResult(result, intent);
+        } catch (RemoteException e) {
+        }
+        return null;
+    }
+
+    /**
+     * Special version!
+     * @hide
+     */
+    public void execStartActivityFromAppTask(
+            Context who, IBinder contextThread, IAppTask appTask,
+            Intent intent, Bundle options) {
+        IApplicationThread whoThread = (IApplicationThread) contextThread;
+        if (mActivityMonitors != null) {
+            synchronized (mSync) {
+                final int N = mActivityMonitors.size();
+                for (int i=0; i<N; i++) {
+                    final ActivityMonitor am = mActivityMonitors.get(i);
+                    if (am.match(who, null, intent)) {
+                        am.mHits++;
+                        if (am.isBlocking()) {
+                            return;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        try {
+            intent.migrateExtraStreamToClipData();
+            intent.prepareToLeaveProcess();
+            int result = appTask.startActivity(whoThread.asBinder(), who.getBasePackageName(),
+                    intent, intent.resolveTypeIfNeeded(who.getContentResolver()), options);
+            checkStartActivityResult(result, intent);
+        } catch (RemoteException e) {
+        }
+        return;
     }
 
     /*package*/ final void init(ActivityThread thread,

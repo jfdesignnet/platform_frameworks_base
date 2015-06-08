@@ -17,6 +17,8 @@
 package android.os;
 
 import android.util.ArrayMap;
+import android.util.Size;
+import android.util.SizeF;
 import android.util.SparseArray;
 
 import java.io.Serializable;
@@ -250,18 +252,6 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
-     * Inserts a Boolean value into the mapping of this Bundle, replacing
-     * any existing value for the given key.  Either key or value may be null.
-     *
-     * @param key a String, or null
-     * @param value a Boolean, or null
-     */
-    @Override
-    public void putBoolean(String key, boolean value) {
-        super.putBoolean(key, value);
-    }
-
-    /**
      * Inserts a byte value into the mapping of this Bundle, replacing
      * any existing value for the given key.
      *
@@ -332,6 +322,30 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         unparcel();
         mMap.put(key, value);
         mFdsKnown = false;
+    }
+
+    /**
+     * Inserts a Size value into the mapping of this Bundle, replacing
+     * any existing value for the given key.  Either key or value may be null.
+     *
+     * @param key a String, or null
+     * @param value a Size object, or null
+     */
+    public void putSize(String key, Size value) {
+        unparcel();
+        mMap.put(key, value);
+    }
+
+    /**
+     * Inserts a SizeF value into the mapping of this Bundle, replacing
+     * any existing value for the given key.  Either key or value may be null.
+     *
+     * @param key a String, or null
+     * @param value a SizeF object, or null
+     */
+    public void putSizeF(String key, SizeF value) {
+        unparcel();
+        mMap.put(key, value);
     }
 
     /**
@@ -431,18 +445,6 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     @Override
     public void putSerializable(String key, Serializable value) {
         super.putSerializable(key, value);
-    }
-
-    /**
-     * Inserts a boolean array value into the mapping of this Bundle, replacing
-     * any existing value for the given key.  Either key or value may be null.
-     *
-     * @param key a String, or null
-     * @param value a boolean array object, or null
-     */
-    @Override
-    public void putBooleanArray(String key, boolean[] value) {
-        super.putBooleanArray(key, value);
     }
 
     /**
@@ -550,31 +552,6 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     public void putIBinder(String key, IBinder value) {
         unparcel();
         mMap.put(key, value);
-    }
-
-    /**
-     * Returns the value associated with the given key, or false if
-     * no mapping of the desired type exists for the given key.
-     *
-     * @param key a String
-     * @return a boolean value
-     */
-    @Override
-    public boolean getBoolean(String key) {
-        return super.getBoolean(key);
-    }
-
-    /**
-     * Returns the value associated with the given key, or defaultValue if
-     * no mapping of the desired type exists for the given key.
-     *
-     * @param key a String
-     * @param defaultValue Value to return if key does not exist
-     * @return a boolean value
-     */
-    @Override
-    public boolean getBoolean(String key, boolean defaultValue) {
-        return super.getBoolean(key, defaultValue);
     }
 
     /**
@@ -704,6 +681,44 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     @Override
     public CharSequence getCharSequence(String key, CharSequence defaultValue) {
         return super.getCharSequence(key, defaultValue);
+    }
+
+    /**
+     * Returns the value associated with the given key, or null if
+     * no mapping of the desired type exists for the given key or a null
+     * value is explicitly associated with the key.
+     *
+     * @param key a String, or null
+     * @return a Size value, or null
+     */
+    public Size getSize(String key) {
+        unparcel();
+        final Object o = mMap.get(key);
+        try {
+            return (Size) o;
+        } catch (ClassCastException e) {
+            typeWarning(key, o, "Size", e);
+            return null;
+        }
+    }
+
+    /**
+     * Returns the value associated with the given key, or null if
+     * no mapping of the desired type exists for the given key or a null
+     * value is explicitly associated with the key.
+     *
+     * @param key a String, or null
+     * @return a Size value, or null
+     */
+    public SizeF getSizeF(String key) {
+        unparcel();
+        final Object o = mMap.get(key);
+        try {
+            return (SizeF) o;
+        } catch (ClassCastException e) {
+            typeWarning(key, o, "SizeF", e);
+            return null;
+        }
     }
 
     /**
@@ -867,19 +882,6 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     @Override
     public ArrayList<CharSequence> getCharSequenceArrayList(String key) {
         return super.getCharSequenceArrayList(key);
-    }
-
-    /**
-     * Returns the value associated with the given key, or null if
-     * no mapping of the desired type exists for the given key or a null
-     * value is explicitly associated with the key.
-     *
-     * @param key a String, or null
-     * @return a boolean[] value, or null
-     */
-    @Override
-    public boolean[] getBooleanArray(String key) {
-        return super.getBooleanArray(key);
     }
 
     /**

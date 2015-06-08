@@ -16,10 +16,13 @@
 
 package android.hardware.camera2.legacy;
 
+import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.impl.CameraDeviceImpl;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.hardware.camera2.utils.LongParcelable;
 import android.hardware.camera2.utils.SizeAreaComparator;
 import android.hardware.camera2.impl.CameraMetadataNative;
@@ -28,16 +31,20 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
 import android.util.Log;
+import android.util.MutableLong;
 import android.util.Pair;
 import android.util.Size;
 import android.view.Surface;
 
-import java.io.IOError;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.android.internal.util.Preconditions.*;
 
@@ -52,31 +59,36 @@ import static com.android.internal.util.Preconditions.*;
  * - An {@link CameraDeviceState} state machine that manages the callbacks for various operations.
  * </p>
  */
+@SuppressWarnings("deprecation")
 public class RequestThreadManager {
     private final String TAG;
     private final int mCameraId;
     private final RequestHandlerThread mRequestThread;
 
     private static final boolean DEBUG = Log.isLoggable(LegacyCameraDevice.DEBUG_PROP, Log.DEBUG);
-    private final Camera mCamera;
+    // For slightly more spammy messages that will get repeated every frame
+    private static final boolean VERBOSE =
+            Log.isLoggable(LegacyCameraDevice.DEBUG_PROP, Log.VERBOSE);
+    private Camera mCamera;
     private final CameraCharacteristics mCharacteristics;
 
     private final CameraDeviceState mDeviceState;
+    private final CaptureCollector mCaptureCollector;
+    private final LegacyFocusStateMapper mFocusStateMapper;
+    private final LegacyFaceDetectMapper mFaceDetectMapper;
 
     private static final int MSG_CONFIGURE_OUTPUTS = 1;
     private static final int MSG_SUBMIT_CAPTURE_REQUEST = 2;
     private static final int MSG_CLEANUP = 3;
 
-    private static final int PREVIEW_FRAME_TIMEOUT = 300; // ms
-    private static final int JPEG_FRAME_TIMEOUT = 3000; // ms (same as CTS for API2)
+    private static final int MAX_IN_FLIGHT_REQUESTS = 2;
+
+    private static final int PREVIEW_FRAME_TIMEOUT = 1000; // ms
+    private static final int JPEG_FRAME_TIMEOUT = 4000; // ms (same as CTS for API2)
+    private static final int REQUEST_COMPLETE_TIMEOUT = JPEG_FRAME_TIMEOUT; // ms (same as JPEG timeout)
 
     private static final float ASPECT_RATIO_TOLERANCE = 0.01f;
     private boolean mPreviewRunning = false;
-
-    private volatile long mLastJpegTimestamp;
-    private volatile long mLastPreviewTimestamp;
-    private volatile RequestHolder mInFlightPreview;
-    private volatile RequestHolder mInFlightJpeg;
 
     private final List<Surface> mPreviewOutputs = new ArrayList<>();
     private final List<Surface> mCallbackOutputs = new ArrayList<>();
@@ -84,24 +96,34 @@ public class RequestThreadManager {
     private SurfaceTexture mPreviewTexture;
     private Camera.Parameters mParams;
 
+    private final List<Long> mJpegSurfaceIds = new ArrayList<>();
+
     private Size mIntermediateBufferSize;
 
-    private final RequestQueue mRequestQueue = new RequestQueue();
+    private final RequestQueue mRequestQueue = new RequestQueue(mJpegSurfaceIds);
     private LegacyRequest mLastRequest = null;
     private SurfaceTexture mDummyTexture;
     private Surface mDummySurface;
 
+    private final Object mIdleLock = new Object();
     private final FpsCounter mPrevCounter = new FpsCounter("Incoming Preview");
     private final FpsCounter mRequestCounter = new FpsCounter("Incoming Requests");
+
+    private final AtomicBoolean mQuit = new AtomicBoolean(false);
+
+    // Stuff JPEGs into HAL_PIXEL_FORMAT_RGBA_8888 gralloc buffers to get around SW write
+    // limitations for (b/17379185).
+    private static final boolean USE_BLOB_FORMAT_OVERRIDE = true;
 
     /**
      * Container object for Configure messages.
      */
     private static class ConfigureHolder {
         public final ConditionVariable condition;
-        public final Collection<Surface> surfaces;
+        public final Collection<Pair<Surface, Size>> surfaces;
 
-        public ConfigureHolder(ConditionVariable condition, Collection<Surface> surfaces) {
+        public ConfigureHolder(ConditionVariable condition, Collection<Pair<Surface,
+                Size>> surfaces) {
             this.condition = condition;
             this.surfaces = surfaces;
         }
@@ -166,31 +188,57 @@ public class RequestThreadManager {
         }
     }
 
+    private final Camera.ErrorCallback mErrorCallback = new Camera.ErrorCallback() {
+        @Override
+        public void onError(int i, Camera camera) {
+            Log.e(TAG, "Received error " + i + " from the Camera1 ErrorCallback");
+            mDeviceState.setError(CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+        }
+    };
+
     private final ConditionVariable mReceivedJpeg = new ConditionVariable(false);
-    private final ConditionVariable mReceivedPreview = new ConditionVariable(false);
 
     private final Camera.PictureCallback mJpegCallback = new Camera.PictureCallback() {
         @Override
         public void onPictureTaken(byte[] data, Camera camera) {
             Log.i(TAG, "Received jpeg.");
-            RequestHolder holder = mInFlightJpeg;
-            if (holder == null) {
-                Log.w(TAG, "Dropping jpeg frame.");
-                mInFlightJpeg = null;
+            Pair<RequestHolder, Long> captureInfo = mCaptureCollector.jpegProduced();
+            if (captureInfo == null || captureInfo.first == null) {
+                Log.e(TAG, "Dropping jpeg frame.");
                 return;
             }
+            RequestHolder holder = captureInfo.first;
+            long timestamp = captureInfo.second;
             for (Surface s : holder.getHolderTargets()) {
                 try {
-                    if (RequestHolder.jpegType(s)) {
+                    if (LegacyCameraDevice.containsSurfaceId(s, mJpegSurfaceIds)) {
                         Log.i(TAG, "Producing jpeg buffer...");
-                        LegacyCameraDevice.setSurfaceDimens(s, data.length, /*height*/1);
-                        LegacyCameraDevice.produceFrame(s, data, data.length, /*height*/1,
-                                CameraMetadataNative.NATIVE_JPEG_FORMAT);
+
+                        int totalSize = data.length + LegacyCameraDevice.nativeGetJpegFooterSize();
+                        totalSize = (totalSize + 3) & ~0x3; // round up to nearest octonibble
+                        LegacyCameraDevice.setNextTimestamp(s, timestamp);
+
+                        if (USE_BLOB_FORMAT_OVERRIDE) {
+                            // Override to RGBA_8888 format.
+                            LegacyCameraDevice.setSurfaceFormat(s,
+                                    LegacyMetadataMapper.HAL_PIXEL_FORMAT_RGBA_8888);
+
+                            int dimen = (int) Math.ceil(Math.sqrt(totalSize));
+                            dimen = (dimen + 0xf) & ~0xf; // round up to nearest multiple of 16
+                            LegacyCameraDevice.setSurfaceDimens(s, dimen, dimen);
+                            LegacyCameraDevice.produceFrame(s, data, dimen, dimen,
+                                    CameraMetadataNative.NATIVE_JPEG_FORMAT);
+                        } else {
+                            LegacyCameraDevice.setSurfaceDimens(s, totalSize, /*height*/1);
+                            LegacyCameraDevice.produceFrame(s, data, totalSize, /*height*/1,
+                                    CameraMetadataNative.NATIVE_JPEG_FORMAT);
+                        }
                     }
                 } catch (LegacyExceptionUtils.BufferQueueAbandonedException e) {
                     Log.w(TAG, "Surface abandoned, dropping frame. ", e);
                 }
             }
+
             mReceivedJpeg.open();
         }
     };
@@ -198,7 +246,7 @@ public class RequestThreadManager {
     private final Camera.ShutterCallback mJpegShutterCallback = new Camera.ShutterCallback() {
         @Override
         public void onShutter() {
-            mLastJpegTimestamp = SystemClock.elapsedRealtimeNanos();
+            mCaptureCollector.jpegCaptured(SystemClock.elapsedRealtimeNanos());
         }
     };
 
@@ -206,33 +254,17 @@ public class RequestThreadManager {
             new SurfaceTexture.OnFrameAvailableListener() {
                 @Override
                 public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-                    RequestHolder holder = mInFlightPreview;
-
                     if (DEBUG) {
                         mPrevCounter.countAndLog();
                     }
-
-                    if (holder == null) {
-                        mGLThreadManager.queueNewFrame(null);
-                        Log.w(TAG, "Dropping preview frame.");
-                        return;
-                    }
-
-                    mInFlightPreview = null;
-
-                    if (holder.hasPreviewTargets()) {
-                        mGLThreadManager.queueNewFrame(holder.getHolderTargets());
-                    }
-
-                    /**
-                     * TODO: Get timestamp from GL thread after buffer update.
-                     */
-                    mLastPreviewTimestamp = surfaceTexture.getTimestamp();
-                    mReceivedPreview.open();
+                    mGLThreadManager.queueNewFrame();
                 }
             };
 
     private void stopPreview() {
+        if (VERBOSE) {
+            Log.v(TAG, "stopPreview - preview running? " + mPreviewRunning);
+        }
         if (mPreviewRunning) {
             mCamera.stopPreview();
             mPreviewRunning = false;
@@ -240,14 +272,18 @@ public class RequestThreadManager {
     }
 
     private void startPreview() {
+        if (VERBOSE) {
+            Log.v(TAG, "startPreview - preview running? " + mPreviewRunning);
+        }
         if (!mPreviewRunning) {
+            // XX: CameraClient:;startPreview is not getting called after a stop
             mCamera.startPreview();
             mPreviewRunning = true;
         }
     }
 
-    private void doJpegCapture(RequestHolder request) throws IOException {
-        if (DEBUG) Log.d(TAG, "doJpegCapture");
+    private void doJpegCapturePrepare(RequestHolder request) throws IOException {
+        if (DEBUG) Log.d(TAG, "doJpegCapturePrepare - preview running? " + mPreviewRunning);
 
         if (!mPreviewRunning) {
             if (DEBUG) Log.d(TAG, "doJpegCapture - create fake surface");
@@ -256,14 +292,20 @@ public class RequestThreadManager {
             mCamera.setPreviewTexture(mDummyTexture);
             startPreview();
         }
-        mInFlightJpeg = request;
-        // TODO: Hook up shutter callback to CameraDeviceStateListener#onCaptureStarted
+    }
+
+    private void doJpegCapture(RequestHolder request) {
+        if (DEBUG) Log.d(TAG, "doJpegCapturePrepare");
+
         mCamera.takePicture(mJpegShutterCallback, /*raw*/null, mJpegCallback);
         mPreviewRunning = false;
     }
 
     private void doPreviewCapture(RequestHolder request) throws IOException {
-        mInFlightPreview = request;
+        if (VERBOSE) {
+            Log.v(TAG, "doPreviewCapture - preview running? " + mPreviewRunning);
+        }
+
         if (mPreviewRunning) {
             return; // Already running
         }
@@ -280,32 +322,74 @@ public class RequestThreadManager {
         startPreview();
     }
 
-    private void configureOutputs(Collection<Surface> outputs) throws IOException {
-        stopPreview();
+    private void configureOutputs(Collection<Pair<Surface, Size>> outputs) {
+        if (DEBUG) {
+            String outputsStr = outputs == null ? "null" : (outputs.size() + " surfaces");
+            Log.d(TAG, "configureOutputs with " + outputsStr);
+        }
+
+        try {
+            stopPreview();
+        }  catch (RuntimeException e) {
+            Log.e(TAG, "Received device exception in configure call: ", e);
+            mDeviceState.setError(
+                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+            return;
+        }
+
+        /*
+         * Try to release the previous preview's surface texture earlier if we end up
+         * using a different one; this also reduces the likelihood of getting into a deadlock
+         * when disconnecting from the old previous texture at a later time.
+         */
+        try {
+            mCamera.setPreviewTexture(/*surfaceTexture*/null);
+        } catch (IOException e) {
+            Log.w(TAG, "Failed to clear prior SurfaceTexture, may cause GL deadlock: ", e);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Received device exception in configure call: ", e);
+            mDeviceState.setError(
+                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+            return;
+        }
+
         if (mGLThreadManager != null) {
             mGLThreadManager.waitUntilStarted();
             mGLThreadManager.ignoreNewFrames();
             mGLThreadManager.waitUntilIdle();
         }
+        resetJpegSurfaceFormats(mCallbackOutputs);
         mPreviewOutputs.clear();
         mCallbackOutputs.clear();
+        mJpegSurfaceIds.clear();
         mPreviewTexture = null;
-        mInFlightPreview = null;
-        mInFlightJpeg = null;
+
+        List<Size> previewOutputSizes = new ArrayList<>();
+        List<Size> callbackOutputSizes = new ArrayList<>();
 
         int facing = mCharacteristics.get(CameraCharacteristics.LENS_FACING);
         int orientation = mCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
         if (outputs != null) {
-            for (Surface s : outputs) {
+            for (Pair<Surface, Size> outPair : outputs) {
+                Surface s = outPair.first;
+                Size outSize = outPair.second;
                 try {
                     int format = LegacyCameraDevice.detectSurfaceType(s);
                     LegacyCameraDevice.setSurfaceOrientation(s, facing, orientation);
                     switch (format) {
                         case CameraMetadataNative.NATIVE_JPEG_FORMAT:
+                            if (USE_BLOB_FORMAT_OVERRIDE) {
+                                // Override to RGBA_8888 format.
+                                LegacyCameraDevice.setSurfaceFormat(s,
+                                        LegacyMetadataMapper.HAL_PIXEL_FORMAT_RGBA_8888);
+                            }
+                            mJpegSurfaceIds.add(LegacyCameraDevice.getSurfaceId(s));
                             mCallbackOutputs.add(s);
+                            callbackOutputSizes.add(outSize);
                             break;
                         default:
                             mPreviewOutputs.add(s);
+                            previewOutputSizes.add(outSize);
                             break;
                     }
                 } catch (LegacyExceptionUtils.BufferQueueAbandonedException e) {
@@ -313,7 +397,14 @@ public class RequestThreadManager {
                 }
             }
         }
-        mParams = mCamera.getParameters();
+        try {
+            mParams = mCamera.getParameters();
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Received device exception: ", e);
+            mDeviceState.setError(
+                CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+            return;
+        }
 
         List<int[]> supportedFpsRanges = mParams.getSupportedPreviewFpsRange();
         int[] bestRange = getPhotoPreviewFpsRange(supportedFpsRanges);
@@ -324,20 +415,10 @@ public class RequestThreadManager {
         }
         mParams.setPreviewFpsRange(bestRange[Camera.Parameters.PREVIEW_FPS_MIN_INDEX],
                 bestRange[Camera.Parameters.PREVIEW_FPS_MAX_INDEX]);
-        mParams.setRecordingHint(true);
 
-        if (mPreviewOutputs.size() > 0) {
-            List<Size> outputSizes = new ArrayList<>(outputs.size());
-            for (Surface s : mPreviewOutputs) {
-                try {
-                    Size size = LegacyCameraDevice.getSurfaceSize(s);
-                    outputSizes.add(size);
-                } catch (LegacyExceptionUtils.BufferQueueAbandonedException e) {
-                    Log.w(TAG, "Surface abandoned, skipping...", e);
-                }
-            }
+        if (previewOutputSizes.size() > 0) {
 
-            Size largestOutput = SizeAreaComparator.findLargestByArea(outputSizes);
+            Size largestOutput = SizeAreaComparator.findLargestByArea(previewOutputSizes);
 
             // Find largest jpeg dimension - assume to have the same aspect ratio as sensor.
             Size largestJpegDimen = ParameterUtils.getLargestSupportedJpegSizeByArea(mParams);
@@ -360,6 +441,9 @@ public class RequestThreadManager {
             }
 
             mIntermediateBufferSize = bestPreviewDimen;
+            mParams.setPreviewSize(mIntermediateBufferSize.getWidth(),
+                    mIntermediateBufferSize.getHeight());
+
             if (DEBUG) {
                 Log.d(TAG, "Intermediate buffer selected with dimens: " +
                         bestPreviewDimen.toString());
@@ -371,7 +455,8 @@ public class RequestThreadManager {
             }
         }
 
-        Size smallestSupportedJpegSize = calculatePictureSize(mCallbackOutputs, mParams);
+        Size smallestSupportedJpegSize = calculatePictureSize(mCallbackOutputs,
+                callbackOutputSizes, mParams);
         if (smallestSupportedJpegSize != null) {
             /*
              * Set takePicture size to the smallest supported JPEG size large enough
@@ -385,20 +470,43 @@ public class RequestThreadManager {
 
         // TODO: Detect and optimize single-output paths here to skip stream teeing.
         if (mGLThreadManager == null) {
-            mGLThreadManager = new GLThreadManager(mCameraId);
+            mGLThreadManager = new GLThreadManager(mCameraId, facing, mDeviceState);
             mGLThreadManager.start();
         }
         mGLThreadManager.waitUntilStarted();
-        mGLThreadManager.setConfigurationAndWait(mPreviewOutputs);
+        List<Pair<Surface, Size>> previews = new ArrayList<>();
+        Iterator<Size> previewSizeIter = previewOutputSizes.iterator();
+        for (Surface p : mPreviewOutputs) {
+            previews.add(new Pair<>(p, previewSizeIter.next()));
+        }
+        mGLThreadManager.setConfigurationAndWait(previews, mCaptureCollector);
         mGLThreadManager.allowNewFrames();
         mPreviewTexture = mGLThreadManager.getCurrentSurfaceTexture();
         if (mPreviewTexture != null) {
             mPreviewTexture.setOnFrameAvailableListener(mPreviewCallback);
         }
 
-        mCamera.setParameters(mParams);
-        // TODO: configure the JPEG surface with some arbitrary size
-        // using LegacyCameraDevice.nativeConfigureSurface
+        try {
+            mCamera.setParameters(mParams);
+        } catch (RuntimeException e) {
+                Log.e(TAG, "Received device exception while configuring: ", e);
+                mDeviceState.setError(
+                        CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+
+        }
+    }
+
+    private void resetJpegSurfaceFormats(Collection<Surface> surfaces) {
+        if (!USE_BLOB_FORMAT_OVERRIDE || surfaces == null) {
+            return;
+        }
+        for(Surface s : surfaces) {
+            try {
+                LegacyCameraDevice.setSurfaceFormat(s, LegacyMetadataMapper.HAL_PIXEL_FORMAT_BLOB);
+            } catch (LegacyExceptionUtils.BufferQueueAbandonedException e) {
+                Log.w(TAG, "Surface abandoned, skipping...", e);
+            }
+        }
     }
 
     /**
@@ -420,27 +528,25 @@ public class RequestThreadManager {
      *          {@code null} if the {@code callbackOutputs} did not have any {@code JPEG}
      *          surfaces.
      */
-    private Size calculatePictureSize(
-            Collection<Surface> callbackOutputs, Camera.Parameters params) {
+    private Size calculatePictureSize( List<Surface> callbackOutputs,
+                                       List<Size> callbackSizes, Camera.Parameters params) {
         /*
          * Find the largest JPEG size (if any), from the configured outputs:
          * - the api1 picture size should be set to the smallest legal size that's at least as large
          *   as the largest configured JPEG size
          */
-        List<Size> configuredJpegSizes = new ArrayList<Size>();
+        if (callbackOutputs.size() != callbackSizes.size()) {
+            throw new IllegalStateException("Input collections must be same length");
+        }
+        List<Size> configuredJpegSizes = new ArrayList<>();
+        Iterator<Size> sizeIterator = callbackSizes.iterator();
         for (Surface callbackSurface : callbackOutputs) {
-            try {
-                int format = LegacyCameraDevice.detectSurfaceType(callbackSurface);
-
-                if (format != CameraMetadataNative.NATIVE_JPEG_FORMAT) {
+            Size jpegSize = sizeIterator.next();
+                if (!LegacyCameraDevice.containsSurfaceId(callbackSurface, mJpegSurfaceIds)) {
                     continue; // Ignore non-JPEG callback formats
                 }
 
-                Size jpegSize = LegacyCameraDevice.getSurfaceSize(callbackSurface);
                 configuredJpegSizes.add(jpegSize);
-            } catch (LegacyExceptionUtils.BufferQueueAbandonedException e) {
-                Log.w(TAG, "Surface abandoned, skipping...", e);
-            }
         }
         if (!configuredJpegSizes.isEmpty()) {
             /*
@@ -532,7 +638,7 @@ public class RequestThreadManager {
 
     private final Handler.Callback mRequestHandlerCb = new Handler.Callback() {
         private boolean mCleanup = false;
-        private LegacyResultMapper mMapper = new LegacyResultMapper();
+        private final LegacyResultMapper mMapper = new LegacyResultMapper();
 
         @Override
         public boolean handleMessage(Message msg) {
@@ -551,14 +657,23 @@ public class RequestThreadManager {
                 case MSG_CONFIGURE_OUTPUTS:
                     ConfigureHolder config = (ConfigureHolder) msg.obj;
                     int sizes = config.surfaces != null ? config.surfaces.size() : 0;
-                    Log.i(TAG, "Configure outputs: " + sizes +
-                            " surfaces configured.");
+                    Log.i(TAG, "Configure outputs: " + sizes + " surfaces configured.");
+
                     try {
-                        configureOutputs(config.surfaces);
-                    } catch (IOException e) {
-                        // TODO: report error to CameraDevice
-                        throw new IOError(e);
+                        boolean success = mCaptureCollector.waitForEmpty(JPEG_FRAME_TIMEOUT,
+                                TimeUnit.MILLISECONDS);
+                        if (!success) {
+                            Log.e(TAG, "Timed out while queueing configure request.");
+                            mCaptureCollector.failAll();
+                        }
+                    } catch (InterruptedException e) {
+                        Log.e(TAG, "Interrupted while waiting for requests to complete.");
+                        mDeviceState.setError(
+                                CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                        break;
                     }
+
+                    configureOutputs(config.surfaces);
                     config.condition.open();
                     if (DEBUG) {
                         long totalTime = SystemClock.elapsedRealtimeNanos() - startTime;
@@ -570,11 +685,38 @@ public class RequestThreadManager {
 
                     // Get the next burst from the request queue.
                     Pair<BurstHolder, Long> nextBurst = mRequestQueue.getNext();
+
                     if (nextBurst == null) {
-                        mDeviceState.setIdle();
-                        stopPreview();
-                        break;
-                    } else {
+                        // If there are no further requests queued, wait for any currently executing
+                        // requests to complete, then switch to idle state.
+                        try {
+                            boolean success = mCaptureCollector.waitForEmpty(JPEG_FRAME_TIMEOUT,
+                                    TimeUnit.MILLISECONDS);
+                            if (!success) {
+                                Log.e(TAG,
+                                        "Timed out while waiting for prior requests to complete.");
+                                mCaptureCollector.failAll();
+                            }
+                        } catch (InterruptedException e) {
+                            Log.e(TAG, "Interrupted while waiting for requests to complete: ", e);
+                            mDeviceState.setError(
+                                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                            break;
+                        }
+
+                        synchronized (mIdleLock) {
+                            // Retry the the request queue.
+                            nextBurst = mRequestQueue.getNext();
+
+                            // If we still have no queued requests, go idle.
+                            if (nextBurst == null) {
+                                mDeviceState.setIdle();
+                                break;
+                            }
+                        }
+                    }
+
+                    if (nextBurst != null) {
                         // Queue another capture if we did not get the last burst.
                         handler.sendEmptyMessage(MSG_SUBMIT_CAPTURE_REQUEST);
                     }
@@ -586,72 +728,161 @@ public class RequestThreadManager {
                         CaptureRequest request = holder.getRequest();
 
                         boolean paramsChanged = false;
+
+                        // Only update parameters if the request has changed
                         if (mLastRequest == null || mLastRequest.captureRequest != request) {
 
                             // The intermediate buffer is sometimes null, but we always need
-                            // the camera1's configured preview size
+                            // the Camera1 API configured preview size
                             Size previewSize = ParameterUtils.convertSize(mParams.getPreviewSize());
 
-                            LegacyRequest legacyRequest = new LegacyRequest(
-                                    mCharacteristics, request, previewSize,
-                                    mParams); // params are copied
+                            LegacyRequest legacyRequest = new LegacyRequest(mCharacteristics,
+                                    request, previewSize, mParams); // params are copied
 
-                            mLastRequest = legacyRequest;
+
                             // Parameters are mutated as a side-effect
                             LegacyMetadataMapper.convertRequestMetadata(/*inout*/legacyRequest);
 
+                            // If the parameters have changed, set them in the Camera1 API.
                             if (!mParams.same(legacyRequest.parameters)) {
-                                mParams = legacyRequest.parameters;
-                                mCamera.setParameters(mParams);
+                                try {
+                                    mCamera.setParameters(legacyRequest.parameters);
+                                } catch (RuntimeException e) {
+                                    // If setting the parameters failed, report a request error to
+                                    // the camera client, and skip any further work for this request
+                                    Log.e(TAG, "Exception while setting camera parameters: ", e);
+                                    holder.failRequest();
+                                    mDeviceState.setCaptureStart(holder, /*timestamp*/0,
+                                            CameraDeviceImpl.CameraDeviceCallbacks.
+                                                    ERROR_CAMERA_REQUEST);
+                                    continue;
+                                }
                                 paramsChanged = true;
+                                mParams = legacyRequest.parameters;
                             }
+
+                            mLastRequest = legacyRequest;
                         }
 
-                        mDeviceState.setCaptureStart(holder);
-                        long timestamp = 0;
                         try {
+                            boolean success = mCaptureCollector.queueRequest(holder,
+                                    mLastRequest, JPEG_FRAME_TIMEOUT, TimeUnit.MILLISECONDS);
+
+                            if (!success) {
+                                // Report a request error if we timed out while queuing this.
+                                Log.e(TAG, "Timed out while queueing capture request.");
+                                holder.failRequest();
+                                mDeviceState.setCaptureStart(holder, /*timestamp*/0,
+                                        CameraDeviceImpl.CameraDeviceCallbacks.
+                                                ERROR_CAMERA_REQUEST);
+                                continue;
+                            }
+
+                            // Starting the preview needs to happen before enabling
+                            // face detection or auto focus
                             if (holder.hasPreviewTargets()) {
-                                mReceivedPreview.close();
                                 doPreviewCapture(holder);
-                                if (!mReceivedPreview.block(PREVIEW_FRAME_TIMEOUT)) {
-                                    // TODO: report error to CameraDevice
-                                    Log.e(TAG, "Hit timeout for preview callback!");
-                                }
-                                timestamp = mLastPreviewTimestamp;
                             }
                             if (holder.hasJpegTargets()) {
+                                while(!mCaptureCollector.waitForPreviewsEmpty(PREVIEW_FRAME_TIMEOUT,
+                                        TimeUnit.MILLISECONDS)) {
+                                    // Fail preview requests until the queue is empty.
+                                    Log.e(TAG, "Timed out while waiting for preview requests to " +
+                                            "complete.");
+                                    mCaptureCollector.failNextPreview();
+                                }
                                 mReceivedJpeg.close();
+                                doJpegCapturePrepare(holder);
+                            }
+
+                            /*
+                             * Do all the actions that require a preview to have been started
+                             */
+
+                            // Toggle face detection on/off
+                            // - do this before AF to give AF a chance to use faces
+                            mFaceDetectMapper.processFaceDetectMode(request, /*in*/mParams);
+
+                            // Unconditionally process AF triggers, since they're non-idempotent
+                            // - must be done after setting the most-up-to-date AF mode
+                            mFocusStateMapper.processRequestTriggers(request, mParams);
+
+                            if (holder.hasJpegTargets()) {
                                 doJpegCapture(holder);
                                 if (!mReceivedJpeg.block(JPEG_FRAME_TIMEOUT)) {
-                                    // TODO: report error to CameraDevice
                                     Log.e(TAG, "Hit timeout for jpeg callback!");
+                                    mCaptureCollector.failNextJpeg();
                                 }
-                                mInFlightJpeg = null;
-                                timestamp = mLastJpegTimestamp;
                             }
-                        } catch (IOException e) {
-                            // TODO: err handling
-                            throw new IOError(e);
-                        }
 
-                        if (timestamp == 0) {
-                            timestamp = SystemClock.elapsedRealtimeNanos();
+                        } catch (IOException e) {
+                            Log.e(TAG, "Received device exception during capture call: ", e);
+                            mDeviceState.setError(
+                                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                            break;
+                        } catch (InterruptedException e) {
+                            Log.e(TAG, "Interrupted during capture: ", e);
+                            mDeviceState.setError(
+                                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                            break;
+                        } catch (RuntimeException e) {
+                            Log.e(TAG, "Received device exception during capture call: ", e);
+                            mDeviceState.setError(
+                                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                            break;
                         }
 
                         if (paramsChanged) {
                             if (DEBUG) {
                                 Log.d(TAG, "Params changed -- getting new Parameters from HAL.");
                             }
-                            mParams = mCamera.getParameters();
+                            try {
+                                mParams = mCamera.getParameters();
+                            } catch (RuntimeException e) {
+                                Log.e(TAG, "Received device exception: ", e);
+                                mDeviceState.setError(
+                                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                                break;
+                            }
 
                             // Update parameters to the latest that we think the camera is using
                             mLastRequest.setParameters(mParams);
                         }
 
+                        MutableLong timestampMutable = new MutableLong(/*value*/0L);
+                        try {
+                            boolean success = mCaptureCollector.waitForRequestCompleted(holder,
+                                    REQUEST_COMPLETE_TIMEOUT, TimeUnit.MILLISECONDS,
+                                    /*out*/timestampMutable);
+
+                            if (!success) {
+                                Log.e(TAG, "Timed out while waiting for request to complete.");
+                                mCaptureCollector.failAll();
+                            }
+                        } catch (InterruptedException e) {
+                            Log.e(TAG, "Interrupted waiting for request completion: ", e);
+                            mDeviceState.setError(
+                                    CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                            break;
+                        }
 
                         CameraMetadataNative result = mMapper.cachedConvertResultMetadata(
-                                mLastRequest, timestamp);
-                        mDeviceState.setCaptureResult(holder, result);
+                                mLastRequest, timestampMutable.value);
+                        /*
+                         * Order matters: The default result mapper is state-less; the
+                         * other mappers carry state and may override keys set by the default
+                         * mapper with their own values.
+                         */
+
+                        // Update AF state
+                        mFocusStateMapper.mapResultTriggers(result);
+                        // Update face-related results
+                        mFaceDetectMapper.mapResultFaces(result, mLastRequest);
+
+                        if (!holder.requestFailed()) {
+                            mDeviceState.setCaptureResult(holder, result,
+                                    CameraDeviceState.NO_CAPTURE_ERROR);
+                        }
                     }
                     if (DEBUG) {
                         long totalTime = SystemClock.elapsedRealtimeNanos() - startTime;
@@ -661,12 +892,30 @@ public class RequestThreadManager {
                     break;
                 case MSG_CLEANUP:
                     mCleanup = true;
+                    try {
+                        boolean success = mCaptureCollector.waitForEmpty(JPEG_FRAME_TIMEOUT,
+                                TimeUnit.MILLISECONDS);
+                        if (!success) {
+                            Log.e(TAG, "Timed out while queueing cleanup request.");
+                            mCaptureCollector.failAll();
+                        }
+                    } catch (InterruptedException e) {
+                        Log.e(TAG, "Interrupted while waiting for requests to complete: ", e);
+                        mDeviceState.setError(
+                                CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE);
+                    }
                     if (mGLThreadManager != null) {
                         mGLThreadManager.quit();
+                        mGLThreadManager = null;
                     }
                     if (mCamera != null) {
                         mCamera.release();
+                        mCamera = null;
                     }
+                    resetJpegSurfaceFormats(mCallbackOutputs);
+                    break;
+                case RequestHandlerThread.MSG_POKE_IDLE_HANDLER:
+                    // OK: Ignore message.
                     break;
                 default:
                     throw new AssertionError("Unhandled message " + msg.what +
@@ -693,7 +942,11 @@ public class RequestThreadManager {
         String name = String.format("RequestThread-%d", cameraId);
         TAG = name;
         mDeviceState = checkNotNull(deviceState, "deviceState must not be null");
+        mFocusStateMapper = new LegacyFocusStateMapper(mCamera);
+        mFaceDetectMapper = new LegacyFaceDetectMapper(mCamera, mCharacteristics);
+        mCaptureCollector = new CaptureCollector(MAX_IN_FLIGHT_REQUESTS, mDeviceState);
         mRequestThread = new RequestHandlerThread(name, mRequestHandlerCb);
+        mCamera.setErrorCallback(mErrorCallback);
     }
 
     /**
@@ -704,25 +957,31 @@ public class RequestThreadManager {
     }
 
     /**
-     * Flush the pending requests.
+     * Flush any pending requests.
+     *
+     * @return the last frame number.
      */
-    public void flush() {
-        // TODO: Implement flush.
-        Log.e(TAG, "flush not yet implemented.");
+    public long flush() {
+        Log.i(TAG, "Flushing all pending requests.");
+        long lastFrame = mRequestQueue.stopRepeating();
+        mCaptureCollector.failAll();
+        return lastFrame;
     }
 
     /**
      * Quit the request thread, and clean up everything.
      */
     public void quit() {
-        Handler handler = mRequestThread.waitAndGetHandler();
-        handler.sendMessageAtFrontOfQueue(handler.obtainMessage(MSG_CLEANUP));
-        mRequestThread.quitSafely();
-        try {
-            mRequestThread.join();
-        } catch (InterruptedException e) {
-            Log.e(TAG, String.format("Thread %s (%d) interrupted while quitting.",
-                    mRequestThread.getName(), mRequestThread.getId()));
+        if (!mQuit.getAndSet(true)) {  // Avoid sending messages on dead thread's handler.
+            Handler handler = mRequestThread.waitAndGetHandler();
+            handler.sendMessageAtFrontOfQueue(handler.obtainMessage(MSG_CLEANUP));
+            mRequestThread.quitSafely();
+            try {
+                mRequestThread.join();
+            } catch (InterruptedException e) {
+                Log.e(TAG, String.format("Thread %s (%d) interrupted while quitting.",
+                        mRequestThread.getName(), mRequestThread.getId()));
+            }
         }
     }
 
@@ -742,8 +1001,11 @@ public class RequestThreadManager {
     public int submitCaptureRequests(List<CaptureRequest> requests, boolean repeating,
             /*out*/LongParcelable frameNumber) {
         Handler handler = mRequestThread.waitAndGetHandler();
-        int ret = mRequestQueue.submit(requests, repeating, frameNumber);
-        handler.sendEmptyMessage(MSG_SUBMIT_CAPTURE_REQUEST);
+        int ret;
+        synchronized (mIdleLock) {
+            ret = mRequestQueue.submit(requests, repeating, frameNumber);
+            handler.sendEmptyMessage(MSG_SUBMIT_CAPTURE_REQUEST);
+        }
         return ret;
     }
 
@@ -758,7 +1020,6 @@ public class RequestThreadManager {
         return mRequestQueue.stopRepeating(requestId);
     }
 
-
     /**
      * Configure with the current list of output Surfaces.
      *
@@ -770,7 +1031,7 @@ public class RequestThreadManager {
      *
      * @param outputs a {@link java.util.Collection} of outputs to configure.
      */
-    public void configure(Collection<Surface> outputs) {
+    public void configure(Collection<Pair<Surface, Size>> outputs) {
         Handler handler = mRequestThread.waitAndGetHandler();
         final ConditionVariable condition = new ConditionVariable(/*closed*/false);
         ConfigureHolder holder = new ConfigureHolder(condition, outputs);

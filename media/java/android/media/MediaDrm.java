@@ -20,6 +20,7 @@ import java.lang.ref.WeakReference;
 import java.util.UUID;
 import java.util.HashMap;
 import java.util.List;
+import android.annotation.SystemApi;
 import android.os.Binder;
 import android.os.Debug;
 import android.os.Handler;
@@ -187,17 +188,39 @@ public final class MediaDrm {
      */
     public static final class MediaDrmStateException extends java.lang.IllegalStateException {
         private final int mErrorCode;
+        private final String mDiagnosticInfo;
 
+        /**
+         * @hide
+         */
         public MediaDrmStateException(int errorCode, String detailMessage) {
             super(detailMessage);
             mErrorCode = errorCode;
+
+            // TODO get this from DRM session
+            final String sign = errorCode < 0 ? "neg_" : "";
+            mDiagnosticInfo =
+                "android.media.MediaDrm.error_" + sign + Math.abs(errorCode);
+
         }
 
         /**
          * Retrieve the associated error code
+         *
+         * @hide
          */
         public int getErrorCode() {
             return mErrorCode;
+        }
+
+        /**
+         * Retrieve a developer-readable diagnostic information string
+         * associated with the exception. Do not show this to end-users,
+         * since this string will not be localized or generally comprehensible
+         * to end-users.
+         */
+        public String getDiagnosticInfo() {
+            return mDiagnosticInfo;
         }
     }
 
@@ -521,6 +544,18 @@ public final class MediaDrm {
             throws DeniedByServerException;
 
     /**
+     * Remove provisioning from a device.  Only system apps may unprovision a
+     * device.  Note that removing provisioning will invalidate any keys saved
+     * for offline use (KEY_TYPE_OFFLINE), which may render downloaded content
+     * unplayable until new licenses are acquired.  Since provisioning is global
+     * to the device, license invalidation will apply to all content downloaded
+     * by any app, so appropriate warnings should be given to the user.
+     * @hide
+     */
+    @SystemApi
+    public native void unprovisionDevice();
+
+    /**
      * A means of enforcing limits on the number of concurrent streams per subscriber
      * across devices is provided via SecureStop. This is achieved by securely
      * monitoring the lifetime of sessions.
@@ -537,6 +572,12 @@ public final class MediaDrm {
      */
     public native List<byte[]> getSecureStops();
 
+    /**
+     * Access secure stop by secure stop ID.
+     *
+     * @param ssid - The secure stop ID provided by the license server.
+     */
+    public native byte[] getSecureStop(byte[] ssid);
 
     /**
      * Process the SecureStop server response message ssRelease.  After authenticating
@@ -546,6 +587,10 @@ public final class MediaDrm {
      */
     public native void releaseSecureStops(byte[] ssRelease);
 
+    /**
+     * Remove all secure stops without requiring interaction with the server.
+     */
+     public native void releaseAllSecureStops();
 
     /**
      * String property name: identifies the maker of the DRM engine plugin

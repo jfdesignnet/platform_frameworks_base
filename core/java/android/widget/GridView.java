@@ -351,6 +351,7 @@ public class GridView extends AbsListView {
         final int selectedPosition = mSelectedPosition;
 
         View child = null;
+        final int nextChildDir = isLayoutRtl ? -1 : +1;
         for (int pos = startPos; pos < last; pos++) {
             // is this the selected item?
             boolean selected = pos == selectedPosition;
@@ -359,9 +360,9 @@ public class GridView extends AbsListView {
             final int where = flow ? -1 : pos - startPos;
             child = makeAndAddView(pos, y, flow, nextLeft, selected, where);
 
-            nextLeft += (isLayoutRtl ? -1 : +1) * columnWidth;
+            nextLeft += nextChildDir * columnWidth;
             if (pos < last - 1) {
-                nextLeft += horizontalSpacing;
+                nextLeft += nextChildDir * horizontalSpacing;
             }
 
             if (selected && (hasFocus || inClick)) {
@@ -2355,7 +2356,7 @@ public class GridView extends AbsListView {
         final int rowsCount = getCount() / columnsCount;
         final int selectionMode = getSelectionModeForAccessibility();
         final CollectionInfo collectionInfo = CollectionInfo.obtain(
-                columnsCount, rowsCount, false, selectionMode);
+                rowsCount, columnsCount, false, selectionMode);
         info.setCollectionInfo(collectionInfo);
     }
 
@@ -2384,7 +2385,7 @@ public class GridView extends AbsListView {
         final boolean isHeading = lp != null && lp.viewType != ITEM_VIEW_TYPE_HEADER_OR_FOOTER;
         final boolean isSelected = isItemChecked(position);
         final CollectionItemInfo itemInfo = CollectionItemInfo.obtain(
-                column, 1, row, 1, isHeading, isSelected);
+                row, 1, column, 1, isHeading, isSelected);
         info.setCollectionItemInfo(itemInfo);
     }
 }

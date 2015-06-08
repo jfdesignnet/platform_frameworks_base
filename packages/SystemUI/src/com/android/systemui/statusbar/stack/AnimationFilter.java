@@ -30,7 +30,11 @@ public class AnimationFilter {
     boolean animateTopInset;
     boolean animateDimmed;
     boolean animateDark;
+    boolean animateHideSensitive;
     boolean hasDelays;
+    boolean hasGoToFullShadeEvent;
+    boolean hasDarkEvent;
+    int darkAnimationOriginIndex;
 
     public AnimationFilter animateAlpha() {
         animateAlpha = true;
@@ -77,6 +81,11 @@ public class AnimationFilter {
         return this;
     }
 
+    public AnimationFilter animateHideSensitive() {
+        animateHideSensitive = true;
+        return this;
+    }
+
     /**
      * Combines multiple filters into {@code this} filter, using or as the operand .
      *
@@ -86,7 +95,17 @@ public class AnimationFilter {
         reset();
         int size = events.size();
         for (int i = 0; i < size; i++) {
+            NotificationStackScrollLayout.AnimationEvent ev = events.get(i);
             combineFilter(events.get(i).filter);
+            if (ev.animationType ==
+                    NotificationStackScrollLayout.AnimationEvent.ANIMATION_TYPE_GO_TO_FULL_SHADE) {
+                hasGoToFullShadeEvent = true;
+            }
+            if (ev.animationType ==
+                    NotificationStackScrollLayout.AnimationEvent.ANIMATION_TYPE_DARK) {
+                hasDarkEvent = true;
+                darkAnimationOriginIndex = ev.darkAnimationOriginIndex;
+            }
         }
     }
 
@@ -99,6 +118,7 @@ public class AnimationFilter {
         animateTopInset |= filter.animateTopInset;
         animateDimmed |= filter.animateDimmed;
         animateDark |= filter.animateDark;
+        animateHideSensitive |= filter.animateHideSensitive;
         hasDelays |= filter.hasDelays;
     }
 
@@ -111,6 +131,11 @@ public class AnimationFilter {
         animateTopInset = false;
         animateDimmed = false;
         animateDark = false;
+        animateHideSensitive = false;
         hasDelays = false;
+        hasGoToFullShadeEvent = false;
+        hasDarkEvent = false;
+        darkAnimationOriginIndex =
+                NotificationStackScrollLayout.AnimationEvent.DARK_ANIMATION_ORIGIN_INDEX_ABOVE;
     }
 }

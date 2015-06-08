@@ -27,33 +27,36 @@ import android.telephony.SignalStrength;
 import android.telephony.CellInfo;
 import android.telephony.VoLteServiceState;
 import com.android.internal.telephony.IPhoneStateListener;
+import com.android.internal.telephony.IOnSubscriptionsChangedListener;
 
 interface ITelephonyRegistry {
+    void addOnSubscriptionsChangedListener(String pkg,
+            IOnSubscriptionsChangedListener callback);
+    void removeOnSubscriptionsChangedListener(String pkg,
+            IOnSubscriptionsChangedListener callback);
     void listen(String pkg, IPhoneStateListener callback, int events, boolean notifyNow);
-    void listenUsingSubId(in long subId, String pkg, IPhoneStateListener callback, int events,
+    void listenForSubscriber(in int subId, String pkg, IPhoneStateListener callback, int events,
             boolean notifyNow);
     void notifyCallState(int state, String incomingNumber);
-    void notifyCallStateUsingSubId(in long subId, int state, String incomingNumber);
-    void notifyServiceState(in ServiceState state);
-    void notifyServiceStateUsingSubId(in long subId, in ServiceState state);
+    void notifyCallStateForSubscriber(in int subId, int state, String incomingNumber);
+    void notifyServiceStateForPhoneId(in int phoneId, in int subId, in ServiceState state);
     void notifySignalStrength(in SignalStrength signalStrength);
-    void notifySignalStrengthUsingSubId(in long subId, in SignalStrength signalStrength);
-    void notifyMessageWaitingChanged(boolean mwi);
-    void notifyMessageWaitingChangedUsingSubId(in long subId, boolean mwi);
+    void notifySignalStrengthForSubscriber(in int subId, in SignalStrength signalStrength);
+    void notifyMessageWaitingChangedForPhoneId(in int phoneId, in int subId, in boolean mwi);
     void notifyCallForwardingChanged(boolean cfi);
-    void notifyCallForwardingChangedUsingSubId(in long subId, boolean cfi);
+    void notifyCallForwardingChangedForSubscriber(in int subId, boolean cfi);
     void notifyDataActivity(int state);
-    void notifyDataActivityUsingSubId(in long subId, int state);
+    void notifyDataActivityForSubscriber(in int subId, int state);
     void notifyDataConnection(int state, boolean isDataConnectivityPossible,
             String reason, String apn, String apnType, in LinkProperties linkProperties,
             in NetworkCapabilities networkCapabilities, int networkType, boolean roaming);
-    void notifyDataConnectionUsingSubId(long subId, int state, boolean isDataConnectivityPossible,
+    void notifyDataConnectionForSubscriber(int subId, int state, boolean isDataConnectivityPossible,
             String reason, String apn, String apnType, in LinkProperties linkProperties,
             in NetworkCapabilities networkCapabilities, int networkType, boolean roaming);
     void notifyDataConnectionFailed(String reason, String apnType);
-    void notifyDataConnectionFailedUsingSubId(long subId, String reason, String apnType);
+    void notifyDataConnectionFailedForSubscriber(int subId, String reason, String apnType);
     void notifyCellLocation(in Bundle cellLocation);
-    void notifyCellLocationUsingSubId(in long subId, in Bundle cellLocation);
+    void notifyCellLocationForSubscriber(in int subId, in Bundle cellLocation);
     void notifyOtaspChanged(in int otaspMode);
     void notifyCellInfo(in List<CellInfo> cellInfo);
     void notifyPreciseCallState(int ringingCallState, int foregroundCallState,
@@ -61,7 +64,9 @@ interface ITelephonyRegistry {
     void notifyDisconnectCause(int disconnectCause, int preciseDisconnectCause);
     void notifyPreciseDataConnectionFailed(String reason, String apnType, String apn,
             String failCause);
-    void notifyCellInfoUsingSubId(in long subId, in List<CellInfo> cellInfo);
+    void notifyCellInfoForSubscriber(in int subId, in List<CellInfo> cellInfo);
     void notifyDataConnectionRealTimeInfo(in DataConnectionRealTimeInfo dcRtInfo);
     void notifyVoLteServiceStateChanged(in VoLteServiceState lteState);
+    void notifyOemHookRawEventForSubscriber(in int subId, in byte[] rawData);
+    void notifySubscriptionInfoChanged();
 }

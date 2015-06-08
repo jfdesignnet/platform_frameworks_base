@@ -17,7 +17,7 @@ package android.speech.tts;
 
 import android.app.Service;
 import android.content.Intent;
-import android.media.AudioManager;
+import android.media.AudioAttributes;
 import android.media.AudioSystem;
 import android.net.Uri;
 import android.os.Binder;
@@ -84,14 +84,14 @@ import java.util.Set;
  * the following methods:
  * <ul>
  * <li>{@link #onGetVoices()}</li>
- * <li>{@link #isValidVoiceName(String)}</li>
+ * <li>{@link #onIsValidVoiceName(String)}</li>
  * <li>{@link #onLoadVoice(String)}</li>
  * <li>{@link #onGetDefaultVoiceNameFor(String, String, String)}</li>
  * </ul>
  * The first three methods are siblings of the {@link #onGetLanguage},
  * {@link #onIsLanguageAvailable} and {@link #onLoadLanguage} methods. The last one,
  * {@link #onGetDefaultVoiceNameFor(String, String, String)} is a link between locale and voice
- * based methods. Since API level 20 {@link TextToSpeech#setLanguage} is implemented by
+ * based methods. Since API level 21 {@link TextToSpeech#setLanguage} is implemented by
  * calling {@link TextToSpeech#setVoice} with the voice returned by
  * {@link #onGetDefaultVoiceNameFor(String, String, String)}.
  *
@@ -278,7 +278,7 @@ public abstract class TextToSpeechService extends Service {
      *
      * @return A list of voices supported.
      */
-    protected List<Voice> onGetVoices() {
+    public List<Voice> onGetVoices() {
         // Enumerate all locales and check if they are available
         ArrayList<Voice> voices = new ArrayList<Voice>();
         for (Locale locale : Locale.getAvailableLocales()) {
@@ -317,7 +317,7 @@ public abstract class TextToSpeechService extends Service {
 
      * @return A name of the default voice for a given locale.
      */
-    protected String onGetDefaultVoiceNameFor(String lang, String country, String variant) {
+    public String onGetDefaultVoiceNameFor(String lang, String country, String variant) {
         int localeStatus = onIsLanguageAvailable(lang, country, variant);
         Locale iso3Locale = null;
         switch (localeStatus) {
@@ -335,7 +335,7 @@ public abstract class TextToSpeechService extends Service {
         }
         Locale properLocale = TtsEngines.normalizeTTSLocale(iso3Locale);
         String voiceName = properLocale.toLanguageTag();
-        if (isValidVoiceName(voiceName) == TextToSpeech.SUCCESS) {
+        if (onIsValidVoiceName(voiceName) == TextToSpeech.SUCCESS) {
             return voiceName;
         } else {
             return null;
@@ -357,7 +357,7 @@ public abstract class TextToSpeechService extends Service {
      * @param voiceName Name of the voice.
      * @return {@link TextToSpeech#ERROR} or {@link TextToSpeech#SUCCESS}.
      */
-    protected int onLoadVoice(String voiceName) {
+    public int onLoadVoice(String voiceName) {
         Locale locale = Locale.forLanguageTag(voiceName);
         if (locale == null) {
             return TextToSpeech.ERROR;
@@ -388,7 +388,7 @@ public abstract class TextToSpeechService extends Service {
      * @param voiceName Name of the voice.
      * @return {@link TextToSpeech#ERROR} or {@link TextToSpeech#SUCCESS}.
      */
-    protected int isValidVoiceName(String voiceName) {
+    public int onIsValidVoiceName(String voiceName) {
         Locale locale = Locale.forLanguageTag(voiceName);
         if (locale == null) {
             return TextToSpeech.ERROR;
@@ -608,12 +608,6 @@ public abstract class TextToSpeechService extends Service {
         public final int mSessionId;
 
         /**
-         * Audio stream type. Must be one of the STREAM_ contants defined in
-         * {@link android.media.AudioManager}.
-         */
-        public final int mStreamType;
-
-        /**
          * Volume, in the range [0.0f, 1.0f]. The default value is
          * {@link TextToSpeech.Engine#DEFAULT_VOLUME} (1.0f).
          */
@@ -625,42 +619,62 @@ public abstract class TextToSpeechService extends Service {
          */
         public final float mPan;
 
+
+        /**
+         * Audio attributes, set by {@link TextToSpeech#setAudioAttributes}
+         * or created from the value of {@link TextToSpeech.Engine#KEY_PARAM_STREAM}.
+         */
+        public final AudioAttributes mAudioAttributes;
+
         /** Create AudioOutputParams with default values */
         AudioOutputParams() {
             mSessionId = AudioSystem.AUDIO_SESSION_ALLOCATE;
-            mStreamType = Engine.DEFAULT_STREAM;
             mVolume = Engine.DEFAULT_VOLUME;
             mPan = Engine.DEFAULT_PAN;
+            mAudioAttributes = null;
         }
 
-        AudioOutputParams(int sessionId, int streamType, float volume, float pan) {
+        AudioOutputParams(int sessionId, float volume, float pan,
+                AudioAttributes audioAttributes) {
             mSessionId = sessionId;
-            mStreamType = streamType;
             mVolume = volume;
             mPan = pan;
+            mAudioAttributes = audioAttributes;
         }
 
         /** Create AudioOutputParams from A {@link SynthesisRequest#getParams()} bundle */
-        static AudioOutputParams createFromV1ParamsBundle(Bundle paramsBundle) {
+        static AudioOutputParams createFromV1ParamsBundle(Bundle paramsBundle,
+                boolean isSpeech) {
             if (paramsBundle == null) {
                 return new AudioOutputParams();
+            }
+
+            AudioAttributes audioAttributes =
+                    (AudioAttributes) paramsBundle.getParcelable(
+                            Engine.KEY_PARAM_AUDIO_ATTRIBUTES);
+            if (audioAttributes == null) {
+                int streamType = paramsBundle.getInt(
+                        Engine.KEY_PARAM_STREAM, Engine.DEFAULT_STREAM);
+                audioAttributes = (new AudioAttributes.Builder())
+                        .setLegacyStreamType(streamType)
+                        .setContentType((isSpeech ?
+                                AudioAttributes.CONTENT_TYPE_SPEECH :
+                                AudioAttributes.CONTENT_TYPE_SONIFICATION))
+                        .build();
             }
 
             return new AudioOutputParams(
                     paramsBundle.getInt(
                             Engine.KEY_PARAM_SESSION_ID,
                             AudioSystem.AUDIO_SESSION_ALLOCATE),
-                    paramsBundle.getInt(
-                            Engine.KEY_PARAM_STREAM,
-                            Engine.DEFAULT_STREAM),
                     paramsBundle.getFloat(
                             Engine.KEY_PARAM_VOLUME,
                             Engine.DEFAULT_VOLUME),
                     paramsBundle.getFloat(
                             Engine.KEY_PARAM_PAN,
-                            Engine.DEFAULT_PAN));
+                            Engine.DEFAULT_PAN),
+                    audioAttributes);
         }
-
     }
 
 
@@ -832,7 +846,7 @@ public abstract class TextToSpeechService extends Service {
         }
 
         AudioOutputParams getAudioParams() {
-            return AudioOutputParams.createFromV1ParamsBundle(mParams);
+            return AudioOutputParams.createFromV1ParamsBundle(mParams, true);
         }
     }
 
@@ -1004,6 +1018,11 @@ public abstract class TextToSpeechService extends Service {
         @Override
         public String getUtteranceId() {
             return getStringParam(mParams, Engine.KEY_PARAM_UTTERANCE_ID, null);
+        }
+
+        @Override
+        AudioOutputParams getAudioParams() {
+            return AudioOutputParams.createFromV1ParamsBundle(mParams, false);
         }
     }
 
@@ -1256,7 +1275,7 @@ public abstract class TextToSpeechService extends Service {
             if (!checkNonNull(voiceName)) {
                 return TextToSpeech.ERROR;
             }
-            int retVal = isValidVoiceName(voiceName);
+            int retVal = onIsValidVoiceName(voiceName);
 
             if (retVal == TextToSpeech.SUCCESS) {
                 SpeechItem item = new LoadVoiceItem(caller, Binder.getCallingUid(),

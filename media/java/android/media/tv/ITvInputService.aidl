@@ -16,8 +16,10 @@
 
 package android.media.tv;
 
+import android.hardware.hdmi.HdmiDeviceInfo;
 import android.media.tv.ITvInputServiceCallback;
 import android.media.tv.ITvInputSessionCallback;
+import android.media.tv.TvInputHardwareInfo;
 import android.view.InputChannel;
 
 /**
@@ -27,5 +29,12 @@ import android.view.InputChannel;
 oneway interface ITvInputService {
     void registerCallback(ITvInputServiceCallback callback);
     void unregisterCallback(in ITvInputServiceCallback callback);
-    void createSession(in InputChannel channel, ITvInputSessionCallback callback);
+    void createSession(in InputChannel channel, ITvInputSessionCallback callback,
+            in String inputId);
+
+    // For hardware TvInputService
+    void notifyHardwareAdded(in TvInputHardwareInfo hardwareInfo);
+    void notifyHardwareRemoved(in TvInputHardwareInfo hardwareInfo);
+    void notifyHdmiDeviceAdded(in HdmiDeviceInfo deviceInfo);
+    void notifyHdmiDeviceRemoved(in HdmiDeviceInfo deviceInfo);
 }

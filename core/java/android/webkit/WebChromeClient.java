@@ -16,6 +16,8 @@
 
 package android.webkit;
 
+import android.annotation.SystemApi;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -298,7 +300,7 @@ public class WebChromeClient {
     /**
      * Notify the host application that web content is requesting permission to
      * access the specified resources and the permission currently isn't granted
-     * or denied. The host application must invoke {@link PermissionRequest#grant(long)}
+     * or denied. The host application must invoke {@link PermissionRequest#grant(String[])}
      * or {@link PermissionRequest#deny()}.
      *
      * If this method isn't overridden, the permission is denied.
@@ -409,56 +411,92 @@ public class WebChromeClient {
      *
      * @see FileChooserParams
      */
-    public boolean showFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
+    public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
             FileChooserParams fileChooserParams) {
         return false;
     }
 
     /**
-     * Parameters used in the {@link #showFileChooser} method.
-     * This is intended to be used as a read-only data struct by the application.
+     * Parameters used in the {@link #onShowFileChooser} method.
      */
-    public static class FileChooserParams {
-        // Flags for mode
-        /** Bitflag for <code>mode</code> indicating multiple files maybe selected */
-        public static final int MODE_OPEN_MULTIPLE = 1 << 0;
-        /** Bitflag for <code>mode</code> indicating a folder  maybe selected.
-         * The implementation should enumerate all files selected by this operation */
-        public static final int MODE_OPEN_FOLDER = 1 << 1;
-        /** Bitflag for <code>mode</code> indicating a non-existant filename maybe returned */
-        public static final int MODE_SAVE = 1 << 2;
+    public static abstract class FileChooserParams {
+        /** Open single file. Requires that the file exists before allowing the user to pick it. */
+        public static final int MODE_OPEN = 0;
+        /** Like Open but allows multiple files to be selected. */
+        public static final int MODE_OPEN_MULTIPLE = 1;
+        /** Like Open but allows a folder to be selected. The implementation should enumerate
+            all files selected by this operation.
+            This feature is not supported at the moment.
+            @hide */
+        public static final int MODE_OPEN_FOLDER = 2;
+        /**  Allows picking a nonexistent file and saving it. */
+        public static final int MODE_SAVE = 3;
 
         /**
-         * Bit-field of the <code>MODE_</code> flags.
+         * Parse the result returned by the file picker activity. This method should be used with
+         * {@link #createIntent}. Refer to {@link #createIntent} for how to use it.
          *
-         * 0 indicates plain single file open.
+         * @param resultCode the integer result code returned by the file picker activity.
+         * @param data the intent returned by the file picker activity.
+         * @return the Uris of selected file(s) or null if the resultCode indicates
+         *         activity canceled or any other error.
          */
-        public int mode;
+        public static Uri[] parseResult(int resultCode, Intent data) {
+            return WebViewFactory.getProvider().getStatics().parseFileChooserResult(resultCode, data);
+        }
 
         /**
-         * Comma-seperated list of acceptable MIME types.
+         * Returns file chooser mode.
          */
-        public String acceptTypes;
+        public abstract int getMode();
 
         /**
-         * true indicates a preference for a live media captured value (e.g. Camera, Microphone).
+         * Returns an array of acceptable MIME types. The returned MIME type
+         * could be partial such as audio/*. The array will be empty if no
+         * acceptable types are specified.
+         */
+        public abstract String[] getAcceptTypes();
+
+        /**
+         * Returns preference for a live media captured value (e.g. Camera, Microphone).
+         * True indicates capture is enabled, false disabled.
          *
-         * Use <code>acceptTypes</code> to determine suitable capture devices.
+         * Use <code>getAcceptTypes</code> to determine suitable capture devices.
          */
-        public boolean capture;
+        public abstract boolean isCaptureEnabled();
 
         /**
-         * The title to use for this file selector, or null.
+         * Returns the title to use for this file selector, or null. If null a default
+         * title should be used.
+         */
+        public abstract CharSequence getTitle();
+
+        /**
+         * The file name of a default selection if specified, or null.
+         */
+        public abstract String getFilenameHint();
+
+        /**
+         * Creates an intent that would start a file picker for file selection.
+         * The Intent supports choosing files from simple file sources available
+         * on the device. Some advanced sources (for example, live media capture)
+         * may not be supported and applications wishing to support these sources
+         * or more advanced file operations should build their own Intent.
          *
-         * Maybe null, in which case a default title should be used.
+         * <pre>
+         * How to use:
+         * 1. Build an intent using {@link #createIntent}
+         * 2. Fire the intent using {@link android.app.Activity#startActivityForResult}.
+         * 3. Check for ActivityNotFoundException and take a user friendly action if thrown.
+         * 4. Listen the result using {@link android.app.Activity#onActivityResult}
+         * 5. Parse the result using {@link #parseResult} only if media capture was not requested.
+         * 6. Send the result using filePathCallback of {@link WebChromeClient#onShowFileChooser}
+         * </pre>
+         *
+         * @return an Intent that supports basic file chooser sources.
          */
-        public String title;
-
-        /**
-         * Name of a default selection if appropriate, or null.
-         */
-        public String defaultFilename;
-    };
+        public abstract Intent createIntent();
+    }
 
     /**
      * Tell the client to open a file chooser.
@@ -472,6 +510,7 @@ public class WebChromeClient {
      * @deprecated Use {@link #showFileChooser} instead.
      * @hide This method was not published in any SDK version.
      */
+    @SystemApi
     @Deprecated
     public void openFileChooser(ValueCallback<Uri> uploadFile, String acceptType, String capture) {
         uploadFile.onReceiveValue(null);

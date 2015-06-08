@@ -17,37 +17,37 @@
 package android.accounts;
 
 import android.app.Activity;
-import android.content.Intent;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.BroadcastReceiver;
 import android.content.res.Resources;
 import android.database.SQLException;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.RemoteException;
 import android.os.Parcelable;
-import android.os.Build;
 import android.os.Process;
+import android.os.RemoteException;
 import android.os.UserHandle;
-import android.util.Log;
 import android.text.TextUtils;
+import android.util.Log;
+
+import com.android.internal.R;
+import com.google.android.collect.Maps;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
-import java.util.HashMap;
-import java.util.Map;
-
-import com.android.internal.R;
-import com.google.android.collect.Maps;
+import java.util.concurrent.TimeoutException;
 
 /**
  * This class provides access to a centralized registry of the user's
@@ -155,6 +155,8 @@ public class AccountManager {
 
     /** @hide */
     public static final int ERROR_CODE_USER_RESTRICTED = 100;
+    /** @hide */
+    public static final int ERROR_CODE_MANAGEMENT_DISABLED_FOR_ACCOUNT_TYPE = 101;
 
     /**
      * Bundle key used for the {@link String} account name in results
@@ -661,6 +663,72 @@ public class AccountManager {
     }
 
     /**
+     * Rename the specified {@link Account}.  This is equivalent to removing
+     * the existing account and adding a new renamed account with the old
+     * account's user data.
+     *
+     * <p>It is safe to call this method from the main thread.
+     *
+     * <p>This method requires the caller to hold the permission
+     * {@link android.Manifest.permission#AUTHENTICATE_ACCOUNTS}
+     * and have the same UID as the account's authenticator.
+     *
+     * @param account The {@link Account} to rename
+     * @param newName String name to be associated with the account.
+     * @param callback Callback to invoke when the request completes, null for
+     *     no callback
+     * @param handler {@link Handler} identifying the callback thread, null for
+     *     the main thread
+     * @return An {@link AccountManagerFuture} which resolves to the Account
+     *     after the name change. If successful the account's name will be the
+     *     specified new name.
+     */
+    public AccountManagerFuture<Account> renameAccount(
+            final Account account,
+            final String newName,
+            AccountManagerCallback<Account> callback,
+            Handler handler) {
+        if (account == null) throw new IllegalArgumentException("account is null.");
+        if (TextUtils.isEmpty(newName)) {
+              throw new IllegalArgumentException("newName is empty or null.");
+        }
+        return new Future2Task<Account>(handler, callback) {
+            @Override
+            public void doWork() throws RemoteException {
+                mService.renameAccount(mResponse, account, newName);
+            }
+            @Override
+            public Account bundleToResult(Bundle bundle) throws AuthenticatorException {
+                String name = bundle.getString(KEY_ACCOUNT_NAME);
+                String type = bundle.getString(KEY_ACCOUNT_TYPE);
+                return new Account(name, type);
+            }
+        }.start();
+    }
+
+    /**
+     * Gets the previous name associated with the account or {@code null}, if
+     * none. This is intended so that clients of {@link
+     * #LOGIN_ACCOUNTS_CHANGED_ACTION} broadcasts can determine if an
+     * authenticator has renamed an account.
+     *
+     * <p>It is safe to call this method from the main thread.
+     *
+     * @param account The account to query for a previous name.
+     * @return The account's previous name, null if the account has never been
+     *         renamed.
+     */
+    public String getPreviousName(final Account account) {
+        if (account == null) throw new IllegalArgumentException("account is null");
+        try {
+            return mService.getPreviousName(account);
+        } catch (RemoteException e) {
+            // will never happen
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Removes an account from the AccountManager.  Does nothing if the account
      * does not exist.  Does not delete the account from the server.
      * The authenticator may have its own policies preventing account
@@ -678,15 +746,18 @@ public class AccountManager {
      * @param handler {@link Handler} identifying the callback thread,
      *     null for the main thread
      * @return An {@link AccountManagerFuture} which resolves to a Boolean,
-     *     true if the account has been successfully removed,
-     *     false if the authenticator forbids deleting this account.
+     *     true if the account has been successfully removed
+     * @deprecated use
+     *     {@link #removeAccount(Account, Activity, AccountManagerCallback, Handler)}
+     *     instead
      */
+    @Deprecated
     public AccountManagerFuture<Boolean> removeAccount(final Account account,
             AccountManagerCallback<Boolean> callback, Handler handler) {
         if (account == null) throw new IllegalArgumentException("account is null");
         return new Future2Task<Boolean>(handler, callback) {
             public void doWork() throws RemoteException {
-                mService.removeAccount(mResponse, account);
+                mService.removeAccount(mResponse, account, false);
             }
             public Boolean bundleToResult(Bundle bundle) throws AuthenticatorException {
                 if (!bundle.containsKey(KEY_BOOLEAN_RESULT)) {
@@ -695,6 +766,125 @@ public class AccountManager {
                 return bundle.getBoolean(KEY_BOOLEAN_RESULT);
             }
         }.start();
+    }
+
+    /**
+     * Removes an account from the AccountManager. Does nothing if the account
+     * does not exist.  Does not delete the account from the server.
+     * The authenticator may have its own policies preventing account
+     * deletion, in which case the account will not be deleted.
+     *
+     * <p>This method may be called from any thread, but the returned
+     * {@link AccountManagerFuture} must not be used on the main thread.
+     *
+     * <p>This method requires the caller to hold the permission
+     * {@link android.Manifest.permission#MANAGE_ACCOUNTS}.
+     *
+     * @param account The {@link Account} to remove
+     * @param activity The {@link Activity} context to use for launching a new
+     *     authenticator-defined sub-Activity to prompt the user to delete an
+     *     account; used only to call startActivity(); if null, the prompt
+     *     will not be launched directly, but the {@link Intent} may be
+     *     returned to the caller instead
+     * @param callback Callback to invoke when the request completes,
+     *     null for no callback
+     * @param handler {@link Handler} identifying the callback thread,
+     *     null for the main thread
+     * @return An {@link AccountManagerFuture} which resolves to a Bundle with
+     *     {@link #KEY_BOOLEAN_RESULT} if activity was specified and an account
+     *     was removed or if active. If no activity was specified, the returned
+     *     Bundle contains only {@link #KEY_INTENT} with the {@link Intent}
+     *     needed to launch the actual account removal process, if authenticator
+     *     needs the activity launch. If an error occurred,
+     *     {@link AccountManagerFuture#getResult()} throws:
+     * <ul>
+     * <li> {@link AuthenticatorException} if no authenticator was registered for
+     *      this account type or the authenticator failed to respond
+     * <li> {@link OperationCanceledException} if the operation was canceled for
+     *      any reason, including the user canceling the creation process or
+     *      adding accounts (of this type) has been disabled by policy
+     * </ul>
+     */
+    public AccountManagerFuture<Bundle> removeAccount(final Account account,
+            final Activity activity, AccountManagerCallback<Bundle> callback, Handler handler) {
+        if (account == null) throw new IllegalArgumentException("account is null");
+        return new AmsTask(activity, handler, callback) {
+            public void doWork() throws RemoteException {
+                mService.removeAccount(mResponse, account, activity != null);
+            }
+        }.start();
+    }
+
+    /**
+     * @see #removeAccount(Account, AccountManagerCallback, Handler)
+     * @hide
+     * @deprecated use
+     *     {@link #removeAccountAsUser(Account, Activity, AccountManagerCallback, Handler)}
+     *     instead
+     */
+    @Deprecated
+    public AccountManagerFuture<Boolean> removeAccountAsUser(final Account account,
+            AccountManagerCallback<Boolean> callback, Handler handler,
+            final UserHandle userHandle) {
+        if (account == null) throw new IllegalArgumentException("account is null");
+        if (userHandle == null) throw new IllegalArgumentException("userHandle is null");
+        return new Future2Task<Boolean>(handler, callback) {
+            public void doWork() throws RemoteException {
+                mService.removeAccountAsUser(mResponse, account, false, userHandle.getIdentifier());
+            }
+            public Boolean bundleToResult(Bundle bundle) throws AuthenticatorException {
+                if (!bundle.containsKey(KEY_BOOLEAN_RESULT)) {
+                    throw new AuthenticatorException("no result in response");
+                }
+                return bundle.getBoolean(KEY_BOOLEAN_RESULT);
+            }
+        }.start();
+    }
+
+    /**
+     * @see #removeAccount(Account, Activity, AccountManagerCallback, Handler)
+     * @hide
+     */
+    public AccountManagerFuture<Bundle> removeAccountAsUser(final Account account,
+            final Activity activity, AccountManagerCallback<Bundle> callback, Handler handler,
+            final UserHandle userHandle) {
+        if (account == null)
+            throw new IllegalArgumentException("account is null");
+        if (userHandle == null)
+            throw new IllegalArgumentException("userHandle is null");
+        return new AmsTask(activity, handler, callback) {
+            public void doWork() throws RemoteException {
+                mService.removeAccountAsUser(mResponse, account, activity != null,
+                        userHandle.getIdentifier());
+            }
+        }.start();
+    }
+
+    /**
+     * Removes an account directly. Normally used by authenticators, not
+     * directly by applications. Does not delete the account from the server.
+     * The authenticator may have its own policies preventing account deletion,
+     * in which case the account will not be deleted.
+     * <p>
+     * It is safe to call this method from the main thread.
+     * <p>
+     * This method requires the caller to hold the permission
+     * {@link android.Manifest.permission#AUTHENTICATE_ACCOUNTS} and to have the
+     * same UID or signature as the account's authenticator.
+     *
+     * @param account The {@link Account} to delete.
+     * @return True if the account was successfully deleted, false if the
+     *         account did not exist, the account is null, or another error
+     *         occurs.
+     */
+    public boolean removeAccountExplicitly(Account account) {
+        if (account == null) throw new IllegalArgumentException("account is null");
+        try {
+            return mService.removeAccountExplicitly(account);
+        } catch (RemoteException e) {
+            // won't ever happen
+            throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -1183,7 +1373,8 @@ public class AccountManager {
      * <li> {@link AuthenticatorException} if no authenticator was registered for
      *      this account type or the authenticator failed to respond
      * <li> {@link OperationCanceledException} if the operation was canceled for
-     *      any reason, including the user canceling the creation process
+     *      any reason, including the user canceling the creation process or adding accounts
+     *      (of this type) has been disabled by policy
      * <li> {@link IOException} if the authenticator experienced an I/O problem
      *      creating a new account, usually because of network trouble
      * </ul>
@@ -1208,6 +1399,30 @@ public class AccountManager {
     }
 
     /**
+     * @see #addAccount(String, String, String[], Bundle, Activity, AccountManagerCallback, Handler)
+     * @hide
+     */
+    public AccountManagerFuture<Bundle> addAccountAsUser(final String accountType,
+            final String authTokenType, final String[] requiredFeatures,
+            final Bundle addAccountOptions, final Activity activity,
+            AccountManagerCallback<Bundle> callback, Handler handler, final UserHandle userHandle) {
+        if (accountType == null) throw new IllegalArgumentException("accountType is null");
+        if (userHandle == null) throw new IllegalArgumentException("userHandle is null");
+        final Bundle optionsIn = new Bundle();
+        if (addAccountOptions != null) {
+            optionsIn.putAll(addAccountOptions);
+        }
+        optionsIn.putString(KEY_ANDROID_PACKAGE_NAME, mContext.getPackageName());
+
+        return new AmsTask(activity, handler, callback) {
+            public void doWork() throws RemoteException {
+                mService.addAccountAsUser(mResponse, accountType, authTokenType,
+                        requiredFeatures, activity != null, optionsIn, userHandle.getIdentifier());
+            }
+        }.start();
+    }
+
+    /**
      * Adds a shared account from the primary user to a secondary user. Adding the shared account
      * doesn't take effect immediately. When the target user starts up, any pending shared accounts
      * are attempted to be copied to the target user from the primary via calls to the
@@ -1225,6 +1440,40 @@ public class AccountManager {
             // won't ever happen
             throw new RuntimeException(re);
         }
+    }
+
+    /**
+     * Copies an account from the primary user to another user.
+     * @param account the account to copy
+     * @param user the target user
+     * @param callback Callback to invoke when the request completes,
+     *     null for no callback
+     * @param handler {@link Handler} identifying the callback thread,
+     *     null for the main thread
+     * @return An {@link AccountManagerFuture} which resolves to a Boolean indicated wether it
+     * succeeded.
+     * @hide
+     */
+    public AccountManagerFuture<Boolean> copyAccountToUser(
+            final Account account, final UserHandle user,
+            AccountManagerCallback<Boolean> callback, Handler handler) {
+        if (account == null) throw new IllegalArgumentException("account is null");
+        if (user == null) throw new IllegalArgumentException("user is null");
+
+        return new Future2Task<Boolean>(handler, callback) {
+            @Override
+            public void doWork() throws RemoteException {
+                mService.copyAccountToUser(
+                        mResponse, account, UserHandle.USER_OWNER, user.getIdentifier());
+            }
+            @Override
+            public Boolean bundleToResult(Bundle bundle) throws AuthenticatorException {
+                if (!bundle.containsKey(KEY_BOOLEAN_RESULT)) {
+                    throw new AuthenticatorException("no result in response");
+                }
+                return bundle.getBoolean(KEY_BOOLEAN_RESULT);
+            }
+        }.start();
     }
 
     /**
@@ -1608,8 +1857,10 @@ public class AccountManager {
             }
 
             public void onError(int code, String message) {
-                if (code == ERROR_CODE_CANCELED || code == ERROR_CODE_USER_RESTRICTED) {
-                    // the authenticator indicated that this request was canceled, do so now
+                if (code == ERROR_CODE_CANCELED || code == ERROR_CODE_USER_RESTRICTED
+                        || code == ERROR_CODE_MANAGEMENT_DISABLED_FOR_ACCOUNT_TYPE) {
+                    // the authenticator indicated that this request was canceled or we were
+                    // forbidden to fulfill; cancel now
                     cancel(true /* mayInterruptIfRunning */);
                     return;
                 }
@@ -1668,7 +1919,10 @@ public class AccountManager {
             }
 
             public void onError(int code, String message) {
-                if (code == ERROR_CODE_CANCELED) {
+                if (code == ERROR_CODE_CANCELED || code == ERROR_CODE_USER_RESTRICTED
+                        || code == ERROR_CODE_MANAGEMENT_DISABLED_FOR_ACCOUNT_TYPE) {
+                    // the authenticator indicated that this request was canceled or we were
+                    // forbidden to fulfill; cancel now
                     cancel(true /* mayInterruptIfRunning */);
                     return;
                 }

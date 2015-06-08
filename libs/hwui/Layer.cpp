@@ -20,24 +20,35 @@
 
 #include "Caches.h"
 #include "DeferredDisplayList.h"
-#include "RenderState.h"
 #include "Layer.h"
 #include "LayerRenderer.h"
 #include "OpenGLRenderer.h"
 #include "RenderNode.h"
+#include "RenderState.h"
+#include "utils/TraceUtils.h"
+
+#define ATRACE_LAYER_WORK(label) \
+    ATRACE_FORMAT("%s HW Layer DisplayList %s %ux%u", \
+            label, \
+            (renderNode.get() != NULL) ? renderNode->getName() : "", \
+            getWidth(), getHeight())
 
 namespace android {
 namespace uirenderer {
 
-Layer::Layer(RenderState& renderState, const uint32_t layerWidth, const uint32_t layerHeight)
-        : caches(Caches::getInstance())
+Layer::Layer(Type layerType, RenderState& renderState, const uint32_t layerWidth, const uint32_t layerHeight)
+        : state(kState_Uncached)
+        , caches(Caches::getInstance())
         , renderState(renderState)
-        , texture(caches) {
+        , texture(caches)
+        , type(layerType) {
+    // TODO: This is a violation of Android's typical ref counting, but it
+    // preserves the old inc/dec ref locations. This should be changed...
+    incStrong(0);
     mesh = NULL;
     meshElementCount = 0;
     cacheable = true;
     dirty = false;
-    textureLayer = false;
     renderTarget = GL_TEXTURE_2D;
     texture.width = layerWidth;
     texture.height = layerHeight;
@@ -52,17 +63,29 @@ Layer::Layer(RenderState& renderState, const uint32_t layerWidth, const uint32_t
     forceFilter = false;
     deferredList = NULL;
     convexMask = NULL;
-    caches.resourceCache.incrementRefcount(this);
+    rendererLightPosDirty = true;
+    wasBuildLayered = false;
+    renderState.registerLayer(this);
 }
 
 Layer::~Layer() {
+    renderState.unregisterLayer(this);
     SkSafeUnref(colorFilter);
-    removeFbo();
-    deleteTexture();
+
+    if (stencil || fbo || texture.id) {
+        renderState.requireGLContext();
+        removeFbo();
+        deleteTexture();
+    }
 
     delete[] mesh;
     delete deferredList;
     delete renderer;
+}
+
+void Layer::onGlContextLost() {
+    removeFbo();
+    deleteTexture();
 }
 
 uint32_t Layer::computeIdealWidth(uint32_t layerWidth) {
@@ -80,6 +103,17 @@ void Layer::requireRenderer() {
     }
 }
 
+void Layer::updateLightPosFromRenderer(const OpenGLRenderer& rootRenderer) {
+    if (renderer && rendererLightPosDirty) {
+        // re-init renderer's light position, based upon last cached location in window
+        Vector3 lightPos = rootRenderer.getLightCenter();
+        cachedInvTransformInWindow.mapPoint3d(lightPos);
+        renderer->initLight(lightPos, rootRenderer.getLightRadius(),
+                rootRenderer.getAmbientShadowAlpha(), rootRenderer.getSpotShadowAlpha());
+        rendererLightPosDirty = false;
+    }
+}
+
 bool Layer::resize(const uint32_t width, const uint32_t height) {
     uint32_t desiredWidth = computeIdealWidth(width);
     uint32_t desiredHeight = computeIdealWidth(height);
@@ -87,6 +121,8 @@ bool Layer::resize(const uint32_t width, const uint32_t height) {
     if (desiredWidth <= getWidth() && desiredHeight <= getHeight()) {
         return true;
     }
+
+    ATRACE_NAME("resizeLayer");
 
     const uint32_t maxTextureSize = caches.maxTextureSize;
     if (desiredWidth > maxTextureSize || desiredHeight > maxTextureSize) {
@@ -201,7 +237,10 @@ void Layer::allocateTexture() {
     }
 }
 
-void Layer::defer() {
+void Layer::defer(const OpenGLRenderer& rootRenderer) {
+    ATRACE_LAYER_WORK("Optimize");
+
+    updateLightPosFromRenderer(rootRenderer);
     const float width = layer.getWidth();
     const float height = layer.getHeight();
 
@@ -238,6 +277,9 @@ void Layer::cancelDefer() {
 void Layer::flush() {
     // renderer is checked as layer may be destroyed/put in layer cache with flush scheduled
     if (deferredList && renderer) {
+        ATRACE_LAYER_WORK("Issue");
+        renderer->startMark((renderNode.get() != NULL) ? renderNode->getName() : "Layer");
+
         renderer->setViewport(layer.getWidth(), layer.getHeight());
         renderer->prepareDirty(dirtyRect.left, dirtyRect.top, dirtyRect.right, dirtyRect.bottom,
                 !isBlend());
@@ -248,10 +290,15 @@ void Layer::flush() {
 
         dirtyRect.setEmpty();
         renderNode = NULL;
+
+        renderer->endMark();
     }
 }
 
-void Layer::render() {
+void Layer::render(const OpenGLRenderer& rootRenderer) {
+    ATRACE_LAYER_WORK("Direct-Issue");
+
+    updateLightPosFromRenderer(rootRenderer);
     renderer->setViewport(layer.getWidth(), layer.getHeight());
     renderer->prepareDirty(dirtyRect.left, dirtyRect.top, dirtyRect.right, dirtyRect.bottom,
             !isBlend());
@@ -264,6 +311,10 @@ void Layer::render() {
 
     deferredUpdateScheduled = false;
     renderNode = NULL;
+}
+
+void Layer::postDecStrong() {
+    renderState.postDecStrong(this);
 }
 
 }; // namespace uirenderer

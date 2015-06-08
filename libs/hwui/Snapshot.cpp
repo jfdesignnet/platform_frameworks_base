@@ -20,8 +20,6 @@
 
 #include <SkCanvas.h>
 
-#include "utils/MathUtils.h"
-
 namespace android {
 namespace uirenderer {
 
@@ -57,7 +55,8 @@ Snapshot::Snapshot(const sp<Snapshot>& s, int saveFlags)
         , empty(false)
         , alpha(s->alpha)
         , roundRectClipState(s->roundRectClipState)
-        , mViewportData(s->mViewportData) {
+        , mViewportData(s->mViewportData)
+        , mRelativeLightCenter(s->mRelativeLightCenter) {
     if (saveFlags & SkCanvas::kMatrix_SaveFlag) {
         mTransformRoot.load(*s->transform);
         transform = &mTransformRoot;
@@ -202,28 +201,42 @@ void Snapshot::resetClip(float left, float top, float right, float bottom) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void Snapshot::resetTransform(float x, float y, float z) {
+    // before resetting, map current light pos with inverse of current transform
+    Vector3 center = mRelativeLightCenter;
+    mat4 inverse;
+    inverse.loadInverse(*transform);
+    inverse.mapPoint3d(center);
+    mRelativeLightCenter = center;
+
     transform = &mTransformRoot;
     transform->loadTranslate(x, y, z);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Clipping outline
+// Clipping round rect
 ///////////////////////////////////////////////////////////////////////////////
 
-void Snapshot::setClippingOutline(LinearAllocator& allocator, const Outline* outline) {
-    Rect bounds;
-    float radius;
-    if (!outline->getAsRoundRect(&bounds, &radius)) return; // only RR supported
+void Snapshot::setClippingRoundRect(LinearAllocator& allocator, const Rect& bounds,
+        float radius, bool highPriority) {
+    if (bounds.isEmpty()) {
+        clipRect->setEmpty();
+        return;
+    }
 
-    if (!MathUtils::isPositive(radius)) return; // leave clipping up to rect clipping
+    if (roundRectClipState && roundRectClipState->highPriority) {
+        // ignore, don't replace, already have a high priority clip
+        return;
+    }
 
     RoundRectClipState* state = new (allocator) RoundRectClipState;
 
+    state->highPriority = highPriority;
+
     // store the inverse drawing matrix
-    Matrix4 outlineDrawingMatrix;
-    outlineDrawingMatrix.load(getOrthoMatrix());
-    outlineDrawingMatrix.multiply(*transform);
-    state->matrix.loadInverse(outlineDrawingMatrix);
+    Matrix4 roundRectDrawingMatrix;
+    roundRectDrawingMatrix.load(getOrthoMatrix());
+    roundRectDrawingMatrix.multiply(*transform);
+    state->matrix.loadInverse(roundRectDrawingMatrix);
 
     // compute area under rounded corners - only draws overlapping these rects need to be clipped
     for (int i = 0 ; i < 4; i++) {
@@ -241,9 +254,9 @@ void Snapshot::setClippingOutline(LinearAllocator& allocator, const Outline* out
     }
 
     // store RR area
-    bounds.inset(radius);
-    state->outlineInnerRect = bounds;
-    state->outlineRadius = radius;
+    state->innerRect = bounds;
+    state->innerRect.inset(radius);
+    state->radius = radius;
 
     // store as immutable so, for this frame, pointer uniquely identifies this bundle of shader info
     roundRectClipState = state;

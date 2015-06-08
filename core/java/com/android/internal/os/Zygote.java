@@ -20,9 +20,12 @@ package com.android.internal.os;
 import dalvik.system.ZygoteHooks;
 import android.system.ErrnoException;
 import android.system.Os;
+import android.os.SystemClock;
+import android.util.Slog;
 
 /** @hide */
 public final class Zygote {
+    private static final String TAG = "Zygote";
     /*
     * Bit values for "debugFlags" argument.  The definitions are duplicated
     * in the native code.
@@ -75,21 +78,42 @@ public final class Zygote {
      * file descriptor numbers that are to be closed by the child
      * (and replaced by /dev/null) after forking.  An integer value
      * of -1 in any entry in the array means "ignore this one".
+     * @param instructionSet null-ok the instruction set to use.
+     * @param appDataDir null-ok the data directory of the app.
      *
      * @return 0 if this is the child, pid of the child
      * if this is the parent, or -1 on error.
      */
     public static int forkAndSpecialize(int uid, int gid, int[] gids, int debugFlags,
-          int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose) {
+          int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose,
+          String instructionSet, String appDataDir) {
+        long startTime = SystemClock.elapsedRealtime();
         VM_HOOKS.preFork();
+        checkTime(startTime, "Zygote.preFork");
         int pid = nativeForkAndSpecialize(
-                  uid, gid, gids, debugFlags, rlimits, mountExternal, seInfo, niceName, fdsToClose);
+                  uid, gid, gids, debugFlags, rlimits, mountExternal, seInfo, niceName, fdsToClose,
+                  instructionSet, appDataDir);
+        checkTime(startTime, "Zygote.nativeForkAndSpecialize");
         VM_HOOKS.postForkCommon();
+        checkTime(startTime, "Zygote.postForkCommon");
         return pid;
     }
 
     native private static int nativeForkAndSpecialize(int uid, int gid, int[] gids,int debugFlags,
-          int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose);
+          int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose,
+          String instructionSet, String appDataDir);
+
+    /**
+     * Temporary hack: check time since start time and log if over a fixed threshold.
+     *
+     */
+    private static void checkTime(long startTime, String where) {
+        long now = SystemClock.elapsedRealtime();
+        if ((now-startTime) > 1000) {
+            // If we are taking more than a second, log about it.
+            Slog.w(TAG, "Slow operation: " + (now-startTime) + "ms so far, now at " + where);
+        }
+    }
 
     /**
      * Special method to start the system server process. In addition to the
@@ -126,8 +150,10 @@ public final class Zygote {
     native private static int nativeForkSystemServer(int uid, int gid, int[] gids, int debugFlags,
             int[][] rlimits, long permittedCapabilities, long effectiveCapabilities);
 
-    private static void callPostForkChildHooks(int debugFlags) {
-        VM_HOOKS.postForkChild(debugFlags);
+    private static void callPostForkChildHooks(int debugFlags, String instructionSet) {
+        long startTime = SystemClock.elapsedRealtime();
+        VM_HOOKS.postForkChild(debugFlags, instructionSet);
+        checkTime(startTime, "Zygote.callPostForkChildHooks");
     }
 
 

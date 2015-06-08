@@ -256,9 +256,8 @@ public class SurfaceView extends View {
         updateWindow(false, false);
     }
 
-    /** @hide */
     @Override
-    protected void onDetachedFromWindowInternal() {
+    protected void onDetachedFromWindow() {
         if (mGlobalListenersAdded) {
             ViewTreeObserver observer = getViewTreeObserver();
             observer.removeOnScrollChangedListener(mScrollChangedListener);
@@ -280,7 +279,7 @@ public class SurfaceView extends View {
         mSession = null;
         mLayout.token = null;
 
-        super.onDetachedFromWindowInternal();
+        super.onDetachedFromWindow();
     }
 
     @Override
@@ -497,7 +496,8 @@ public class SurfaceView extends View {
                     mLayout.type = mWindowType;
                     mLayout.gravity = Gravity.START|Gravity.TOP;
                     mSession.addToDisplayWithoutInputChannel(mWindow, mWindow.mSeq, mLayout,
-                            mVisible ? VISIBLE : GONE, display.getDisplayId(), mContentInsets);
+                            mVisible ? VISIBLE : GONE, display.getDisplayId(), mContentInsets,
+                            mStableInsets);
                 }
 
                 boolean realSizeChanged;

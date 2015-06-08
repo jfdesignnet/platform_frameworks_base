@@ -19,7 +19,9 @@ package android.view;
 import android.animation.ValueAnimator;
 import android.app.ActivityManager;
 import android.content.ComponentCallbacks2;
+import android.content.Context;
 import android.content.res.Configuration;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -101,6 +103,7 @@ public final class WindowManagerGlobal {
     public static final int ADD_MULTIPLE_SINGLETON = -7;
     public static final int ADD_PERMISSION_DENIED = -8;
     public static final int ADD_INVALID_DISPLAY = -9;
+    public static final int ADD_INVALID_TYPE = -10;
 
     private static WindowManagerGlobal sDefaultWindowManager;
     private static IWindowManager sWindowManagerService;
@@ -119,6 +122,10 @@ public final class WindowManagerGlobal {
     private WindowManagerGlobal() {
     }
 
+    public static void initialize() {
+        getWindowManagerService();
+    }
+
     public static WindowManagerGlobal getInstance() {
         synchronized (WindowManagerGlobal.class) {
             if (sDefaultWindowManager == null) {
@@ -133,6 +140,12 @@ public final class WindowManagerGlobal {
             if (sWindowManagerService == null) {
                 sWindowManagerService = IWindowManager.Stub.asInterface(
                         ServiceManager.getService("window"));
+                try {
+                    sWindowManagerService = getWindowManagerService();
+                    ValueAnimator.setDurationScale(sWindowManagerService.getCurrentAnimatorScale());
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Failed to get WindowManagerService, cannot set animator scale", e);
+                }
             }
             return sWindowManagerService;
         }
@@ -152,7 +165,6 @@ public final class WindowManagerGlobal {
                                 }
                             },
                             imm.getClient(), imm.getInputContext());
-                    ValueAnimator.setDurationScale(windowManager.getCurrentAnimatorScale());
                 } catch (RemoteException e) {
                     Log.e(TAG, "Failed to open window session", e);
                 }
@@ -204,6 +216,14 @@ public final class WindowManagerGlobal {
         final WindowManager.LayoutParams wparams = (WindowManager.LayoutParams)params;
         if (parentWindow != null) {
             parentWindow.adjustLayoutParamsForSubWindow(wparams);
+        } else {
+            // If there's no parent and we're running on L or above (or in the
+            // system context), assume we want hardware acceleration.
+            final Context context = view.getContext();
+            if (context != null
+                    && context.getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.LOLLIPOP) {
+                wparams.flags |= WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
+            }
         }
 
         ViewRootImpl root;
@@ -365,6 +385,9 @@ public final class WindowManagerGlobal {
                 mDyingViews.remove(view);
             }
         }
+        if (HardwareRenderer.sTrimForeground && HardwareRenderer.isAvailable()) {
+            doTrimForeground();
+        }
     }
 
     private int findViewLocked(View view, boolean required) {
@@ -403,6 +426,36 @@ public final class WindowManagerGlobal {
             }
 
             HardwareRenderer.trimMemory(level);
+
+            if (HardwareRenderer.sTrimForeground) {
+                doTrimForeground();
+            }
+        }
+    }
+
+    public static void trimForeground() {
+        if (HardwareRenderer.sTrimForeground && HardwareRenderer.isAvailable()) {
+            WindowManagerGlobal wm = WindowManagerGlobal.getInstance();
+            wm.doTrimForeground();
+        }
+    }
+
+    private void doTrimForeground() {
+        boolean hasVisibleWindows = false;
+        synchronized (mLock) {
+            for (int i = mRoots.size() - 1; i >= 0; --i) {
+                final ViewRootImpl root = mRoots.get(i);
+                if (root.mView != null && root.getHostVisibility() == View.VISIBLE
+                        && root.mAttachInfo.mHardwareRenderer != null) {
+                    hasVisibleWindows = true;
+                } else {
+                    root.destroyHardwareResources();
+                }
+            }
+        }
+        if (!hasVisibleWindows) {
+            HardwareRenderer.trimMemory(
+                    ComponentCallbacks2.TRIM_MEMORY_COMPLETE);
         }
     }
 
@@ -418,7 +471,7 @@ public final class WindowManagerGlobal {
                 for (int i = 0; i < count; i++) {
                     ViewRootImpl root = mRoots.get(i);
                     String name = getWindowName(root);
-                    pw.printf("\n\t%s", name);
+                    pw.printf("\n\t%s (visibility=%d)", name, root.getHostVisibility());
 
                     HardwareRenderer renderer =
                             root.getView().mAttachInfo.mHardwareRenderer;

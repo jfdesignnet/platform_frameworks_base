@@ -266,7 +266,6 @@ public final class WindowInsets {
      * {@link View#fitSystemWindows(android.graphics.Rect)}.</p>
      *
      * @return true if the insets have been fully consumed.
-     * @hide Pending API
      */
     public boolean isConsumed() {
         return mSystemWindowInsetsConsumed && mWindowDecorInsetsConsumed && mStableInsetsConsumed;
@@ -317,7 +316,6 @@ public final class WindowInsets {
                     top ? 0 : mSystemWindowInsets.top,
                     right ? 0 : mSystemWindowInsets.right,
                     bottom ? 0 : mSystemWindowInsets.bottom);
-            result.mSystemWindowInsetsConsumed = !hasSystemWindowInsets();
             return result;
         }
         return this;
@@ -337,7 +335,20 @@ public final class WindowInsets {
             int right, int bottom) {
         final WindowInsets result = new WindowInsets(this);
         result.mSystemWindowInsets = new Rect(left, top, right, bottom);
-        result.mSystemWindowInsetsConsumed = !hasSystemWindowInsets();
+        return result;
+    }
+
+    /**
+     * Returns a copy of this WindowInsets with selected system window insets replaced
+     * with new values.
+     *
+     * @param systemWindowInsets New system window insets. Each field is the inset in pixels
+     *                           for that edge
+     * @return A modified copy of this WindowInsets
+     */
+    public WindowInsets replaceSystemWindowInsets(Rect systemWindowInsets) {
+        final WindowInsets result = new WindowInsets(this);
+        result.mSystemWindowInsets = new Rect(systemWindowInsets);
         return result;
     }
 
@@ -362,7 +373,6 @@ public final class WindowInsets {
                     top ? 0 : mWindowDecorInsets.top,
                     right ? 0 : mWindowDecorInsets.right,
                     bottom ? 0 : mWindowDecorInsets.bottom);
-            result.mWindowDecorInsetsConsumed = !hasWindowDecorInsets();
             return result;
         }
         return this;
@@ -374,40 +384,79 @@ public final class WindowInsets {
     public WindowInsets replaceWindowDecorInsets(int left, int top, int right, int bottom) {
         final WindowInsets result = new WindowInsets(this);
         result.mWindowDecorInsets = new Rect(left, top, right, bottom);
-        result.mWindowDecorInsetsConsumed = !hasWindowDecorInsets();
         return result;
     }
 
     /**
-     * @hide
+     * Returns the top stable inset in pixels.
+     *
+     * <p>The stable inset represents the area of a full-screen window that <b>may</b> be
+     * partially or fully obscured by the system UI elements.  This value does not change
+     * based on the visibility state of those elements; for example, if the status bar is
+     * normally shown, but temporarily hidden, the stable inset will still provide the inset
+     * associated with the status bar being shown.</p>
+     *
+     * @return The top stable inset
      */
     public int getStableInsetTop() {
         return mStableInsets.top;
     }
 
     /**
-     * @hide
+     * Returns the left stable inset in pixels.
+     *
+     * <p>The stable inset represents the area of a full-screen window that <b>may</b> be
+     * partially or fully obscured by the system UI elements.  This value does not change
+     * based on the visibility state of those elements; for example, if the status bar is
+     * normally shown, but temporarily hidden, the stable inset will still provide the inset
+     * associated with the status bar being shown.</p>
+     *
+     * @return The left stable inset
      */
     public int getStableInsetLeft() {
         return mStableInsets.left;
     }
 
     /**
-     * @hide
+     * Returns the right stable inset in pixels.
+     *
+     * <p>The stable inset represents the area of a full-screen window that <b>may</b> be
+     * partially or fully obscured by the system UI elements.  This value does not change
+     * based on the visibility state of those elements; for example, if the status bar is
+     * normally shown, but temporarily hidden, the stable inset will still provide the inset
+     * associated with the status bar being shown.</p>
+     *
+     * @return The right stable inset
      */
     public int getStableInsetRight() {
         return mStableInsets.right;
     }
 
     /**
-     * @hide
+     * Returns the bottom stable inset in pixels.
+     *
+     * <p>The stable inset represents the area of a full-screen window that <b>may</b> be
+     * partially or fully obscured by the system UI elements.  This value does not change
+     * based on the visibility state of those elements; for example, if the status bar is
+     * normally shown, but temporarily hidden, the stable inset will still provide the inset
+     * associated with the status bar being shown.</p>
+     *
+     * @return The bottom stable inset
      */
     public int getStableInsetBottom() {
         return mStableInsets.bottom;
     }
 
     /**
-     * @hide
+     * Returns true if this WindowInsets has nonzero stable insets.
+     *
+     * <p>The stable inset represents the area of a full-screen window that <b>may</b> be
+     * partially or fully obscured by the system UI elements.  This value does not change
+     * based on the visibility state of those elements; for example, if the status bar is
+     * normally shown, but temporarily hidden, the stable inset will still provide the inset
+     * associated with the status bar being shown.</p>
+     *
+     * @return true if any of the stable inset values are nonzero
      */
     public boolean hasStableInsets() {
         return mStableInsets.top != 0 || mStableInsets.left != 0 || mStableInsets.right != 0
@@ -415,7 +464,9 @@ public final class WindowInsets {
     }
 
     /**
-     * @hide
+     * Returns a copy of this WindowInsets with the stable insets fully consumed.
+     *
+     * @return A modified copy of this WindowInsets
      */
     public WindowInsets consumeStableInsets() {
         final WindowInsets result = new WindowInsets(this);

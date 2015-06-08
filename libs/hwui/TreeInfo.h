@@ -26,17 +26,12 @@
 namespace android {
 namespace uirenderer {
 
-class BaseRenderNodeAnimator;
-class AnimationListener;
+namespace renderthread {
+class CanvasContext;
+}
+
 class OpenGLRenderer;
 class RenderState;
-
-class AnimationHook {
-public:
-    virtual void callOnFinished(BaseRenderNodeAnimator* animator, AnimationListener* listener) = 0;
-protected:
-    ~AnimationHook() {}
-};
 
 class ErrorHandler {
 public:
@@ -62,39 +57,46 @@ public:
 
     explicit TreeInfo(TraversalMode mode, RenderState& renderState)
         : mode(mode)
-        , frameTimeMs(0)
-        , animationHook(NULL)
         , prepareTextures(mode == MODE_FULL)
-        , damageAccumulator(NullDamageAccumulator::instance())
+        , runAnimations(true)
+        , damageAccumulator(NULL)
         , renderState(renderState)
         , renderer(NULL)
         , errorHandler(NULL)
+        , canvasContext(NULL)
     {}
 
     explicit TreeInfo(TraversalMode mode, const TreeInfo& clone)
         : mode(mode)
-        , frameTimeMs(clone.frameTimeMs)
-        , animationHook(clone.animationHook)
         , prepareTextures(mode == MODE_FULL)
+        , runAnimations(clone.runAnimations)
         , damageAccumulator(clone.damageAccumulator)
         , renderState(clone.renderState)
         , renderer(clone.renderer)
         , errorHandler(clone.errorHandler)
+        , canvasContext(clone.canvasContext)
     {}
 
     const TraversalMode mode;
-    nsecs_t frameTimeMs;
-    AnimationHook* animationHook;
     // TODO: Remove this? Currently this is used to signal to stop preparing
     // textures if we run out of cache space.
     bool prepareTextures;
-    // Must not be null
-    IDamageAccumulator* damageAccumulator;
+    // TODO: buildLayer uses this to suppress running any animations, but this
+    // should probably be refactored somehow. The reason this is done is
+    // because buildLayer is not setup for injecting the animationHook, as well
+    // as this being otherwise wasted work as all the animators will be
+    // re-evaluated when the frame is actually drawn
+    bool runAnimations;
+
+    // Must not be null during actual usage
+    DamageAccumulator* damageAccumulator;
     RenderState& renderState;
     // The renderer that will be drawing the next frame. Use this to push any
     // layer updates or similar. May be NULL.
     OpenGLRenderer* renderer;
     ErrorHandler* errorHandler;
+    // TODO: Remove this? May be NULL
+    renderthread::CanvasContext* canvasContext;
 
     struct Out {
         Out()

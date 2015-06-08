@@ -45,13 +45,18 @@
         android:allowClearUserData="true"
         android:label="@string/app_label"
         android:allowBackup= "false"
-        android:supportsRtl="true"
-        android:icon="@*android:drawable/ic_print">
+        android:supportsRtl="true">
 
         <service
             android:name=".model.PrintSpoolerService"
             android:exported="true"
             android:permission="android.permission.BIND_PRINT_SPOOLER_SERVICE">
+        </service>
+
+        <service
+            android:name=".renderer.PdfManipulationService"
+            android:isolatedProcess="true"
+            android:process=":renderer">
         </service>
 
         <activity

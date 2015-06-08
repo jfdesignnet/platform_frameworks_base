@@ -43,6 +43,24 @@ public class TaskGrouping {
         updateTaskIndices();
     }
 
+    /** Returns the key of the next task in the group. */
+    public Task.TaskKey getNextTaskInGroup(Task t) {
+        int i = indexOf(t);
+        if ((i + 1) < getTaskCount()) {
+            return mTaskKeys.get(i + 1);
+        }
+        return null;
+    }
+
+    /** Returns the key of the previous task in the group. */
+    public Task.TaskKey getPrevTaskInGroup(Task t) {
+        int i = indexOf(t);
+        if ((i - 1) >= 0) {
+            return mTaskKeys.get(i - 1);
+        }
+        return null;
+    }
+
     /** Gets the front task */
     public boolean isFrontMostTask(Task t) {
         return (t.key == mFrontMostTaskKey);
@@ -51,6 +69,18 @@ public class TaskGrouping {
     /** Finds the index of a given task in a group. */
     public int indexOf(Task t) {
         return mTaskKeyIndices.get(t.key);
+    }
+
+    /** Returns whether a task is in this grouping. */
+    public boolean containsTask(Task t) {
+        return mTaskKeyIndices.containsKey(t.key);
+    }
+
+    /** Returns whether one task is above another in the group.  If they are not in the same group,
+     * this returns false. */
+    public boolean isTaskAboveTask(Task t, Task below) {
+        return mTaskKeyIndices.containsKey(t.key) && mTaskKeyIndices.containsKey(below.key) &&
+                mTaskKeyIndices.get(t.key) > mTaskKeyIndices.get(below.key);
     }
 
     /** Returns the number of tasks in this group. */

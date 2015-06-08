@@ -379,6 +379,10 @@ public interface WindowManagerPolicy {
         public static final int LID_CLOSED = 0;
         public static final int LID_OPEN = 1;
 
+        public static final int CAMERA_LENS_COVER_ABSENT = -1;
+        public static final int CAMERA_LENS_UNCOVERED = 0;
+        public static final int CAMERA_LENS_COVERED = 1;
+
         /**
          * Ask the window manager to re-evaluate the system UI flags.
          */
@@ -397,6 +401,11 @@ public interface WindowManagerPolicy {
          * Returns a code that describes the current state of the lid switch.
          */
         public int getLidState();
+
+        /**
+         * Returns a code that descripbes whether the camera lens is covered or not.
+         */
+        public int getCameraLensCoverState();
 
         /**
          * Switch the keyboard layout for the given device.
@@ -629,6 +638,11 @@ public interface WindowManagerPolicy {
     public boolean canBeForceHidden(WindowState win, WindowManager.LayoutParams attrs);
 
     /**
+     * Return the window that is hiding the keyguard, if such a thing exists.
+     */
+    public WindowState getWinShowWhenLockedLw();
+
+    /**
      * Called when the system would like to show a UI to indicate that an
      * application is starting.  You can use this to add a
      * APPLICATION_STARTING_TYPE window with the given appToken to the window
@@ -737,8 +751,15 @@ public interface WindowManagerPolicy {
     /**
      * Create and return an animation to re-display a force hidden window.
      */
-    public Animation createForceHideEnterAnimation(boolean onWallpaper);
-    
+    public Animation createForceHideEnterAnimation(boolean onWallpaper,
+            boolean goingToNotificationShade);
+
+    /**
+     * Create and return an animation to let the wallpaper disappear after being shown on a force
+     * hiding window.
+     */
+    public Animation createForceHideWallpaperExitAnimation(boolean goingToNotificationShade);
+
     /**
      * Called from the input reader thread before a key is enqueued.
      *
@@ -754,7 +775,8 @@ public interface WindowManagerPolicy {
     public int interceptKeyBeforeQueueing(KeyEvent event, int policyFlags);
 
     /**
-     * Called from the input reader thread before a motion is enqueued when the screen is off.
+     * Called from the input reader thread before a motion is enqueued when the device is in a
+     * non-interactive state.
      *
      * <p>There are some actions that need to be handled here because they
      * affect the power state of the device, for example, waking on motions.
@@ -764,7 +786,7 @@ public interface WindowManagerPolicy {
      *
      * @return Actions flags: may be {@link #ACTION_PASS_TO_USER}.
      */
-    public int interceptWakeMotionBeforeQueueing(long whenNanos, int policyFlags);
+    public int interceptMotionBeforeQueueingNonInteractive(long whenNanos, int policyFlags);
 
     /**
      * Called from the input dispatcher thread before a key is dispatched to a window.
@@ -843,12 +865,15 @@ public interface WindowManagerPolicy {
      * Return the insets for the areas covered by system windows. These values
      * are computed on the most recent layout, so they are not guaranteed to
      * be correct.
-     * 
+     *
      * @param attrs The LayoutParams of the window.
-     * @param contentInset The areas covered by system windows, expressed as positive insets
-     * 
+     * @param outContentInsets The areas covered by system windows, expressed as positive insets.
+     * @param outStableInsets The areas covered by stable system windows irrespective of their
+     *                        current visibility. Expressed as positive insets.
+     *
      */
-    public void getContentInsetHintLw(WindowManager.LayoutParams attrs, Rect contentInset);
+    public void getInsetHintLw(WindowManager.LayoutParams attrs, Rect outContentInsets,
+            Rect outStableInsets);
 
     /**
      * Called when layout of the windows is finished.  After this function has
@@ -876,12 +901,13 @@ public interface WindowManagerPolicy {
 
     /**
      * Called following layout of all window to apply policy to each window.
-     * 
+     *
      * @param win The window being positioned.
-     * @param attrs The LayoutParams of the window. 
+     * @param attrs The LayoutParams of the window.
+     * @param attached For sub-windows, the window it is attached to. Otherwise null.
      */
     public void applyPostLayoutPolicyLw(WindowState win,
-            WindowManager.LayoutParams attrs);
+            WindowManager.LayoutParams attrs, WindowState attached);
 
     /**
      * Called following layout of all windows and after policy has been applied
@@ -908,7 +934,12 @@ public interface WindowManagerPolicy {
      * A new window has been focused.
      */
     public int focusChangedLw(WindowState lastFocus, WindowState newFocus);
-    
+
+    /**
+     * Called when the device is waking up.
+     */
+    public void wakingUp();
+
     /**
      * Called when the device is going to sleep.
      *
@@ -917,26 +948,30 @@ public interface WindowManagerPolicy {
      */
     public void goingToSleep(int why);
 
+    /**
+     * Called when the device is about to turn on the screen to show content.
+     * When waking up, this method will be called once after the call to wakingUp().
+     * When dozing, the method will be called sometime after the call to goingToSleep() and
+     * may be called repeatedly in the case where the screen is pulsing on and off.
+     *
+     * Must call back on the listener to tell it when the higher-level system
+     * is ready for the screen to go on (i.e. the lock screen is shown).
+     */
+    public void screenTurningOn(ScreenOnListener screenOnListener);
+
+    /**
+     * Called when the device has turned the screen off.
+     */
+    public void screenTurnedOff();
+
     public interface ScreenOnListener {
         void onScreenOn();
     }
 
     /**
-     * Called when the device is waking up.
-     * Must call back on the listener to tell it when the higher-level system
-     * is ready for the screen to go on (i.e. the lock screen is shown).
+     * Return whether the default display is on and not blocked by a black surface.
      */
-    public void wakingUp(ScreenOnListener screenOnListener);
-
-    /**
-     * Return whether the screen is about to turn on or is currently on.
-     */
-    public boolean isScreenOnEarly();
-
-    /**
-     * Return whether the screen is fully turned on.
-     */
-    public boolean isScreenOnFully();
+    public boolean isScreenOn();
 
     /**
      * Tell the policy that the lid switch has changed state.
@@ -944,7 +979,14 @@ public interface WindowManagerPolicy {
      * @param lidOpen True if the lid is now open.
      */
     public void notifyLidSwitchChanged(long whenNanos, boolean lidOpen);
-    
+
+    /**
+     * Tell the policy that the camera lens has been covered or uncovered.
+     * @param whenNanos The time when the change occurred in uptime nanoseconds.
+     * @param lensCovered True if the lens is covered.
+     */
+    public void notifyCameraLensCoverSwitchChanged(long whenNanos, boolean lensCovered);
+
     /**
      * Tell the policy if anyone is requesting that keyguard not come on.
      *
@@ -1006,6 +1048,11 @@ public interface WindowManagerPolicy {
      * Ask the policy to dismiss the keyguard, if it is currently shown.
      */
     public void dismissKeyguardLw();
+
+    /**
+     * Notifies the keyguard that the activity has drawn it was waiting for.
+     */
+    public void notifyActivityDrawnForKeyguardLw();
 
     /**
      * Ask the policy whether the Keyguard has drawn. If the Keyguard is disabled, this method

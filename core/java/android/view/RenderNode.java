@@ -17,9 +17,11 @@
 package android.view;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.graphics.Matrix;
 import android.graphics.Outline;
 import android.graphics.Paint;
+import android.graphics.Rect;
 
 /**
  * <p>A display list records a series of graphics related operations and can replay
@@ -165,10 +167,13 @@ public class RenderNode {
     public static final int STATUS_DREW = 0x4;
 
     private boolean mValid;
-    private final long mNativeRenderNode;
+    // Do not access directly unless you are ThreadedRenderer
+    final long mNativeRenderNode;
+    private final View mOwningView;
 
-    private RenderNode(String name) {
+    private RenderNode(String name, View owningView) {
         mNativeRenderNode = nCreate(name);
+        mOwningView = owningView;
     }
 
     /**
@@ -176,6 +181,7 @@ public class RenderNode {
      */
     private RenderNode(long nativePtr) {
         mNativeRenderNode = nativePtr;
+        mOwningView = null;
     }
 
     /**
@@ -186,8 +192,8 @@ public class RenderNode {
      *
      * @return A new RenderNode.
      */
-    public static RenderNode create(String name) {
-        return new RenderNode(name);
+    public static RenderNode create(String name, @Nullable View owningView) {
+        return new RenderNode(name, owningView);
     }
 
     /**
@@ -294,19 +300,20 @@ public class RenderNode {
     // RenderProperty Setters
     ///////////////////////////////////////////////////////////////////////////
 
-    /**
-     * Set the caching property on the display list, which indicates whether the display list
-     * holds a layer. Layer display lists should avoid creating an alpha layer, since alpha is
-     * handled in the drawLayer operation directly (and more efficiently).
-     *
-     * @param caching true if the display list represents a hardware layer, false otherwise.
-     */
     public boolean setLayerType(int layerType) {
         return nSetLayerType(mNativeRenderNode, layerType);
     }
 
     public boolean setLayerPaint(Paint paint) {
         return nSetLayerPaint(mNativeRenderNode, paint != null ? paint.mNativePaint : 0);
+    }
+
+    public boolean setClipBounds(@Nullable Rect rect) {
+        if (rect == null) {
+            return nSetClipBoundsEmpty(mNativeRenderNode);
+        } else {
+            return nSetClipBounds(mNativeRenderNode, rect.left, rect.top, rect.right, rect.bottom);
+        }
     }
 
     /**
@@ -346,15 +353,22 @@ public class RenderNode {
      * Deep copies the data into native to simplify reference ownership.
      */
     public boolean setOutline(Outline outline) {
-        if (outline == null || outline.isEmpty()) {
+        if (outline == null) {
+            return nSetOutlineNone(mNativeRenderNode);
+        } else if (outline.isEmpty()) {
             return nSetOutlineEmpty(mNativeRenderNode);
         } else if (outline.mRect != null) {
             return nSetOutlineRoundRect(mNativeRenderNode, outline.mRect.left, outline.mRect.top,
-                    outline.mRect.right, outline.mRect.bottom, outline.mRadius);
+                    outline.mRect.right, outline.mRect.bottom, outline.mRadius, outline.mAlpha);
         } else if (outline.mPath != null) {
-            return nSetOutlineConvexPath(mNativeRenderNode, outline.mPath.mNativePath);
+            return nSetOutlineConvexPath(mNativeRenderNode, outline.mPath.mNativePath,
+                    outline.mAlpha);
         }
         throw new IllegalArgumentException("Unrecognized outline?");
+    }
+
+    public boolean hasShadow() {
+        return nHasShadow(mNativeRenderNode);
     }
 
     /**
@@ -373,9 +387,9 @@ public class RenderNode {
     /**
      * Controls the RenderNode's circular reveal clip.
      */
-    public boolean setRevealClip(boolean shouldClip, boolean inverseClip,
+    public boolean setRevealClip(boolean shouldClip,
             float x, float y, float radius) {
-        return nSetRevealClip(mNativeRenderNode, shouldClip, inverseClip, x, y, radius);
+        return nSetRevealClip(mNativeRenderNode, shouldClip, x, y, radius);
     }
 
     /**
@@ -700,19 +714,9 @@ public class RenderNode {
      * @param left The left position, in pixels, of the display list
      *
      * @see View#setLeft(int)
-     * @see #getLeft()
      */
     public boolean setLeft(int left) {
         return nSetLeft(mNativeRenderNode, left);
-    }
-
-    /**
-     * Returns the left position for the display list in pixels.
-     *
-     * @see #setLeft(int)
-     */
-    public float getLeft() {
-        return nGetLeft(mNativeRenderNode);
     }
 
     /**
@@ -721,19 +725,9 @@ public class RenderNode {
      * @param top The top position, in pixels, of the display list
      *
      * @see View#setTop(int)
-     * @see #getTop()
      */
     public boolean setTop(int top) {
         return nSetTop(mNativeRenderNode, top);
-    }
-
-    /**
-     * Returns the top position for the display list in pixels.
-     *
-     * @see #setTop(int)
-     */
-    public float getTop() {
-        return nGetTop(mNativeRenderNode);
     }
 
     /**
@@ -742,19 +736,9 @@ public class RenderNode {
      * @param right The right position, in pixels, of the display list
      *
      * @see View#setRight(int)
-     * @see #getRight()
      */
     public boolean setRight(int right) {
         return nSetRight(mNativeRenderNode, right);
-    }
-
-    /**
-     * Returns the right position for the display list in pixels.
-     *
-     * @see #setRight(int)
-     */
-    public float getRight() {
-        return nGetRight(mNativeRenderNode);
     }
 
     /**
@@ -763,19 +747,9 @@ public class RenderNode {
      * @param bottom The bottom position, in pixels, of the display list
      *
      * @see View#setBottom(int)
-     * @see #getBottom()
      */
     public boolean setBottom(int bottom) {
         return nSetBottom(mNativeRenderNode, bottom);
-    }
-
-    /**
-     * Returns the bottom position for the display list in pixels.
-     *
-     * @see #setBottom(int)
-     */
-    public float getBottom() {
-        return nGetBottom(mNativeRenderNode);
     }
 
     /**
@@ -803,7 +777,7 @@ public class RenderNode {
      *
      * @see View#offsetLeftAndRight(int)
      */
-    public boolean offsetLeftAndRight(float offset) {
+    public boolean offsetLeftAndRight(int offset) {
         return nOffsetLeftAndRight(mNativeRenderNode, offset);
     }
 
@@ -815,7 +789,7 @@ public class RenderNode {
      *
      * @see View#offsetTopAndBottom(int)
      */
-    public boolean offsetTopAndBottom(float offset) {
+    public boolean offsetTopAndBottom(int offset) {
         return nOffsetTopAndBottom(mNativeRenderNode, offset);
     }
 
@@ -839,7 +813,15 @@ public class RenderNode {
     ///////////////////////////////////////////////////////////////////////////
 
     public void addAnimator(RenderNodeAnimator animator) {
+        if (mOwningView == null || mOwningView.mAttachInfo == null) {
+            throw new IllegalStateException("Cannot start this animator on a detached view!");
+        }
         nAddAnimator(mNativeRenderNode, animator.getNativeAnimator());
+        mOwningView.mAttachInfo.mViewRootImpl.registerAnimatingRenderNode(this);
+    }
+
+    public void endAllAnimators() {
+        nEndAllAnimators(mNativeRenderNode);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -858,8 +840,8 @@ public class RenderNode {
 
     // Properties
 
-    private static native boolean nOffsetTopAndBottom(long renderNode, float offset);
-    private static native boolean nOffsetLeftAndRight(long renderNode, float offset);
+    private static native boolean nOffsetTopAndBottom(long renderNode, int offset);
+    private static native boolean nOffsetLeftAndRight(long renderNode, int offset);
     private static native boolean nSetLeftTopRightBottom(long renderNode, int left, int top,
             int right, int bottom);
     private static native boolean nSetBottom(long renderNode, int bottom);
@@ -872,15 +854,21 @@ public class RenderNode {
     private static native boolean nSetLayerType(long renderNode, int layerType);
     private static native boolean nSetLayerPaint(long renderNode, long paint);
     private static native boolean nSetClipToBounds(long renderNode, boolean clipToBounds);
+    private static native boolean nSetClipBounds(long renderNode, int left, int top,
+            int right, int bottom);
+    private static native boolean nSetClipBoundsEmpty(long renderNode);
     private static native boolean nSetProjectBackwards(long renderNode, boolean shouldProject);
     private static native boolean nSetProjectionReceiver(long renderNode, boolean shouldRecieve);
     private static native boolean nSetOutlineRoundRect(long renderNode, int left, int top,
-            int right, int bottom, float radius);
-    private static native boolean nSetOutlineConvexPath(long renderNode, long nativePath);
+            int right, int bottom, float radius, float alpha);
+    private static native boolean nSetOutlineConvexPath(long renderNode, long nativePath,
+            float alpha);
     private static native boolean nSetOutlineEmpty(long renderNode);
+    private static native boolean nSetOutlineNone(long renderNode);
+    private static native boolean nHasShadow(long renderNode);
     private static native boolean nSetClipToOutline(long renderNode, boolean clipToOutline);
     private static native boolean nSetRevealClip(long renderNode,
-            boolean shouldClip, boolean inverseClip, float x, float y, float radius);
+            boolean shouldClip, float x, float y, float radius);
     private static native boolean nSetAlpha(long renderNode, float alpha);
     private static native boolean nSetHasOverlappingRendering(long renderNode,
             boolean hasOverlappingRendering);
@@ -899,10 +887,6 @@ public class RenderNode {
     private static native boolean nHasOverlappingRendering(long renderNode);
     private static native boolean nGetClipToOutline(long renderNode);
     private static native float nGetAlpha(long renderNode);
-    private static native float nGetLeft(long renderNode);
-    private static native float nGetTop(long renderNode);
-    private static native float nGetRight(long renderNode);
-    private static native float nGetBottom(long renderNode);
     private static native float nGetCameraDistance(long renderNode);
     private static native float nGetScaleX(long renderNode);
     private static native float nGetScaleY(long renderNode);
@@ -924,6 +908,7 @@ public class RenderNode {
     ///////////////////////////////////////////////////////////////////////////
 
     private static native void nAddAnimator(long renderNode, long animatorPtr);
+    private static native void nEndAllAnimators(long renderNode);
 
     ///////////////////////////////////////////////////////////////////////////
     // Finalization

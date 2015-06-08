@@ -111,7 +111,7 @@ public class Picture {
     /**
      * Draw this picture on the canvas.
      * <p>
-     * Prior to {@link android.os.Build.VERSION_CODES#L}, this call could
+     * Prior to {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this call could
      * have the side effect of changing the matrix and clip of the canvas
      * if this picture had imbalanced saves/restores.
      *
@@ -122,6 +122,11 @@ public class Picture {
      * @param canvas  The picture is drawn to this canvas
      */
     public void draw(Canvas canvas) {
+        if (canvas.isHardwareAccelerated()) {
+            throw new IllegalArgumentException(
+                    "Picture playback is only supported on software canvas.");
+        }
+
         if (mRecordingCanvas != null) {
             endRecording();
         }

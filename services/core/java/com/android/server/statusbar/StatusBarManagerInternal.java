@@ -18,9 +18,10 @@ package com.android.server.statusbar;
 
 import com.android.server.notification.NotificationDelegate;
 
-import android.os.IBinder;
-import android.service.notification.StatusBarNotification;
-
 public interface StatusBarManagerInternal {
     void setNotificationDelegate(NotificationDelegate delegate);
+    void buzzBeepBlinked();
+    void notificationLightPulse(int argb, int onMillis, int offMillis);
+    void notificationLightOff();
+    void showScreenPinningRequest();
 }

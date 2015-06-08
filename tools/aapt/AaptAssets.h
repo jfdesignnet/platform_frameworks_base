@@ -104,6 +104,9 @@ private:
 struct AaptGroupEntry
 {
 public:
+    AaptGroupEntry() {}
+    AaptGroupEntry(const ConfigDescription& config) : mParams(config) {}
+
     bool initFromDirName(const char* dir, String8* resType);
 
     inline const ConfigDescription& toParams() const { return mParams; }
@@ -561,6 +564,7 @@ public:
     status_t buildIncludedResources(Bundle* bundle);
     status_t addIncludedResources(const sp<AaptFile>& file);
     const ResTable& getIncludedResources() const;
+    AssetManager& getAssetManager();
 
     void print(const String8& prefix) const;
 
@@ -587,7 +591,8 @@ private:
                                   const String8& srcDir,
                                   const AaptGroupEntry& kind,
                                   const String8& resType,
-                                  sp<FilePathStore>& fullResPaths);
+                                  sp<FilePathStore>& fullResPaths,
+                                  const bool overwrite=false);
 
     ssize_t slurpResourceTree(Bundle* bundle, const String8& srcDir);
     ssize_t slurpResourceZip(Bundle* bundle, const char* filename);

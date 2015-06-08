@@ -21,6 +21,8 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.bluetooth.le.BluetoothLeAdvertiser;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
@@ -354,28 +356,16 @@ public final class BluetoothAdapter {
     /** The profile is in disconnecting state */
     public static final int STATE_DISCONNECTING = 3;
 
-    /** States for Bluetooth LE advertising */
-    /** @hide */
-    public static final int STATE_ADVERTISE_STARTING = 0;
-    /** @hide */
-    public static final int STATE_ADVERTISE_STARTED = 1;
-    /** @hide */
-    public static final int STATE_ADVERTISE_STOPPING = 2;
-    /** @hide */
-    public static final int STATE_ADVERTISE_STOPPED = 3;
-    /**
-     * Force stopping advertising without callback in case the advertising app dies.
-     * @hide
-     */
-    public static final int STATE_ADVERTISE_FORCE_STOPPING = 4;
-
     /** @hide */
     public static final String BLUETOOTH_MANAGER_SERVICE = "bluetooth_manager";
 
-    /** @hide */
-    public static final int ADVERTISE_CALLBACK_SUCCESS = 0;
-
     private static final int ADDRESS_LENGTH = 17;
+
+    private static final int CONTROLLER_ENERGY_UPDATE_TIMEOUT_MILLIS = 30;
+    /** @hide */
+    public static final int ACTIVITY_ENERGY_INFO_CACHED = 0;
+    /** @hide */
+    public static final int ACTIVITY_ENERGY_INFO_REFRESHED = 1;
 
     /**
      * Lazily initialized singleton. Guaranteed final after first object
@@ -383,12 +373,14 @@ public final class BluetoothAdapter {
      */
     private static BluetoothAdapter sAdapter;
 
+    private static BluetoothLeScanner sBluetoothLeScanner;
+    private static BluetoothLeAdvertiser sBluetoothLeAdvertiser;
+
     private final IBluetoothManager mManagerService;
     private IBluetooth mService;
 
-    private final Map<LeScanCallback, GattCallbackWrapper> mLeScanClients;
-    private final Handler mHandler;  // Handler to post the advertise callback to run on main thread.
     private final Object mLock = new Object();
+    private final Map<LeScanCallback, ScanCallback> mLeScanClients;
 
     /**
      * Get a handle to the default local Bluetooth adapter.
@@ -423,8 +415,7 @@ public final class BluetoothAdapter {
             mService = managerService.registerAdapter(mManagerCallback);
         } catch (RemoteException e) {Log.e(TAG, "", e);}
         mManagerService = managerService;
-        mLeScanClients = new HashMap<LeScanCallback, GattCallbackWrapper>();
-        mHandler = new Handler(Looper.getMainLooper());
+        mLeScanClients = new HashMap<LeScanCallback, ScanCallback>();
     }
 
     /**
@@ -464,18 +455,41 @@ public final class BluetoothAdapter {
 
     /**
      * Returns a {@link BluetoothLeAdvertiser} object for Bluetooth LE Advertising operations.
+     * Will return null if Bluetooth is turned off or if Bluetooth LE Advertising is not
+     * supported on this device.
+     * <p>
+     * Use {@link #isMultipleAdvertisementSupported()} to check whether LE Advertising is supported
+     * on this device before calling this method.
      */
     public BluetoothLeAdvertiser getBluetoothLeAdvertiser() {
-        // TODO: Return null if this feature is not supported by hardware.
-        return new BluetoothLeAdvertiser(mManagerService);
+        if (getState() != STATE_ON) {
+            return null;
+        }
+        if (!isMultipleAdvertisementSupported() && !isPeripheralModeSupported()) {
+            Log.e(TAG, "bluetooth le advertising not supported");
+            return null;
+        }
+        synchronized(mLock) {
+            if (sBluetoothLeAdvertiser == null) {
+                sBluetoothLeAdvertiser = new BluetoothLeAdvertiser(mManagerService);
+            }
+        }
+        return sBluetoothLeAdvertiser;
     }
 
     /**
      * Returns a {@link BluetoothLeScanner} object for Bluetooth LE scan operations.
      */
     public BluetoothLeScanner getBluetoothLeScanner() {
-        // TODO: Return null if BLE scan is not supported by hardware.
-        return new BluetoothLeScanner(mManagerService);
+        if (getState() != STATE_ON) {
+            return null;
+        }
+        synchronized(mLock) {
+            if (sBluetoothLeScanner == null) {
+                sBluetoothLeScanner = new BluetoothLeScanner(mManagerService);
+            }
+        }
+        return sBluetoothLeScanner;
     }
 
     /**
@@ -905,6 +919,21 @@ public final class BluetoothAdapter {
     }
 
     /**
+     * Returns whether peripheral mode is supported.
+     *
+     * @hide
+     */
+    public boolean isPeripheralModeSupported() {
+        if (getState() != STATE_ON) return false;
+        try {
+            return mService.isPeripheralModeSupported();
+        } catch (RemoteException e) {
+            Log.e(TAG, "failed to get peripheral mode capability: ", e);
+        }
+        return false;
+    }
+
+    /**
      * Return true if offloaded filters are supported
      *
      * @return true if chipset supports on-chip filtering
@@ -932,6 +961,43 @@ public final class BluetoothAdapter {
             Log.e(TAG, "failed to get isOffloadedScanBatchingSupported, error: ", e);
         }
         return false;
+    }
+
+    /**
+     * Return the record of {@link BluetoothActivityEnergyInfo} object that
+     * has the activity and energy info. This can be used to ascertain what
+     * the controller has been up to, since the last sample.
+     * @param updateType Type of info, cached vs refreshed.
+     *
+     * @return a record with {@link BluetoothActivityEnergyInfo} or null if
+     * report is unavailable or unsupported
+     * @hide
+     */
+    public BluetoothActivityEnergyInfo getControllerActivityEnergyInfo(int updateType) {
+        if (getState() != STATE_ON) return null;
+        try {
+            BluetoothActivityEnergyInfo record;
+            if (!mService.isActivityAndEnergyReportingSupported()) {
+                return null;
+            }
+            synchronized(this) {
+                if (updateType == ACTIVITY_ENERGY_INFO_REFRESHED) {
+                    mService.getActivityEnergyInfoFromController();
+                    wait(CONTROLLER_ENERGY_UPDATE_TIMEOUT_MILLIS);
+                }
+                record = mService.reportActivityInfo();
+                if (record.isValid()) {
+                    return record;
+                } else {
+                    return null;
+                }
+            }
+        } catch (InterruptedException e) {
+            Log.e(TAG, "getControllerActivityEnergyInfoCallback wait interrupted: " + e);
+        } catch (RemoteException e) {
+            Log.e(TAG, "getControllerActivityEnergyInfoCallback: " + e);
+        }
+        return null;
     }
 
     /**
@@ -1363,14 +1429,16 @@ public final class BluetoothAdapter {
                 if (VDBG) Log.d(TAG, "onBluetoothServiceUp: " + bluetoothService);
                 synchronized (mManagerCallback) {
                     mService = bluetoothService;
-                    for (IBluetoothManagerCallback cb : mProxyServiceStateCallbacks ){
-                        try {
-                            if (cb != null) {
-                                cb.onBluetoothServiceUp(bluetoothService);
-                            } else {
-                                Log.d(TAG, "onBluetoothServiceUp: cb is null!!!");
-                            }
-                        } catch (Exception e)  { Log.e(TAG,"",e);}
+                    synchronized (mProxyServiceStateCallbacks) {
+                        for (IBluetoothManagerCallback cb : mProxyServiceStateCallbacks ){
+                            try {
+                                if (cb != null) {
+                                    cb.onBluetoothServiceUp(bluetoothService);
+                                } else {
+                                    Log.d(TAG, "onBluetoothServiceUp: cb is null!!!");
+                                }
+                            } catch (Exception e)  { Log.e(TAG,"",e);}
+                        }
                     }
                 }
             }
@@ -1379,14 +1447,19 @@ public final class BluetoothAdapter {
                 if (VDBG) Log.d(TAG, "onBluetoothServiceDown: " + mService);
                 synchronized (mManagerCallback) {
                     mService = null;
-                    for (IBluetoothManagerCallback cb : mProxyServiceStateCallbacks ){
-                        try {
-                            if (cb != null) {
-                                cb.onBluetoothServiceDown();
-                            } else {
-                                Log.d(TAG, "onBluetoothServiceDown: cb is null!!!");
-                            }
-                        } catch (Exception e)  { Log.e(TAG,"",e);}
+                    if (mLeScanClients != null) mLeScanClients.clear();
+                    if (sBluetoothLeAdvertiser != null) sBluetoothLeAdvertiser.cleanup();
+                    if (sBluetoothLeScanner != null) sBluetoothLeScanner.cleanup();
+                    synchronized (mProxyServiceStateCallbacks) {
+                        for (IBluetoothManagerCallback cb : mProxyServiceStateCallbacks ){
+                            try {
+                                if (cb != null) {
+                                    cb.onBluetoothServiceDown();
+                                } else {
+                                    Log.d(TAG, "onBluetoothServiceDown: cb is null!!!");
+                                }
+                            } catch (Exception e)  { Log.e(TAG,"",e);}
+                        }
                     }
                 }
             }
@@ -1527,10 +1600,10 @@ public final class BluetoothAdapter {
             return mManagerService;
     }
 
-    private ArrayList<IBluetoothManagerCallback> mProxyServiceStateCallbacks = new ArrayList<IBluetoothManagerCallback>();
+    final private ArrayList<IBluetoothManagerCallback> mProxyServiceStateCallbacks = new ArrayList<IBluetoothManagerCallback>();
 
     /*package*/ IBluetooth getBluetoothService(IBluetoothManagerCallback cb) {
-        synchronized (mManagerCallback) {
+        synchronized (mProxyServiceStateCallbacks) {
             if (cb == null) {
                 Log.w(TAG, "getBluetoothService() called with no BluetoothManagerCallback");
             } else if (!mProxyServiceStateCallbacks.contains(cb)) {
@@ -1541,7 +1614,7 @@ public final class BluetoothAdapter {
     }
 
     /*package*/ void removeServiceStateCallback(IBluetoothManagerCallback cb) {
-        synchronized (mManagerCallback) {
+        synchronized (mProxyServiceStateCallbacks) {
             mProxyServiceStateCallbacks.remove(cb);
         }
     }
@@ -1600,11 +1673,15 @@ public final class BluetoothAdapter {
      *             instead.
      */
     @Deprecated
-    public boolean startLeScan(UUID[] serviceUuids, LeScanCallback callback) {
+    public boolean startLeScan(final UUID[] serviceUuids, final LeScanCallback callback) {
         if (DBG) Log.d(TAG, "startLeScan(): " + serviceUuids);
-
         if (callback == null) {
             if (DBG) Log.e(TAG, "startLeScan: null callback");
+            return false;
+        }
+        BluetoothLeScanner scanner = getBluetoothLeScanner();
+        if (scanner == null) {
+            if (DBG) Log.e(TAG, "startLeScan: cannot get BluetoothLeScanner");
             return false;
         }
 
@@ -1621,13 +1698,50 @@ public final class BluetoothAdapter {
                     return false;
                 }
 
-                UUID uuid = UUID.randomUUID();
-                GattCallbackWrapper wrapper = new GattCallbackWrapper(this, callback, serviceUuids);
-                iGatt.registerClient(new ParcelUuid(uuid), wrapper);
-                if (wrapper.scanStarted()) {
-                    mLeScanClients.put(callback, wrapper);
-                    return true;
+                ScanCallback scanCallback = new ScanCallback() {
+                    @Override
+                    public void onScanResult(int callbackType, ScanResult result) {
+                        if (callbackType != ScanSettings.CALLBACK_TYPE_ALL_MATCHES) {
+                            // Should not happen.
+                            Log.e(TAG, "LE Scan has already started");
+                            return;
+                        }
+                        ScanRecord scanRecord = result.getScanRecord();
+                        if (scanRecord == null) {
+                            return;
+                        }
+                        if (serviceUuids != null) {
+                            List<ParcelUuid> uuids = new ArrayList<ParcelUuid>();
+                            for (UUID uuid : serviceUuids) {
+                                uuids.add(new ParcelUuid(uuid));
+                            }
+                            List<ParcelUuid> scanServiceUuids = scanRecord.getServiceUuids();
+                            if (scanServiceUuids == null || !scanServiceUuids.containsAll(uuids)) {
+                                if (DBG) Log.d(TAG, "uuids does not match");
+                                return;
+                            }
+                        }
+                        callback.onLeScan(result.getDevice(), result.getRssi(),
+                                scanRecord.getBytes());
+                    }
+                };
+                ScanSettings settings = new ScanSettings.Builder()
+                    .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
+
+                List<ScanFilter> filters = new ArrayList<ScanFilter>();
+                if (serviceUuids != null && serviceUuids.length > 0) {
+                    // Note scan filter does not support matching an UUID array so we put one
+                    // UUID to hardware and match the whole array in callback.
+                    ScanFilter filter = new ScanFilter.Builder().setServiceUuid(
+                            new ParcelUuid(serviceUuids[0])).build();
+                    filters.add(filter);
                 }
+                scanner.startScan(filters, settings, scanCallback);
+
+                mLeScanClients.put(callback, scanCallback);
+                return true;
+
             } catch (RemoteException e) {
                 Log.e(TAG,"",e);
             }
@@ -1647,264 +1761,17 @@ public final class BluetoothAdapter {
     @Deprecated
     public void stopLeScan(LeScanCallback callback) {
         if (DBG) Log.d(TAG, "stopLeScan()");
-        GattCallbackWrapper wrapper;
-        synchronized(mLeScanClients) {
-            wrapper = mLeScanClients.remove(callback);
-            if (wrapper == null) return;
+        BluetoothLeScanner scanner = getBluetoothLeScanner();
+        if (scanner == null) {
+            return;
         }
-        wrapper.stopLeScan();
-    }
-
-    /**
-     * Bluetooth GATT interface callbacks
-     */
-    private static class GattCallbackWrapper extends IBluetoothGattCallback.Stub {
-        private static final int LE_CALLBACK_REG_TIMEOUT = 2000;
-        private static final int LE_CALLBACK_REG_WAIT_COUNT = 5;
-
-        private final LeScanCallback mLeScanCb;
-
-        // mLeHandle 0: not registered
-        //           -1: scan stopped
-        //           >0: registered and scan started
-        private int mLeHandle;
-        private final UUID[] mScanFilter;
-        private WeakReference<BluetoothAdapter> mBluetoothAdapter;
-
-        public GattCallbackWrapper(BluetoothAdapter bluetoothAdapter,
-                                   LeScanCallback leScanCb, UUID[] uuid) {
-            mBluetoothAdapter = new WeakReference<BluetoothAdapter>(bluetoothAdapter);
-            mLeScanCb = leScanCb;
-            mScanFilter = uuid;
-            mLeHandle = 0;
-        }
-
-        public boolean scanStarted() {
-            return waitForRegisteration(LE_CALLBACK_REG_WAIT_COUNT);
-        }
-
-        private boolean waitForRegisteration(int maxWaitCount) {
-            boolean started = false;
-            synchronized(this) {
-                if (mLeHandle == -1) return false;
-                int count = 0;
-                // wait for callback registration and LE scan to start
-                while (mLeHandle == 0 && count < maxWaitCount) {
-                    try {
-                        wait(LE_CALLBACK_REG_TIMEOUT);
-                    } catch (InterruptedException e) {
-                        Log.e(TAG, "Callback reg wait interrupted: " + e);
-                    }
-                    count++;
-                }
-                started = (mLeHandle > 0);
+        synchronized (mLeScanClients) {
+            ScanCallback scanCallback = mLeScanClients.remove(callback);
+            if (scanCallback == null) {
+                if (DBG) Log.d(TAG, "scan not started yet");
+                return;
             }
-            return started;
-        }
-
-        public void stopLeScan() {
-            synchronized(this) {
-                if (mLeHandle <= 0) {
-                    Log.e(TAG, "Error state, mLeHandle: " + mLeHandle);
-                    return;
-                }
-                BluetoothAdapter adapter = mBluetoothAdapter.get();
-                if (adapter != null) {
-                    try {
-                        IBluetoothGatt iGatt = adapter.getBluetoothManager().getBluetoothGatt();
-                        iGatt.stopScan(mLeHandle, false);
-                        iGatt.unregisterClient(mLeHandle);
-                    } catch (RemoteException e) {
-                        Log.e(TAG, "Failed to stop scan and unregister" + e);
-                    }
-                } else {
-                    Log.e(TAG, "stopLeScan, BluetoothAdapter is null");
-                }
-                mLeHandle = -1;
-                notifyAll();
-            }
-        }
-
-        /**
-         * Application interface registered - app is ready to go
-         */
-        public void onClientRegistered(int status, int clientIf) {
-            if (DBG) Log.d(TAG, "onClientRegistered() - status=" + status +
-                           " clientIf=" + clientIf);
-            synchronized(this) {
-                if (mLeHandle == -1) {
-                    if (DBG) Log.d(TAG, "onClientRegistered LE scan canceled");
-                }
-
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                    mLeHandle = clientIf;
-                    IBluetoothGatt iGatt = null;
-                    try {
-                        BluetoothAdapter adapter = mBluetoothAdapter.get();
-                        if (adapter != null) {
-                            iGatt = adapter.getBluetoothManager().getBluetoothGatt();
-                            if (mScanFilter == null) {
-                                iGatt.startScan(mLeHandle, false);
-                            } else {
-                                ParcelUuid[] uuids = new ParcelUuid[mScanFilter.length];
-                                for(int i = 0; i != uuids.length; ++i) {
-                                    uuids[i] = new ParcelUuid(mScanFilter[i]);
-                                }
-                                iGatt.startScanWithUuids(mLeHandle, false, uuids);
-                            }
-                        } else {
-                            Log.e(TAG, "onClientRegistered, BluetoothAdapter null");
-                            mLeHandle = -1;
-                        }
-                    } catch (RemoteException e) {
-                        Log.e(TAG, "fail to start le scan: " + e);
-                        mLeHandle = -1;
-                    }
-                    if (mLeHandle == -1) {
-                        // registration succeeded but start scan or advertise failed
-                        if (iGatt != null) {
-                            try {
-                                iGatt.unregisterClient(mLeHandle);
-                            } catch (RemoteException e) {
-                                Log.e(TAG, "fail to unregister callback: " + mLeHandle +
-                                      " error: " + e);
-                            }
-                        }
-                    }
-                } else {
-                    // registration failed
-                    mLeHandle = -1;
-                }
-                notifyAll();
-            }
-        }
-
-        public void onClientConnectionState(int status, int clientIf,
-                                            boolean connected, String address) {
-            // no op
-        }
-
-        /**
-         * Callback reporting an LE scan result.
-         * @hide
-         */
-        public void onScanResult(String address, int rssi, byte[] advData) {
-            if (VDBG) Log.d(TAG, "onScanResult() - Device=" + address + " RSSI=" +rssi);
-
-            // Check null in case the scan has been stopped
-            synchronized(this) {
-                if (mLeHandle <= 0) return;
-            }
-            try {
-                BluetoothAdapter adapter = mBluetoothAdapter.get();
-                if (adapter == null) {
-                    Log.d(TAG, "onScanResult, BluetoothAdapter null");
-                    return;
-                }
-                mLeScanCb.onLeScan(adapter.getRemoteDevice(address), rssi, advData);
-            } catch (Exception ex) {
-                Log.w(TAG, "Unhandled exception: " + ex);
-            }
-        }
-
-        public void onGetService(String address, int srvcType,
-                                 int srvcInstId, ParcelUuid srvcUuid) {
-            // no op
-        }
-
-        public void onGetIncludedService(String address, int srvcType,
-                                         int srvcInstId, ParcelUuid srvcUuid,
-                                         int inclSrvcType, int inclSrvcInstId,
-                                         ParcelUuid inclSrvcUuid) {
-            // no op
-        }
-
-        public void onGetCharacteristic(String address, int srvcType,
-                                        int srvcInstId, ParcelUuid srvcUuid,
-                                        int charInstId, ParcelUuid charUuid,
-                                        int charProps) {
-            // no op
-        }
-
-        public void onGetDescriptor(String address, int srvcType,
-                                    int srvcInstId, ParcelUuid srvcUuid,
-                                    int charInstId, ParcelUuid charUuid,
-                                    int descInstId, ParcelUuid descUuid) {
-            // no op
-        }
-
-        public void onSearchComplete(String address, int status) {
-            // no op
-        }
-
-        public void onCharacteristicRead(String address, int status, int srvcType,
-                                         int srvcInstId, ParcelUuid srvcUuid,
-                                         int charInstId, ParcelUuid charUuid, byte[] value) {
-            // no op
-        }
-
-        public void onCharacteristicWrite(String address, int status, int srvcType,
-                                          int srvcInstId, ParcelUuid srvcUuid,
-                                          int charInstId, ParcelUuid charUuid) {
-            // no op
-        }
-
-        public void onNotify(String address, int srvcType,
-                             int srvcInstId, ParcelUuid srvcUuid,
-                             int charInstId, ParcelUuid charUuid,
-                             byte[] value) {
-            // no op
-        }
-
-        public void onDescriptorRead(String address, int status, int srvcType,
-                                     int srvcInstId, ParcelUuid srvcUuid,
-                                     int charInstId, ParcelUuid charUuid,
-                                     int descInstId, ParcelUuid descrUuid, byte[] value) {
-            // no op
-        }
-
-        public void onDescriptorWrite(String address, int status, int srvcType,
-                                      int srvcInstId, ParcelUuid srvcUuid,
-                                      int charInstId, ParcelUuid charUuid,
-                                      int descInstId, ParcelUuid descrUuid) {
-            // no op
-        }
-
-        public void onExecuteWrite(String address, int status) {
-            // no op
-        }
-
-        public void onReadRemoteRssi(String address, int rssi, int status) {
-            // no op
-        }
-
-        public void onAdvertiseStateChange(int advertiseState, int status) {
-        }
-
-        @Override
-        public void onMultiAdvertiseCallback(int status) {
-            // no op
-        }
-
-        @Override
-        public void onConfigureMTU(String address, int mtu, int status) {
-            // no op
-        }
-
-        @Override
-        public void onConnectionCongested(String address, boolean congested) {
-            // no op
-        }
-
-        @Override
-        public void onBatchScanResults(List<ScanResult> results) {
-            // no op
-        }
-
-        @Override
-        public void onFoundOrLost(boolean onFound, String address,int rssi,
-                byte[] advData) {
-            // no op
+            scanner.stopScan(scanCallback);
         }
     }
 }

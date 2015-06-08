@@ -286,7 +286,7 @@ public class WifiInfo implements Parcelable {
      * Returns the service set identifier (SSID) of the current 802.11 network.
      * If the SSID can be decoded as UTF-8, it will be returned surrounded by double
      * quotation marks. Otherwise, it is returned as a string of hex digits. The
-     * SSID may be {@code null} if there is no network currently connected.
+     * SSID may be &lt;unknown ssid&gt; if there is no network currently connected.
      * @return the SSID
      */
     public String getSSID() {
@@ -323,7 +323,11 @@ public class WifiInfo implements Parcelable {
     /**
      * Returns the received signal strength indicator of the current 802.11
      * network, in dBm.
-     * @return the RSSI, in the range -127 to 200
+     *
+     * <p>Use {@link android.net.wifi.WifiManager#calculateSignalLevel} to convert this number into
+     * an absolute signal level which can be displayed to a user.
+     *
+     * @return the RSSI.
      */
     public int getRssi() {
         return mRssi;
@@ -371,7 +375,7 @@ public class WifiInfo implements Parcelable {
      * TODO: makes real freq boundaries
      */
     public boolean is24GHz() {
-        return mFrequency < 4000;
+        return ScanResult.is24GHz(mFrequency);
     }
 
     /**
@@ -379,7 +383,7 @@ public class WifiInfo implements Parcelable {
      * TODO: makes real freq boundaries
      */
     public boolean is5GHz() {
-        return mFrequency > 4000;
+        return ScanResult.is5GHz(mFrequency);
     }
 
     /**
@@ -452,6 +456,7 @@ public class WifiInfo implements Parcelable {
      * SSID-specific probe request must be used for scans.
      */
     public boolean getHiddenSSID() {
+        if (mWifiSsid == null) return false;
         return mWifiSsid.isHidden();
     }
 

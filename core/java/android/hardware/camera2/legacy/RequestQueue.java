@@ -39,8 +39,11 @@ public class RequestQueue {
     private long mCurrentFrameNumber = 0;
     private long mCurrentRepeatingFrameNumber = INVALID_FRAME;
     private int mCurrentRequestId = 0;
+    private final List<Long> mJpegSurfaceIds;
 
-    public RequestQueue() {}
+    public RequestQueue(List<Long> jpegSurfaceIds) {
+        mJpegSurfaceIds = jpegSurfaceIds;
+    }
 
     /**
      * Return and remove the next burst on the queue.
@@ -80,10 +83,25 @@ public class RequestQueue {
             ret = (mCurrentRepeatingFrameNumber == INVALID_FRAME) ? INVALID_FRAME :
                     mCurrentRepeatingFrameNumber - 1;
             mCurrentRepeatingFrameNumber = INVALID_FRAME;
+            Log.i(TAG, "Repeating capture request cancelled.");
         } else {
             Log.e(TAG, "cancel failed: no repeating request exists for request id: " + requestId);
         }
         return ret;
+    }
+
+    /**
+     * Cancel a repeating request.
+     *
+     * @return the last frame to be returned from the HAL for the given repeating request, or
+     *          {@code INVALID_FRAME} if none exists.
+     */
+    public synchronized long stopRepeating() {
+        if (mRepeatingRequest == null) {
+            Log.e(TAG, "cancel failed: no repeating request exists.");
+            return INVALID_FRAME;
+        }
+        return stopRepeating(mRepeatingRequest.getRequestId());
     }
 
     /**
@@ -102,9 +120,10 @@ public class RequestQueue {
     public synchronized int submit(List<CaptureRequest> requests, boolean repeating,
             /*out*/LongParcelable frameNumber) {
         int requestId = mCurrentRequestId++;
-        BurstHolder burst = new BurstHolder(requestId, repeating, requests);
+        BurstHolder burst = new BurstHolder(requestId, repeating, requests, mJpegSurfaceIds);
         long ret = INVALID_FRAME;
         if (burst.isRepeating()) {
+            Log.i(TAG, "Repeating capture request set.");
             if (mRepeatingRequest != null) {
                 ret = (mCurrentRepeatingFrameNumber == INVALID_FRAME) ? INVALID_FRAME :
                         mCurrentRepeatingFrameNumber - 1;

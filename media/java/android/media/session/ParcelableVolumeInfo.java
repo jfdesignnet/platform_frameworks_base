@@ -15,26 +15,28 @@
 
 package android.media.session;
 
+import android.media.AudioAttributes;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
  * Convenience class for passing information about the audio configuration of a
- * session. The public implementation is {@link MediaController.VolumeInfo}.
+ * session. The public implementation is {@link MediaController.PlaybackInfo}.
  *
  * @hide
  */
 public class ParcelableVolumeInfo implements Parcelable {
     public int volumeType;
-    public int audioStream;
+    public AudioAttributes audioAttrs;
     public int controlType;
     public int maxVolume;
     public int currentVolume;
 
-    public ParcelableVolumeInfo(int volumeType, int audioStream, int controlType, int maxVolume,
+    public ParcelableVolumeInfo(int volumeType, AudioAttributes audioAttrs, int controlType,
+            int maxVolume,
             int currentVolume) {
         this.volumeType = volumeType;
-        this.audioStream = audioStream;
+        this.audioAttrs = audioAttrs;
         this.controlType = controlType;
         this.maxVolume = maxVolume;
         this.currentVolume = currentVolume;
@@ -42,10 +44,10 @@ public class ParcelableVolumeInfo implements Parcelable {
 
     public ParcelableVolumeInfo(Parcel from) {
         volumeType = from.readInt();
-        audioStream = from.readInt();
         controlType = from.readInt();
         maxVolume = from.readInt();
         currentVolume = from.readInt();
+        audioAttrs = AudioAttributes.CREATOR.createFromParcel(from);
     }
 
     @Override
@@ -56,10 +58,10 @@ public class ParcelableVolumeInfo implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(volumeType);
-        dest.writeInt(audioStream);
         dest.writeInt(controlType);
         dest.writeInt(maxVolume);
         dest.writeInt(currentVolume);
+        audioAttrs.writeToParcel(dest, flags);
     }
 
 

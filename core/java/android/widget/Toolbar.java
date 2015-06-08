@@ -17,9 +17,11 @@
 package android.widget;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.app.ActionBar;
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -32,6 +34,7 @@ import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -64,7 +67,9 @@ import java.util.List;
  *     <li><em>A navigation button.</em> This may be an Up arrow, navigation menu toggle, close,
  *     collapse, done or another glyph of the app's choosing. This button should always be used
  *     to access other navigational destinations within the container of the Toolbar and
- *     its signified content or otherwise leave the current context signified by the Toolbar.</li>
+ *     its signified content or otherwise leave the current context signified by the Toolbar.
+ *     The navigation button is vertically aligned within the Toolbar's
+ *     {@link android.R.styleable#View_minHeight minimum height}, if set.</li>
  *     <li><em>A branded logo image.</em> This may extend to the height of the bar and can be
  *     arbitrarily wide.</li>
  *     <li><em>A title and subtitle.</em> The title should be a signpost for the Toolbar's current
@@ -80,8 +85,9 @@ import java.util.List;
  *     <li><em>An {@link ActionMenuView action menu}.</em> The menu of actions will pin to the
  *     end of the Toolbar offering a few
  *     <a href="http://developer.android.com/design/patterns/actionbar.html#ActionButtons">
- *         frequent, important or typical</a> actions along with an optional overflow menu for
- *         additional actions.</li>
+ *     frequent, important or typical</a> actions along with an optional overflow menu for
+ *     additional actions. Action buttons are vertically aligned within the Toolbar's
+ *     {@link android.R.styleable#View_minHeight minimum height}, if set.</li>
  * </ul>
  * </p>
  *
@@ -99,6 +105,7 @@ public class Toolbar extends ViewGroup {
     private ImageView mLogoView;
 
     private Drawable mCollapseIcon;
+    private CharSequence mCollapseDescription;
     private ImageButton mCollapseButtonView;
     View mExpandedActionView;
 
@@ -131,6 +138,8 @@ public class Toolbar extends ViewGroup {
     private int mTitleTextColor;
     private int mSubtitleTextColor;
 
+    private boolean mEatingTouch;
+
     // Clear me after use.
     private final ArrayList<View> mTempViews = new ArrayList<View>();
 
@@ -152,8 +161,16 @@ public class Toolbar extends ViewGroup {
     private ToolbarWidgetWrapper mWrapper;
     private ActionMenuPresenter mOuterActionMenuPresenter;
     private ExpandedActionViewMenuPresenter mExpandedMenuPresenter;
+    private MenuPresenter.Callback mActionMenuPresenterCallback;
+    private MenuBuilder.Callback mMenuBuilderCallback;
 
     private boolean mCollapsible;
+
+    private final Runnable mShowOverflowMenuRunnable = new Runnable() {
+        @Override public void run() {
+            showOverflowMenu();
+        }
+    };
 
     public Toolbar(Context context) {
         this(context, null);
@@ -223,6 +240,7 @@ public class Toolbar extends ViewGroup {
         }
 
         mCollapseIcon = a.getDrawable(R.styleable.Toolbar_collapseIcon);
+        mCollapseDescription = a.getText(R.styleable.Toolbar_collapseContentDescription);
 
         final CharSequence title = a.getText(R.styleable.Toolbar_title);
         if (!TextUtils.isEmpty(title)) {
@@ -233,10 +251,22 @@ public class Toolbar extends ViewGroup {
         if (!TextUtils.isEmpty(subtitle)) {
             setSubtitle(subtitle);
         }
-        a.recycle();
 
-        mPopupContext = context;
-        mPopupTheme = 0;
+        // Set the default context, since setPopupTheme() may be a no-op.
+        mPopupContext = mContext;
+        setPopupTheme(a.getResourceId(R.styleable.Toolbar_popupTheme, 0));
+
+        final Drawable navIcon = a.getDrawable(R.styleable.Toolbar_navigationIcon);
+        if (navIcon != null) {
+            setNavigationIcon(navIcon);
+        }
+
+        final CharSequence navDesc = a.getText(
+                R.styleable.Toolbar_navigationContentDescription);
+        if (!TextUtils.isEmpty(navDesc)) {
+            setNavigationContentDescription(navDesc);
+        }
+        a.recycle();
     }
 
     /**
@@ -402,6 +432,7 @@ public class Toolbar extends ViewGroup {
             ensureLogoView();
             if (mLogoView.getParent() == null) {
                 addSystemView(mLogoView);
+                updateChildVisibilityForExpandedActionView(mLogoView);
             }
         } else if (mLogoView != null && mLogoView.getParent() != null) {
             removeView(mLogoView);
@@ -543,6 +574,7 @@ public class Toolbar extends ViewGroup {
             }
             if (mTitleTextView.getParent() == null) {
                 addSystemView(mTitleTextView);
+                updateChildVisibilityForExpandedActionView(mTitleTextView);
             }
         } else if (mTitleTextView != null && mTitleTextView.getParent() != null) {
             removeView(mTitleTextView);
@@ -596,6 +628,7 @@ public class Toolbar extends ViewGroup {
             }
             if (mSubtitleTextView.getParent() == null) {
                 addSystemView(mSubtitleTextView);
+                updateChildVisibilityForExpandedActionView(mSubtitleTextView);
             }
         } else if (mSubtitleTextView != null && mSubtitleTextView.getParent() != null) {
             removeView(mSubtitleTextView);
@@ -653,27 +686,15 @@ public class Toolbar extends ViewGroup {
     }
 
     /**
-     * Set the icon to use for the toolbar's navigation button.
-     *
-     * <p>The navigation button appears at the start of the toolbar if present. Setting an icon
-     * will make the navigation button visible.</p>
-     *
-     * <p>If you use a navigation icon you should also set a description for its action using
-     * {@link #setNavigationDescription(int)}. This is used for accessibility and tooltips.</p>
-     *
-     * @param resId Resource ID of a drawable to set
-     */
-    public void setNavigationIcon(int resId) {
-        setNavigationIcon(getContext().getDrawable(resId));
-    }
-
-    /**
      * Retrieve the currently configured content description for the navigation button view.
      * This will be used to describe the navigation action to users through mechanisms such
      * as screen readers or tooltips.
      *
      * @return The navigation button's content description
+     *
+     * @attr ref android.R.styleable#Toolbar_navigationContentDescription
      */
+    @Nullable
     public CharSequence getNavigationContentDescription() {
         return mNavButtonView != null ? mNavButtonView.getContentDescription() : null;
     }
@@ -683,11 +704,13 @@ public class Toolbar extends ViewGroup {
      * description will be read via screen readers or other accessibility systems to explain
      * the action of the navigation button.
      *
-     * @param description Content description to set
+     * @param resId Resource ID of a content description string to set, or 0 to
+     *              clear the description
+     *
+     * @attr ref android.R.styleable#Toolbar_navigationContentDescription
      */
-    public void setNavigationContentDescription(CharSequence description) {
-        ensureNavButtonView();
-        mNavButtonView.setContentDescription(description);
+    public void setNavigationContentDescription(int resId) {
+        setNavigationContentDescription(resId != 0 ? getContext().getText(resId) : null);
     }
 
     /**
@@ -695,11 +718,18 @@ public class Toolbar extends ViewGroup {
      * description will be read via screen readers or other accessibility systems to explain
      * the action of the navigation button.
      *
-     * @param resId Resource ID of a content description string to set
+     * @param description Content description to set, or <code>null</code> to
+     *                    clear the content description
+     *
+     * @attr ref android.R.styleable#Toolbar_navigationContentDescription
      */
-    public void setNavigationContentDescription(int resId) {
-        ensureNavButtonView();
-        mNavButtonView.setContentDescription(resId != 0 ? getContext().getText(resId) : null);
+    public void setNavigationContentDescription(@Nullable CharSequence description) {
+        if (!TextUtils.isEmpty(description)) {
+            ensureNavButtonView();
+        }
+        if (mNavButtonView != null) {
+            mNavButtonView.setContentDescription(description);
+        }
     }
 
     /**
@@ -709,15 +739,37 @@ public class Toolbar extends ViewGroup {
      * will make the navigation button visible.</p>
      *
      * <p>If you use a navigation icon you should also set a description for its action using
-     * {@link #setNavigationDescription(int)}. This is used for accessibility and tooltips.</p>
+     * {@link #setNavigationContentDescription(int)}. This is used for accessibility and
+     * tooltips.</p>
      *
-     * @param icon Drawable to set
+     * @param resId Resource ID of a drawable to set
+     *
+     * @attr ref android.R.styleable#Toolbar_navigationIcon
      */
-    public void setNavigationIcon(Drawable icon) {
+    public void setNavigationIcon(int resId) {
+        setNavigationIcon(getContext().getDrawable(resId));
+    }
+
+    /**
+     * Set the icon to use for the toolbar's navigation button.
+     *
+     * <p>The navigation button appears at the start of the toolbar if present. Setting an icon
+     * will make the navigation button visible.</p>
+     *
+     * <p>If you use a navigation icon you should also set a description for its action using
+     * {@link #setNavigationContentDescription(int)}. This is used for accessibility and
+     * tooltips.</p>
+     *
+     * @param icon Drawable to set, may be null to clear the icon
+     *
+     * @attr ref android.R.styleable#Toolbar_navigationIcon
+     */
+    public void setNavigationIcon(@Nullable Drawable icon) {
         if (icon != null) {
             ensureNavButtonView();
             if (mNavButtonView.getParent() == null) {
                 addSystemView(mNavButtonView);
+                updateChildVisibilityForExpandedActionView(mNavButtonView);
             }
         } else if (mNavButtonView != null && mNavButtonView.getParent() != null) {
             removeView(mNavButtonView);
@@ -731,38 +783,12 @@ public class Toolbar extends ViewGroup {
      * Return the current drawable used as the navigation icon.
      *
      * @return The navigation icon drawable
+     *
+     * @attr ref android.R.styleable#Toolbar_navigationIcon
      */
+    @Nullable
     public Drawable getNavigationIcon() {
         return mNavButtonView != null ? mNavButtonView.getDrawable() : null;
-    }
-
-    /**
-     * Set a description for the navigation button.
-     *
-     * <p>This description string is used for accessibility, tooltips and other facilities
-     * to improve discoverability.</p>
-     *
-     * @param resId Resource ID of a string to set
-     */
-    public void setNavigationDescription(int resId) {
-        setNavigationDescription(getContext().getText(resId));
-    }
-
-    /**
-     * Set a description for the navigation button.
-     *
-     * <p>This description string is used for accessibility, tooltips and other facilities
-     * to improve discoverability.</p>
-     *
-     * @param description String to set as the description
-     */
-    public void setNavigationDescription(CharSequence description) {
-        if (!TextUtils.isEmpty(description)) {
-            ensureNavButtonView();
-        }
-        if (mNavButtonView != null) {
-            mNavButtonView.setContentDescription(description);
-        }
     }
 
     /**
@@ -810,6 +836,7 @@ public class Toolbar extends ViewGroup {
             mMenuView = new ActionMenuView(getContext());
             mMenuView.setPopupTheme(mPopupTheme);
             mMenuView.setOnMenuItemClickListener(mMenuViewItemClickListener);
+            mMenuView.setMenuCallbacks(mActionMenuPresenterCallback, mMenuBuilderCallback);
             final LayoutParams lp = generateDefaultLayoutParams();
             lp.gravity = Gravity.END | (mButtonGravity & Gravity.VERTICAL_GRAVITY_MASK);
             mMenuView.setLayoutParams(lp);
@@ -974,6 +1001,7 @@ public class Toolbar extends ViewGroup {
         if (mCollapseButtonView == null) {
             mCollapseButtonView = new ImageButton(getContext(), null, 0, mNavButtonStyle);
             mCollapseButtonView.setImageDrawable(mCollapseIcon);
+            mCollapseButtonView.setContentDescription(mCollapseDescription);
             final LayoutParams lp = generateDefaultLayoutParams();
             lp.gravity = Gravity.START | (mButtonGravity & Gravity.VERTICAL_GRAVITY_MASK);
             lp.mViewType = LayoutParams.EXPANDED;
@@ -988,8 +1016,15 @@ public class Toolbar extends ViewGroup {
     }
 
     private void addSystemView(View v) {
-        final LayoutParams lp = new LayoutParams(LayoutParams.WRAP_CONTENT,
-                LayoutParams.WRAP_CONTENT);
+        final ViewGroup.LayoutParams vlp = v.getLayoutParams();
+        final LayoutParams lp;
+        if (vlp == null) {
+            lp = generateDefaultLayoutParams();
+        } else if (!checkLayoutParams(vlp)) {
+            lp = generateLayoutParams(vlp);
+        } else {
+            lp = (LayoutParams) vlp;
+        }
         lp.mViewType = LayoutParams.SYSTEM;
         addView(v, lp);
     }
@@ -997,6 +1032,13 @@ public class Toolbar extends ViewGroup {
     @Override
     protected Parcelable onSaveInstanceState() {
         SavedState state = new SavedState(super.onSaveInstanceState());
+
+        if (mExpandedMenuPresenter != null && mExpandedMenuPresenter.mCurrentExpandedItem != null) {
+            state.expandedMenuItemId = mExpandedMenuPresenter.mCurrentExpandedItem.getItemId();
+        }
+
+        state.isOverflowOpen = isOverflowMenuShowing();
+
         return state;
     }
 
@@ -1004,6 +1046,73 @@ public class Toolbar extends ViewGroup {
     protected void onRestoreInstanceState(Parcelable state) {
         final SavedState ss = (SavedState) state;
         super.onRestoreInstanceState(ss.getSuperState());
+
+        final Menu menu = mMenuView != null ? mMenuView.peekMenu() : null;
+        if (ss.expandedMenuItemId != 0 && mExpandedMenuPresenter != null && menu != null) {
+            final MenuItem item = menu.findItem(ss.expandedMenuItemId);
+            if (item != null) {
+                item.expandActionView();
+            }
+        }
+
+        if (ss.isOverflowOpen) {
+            postShowOverflowMenu();
+        }
+    }
+
+    private void postShowOverflowMenu() {
+        removeCallbacks(mShowOverflowMenuRunnable);
+        post(mShowOverflowMenuRunnable);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        removeCallbacks(mShowOverflowMenuRunnable);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent ev) {
+        // Toolbars always eat touch events, but should still respect the touch event dispatch
+        // contract. If the normal View implementation doesn't want the events, we'll just silently
+        // eat the rest of the gesture without reporting the events to the default implementation
+        // since that's what it expects.
+
+        final int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            mEatingTouch = false;
+        }
+
+        if (!mEatingTouch) {
+            final boolean handled = super.onTouchEvent(ev);
+            if (action == MotionEvent.ACTION_DOWN && !handled) {
+                mEatingTouch = true;
+            }
+        }
+
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            mEatingTouch = false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    protected void onSetLayoutParams(View child, ViewGroup.LayoutParams lp) {
+        /*
+         * Apps may set ActionBar.LayoutParams on their action bar custom views when
+         * a Toolbar is actually acting in the role of the action bar. Perform a quick
+         * switch with Toolbar.LayoutParams whenever this happens. This does leave open
+         * one potential gotcha: if an app retains the ActionBar.LayoutParams reference
+         * and attempts to keep making changes to it before layout those changes won't
+         * be reflected in the final results.
+         */
+        if (!checkLayoutParams(lp)) {
+            child.setLayoutParams(generateLayoutParams(lp));
+        }
     }
 
     private void measureChildConstrained(View child, int parentWidthSpec, int widthUsed,
@@ -1143,6 +1252,21 @@ public class Toolbar extends ViewGroup {
             childState = combineMeasuredStates(childState, mLogoView.getMeasuredState());
         }
 
+        final int childCount = getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            final View child = getChildAt(i);
+            final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+            if (lp.mViewType != LayoutParams.CUSTOM || !shouldLayout(child)) {
+                // We already got all system views above. Skip them and GONE views.
+                continue;
+            }
+
+            width += measureChildCollapseMargins(child, widthMeasureSpec, width,
+                    heightMeasureSpec, 0, collapsingMargins);
+            height = Math.max(height, child.getMeasuredHeight() + getVerticalMargins(child));
+            childState = combineMeasuredStates(childState, child.getMeasuredState());
+        }
+
         int titleWidth = 0;
         int titleHeight = 0;
         final int titleVertMargins = mTitleMarginTop + mTitleMarginBottom;
@@ -1167,21 +1291,6 @@ public class Toolbar extends ViewGroup {
 
         width += titleWidth;
         height = Math.max(height, titleHeight);
-
-        final int childCount = getChildCount();
-        for (int i = 0; i < childCount; i++) {
-            final View child = getChildAt(i);
-            final LayoutParams lp = (LayoutParams) child.getLayoutParams();
-            if (lp.mViewType != LayoutParams.CUSTOM || !shouldLayout(child)) {
-                // We already got all system views above. Skip them and GONE views.
-                continue;
-            }
-
-            width += measureChildCollapseMargins(child, widthMeasureSpec, width,
-                    heightMeasureSpec, 0, collapsingMargins);
-            height = Math.max(height, child.getMeasuredHeight() + getVerticalMargins(child));
-            childState = combineMeasuredStates(childState, child.getMeasuredState());
-        }
 
         // Measurement already took padding into account for available space for the children,
         // add it in for the final size.
@@ -1213,27 +1322,36 @@ public class Toolbar extends ViewGroup {
         final int[] collapsingMargins = mTempMargins;
         collapsingMargins[0] = collapsingMargins[1] = 0;
 
+        // Align views within the minimum toolbar height, if set.
+        final int alignmentHeight = getMinimumHeight();
+
         if (shouldLayout(mNavButtonView)) {
             if (isRtl) {
-                right = layoutChildRight(mNavButtonView, right, collapsingMargins);
+                right = layoutChildRight(mNavButtonView, right, collapsingMargins,
+                        alignmentHeight);
             } else {
-                left = layoutChildLeft(mNavButtonView, left, collapsingMargins);
+                left = layoutChildLeft(mNavButtonView, left, collapsingMargins,
+                        alignmentHeight);
             }
         }
 
         if (shouldLayout(mCollapseButtonView)) {
             if (isRtl) {
-                right = layoutChildRight(mCollapseButtonView, right, collapsingMargins);
+                right = layoutChildRight(mCollapseButtonView, right, collapsingMargins,
+                        alignmentHeight);
             } else {
-                left = layoutChildLeft(mCollapseButtonView, left, collapsingMargins);
+                left = layoutChildLeft(mCollapseButtonView, left, collapsingMargins,
+                        alignmentHeight);
             }
         }
 
         if (shouldLayout(mMenuView)) {
             if (isRtl) {
-                left = layoutChildLeft(mMenuView, left, collapsingMargins);
+                left = layoutChildLeft(mMenuView, left, collapsingMargins,
+                        alignmentHeight);
             } else {
-                right = layoutChildRight(mMenuView, right, collapsingMargins);
+                right = layoutChildRight(mMenuView, right, collapsingMargins,
+                        alignmentHeight);
             }
         }
 
@@ -1244,17 +1362,21 @@ public class Toolbar extends ViewGroup {
 
         if (shouldLayout(mExpandedActionView)) {
             if (isRtl) {
-                right = layoutChildRight(mExpandedActionView, right, collapsingMargins);
+                right = layoutChildRight(mExpandedActionView, right, collapsingMargins,
+                        alignmentHeight);
             } else {
-                left = layoutChildLeft(mExpandedActionView, left, collapsingMargins);
+                left = layoutChildLeft(mExpandedActionView, left, collapsingMargins,
+                        alignmentHeight);
             }
         }
 
         if (shouldLayout(mLogoView)) {
             if (isRtl) {
-                right = layoutChildRight(mLogoView, right, collapsingMargins);
+                right = layoutChildRight(mLogoView, right, collapsingMargins,
+                        alignmentHeight);
             } else {
-                left = layoutChildLeft(mLogoView, left, collapsingMargins);
+                left = layoutChildLeft(mLogoView, left, collapsingMargins,
+                        alignmentHeight);
             }
         }
 
@@ -1276,6 +1398,8 @@ public class Toolbar extends ViewGroup {
             final View bottomChild = layoutSubtitle ? mSubtitleTextView : mTitleTextView;
             final LayoutParams toplp = (LayoutParams) topChild.getLayoutParams();
             final LayoutParams bottomlp = (LayoutParams) bottomChild.getLayoutParams();
+            final boolean titleHasWidth = layoutTitle && mTitleTextView.getMeasuredWidth() > 0
+                    || layoutSubtitle && mSubtitleTextView.getMeasuredWidth() > 0;
 
             switch (mGravity & Gravity.VERTICAL_GRAVITY_MASK) {
                 case Gravity.TOP:
@@ -1303,7 +1427,7 @@ public class Toolbar extends ViewGroup {
                     break;
             }
             if (isRtl) {
-                final int rd = mTitleMarginStart - collapsingMargins[1];
+                final int rd = (titleHasWidth ? mTitleMarginStart : 0) - collapsingMargins[1];
                 right -= Math.max(0, rd);
                 collapsingMargins[1] = Math.max(0, -rd);
                 int titleRight = right;
@@ -1326,9 +1450,11 @@ public class Toolbar extends ViewGroup {
                     subtitleRight = subtitleRight - mTitleMarginEnd;
                     titleTop = subtitleBottom + lp.bottomMargin;
                 }
-                right = Math.max(titleRight, subtitleRight);
+                if (titleHasWidth) {
+                    right = Math.min(titleRight, subtitleRight);
+                }
             } else {
-                final int ld = mTitleMarginStart - collapsingMargins[0];
+                final int ld = (titleHasWidth ? mTitleMarginStart : 0) - collapsingMargins[0];
                 left += Math.max(0, ld);
                 collapsingMargins[0] = Math.max(0, -ld);
                 int titleLeft = left;
@@ -1351,7 +1477,9 @@ public class Toolbar extends ViewGroup {
                     subtitleLeft = subtitleRight + mTitleMarginEnd;
                     titleTop = subtitleBottom + lp.bottomMargin;
                 }
-                left = Math.max(titleLeft, subtitleLeft);
+                if (titleHasWidth) {
+                    left = Math.max(titleLeft, subtitleLeft);
+                }
             }
         }
 
@@ -1361,13 +1489,15 @@ public class Toolbar extends ViewGroup {
         addCustomViewsWithGravity(mTempViews, Gravity.LEFT);
         final int leftViewsCount = mTempViews.size();
         for (int i = 0; i < leftViewsCount; i++) {
-            left = layoutChildLeft(mTempViews.get(i), left, collapsingMargins);
+            left = layoutChildLeft(mTempViews.get(i), left, collapsingMargins,
+                    alignmentHeight);
         }
 
         addCustomViewsWithGravity(mTempViews, Gravity.RIGHT);
         final int rightViewsCount = mTempViews.size();
         for (int i = 0; i < rightViewsCount; i++) {
-            right = layoutChildRight(mTempViews.get(i), right, collapsingMargins);
+            right = layoutChildRight(mTempViews.get(i), right, collapsingMargins,
+                    alignmentHeight);
         }
 
         // Centered views try to center with respect to the whole bar, but views pinned
@@ -1386,8 +1516,10 @@ public class Toolbar extends ViewGroup {
 
         final int centerViewsCount = mTempViews.size();
         for (int i = 0; i < centerViewsCount; i++) {
-            centerLeft = layoutChildLeft(mTempViews.get(i), centerLeft, collapsingMargins);
+            centerLeft = layoutChildLeft(mTempViews.get(i), centerLeft, collapsingMargins,
+                    alignmentHeight);
         }
+
         mTempViews.clear();
     }
 
@@ -1410,46 +1542,49 @@ public class Toolbar extends ViewGroup {
         return width;
     }
 
-    private int layoutChildLeft(View child, int left, int[] collapsingMargins) {
+    private int layoutChildLeft(View child, int left, int[] collapsingMargins,
+            int alignmentHeight) {
         final LayoutParams lp = (LayoutParams) child.getLayoutParams();
         final int l = lp.leftMargin - collapsingMargins[0];
         left += Math.max(0, l);
         collapsingMargins[0] = Math.max(0, -l);
-        final int top = getChildTop(child);
+        final int top = getChildTop(child, alignmentHeight);
         final int childWidth = child.getMeasuredWidth();
         child.layout(left, top, left + childWidth, top + child.getMeasuredHeight());
         left += childWidth + lp.rightMargin;
         return left;
     }
 
-    private int layoutChildRight(View child, int right, int[] collapsingMargins) {
+    private int layoutChildRight(View child, int right, int[] collapsingMargins,
+            int alignmentHeight) {
         final LayoutParams lp = (LayoutParams) child.getLayoutParams();
         final int r = lp.rightMargin - collapsingMargins[1];
         right -= Math.max(0, r);
         collapsingMargins[1] = Math.max(0, -r);
-        final int top = getChildTop(child);
+        final int top = getChildTop(child, alignmentHeight);
         final int childWidth = child.getMeasuredWidth();
         child.layout(right - childWidth, top, right, top + child.getMeasuredHeight());
         right -= childWidth + lp.leftMargin;
         return right;
     }
 
-    private int getChildTop(View child) {
+    private int getChildTop(View child, int alignmentHeight) {
         final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+        final int childHeight = child.getMeasuredHeight();
+        final int alignmentOffset = alignmentHeight > 0 ? (childHeight - alignmentHeight) / 2 : 0;
         switch (getChildVerticalGravity(lp.gravity)) {
             case Gravity.TOP:
-                return getPaddingTop();
+                return getPaddingTop() - alignmentOffset;
 
             case Gravity.BOTTOM:
-                return getHeight() - getPaddingBottom() -
-                        child.getMeasuredHeight() - lp.bottomMargin;
+                return getHeight() - getPaddingBottom() - childHeight
+                        - lp.bottomMargin - alignmentOffset;
 
             default:
             case Gravity.CENTER_VERTICAL:
                 final int paddingTop = getPaddingTop();
                 final int paddingBottom = getPaddingBottom();
                 final int height = getHeight();
-                final int childHeight = child.getMeasuredHeight();
                 final int space = height - paddingTop - paddingBottom;
                 int spaceAbove = (space - childHeight) / 2;
                 if (spaceAbove < lp.topMargin) {
@@ -1575,7 +1710,7 @@ public class Toolbar extends ViewGroup {
     /** @hide */
     public DecorToolbar getWrapper() {
         if (mWrapper == null) {
-            mWrapper = new ToolbarWidgetWrapper(this);
+            mWrapper = new ToolbarWidgetWrapper(this, true);
         }
         return mWrapper;
     }
@@ -1591,6 +1726,13 @@ public class Toolbar extends ViewGroup {
         }
     }
 
+    private void updateChildVisibilityForExpandedActionView(View child) {
+        final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+        if (lp.mViewType != LayoutParams.EXPANDED && child != mMenuView) {
+            child.setVisibility(mExpandedActionView != null ? GONE : VISIBLE);
+        }
+    }
+
     /**
      * Force the toolbar to collapse to zero-height during measurement if
      * it could be considered "empty" (no visible elements with nonzero measured size)
@@ -1599,6 +1741,26 @@ public class Toolbar extends ViewGroup {
     public void setCollapsible(boolean collapsible) {
         mCollapsible = collapsible;
         requestLayout();
+    }
+
+    /**
+     * Must be called before the menu is accessed
+     * @hide
+     */
+    public void setMenuCallbacks(MenuPresenter.Callback pcb, MenuBuilder.Callback mcb) {
+        mActionMenuPresenterCallback = pcb;
+        mMenuBuilderCallback = mcb;
+    }
+
+    /**
+     * Accessor to enable LayoutLib to get ActionMenuPresenter directly.
+     */
+    ActionMenuPresenter getOuterActionMenuPresenter() {
+        return mOuterActionMenuPresenter;
+    }
+
+    Context getPopupContext() {
+        return mPopupContext;
     }
 
     /**
@@ -1673,8 +1835,13 @@ public class Toolbar extends ViewGroup {
     }
 
     static class SavedState extends BaseSavedState {
+        public int expandedMenuItemId;
+        public boolean isOverflowOpen;
+
         public SavedState(Parcel source) {
             super(source);
+            expandedMenuItemId = source.readInt();
+            isOverflowOpen = source.readInt() != 0;
         }
 
         public SavedState(Parcelable superState) {
@@ -1684,6 +1851,8 @@ public class Toolbar extends ViewGroup {
         @Override
         public void writeToParcel(Parcel out, int flags) {
             super.writeToParcel(out, flags);
+            out.writeInt(expandedMenuItemId);
+            out.writeInt(isOverflowOpen ? 1 : 0);
         }
 
         public static final Creator<SavedState> CREATOR = new Creator<SavedState>() {

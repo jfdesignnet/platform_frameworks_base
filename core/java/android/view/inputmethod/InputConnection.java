@@ -75,7 +75,7 @@ import android.view.KeyEvent;
  * behavior you should adopt for a particular call, please mimic the
  * default TextView implementation in the latest Android version, and
  * if you decide to drift from it, please consider carefully that
- * inconsistencies in text edition behavior is almost universally felt
+ * inconsistencies in text editor behavior is almost universally felt
  * as a bad thing by users.</p>
  *
  * <h3>Cursors, selections and compositions</h3>
@@ -725,13 +725,35 @@ public interface InputConnection {
     public boolean performPrivateCommand(String action, Bundle data);
 
     /**
-     * Called by the IME to ask the editor for calling back
+     * The editor is requested to call
+     * {@link InputMethodManager#updateCursorAnchorInfo(android.view.View, CursorAnchorInfo)} at
+     * once, as soon as possible, regardless of cursor/anchor position changes. This flag can be
+     * used together with {@link #CURSOR_UPDATE_MONITOR}.
+     */
+    public static final int CURSOR_UPDATE_IMMEDIATE = 1 << 0;
+
+    /**
+     * The editor is requested to call
+     * {@link InputMethodManager#updateCursorAnchorInfo(android.view.View, CursorAnchorInfo)}
+     * whenever cursor/anchor position is changed. To disable monitoring, call
+     * {@link InputConnection#requestCursorUpdates(int)} again with this flag off.
+     * <p>
+     * This flag can be used together with {@link #CURSOR_UPDATE_IMMEDIATE}.
+     * </p>
+     */
+    public static final int CURSOR_UPDATE_MONITOR = 1 << 1;
+
+    /**
+     * Called by the input method to ask the editor for calling back
      * {@link InputMethodManager#updateCursorAnchorInfo(android.view.View, CursorAnchorInfo)} to
      * notify cursor/anchor locations.
      *
-     * @param request the details of the request.
-     * @return a result code that depends on {@link CursorAnchorInfoRequest#getRequestType()}. See
-     * {@link CursorAnchorInfoRequest} for details.
+     * @param cursorUpdateMode {@link #CURSOR_UPDATE_IMMEDIATE} and/or
+     * {@link #CURSOR_UPDATE_MONITOR}. Pass {@code 0} to disable the effect of
+     * {@link #CURSOR_UPDATE_MONITOR}.
+     * @return {@code true} if the request is scheduled. {@code false} to indicate that when the
+     * application will not call
+     * {@link InputMethodManager#updateCursorAnchorInfo(android.view.View, CursorAnchorInfo)}.
      */
-    public int requestCursorAnchorInfo(CursorAnchorInfoRequest request);
+    public boolean requestCursorUpdates(int cursorUpdateMode);
 }

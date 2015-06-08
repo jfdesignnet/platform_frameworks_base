@@ -25,10 +25,10 @@
 
 #include <gui/GLConsumer.h>
 
+#include <Paint.h>
 #include <SkBitmap.h>
 #include <SkCanvas.h>
 #include <SkMatrix.h>
-#include <SkPaint.h>
 #include <SkXfermode.h>
 
 #include <DeferredLayerUpdater.h>
@@ -56,7 +56,7 @@ static void android_view_HardwareLayer_setLayerPaint(JNIEnv* env, jobject clazz,
         jlong layerUpdaterPtr, jlong paintPtr) {
     DeferredLayerUpdater* layer = reinterpret_cast<DeferredLayerUpdater*>(layerUpdaterPtr);
     if (layer) {
-        SkPaint* paint = reinterpret_cast<SkPaint*>(paintPtr);
+        Paint* paint = reinterpret_cast<Paint*>(paintPtr);
         layer->setPaint(paint);
     }
 }
@@ -79,12 +79,6 @@ static void android_view_HardwareLayer_updateSurfaceTexture(JNIEnv* env, jobject
         jlong layerUpdaterPtr) {
     DeferredLayerUpdater* layer = reinterpret_cast<DeferredLayerUpdater*>(layerUpdaterPtr);
     layer->updateTexImage();
-}
-
-static jlong android_view_HardwareLayer_getLayer(JNIEnv* env, jobject clazz,
-        jlong layerUpdaterPtr) {
-    DeferredLayerUpdater* layer = reinterpret_cast<DeferredLayerUpdater*>(layerUpdaterPtr);
-    return reinterpret_cast<jlong>( layer->backingLayer() );
 }
 
 static jint android_view_HardwareLayer_getTexName(JNIEnv* env, jobject clazz,
@@ -111,7 +105,6 @@ static JNINativeMethod gMethods[] = {
             (void*) android_view_HardwareLayer_setSurfaceTexture },
     { "nUpdateSurfaceTexture",   "(J)V",       (void*) android_view_HardwareLayer_updateSurfaceTexture },
 
-    { "nGetLayer",               "(J)J",       (void*) android_view_HardwareLayer_getLayer },
     { "nGetTexName",             "(J)I",       (void*) android_view_HardwareLayer_getTexName },
 #endif
 };

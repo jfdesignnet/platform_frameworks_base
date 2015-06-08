@@ -30,8 +30,6 @@
 #include "SkTArray.h"
 #include "SkTemplates.h"
 
-#include <minikin/Layout.h>
-#include "MinikinSkia.h"
 #include "MinikinUtils.h"
 
 #include "TypefaceImpl.h"
@@ -87,6 +85,7 @@ public:
     virtual bool clipPath(const SkPath* path, SkRegion::Op op);
     virtual bool clipRegion(const SkRegion* region, SkRegion::Op op);
 
+    virtual SkDrawFilter* getDrawFilter();
     virtual void setDrawFilter(SkDrawFilter* drawFilter);
 
     virtual void drawColor(int color, SkXfermode::Mode mode);
@@ -117,12 +116,15 @@ public:
     virtual void drawBitmapMesh(const SkBitmap& bitmap, int meshWidth, int meshHeight,
             const float* vertices, const int* colors, const SkPaint* paint);
 
-    virtual void drawText(const char* text, int start, int count, int contextCount,
-            float x, float y, int bidiFlags, const SkPaint& paint, TypefaceImpl* typeface);
-    virtual void drawPosText(const char* text, const float* positions, int count, int posCount,
-            const SkPaint& paint);
-    virtual void drawTextOnPath(const char* text, int count, const SkPath& path,
+    virtual void drawText(const uint16_t* text, const float* positions, int count,
+            const SkPaint& paint, float x, float y,
+            float boundsLeft, float boundsTop, float boundsRight, float boundsBottom);
+    virtual void drawPosText(const uint16_t* text, const float* positions, int count,
+            int posCount, const SkPaint& paint);
+    virtual void drawTextOnPath(const uint16_t* glyphs, int count, const SkPath& path,
             float hOffset, float vOffset, const SkPaint& paint);
+
+    virtual bool drawTextAbsolutePos() const { return true; }
 
 private:
     struct SaveRec {
@@ -454,6 +456,10 @@ bool SkiaCanvas::clipRegion(const SkRegion* region, SkRegion::Op op) {
 // Canvas state operations: Filters
 // ----------------------------------------------------------------------------
 
+SkDrawFilter* SkiaCanvas::getDrawFilter() {
+    return mCanvas->getDrawFilter();
+}
+
 void SkiaCanvas::setDrawFilter(SkDrawFilter* drawFilter) {
     mCanvas->setDrawFilter(drawFilter);
 }
@@ -668,88 +674,20 @@ void SkiaCanvas::drawBitmapMesh(const SkBitmap& bitmap, int meshWidth, int meshH
 // Canvas draw operations: Text
 // ----------------------------------------------------------------------------
 
-class DrawTextFunctor {
-public:
-    DrawTextFunctor(const Layout& layout, SkCanvas* canvas, float x, float y, SkPaint* paint,
-                uint16_t* glyphs, SkPoint* pos)
-            : layout(layout), canvas(canvas), x(x), y(y), paint(paint), glyphs(glyphs),
-                pos(pos) { }
-
-    void operator()(size_t start, size_t end) {
-        for (size_t i = start; i < end; i++) {
-            glyphs[i] = layout.getGlyphId(i);
-            pos[i].fX = x + layout.getX(i);
-            pos[i].fY = y + layout.getY(i);
-        }
-        canvas->drawPosText(glyphs + start, (end - start) << 1, pos + start, *paint);
-    }
-private:
-    const Layout& layout;
-    SkCanvas* canvas;
-    float x;
-    float y;
-    SkPaint* paint;
-    uint16_t* glyphs;
-    SkPoint* pos;
-};
-
-void SkiaCanvas::drawText(const char* text, int start, int count, int contextCount,
-        float x, float y, int bidiFlags, const SkPaint& paint, TypefaceImpl* typeface) {
-    Layout layout;
-    std::string css = MinikinUtils::setLayoutProperties(&layout, &paint, bidiFlags, typeface);
-    layout.doLayout((uint16_t*)text, start, count, contextCount, css);
-
-    size_t nGlyphs = layout.nGlyphs();
-    uint16_t* glyphs = new uint16_t[nGlyphs];
-    SkPoint* pos = new SkPoint[nGlyphs];
-
+void SkiaCanvas::drawText(const uint16_t* text, const float* positions, int count,
+        const SkPaint& paint, float x, float y,
+        float boundsLeft, float boundsTop, float boundsRight, float boundsBottom) {
+    // Set align to left for drawing, as we don't want individual
+    // glyphs centered or right-aligned; the offset above takes
+    // care of all alignment.
     SkPaint paintCopy(paint);
-    x += MinikinUtils::xOffsetForTextAlign(&paintCopy, layout);
     paintCopy.setTextAlign(SkPaint::kLeft_Align);
-    paintCopy.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
 
-    DrawTextFunctor f(layout, mCanvas, x, y, &paintCopy, glyphs, pos);
-    MinikinUtils::forFontRun(layout, &paintCopy, f);
-    drawTextDecorations(x, y, layout.getAdvance(), paintCopy);
-
-    delete[] glyphs;
-    delete[] pos;
+    SK_COMPILE_ASSERT(sizeof(SkPoint) == sizeof(float)*2, SkPoint_is_no_longer_2_floats);
+    mCanvas->drawPosText(text, count << 1, reinterpret_cast<const SkPoint*>(positions), paintCopy);
 }
 
-// Same values used by Skia
-#define kStdStrikeThru_Offset   (-6.0f / 21.0f)
-#define kStdUnderline_Offset    (1.0f / 9.0f)
-#define kStdUnderline_Thickness (1.0f / 18.0f)
-
-void SkiaCanvas::drawTextDecorations(float x, float y, float length, const SkPaint& paint) {
-    uint32_t flags;
-    SkDrawFilter* drawFilter = mCanvas->getDrawFilter();
-    if (drawFilter) {
-        SkPaint paintCopy(paint);
-        drawFilter->filter(&paintCopy, SkDrawFilter::kText_Type);
-        flags = paintCopy.getFlags();
-    } else {
-        flags = paint.getFlags();
-    }
-    if (flags & (SkPaint::kUnderlineText_Flag | SkPaint::kStrikeThruText_Flag)) {
-        SkScalar left = x;
-        SkScalar right = x + length;
-        float textSize = paint.getTextSize();
-        float strokeWidth = fmax(textSize * kStdUnderline_Thickness, 1.0f);
-        if (flags & SkPaint::kUnderlineText_Flag) {
-            SkScalar top = y + textSize * kStdUnderline_Offset - 0.5f * strokeWidth;
-            SkScalar bottom = y + textSize * kStdUnderline_Offset + 0.5f * strokeWidth;
-            mCanvas->drawRectCoords(left, top, right, bottom, paint);
-        }
-        if (flags & SkPaint::kStrikeThruText_Flag) {
-            SkScalar top = y + textSize * kStdStrikeThru_Offset - 0.5f * strokeWidth;
-            SkScalar bottom = y + textSize * kStdStrikeThru_Offset + 0.5f * strokeWidth;
-            mCanvas->drawRectCoords(left, top, right, bottom, paint);
-        }
-    }
-}
-
-void SkiaCanvas::drawPosText(const char* text, const float* positions, int count, int posCount,
+void SkiaCanvas::drawPosText(const uint16_t* text, const float* positions, int count, int posCount,
         const SkPaint& paint) {
     SkPoint* posPtr = posCount > 0 ? new SkPoint[posCount] : NULL;
     int indx;
@@ -765,9 +703,9 @@ void SkiaCanvas::drawPosText(const char* text, const float* positions, int count
     delete[] posPtr;
 }
 
-void SkiaCanvas::drawTextOnPath(const char* text, int count, const SkPath& path,
+void SkiaCanvas::drawTextOnPath(const uint16_t* glyphs, int count, const SkPath& path,
         float hOffset, float vOffset, const SkPaint& paint) {
-    mCanvas->drawTextOnPathHV(text, count, path, hOffset, vOffset, paint);
+    mCanvas->drawTextOnPathHV(glyphs, count, path, hOffset, vOffset, paint);
 }
 
 } // namespace android

@@ -17,11 +17,11 @@
 package android.net;
 
 import android.app.PendingIntent;
-import android.net.LinkQualityInfo;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
+import android.net.NetworkMisc;
 import android.net.NetworkQuotaInfo;
 import android.net.NetworkRequest;
 import android.net.NetworkState;
@@ -47,7 +47,9 @@ interface IConnectivityManager
     NetworkInfo getNetworkInfo(int networkType);
     NetworkInfo getNetworkInfoForNetwork(in Network network);
     NetworkInfo[] getAllNetworkInfo();
+    Network getNetworkForType(int networkType);
     Network[] getAllNetworks();
+    NetworkCapabilities[] getDefaultNetworkCapabilitiesForUser(int userId);
 
     NetworkInfo getProvisioningOrActiveNetworkInfo();
 
@@ -64,17 +66,7 @@ interface IConnectivityManager
     NetworkQuotaInfo getActiveNetworkQuotaInfo();
     boolean isActiveNetworkMetered();
 
-    int startUsingNetworkFeature(int networkType, in String feature,
-            in IBinder binder);
-
-    int stopUsingNetworkFeature(int networkType, in String feature);
-
-    boolean requestRouteToHost(int networkType, int hostAddress, String packageName);
-
-    boolean requestRouteToHostAddress(int networkType, in byte[] hostAddress, String packageName);
-
-    /** Policy control over specific {@link NetworkStateTracker}. */
-    void setPolicyDataEnable(int networkType, boolean enabled);
+    boolean requestRouteToHostAddress(int networkType, in byte[] hostAddress);
 
     int tether(String iface);
 
@@ -108,11 +100,13 @@ interface IConnectivityManager
 
     void setGlobalProxy(in ProxyInfo p);
 
-    ProxyInfo getProxy();
+    ProxyInfo getDefaultProxy();
 
     void setDataDependency(int networkType, boolean met);
 
     boolean prepareVpn(String oldPackage, String newPackage);
+
+    void setVpnPackageAuthorization(boolean authorized);
 
     ParcelFileDescriptor establishVpn(in VpnConfig config);
 
@@ -136,14 +130,7 @@ interface IConnectivityManager
 
     String getMobileRedirectedProvisioningUrl();
 
-    LinkQualityInfo getLinkQualityInfo(int networkType);
-
-    LinkQualityInfo getActiveLinkQualityInfo();
-
-    LinkQualityInfo[] getAllLinkQualityInfo();
-
-    void setProvisioningNotificationVisible(boolean visible, int networkType, in String extraInfo,
-            in String url);
+    void setProvisioningNotificationVisible(boolean visible, int networkType, in String action);
 
     void setAirplaneMode(boolean enable);
 
@@ -152,13 +139,15 @@ interface IConnectivityManager
     void unregisterNetworkFactory(in Messenger messenger);
 
     void registerNetworkAgent(in Messenger messenger, in NetworkInfo ni, in LinkProperties lp,
-            in NetworkCapabilities nc, int score);
+            in NetworkCapabilities nc, int score, in NetworkMisc misc);
 
     NetworkRequest requestNetwork(in NetworkCapabilities networkCapabilities,
             in Messenger messenger, int timeoutSec, in IBinder binder, int legacy);
 
     NetworkRequest pendingRequestForNetwork(in NetworkCapabilities networkCapabilities,
             in PendingIntent operation);
+
+    void releasePendingNetworkRequest(in PendingIntent operation);
 
     NetworkRequest listenForNetwork(in NetworkCapabilities networkCapabilities,
             in Messenger messenger, in IBinder binder);
@@ -169,4 +158,8 @@ interface IConnectivityManager
     void releaseNetworkRequest(in NetworkRequest networkRequest);
 
     int getRestoreDefaultNetworkDelay(int networkType);
+
+    boolean addVpnAddress(String address, int prefixLength);
+    boolean removeVpnAddress(String address, int prefixLength);
+    boolean setUnderlyingNetworksForVpn(in Network[] networks);
 }

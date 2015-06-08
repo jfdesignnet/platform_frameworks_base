@@ -23,12 +23,14 @@ import android.content.Context;
 import android.media.AudioManager;
 import android.media.IRemoteVolumeController;
 import android.media.session.ISessionManager;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
 import android.service.notification.NotificationListenerService;
 import android.text.TextUtils;
+import android.util.ArrayMap;
 import android.util.Log;
 import android.view.KeyEvent;
 
@@ -37,11 +39,11 @@ import java.util.List;
 
 /**
  * Provides support for interacting with {@link MediaSession media sessions}
- * that applications have published to express their ongoing media playback state.
+ * that applications have published to express their ongoing media playback
+ * state.
  * <p>
  * Use <code>Context.getSystemService(Context.MEDIA_SESSION_SERVICE)</code> to
  * get an instance of this class.
- * <p>
  *
  * @see MediaSession
  * @see MediaController
@@ -49,9 +51,20 @@ import java.util.List;
 public final class MediaSessionManager {
     private static final String TAG = "SessionManager";
 
+    private final ArrayMap<OnActiveSessionsChangedListener, SessionsChangedWrapper> mListeners
+            = new ArrayMap<OnActiveSessionsChangedListener, SessionsChangedWrapper>();
+    private final Object mLock = new Object();
     private final ISessionManager mService;
 
     private Context mContext;
+
+    /**
+     * Special flag for sending the mute key to dispatchAdjustVolume used by the
+     * system.
+     *
+     * @hide
+     */
+    public static final int DIRECTION_MUTE = -99;
 
     /**
      * @hide
@@ -116,7 +129,7 @@ public final class MediaSessionManager {
             List<IBinder> binders = mService.getSessions(notificationListener, userId);
             int size = binders.size();
             for (int i = 0; i < size; i++) {
-                MediaController controller = new MediaController(ISessionController.Stub
+                MediaController controller = new MediaController(mContext, ISessionController.Stub
                         .asInterface(binders.get(i)));
                 controllers.add(controller);
             }
@@ -133,15 +146,39 @@ public final class MediaSessionManager {
      * the calling app. You may also retrieve this list if your app is an
      * enabled notification listener using the
      * {@link NotificationListenerService} APIs, in which case you must pass the
-     * {@link ComponentName} of your enabled listener.
+     * {@link ComponentName} of your enabled listener. Updates will be posted to
+     * the thread that registered the listener.
      *
      * @param sessionListener The listener to add.
      * @param notificationListener The enabled notification listener component.
      *            May be null.
      */
-    public void addActiveSessionsListener(SessionListener sessionListener,
-            ComponentName notificationListener) {
-        addActiveSessionsListener(sessionListener, notificationListener, UserHandle.myUserId());
+    public void addOnActiveSessionsChangedListener(
+            @NonNull OnActiveSessionsChangedListener sessionListener,
+            @Nullable ComponentName notificationListener) {
+        addOnActiveSessionsChangedListener(sessionListener, notificationListener, null);
+    }
+
+    /**
+     * Add a listener to be notified when the list of active sessions
+     * changes.This requires the
+     * android.Manifest.permission.MEDIA_CONTENT_CONTROL permission be held by
+     * the calling app. You may also retrieve this list if your app is an
+     * enabled notification listener using the
+     * {@link NotificationListenerService} APIs, in which case you must pass the
+     * {@link ComponentName} of your enabled listener. Updates will be posted to
+     * the handler specified or to the caller's thread if the handler is null.
+     *
+     * @param sessionListener The listener to add.
+     * @param notificationListener The enabled notification listener component.
+     *            May be null.
+     * @param handler The handler to post events to.
+     */
+    public void addOnActiveSessionsChangedListener(
+            @NonNull OnActiveSessionsChangedListener sessionListener,
+            @Nullable ComponentName notificationListener, @Nullable Handler handler) {
+        addOnActiveSessionsChangedListener(sessionListener, notificationListener,
+                UserHandle.myUserId(), handler);
     }
 
     /**
@@ -157,17 +194,30 @@ public final class MediaSessionManager {
      * @param notificationListener The enabled notification listener component.
      *            May be null.
      * @param userId The userId to listen for changes on.
+     * @param handler The handler to post updates on.
      * @hide
      */
-    public void addActiveSessionsListener(@NonNull SessionListener sessionListener,
-            @Nullable ComponentName notificationListener, int userId) {
+    public void addOnActiveSessionsChangedListener(
+            @NonNull OnActiveSessionsChangedListener sessionListener,
+            @Nullable ComponentName notificationListener, int userId, @Nullable Handler handler) {
         if (sessionListener == null) {
             throw new IllegalArgumentException("listener may not be null");
         }
-        try {
-            mService.addSessionsListener(sessionListener.mStub, notificationListener, userId);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error in addActiveSessionsListener.", e);
+        if (handler == null) {
+            handler = new Handler();
+        }
+        synchronized (mLock) {
+            if (mListeners.get(sessionListener) != null) {
+                Log.w(TAG, "Attempted to add session listener twice, ignoring.");
+                return;
+            }
+            SessionsChangedWrapper wrapper = new SessionsChangedWrapper(sessionListener, handler);
+            try {
+                mService.addSessionsListener(wrapper.mStub, notificationListener, userId);
+                mListeners.put(sessionListener, wrapper);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Error in addOnActiveSessionsChangedListener.", e);
+            }
         }
     }
 
@@ -175,16 +225,21 @@ public final class MediaSessionManager {
      * Stop receiving active sessions updates on the specified listener.
      *
      * @param listener The listener to remove.
-     * @hide
      */
-    public void removeActiveSessionsListener(@NonNull SessionListener listener) {
+    public void removeOnActiveSessionsChangedListener(
+            @NonNull OnActiveSessionsChangedListener listener) {
         if (listener == null) {
             throw new IllegalArgumentException("listener may not be null");
         }
-        try {
-            mService.removeSessionsListener(listener.mStub);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error in removeActiveSessionsListener.", e);
+        synchronized (mLock) {
+            SessionsChangedWrapper wrapper = mListeners.remove(listener);
+            if (wrapper != null) {
+                try {
+                    mService.removeSessionsListener(wrapper.mStub);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Error in removeOnActiveSessionsChangedListener.", e);
+                }
+            }
         }
     }
 
@@ -249,31 +304,54 @@ public final class MediaSessionManager {
     }
 
     /**
-     * Listens for changes to the list of active sessions. This can be added
-     * using {@link #addActiveSessionsListener}.
+     * Check if the global priority session is currently active. This can be
+     * used to decide if media keys should be sent to the session or to the app.
+     *
+     * @hide
      */
-    public static abstract class SessionListener {
-        /**
-         * Called when the list of active sessions has changed. This can be due
-         * to a session being added or removed or the order of sessions
-         * changing. The controllers will be provided in priority order with the
-         * most important controller at index 0.
-         *
-         * @param controllers The updated list of controllers for the user that
-         *            changed.
-         */
-        public abstract void onActiveSessionsChanged(
-                @Nullable List<MediaController> controllers);
+    public boolean isGlobalPriorityActive() {
+        try {
+            return mService.isGlobalPriorityActive();
+        } catch (RemoteException e) {
+            Log.e(TAG, "Failed to check if the global priority is active.", e);
+        }
+        return false;
+    }
+
+    /**
+     * Listens for changes to the list of active sessions. This can be added
+     * using {@link #addOnActiveSessionsChangedListener}.
+     */
+    public interface OnActiveSessionsChangedListener {
+        public void onActiveSessionsChanged(@Nullable List<MediaController> controllers);
+    }
+
+    private final class SessionsChangedWrapper {
+        private final OnActiveSessionsChangedListener mListener;
+        private final Handler mHandler;
+
+        public SessionsChangedWrapper(OnActiveSessionsChangedListener listener, Handler handler) {
+            mListener = listener;
+            mHandler = handler;
+        }
 
         private final IActiveSessionsListener.Stub mStub = new IActiveSessionsListener.Stub() {
             @Override
-            public void onActiveSessionsChanged(List<MediaSession.Token> tokens) {
-                ArrayList<MediaController> controllers = new ArrayList<MediaController>();
-                int size = tokens.size();
-                for (int i = 0; i < size; i++) {
-                    controllers.add(new MediaController(tokens.get(i)));
+            public void onActiveSessionsChanged(final List<MediaSession.Token> tokens) {
+                if (mHandler != null) {
+                    mHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            ArrayList<MediaController> controllers
+                                    = new ArrayList<MediaController>();
+                            int size = tokens.size();
+                            for (int i = 0; i < size; i++) {
+                                controllers.add(new MediaController(mContext, tokens.get(i)));
+                            }
+                            mListener.onActiveSessionsChanged(controllers);
+                        }
+                    });
                 }
-                SessionListener.this.onActiveSessionsChanged(controllers);
             }
         };
     }

@@ -29,11 +29,6 @@
 namespace android {
 namespace uirenderer {
 
-template<typename T>
-static inline T max(T a, T b) {
-    return a > b ? a : b;
-}
-
 void ShadowTessellator::tessellateAmbientShadow(bool isCasterOpaque,
         const Vector3* casterPolygon, int casterVertexCount,
         const Vector3& centroid3d, const Rect& casterBounds,
@@ -66,7 +61,7 @@ void ShadowTessellator::tessellateAmbientShadow(bool isCasterOpaque,
 }
 
 void ShadowTessellator::tessellateSpotShadow(bool isCasterOpaque,
-        const Vector3* casterPolygon, int casterVertexCount,
+        const Vector3* casterPolygon, int casterVertexCount, const Vector3& casterCentroid,
         const mat4& receiverTransform, const Vector3& lightCenter, int lightRadius,
         const Rect& casterBounds, const Rect& localClip, VertexBuffer& shadowVertexBuffer) {
     ATRACE_CALL();
@@ -109,9 +104,9 @@ void ShadowTessellator::tessellateSpotShadow(bool isCasterOpaque,
         return;
     }
 
-    SpotShadow::createSpotShadow(isCasterOpaque,
-            casterPolygon, casterVertexCount, adjustedLightCenter, lightRadius,
-            lightVertexCount, shadowVertexBuffer);
+    SpotShadow::createSpotShadow(isCasterOpaque, adjustedLightCenter, lightRadius,
+            casterPolygon, casterVertexCount, casterCentroid, shadowVertexBuffer);
+
 #if DEBUG_SHADOW
      if(shadowVertexBuffer.getVertexCount() <= 0) {
         ALOGD("Spot shadow generation failed %d", shadowVertexBuffer.getVertexCount());
@@ -172,13 +167,26 @@ Vector2 ShadowTessellator::centroid2d(const Vector2* poly, int polyLength) {
 
     Vector2 centroid = poly[0];
     if (area != 0) {
-        centroid = Vector2(sumx / (3 * area), sumy / (3 * area));
+        centroid = (Vector2){static_cast<float>(sumx / (3 * area)),
+            static_cast<float>(sumy / (3 * area))};
     } else {
         ALOGW("Area is 0 while computing centroid!");
     }
     return centroid;
 }
 
+// Make sure p1 -> p2 is going CW around the poly.
+Vector2 ShadowTessellator::calculateNormal(const Vector2& p1, const Vector2& p2) {
+    Vector2 result = p2 - p1;
+    if (result.x != 0 || result.y != 0) {
+        result.normalize();
+        // Calculate the normal , which is CCW 90 rotate to the delta.
+        float tempy = result.y;
+        result.y = result.x;
+        result.x = -tempy;
+    }
+    return result;
+}
 /**
  * Test whether the polygon is order in clockwise.
  *
@@ -212,19 +220,19 @@ bool ShadowTessellator::isClockwisePath(const SkPath& path) {
     while (SkPath::kDone_Verb != (v = iter.next(pts))) {
             switch (v) {
             case SkPath::kMove_Verb:
-                arrayForDirection.add(Vector2(pts[0].x(), pts[0].y()));
+                arrayForDirection.add((Vector2){pts[0].x(), pts[0].y()});
                 break;
             case SkPath::kLine_Verb:
-                arrayForDirection.add(Vector2(pts[1].x(), pts[1].y()));
+                arrayForDirection.add((Vector2){pts[1].x(), pts[1].y()});
                 break;
             case SkPath::kQuad_Verb:
-                arrayForDirection.add(Vector2(pts[1].x(), pts[1].y()));
-                arrayForDirection.add(Vector2(pts[2].x(), pts[2].y()));
+                arrayForDirection.add((Vector2){pts[1].x(), pts[1].y()});
+                arrayForDirection.add((Vector2){pts[2].x(), pts[2].y()});
                 break;
             case SkPath::kCubic_Verb:
-                arrayForDirection.add(Vector2(pts[1].x(), pts[1].y()));
-                arrayForDirection.add(Vector2(pts[2].x(), pts[2].y()));
-                arrayForDirection.add(Vector2(pts[3].x(), pts[3].y()));
+                arrayForDirection.add((Vector2){pts[1].x(), pts[1].y()});
+                arrayForDirection.add((Vector2){pts[2].x(), pts[2].y()});
+                arrayForDirection.add((Vector2){pts[3].x(), pts[3].y()});
                 break;
             default:
                 break;
@@ -242,6 +250,30 @@ void ShadowTessellator::reverseVertexArray(Vertex* polygon, int len) {
         polygon[i] = polygon[k];
         polygon[k] = tmp;
     }
+}
+
+int ShadowTessellator::getExtraVertexNumber(const Vector2& vector1,
+        const Vector2& vector2, float divisor) {
+    // When there is no distance difference, there is no need for extra vertices.
+    if (vector1.lengthSquared() == 0 || vector2.lengthSquared() == 0) {
+        return 0;
+    }
+    // The formula is :
+    // extraNumber = floor(acos(dot(n1, n2)) / (M_PI / EXTRA_VERTEX_PER_PI))
+    // The value ranges for each step are:
+    // dot( ) --- [-1, 1]
+    // acos( )     --- [0, M_PI]
+    // floor(...)  --- [0, EXTRA_VERTEX_PER_PI]
+    float dotProduct = vector1.dot(vector2);
+    // TODO: Use look up table for the dotProduct to extraVerticesNumber
+    // computation, if needed.
+    float angle = acosf(dotProduct);
+    return (int) floor(angle / divisor);
+}
+
+void ShadowTessellator::checkOverflow(int used, int total, const char* bufferName) {
+    LOG_ALWAYS_FATAL_IF(used > total, "Error: %s overflow!!! used %d, total %d",
+            bufferName, used, total);
 }
 
 }; // namespace uirenderer

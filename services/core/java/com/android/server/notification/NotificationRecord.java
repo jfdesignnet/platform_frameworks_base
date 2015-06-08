@@ -20,7 +20,11 @@ import android.content.Context;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
+import android.media.AudioAttributes;
+import android.os.UserHandle;
 import android.service.notification.StatusBarNotification;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.PrintWriter;
 import java.lang.reflect.Array;
@@ -41,6 +45,8 @@ import java.util.Objects;
  */
 public final class NotificationRecord {
     final StatusBarNotification sbn;
+    final int mOriginalFlags;
+
     NotificationUsageStats.SingleNotificationStats stats;
     boolean isCanceled;
     int score;
@@ -60,10 +66,16 @@ public final class NotificationRecord {
     public boolean isUpdate;
     private int mPackagePriority;
 
-    NotificationRecord(StatusBarNotification sbn, int score)
+    private int mAuthoritativeRank;
+    private String mGlobalSortKey;
+    private int mPackageVisibility;
+
+    @VisibleForTesting
+    public NotificationRecord(StatusBarNotification sbn, int score)
     {
         this.sbn = sbn;
         this.score = score;
+        mOriginalFlags = sbn.getNotification().flags;
         mRankingTimeMs = calculateRankingTimeMs(0L);
     }
 
@@ -72,14 +84,18 @@ public final class NotificationRecord {
         mContactAffinity = previous.mContactAffinity;
         mRecentlyIntrusive = previous.mRecentlyIntrusive;
         mPackagePriority = previous.mPackagePriority;
+        mPackageVisibility = previous.mPackageVisibility;
         mIntercept = previous.mIntercept;
         mRankingTimeMs = calculateRankingTimeMs(previous.getRankingTimeMs());
+        // Don't copy mGlobalSortKey, recompute it.
     }
 
     public Notification getNotification() { return sbn.getNotification(); }
     public int getFlags() { return sbn.getNotification().flags; }
-    public int getUserId() { return sbn.getUserId(); }
+    public UserHandle getUser() { return sbn.getUser(); }
     public String getKey() { return sbn.getKey(); }
+    /** @deprecated Use {@link #getUser()} instead. */
+    public int getUserId() { return sbn.getUserId(); }
 
     void dump(PrintWriter pw, String prefix, Context baseContext) {
         final Notification notification = sbn.getNotification();
@@ -89,6 +105,7 @@ public final class NotificationRecord {
                 + " / " + idDebugString(baseContext, sbn.getPackageName(), notification.icon));
         pw.println(prefix + "  pri=" + notification.priority + " score=" + sbn.getScore());
         pw.println(prefix + "  key=" + sbn.getKey());
+        pw.println(prefix + "  groupKey=" + getGroupKey());
         pw.println(prefix + "  contentIntent=" + notification.contentIntent);
         pw.println(prefix + "  deleteIntent=" + notification.deleteIntent);
         pw.println(prefix + "  tickerText=" + notification.tickerText);
@@ -96,6 +113,8 @@ public final class NotificationRecord {
         pw.println(prefix + String.format("  defaults=0x%08x flags=0x%08x",
                 notification.defaults, notification.flags));
         pw.println(prefix + "  sound=" + notification.sound);
+        pw.println(prefix + "  audioStreamType=" + notification.audioStreamType);
+        pw.println(prefix + "  audioAttributes=" + notification.audioAttributes);
         pw.println(prefix + String.format("  color=0x%08x", notification.color));
         pw.println(prefix + "  vibrate=" + Arrays.toString(notification.vibrate));
         pw.println(prefix + String.format("  led=0x%08x onMs=%d offMs=%d",
@@ -144,7 +163,9 @@ public final class NotificationRecord {
         pw.println(prefix + "  mContactAffinity=" + mContactAffinity);
         pw.println(prefix + "  mRecentlyIntrusive=" + mRecentlyIntrusive);
         pw.println(prefix + "  mPackagePriority=" + mPackagePriority);
+        pw.println(prefix + "  mPackageVisibility=" + mPackageVisibility);
         pw.println(prefix + "  mIntercept=" + mIntercept);
+        pw.println(prefix + "  mGlobalSortKey=" + mGlobalSortKey);
         pw.println(prefix + "  mRankingTimeMs=" + mRankingTimeMs);
     }
 
@@ -197,11 +218,19 @@ public final class NotificationRecord {
     }
 
     public void setPackagePriority(int packagePriority) {
-      mPackagePriority = packagePriority;
+        mPackagePriority = packagePriority;
     }
 
     public int getPackagePriority() {
         return mPackagePriority;
+    }
+
+    public void setPackageVisibilityOverride(int packageVisibility) {
+        mPackageVisibility = packageVisibility;
+    }
+
+    public int getPackageVisibilityOverride() {
+        return mPackageVisibility;
     }
 
     public boolean setIntercepted(boolean intercept) {
@@ -214,7 +243,16 @@ public final class NotificationRecord {
     }
 
     public boolean isCategory(String category) {
-        return Objects.equals(category, getNotification().category);
+        return Objects.equals(getNotification().category, category);
+    }
+
+    public boolean isAudioStream(int stream) {
+        return getNotification().audioStreamType == stream;
+    }
+
+    public boolean isAudioAttributesUsage(int usage) {
+        final AudioAttributes attributes = getNotification().audioAttributes;
+        return attributes != null && attributes.getUsage() == usage;
     }
 
     /**
@@ -240,5 +278,25 @@ public final class NotificationRecord {
             return previousRankingTimeMs;
         }
         return sbn.getPostTime();
+    }
+
+    public void setGlobalSortKey(String globalSortKey) {
+        mGlobalSortKey = globalSortKey;
+    }
+
+    public String getGlobalSortKey() {
+        return mGlobalSortKey;
+    }
+
+    public void setAuthoritativeRank(int authoritativeRank) {
+        mAuthoritativeRank = authoritativeRank;
+    }
+
+    public int getAuthoritativeRank() {
+        return mAuthoritativeRank;
+    }
+
+    public String getGroupKey() {
+        return sbn.getGroupKey();
     }
 }

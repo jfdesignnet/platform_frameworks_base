@@ -48,12 +48,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.MANAGE_NETWORK_POLICY" />
     <uses-permission android:name="android.permission.CONNECTIVITY_INTERNAL" />
     <uses-permission android:name="android.permission.READ_NETWORK_USAGE_HISTORY" />
+    <uses-permission android:name="android.permission.CONTROL_VPN" />
 
     <!-- Physical hardware -->
     <uses-permission android:name="android.permission.MANAGE_USB" />
@@ -63,16 +65,18 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- ActivityManager -->
-    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.REAL_GET_TASKS" />
     <uses-permission android:name="android.permission.GET_DETAILED_TASKS" />
     <uses-permission android:name="android.permission.REORDER_TASKS" />
     <uses-permission android:name="android.permission.REMOVE_TASKS" />
     <uses-permission android:name="android.permission.STOP_APP_SWITCHES" />
     <uses-permission android:name="android.permission.SET_SCREEN_COMPATIBILITY" />
     <uses-permission android:name="android.permission.START_ANY_ACTIVITY" />
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS" />
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
     <uses-permission android:name="android.permission.GET_TOP_ACTIVITY_INFO" />
     <uses-permission android:name="android.permission.MANAGE_ACTIVITY_STACKS" />
+    <uses-permission android:name="android.permission.START_TASKS_FROM_RECENTS" />
 
     <!-- WindowManager -->
     <uses-permission android:name="android.permission.INTERNAL_SYSTEM_WINDOW" />
@@ -108,6 +112,9 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- Screen Capturing -->
+    <uses-permission android:name="android.permission.MANAGE_MEDIA_PROJECTION" />
+
     <application
         android:name=".SystemUIApplication"
         android:persistent="true"
@@ -115,7 +122,7 @@
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:label="@string/app_label"
-        android:icon="@*android:drawable/platlogo"
+        android:icon="@drawable/icon"
         android:process="com.android.systemui"
         android:supportsRtl="true"
         android:theme="@style/systemui_theme">
@@ -150,6 +157,13 @@
             </intent-filter>
         </receiver>
 
+        <receiver android:name=".qs.tiles.HotspotTile$APChangedReceiver"
+                androidprv:primaryUserOnly="true">
+            <intent-filter>
+                <action android:name="android.net.wifi.WIFI_AP_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <activity android:name=".usb.UsbStorageActivity"
                   android:label="@*android:string/usb_storage_activity_title"
                   android:excludeFromRecents="true">
@@ -164,6 +178,7 @@
                 android:theme="@style/RecentsStyle"
                 android:excludeFromRecents="true"
                 android:launchMode="singleInstance"
+                android:resumeWhilePausing="true"
                 android:exported="true">
           <intent-filter>
             <action android:name="com.android.systemui.TOGGLE_RECENTS" />
@@ -181,19 +196,34 @@
 
         <!-- Alternate Recents -->
         <activity android:name=".recents.RecentsActivity"
+                  android:label="@string/accessibility_desc_recent_apps"
+                  android:exported="false"
                   android:launchMode="singleInstance"
                   android:excludeFromRecents="true"
-                  android:theme="@style/RecentsTheme">
+                  android:stateNotNeeded="true"
+                  android:resumeWhilePausing="true"
+                  android:theme="@style/config_recents_activity_theme">
             <intent-filter>
                 <action android:name="com.android.systemui.recents.TOGGLE_RECENTS" />
             </intent-filter>
         </activity>
 
+        <receiver android:name=".recents.RecentsUserEventProxyReceiver"
+                  android:exported="false">
+            <intent-filter>
+                <action android:name="com.android.systemui.recents.action.SHOW_RECENTS_FOR_USER" />
+                <action android:name="com.android.systemui.recents.action.HIDE_RECENTS_FOR_USER" />
+                <action android:name="com.android.systemui.recents.action.TOGGLE_RECENTS_FOR_USER" />
+                <action android:name="com.android.systemui.recents.action.PRELOAD_RECENTS_FOR_USER" />
+                <action android:name="com.android.systemui.recents.action.CONFIG_CHANGED_FOR_USER" />
+            </intent-filter>
+        </receiver>
+
         <!-- started from UsbDeviceSettingsManager -->
         <activity android:name=".usb.UsbConfirmActivity"
             android:exported="true"
             android:permission="android.permission.MANAGE_USB"
-            android:theme="@*android:style/Theme.DeviceDefault.Light.Dialog.Alert"
+            android:theme="@style/Theme.SystemUI.Dialog.Alert"
             android:finishOnCloseSystemDialogs="true"
             android:excludeFromRecents="true">
         </activity>
@@ -202,7 +232,7 @@
         <activity android:name=".usb.UsbPermissionActivity"
             android:exported="true"
             android:permission="android.permission.MANAGE_USB"
-            android:theme="@*android:style/Theme.DeviceDefault.Light.Dialog.Alert"
+            android:theme="@style/Theme.SystemUI.Dialog.Alert"
             android:finishOnCloseSystemDialogs="true"
             android:excludeFromRecents="true">
         </activity>
@@ -211,7 +241,7 @@
         <activity android:name=".usb.UsbResolverActivity"
             android:exported="true"
             android:permission="android.permission.MANAGE_USB"
-            android:theme="@*android:style/Theme.DeviceDefault.Light.Dialog.Alert"
+            android:theme="@style/Theme.SystemUI.Dialog.Alert"
             android:finishOnCloseSystemDialogs="true"
             android:excludeFromRecents="true">
         </activity>
@@ -220,7 +250,7 @@
         <activity android:name=".usb.UsbAccessoryUriActivity"
             android:exported="true"
             android:permission="android.permission.MANAGE_USB"
-            android:theme="@*android:style/Theme.DeviceDefault.Light.Dialog.Alert"
+            android:theme="@style/Theme.SystemUI.Dialog.Alert"
             android:finishOnCloseSystemDialogs="true"
             android:excludeFromRecents="true">
         </activity>
@@ -228,7 +258,7 @@
         <!-- started from UsbDebuggingManager -->
         <activity android:name=".usb.UsbDebuggingActivity"
             android:permission="android.permission.MANAGE_USB"
-            android:theme="@*android:style/Theme.DeviceDefault.Light.Dialog.Alert"
+            android:theme="@style/Theme.SystemUI.Dialog.Alert"
             android:finishOnCloseSystemDialogs="true"
             android:excludeFromRecents="true">
         </activity>
@@ -244,6 +274,15 @@
             android:taskAffinity="com.android.systemui.net"
             android:excludeFromRecents="true" />
 
+        <!-- started from MediaProjectionManager -->
+        <activity
+            android:name=".media.MediaProjectionPermissionActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AlertDialogHost"
+            android:finishOnCloseSystemDialogs="true"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true" />
+
         <!-- platform logo easter egg activity -->
         <activity
             android:name=".DessertCase"
@@ -257,6 +296,21 @@
             android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".egg.LLandActivity"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar"
+                  android:exported="true"
+                  android:label="@string/lland"
+                  android:hardwareAccelerated="true"
+                  android:launchMode="singleInstance"
+                  android:screenOrientation="locked"
+                  android:process=":sweetsweetdesserts"
+                  android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="com.android.internal.category.PLATLOGO" />
             </intent-filter>
@@ -302,11 +356,25 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".settings.BrightnessDialog"
+            android:label="@string/quick_settings_brightness_dialog_title"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog"
+            android:finishOnCloseSystemDialogs="true"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SHOW_BRIGHTNESS_DIALOG" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
-        <!-- I dream of notifications -->
+        <!-- Doze with notifications, run in main sysui process for every user  -->
         <service
             android:name=".doze.DozeService"
             android:exported="true"
+            android:singleUser="true"
             android:permission="android.permission.BIND_DREAM_SERVICE" />
     </application>
 </manifest>

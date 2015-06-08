@@ -25,12 +25,9 @@
     <string name="label_paper_size_summary" msgid="5668204981332138168">"ფურცლის ზომა:"</string>
     <string name="label_color" msgid="1108690305218188969">"ფერი"</string>
     <string name="label_orientation" msgid="2853142581990496477">"ორიენტაცია"</string>
-    <!-- no translation found for label_pages (7768589729282182230) -->
-    <skip />
-    <!-- no translation found for template_all_pages (3322235982020148762) -->
-    <skip />
-    <!-- no translation found for template_page_range (428638530038286328) -->
-    <skip />
+    <string name="label_pages" msgid="7768589729282182230">"გვერდები"</string>
+    <string name="template_all_pages" msgid="3322235982020148762">"ყველა <xliff:g id="PAGE_COUNT">%1$s</xliff:g>"</string>
+    <string name="template_page_range" msgid="428638530038286328">"<xliff:g id="PAGE_COUNT">%1$s</xliff:g>-ის არეალი"</string>
     <string name="pages_range_example" msgid="8558694453556945172">"მაგ. 1–5, 8, 11–13"</string>
     <string name="print_preview" msgid="8010217796057763343">"ნახვა ამობეჭდვამდე"</string>
     <string name="install_for_print_preview" msgid="6366303997385509332">"გადახედვისთვის დააყენეთ PDF მნახველი"</string>
@@ -40,6 +37,14 @@
     <string name="all_printers" msgid="5018829726861876202">"ყველა პრინტერი…"</string>
     <string name="print_dialog" msgid="32628687461331979">"ბეჭდვის სარკმელი"</string>
     <string name="current_page_template" msgid="1386638343571771292">"<xliff:g id="CURRENT_PAGE">%1$d</xliff:g> /<xliff:g id="PAGE_COUNT">%2$d</xliff:g>"</string>
+    <string name="page_description_template" msgid="6831239682256197161">"გვერდი <xliff:g id="CURRENT_PAGE">%1$d</xliff:g> / <xliff:g id="PAGE_COUNT">%2$d</xliff:g>-დან"</string>
+    <string name="summary_template" msgid="8899734908625669193">"შეჯამება, ასლები <xliff:g id="COPIES">%1$s</xliff:g>, გვერდის ზომა <xliff:g id="PAPER_SIZE">%2$s</xliff:g>"</string>
+    <string name="expand_handle" msgid="7282974448109280522">"გაშლის სახელური"</string>
+    <string name="collapse_handle" msgid="6886637989442507451">"ჩაკეცვის სახელური"</string>
+    <string name="print_button" msgid="645164566271246268">"ბეჭდვა"</string>
+    <string name="savetopdf_button" msgid="2976186791686924743">"PDF-ში შენახვა"</string>
+    <string name="print_options_expanded" msgid="6944679157471691859">"ბეჭდვის პარამეტრები გაშლილია"</string>
+    <string name="print_options_collapsed" msgid="7455930445670414332">"ბეჭდვის პარამეტრები ჩაკეცილია"</string>
     <string name="search" msgid="5421724265322228497">"ძიება"</string>
     <string name="all_printers_label" msgid="3178848870161526399">"ყველა პრინტერი"</string>
     <string name="add_print_service_label" msgid="5356702546188981940">"სერვისის დამატება"</string>
@@ -79,6 +84,6 @@
     <string name="print_write_error_message" msgid="5787642615179572543">"ფაილში ჩაწერა ვერ მოხერხდა"</string>
     <string name="print_error_default_message" msgid="8602678405502922346">"უკაცრავად, ვერ მოხერხდა. სცადეთ ისევ."</string>
     <string name="print_error_retry" msgid="1426421728784259538">"გამეორება"</string>
-    <string name="print_error_printer_unavailable" msgid="8985614415253203381">"This printer isn\'t available right now."</string>
-    <string name="print_preparing_preview" msgid="3939930735671364712">"Preparing preview…"</string>
+    <string name="print_error_printer_unavailable" msgid="8985614415253203381">"პრინტერი ამჟამად მიუწვდომელია."</string>
+    <string name="print_preparing_preview" msgid="3939930735671364712">"მზადდება გადახედვა…"</string>
 </resources>

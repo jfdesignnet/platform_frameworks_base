@@ -17,12 +17,14 @@
 package com.android.systemui.statusbar;
 
 import android.content.Context;
+import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import com.android.systemui.R;
+import com.android.systemui.statusbar.stack.NotificationStackScrollLayout;
 
 import java.util.ArrayList;
 
@@ -34,9 +36,10 @@ public abstract class ExpandableView extends FrameLayout {
     private final int mMaxNotificationHeight;
 
     private OnHeightChangedListener mOnHeightChangedListener;
-    protected int mActualHeight;
+    private int mActualHeight;
     protected int mClipTopAmount;
     private boolean mActualHeightInitialized;
+    private boolean mDark;
     private ArrayList<View> mMatchParentViews = new ArrayList<View>();
 
     public ExpandableView(Context context, AttributeSet attrs) {
@@ -94,8 +97,20 @@ public abstract class ExpandableView extends FrameLayout {
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
         if (!mActualHeightInitialized && mActualHeight == 0) {
-            setActualHeight(getInitialHeight());
+            int initialHeight = getInitialHeight();
+            if (initialHeight != 0) {
+                setActualHeight(initialHeight);
+            }
         }
+    }
+
+    /**
+     * Resets the height of the view on the next layout pass
+     */
+    protected void resetActualHeight() {
+        mActualHeight = 0;
+        mActualHeightInitialized = false;
+        requestLayout();
     }
 
     protected int getInitialHeight() {
@@ -110,7 +125,7 @@ public abstract class ExpandableView extends FrameLayout {
         return false;
     }
 
-    private boolean filterMotionEvent(MotionEvent event) {
+    protected boolean filterMotionEvent(MotionEvent event) {
         return event.getActionMasked() != MotionEvent.ACTION_DOWN
                 || event.getY() > mClipTopAmount && event.getY() < mActualHeight;
     }
@@ -171,8 +186,31 @@ public abstract class ExpandableView extends FrameLayout {
      *
      * @param dark Whether the notification should be dark.
      * @param fade Whether an animation should be played to change the state.
+     * @param delay If fading, the delay of the animation.
      */
-    public void setDark(boolean dark, boolean fade) {
+    public void setDark(boolean dark, boolean fade, long delay) {
+        mDark = dark;
+    }
+
+    public boolean isDark() {
+        return mDark;
+    }
+
+    /**
+     * See {@link #setHideSensitive}. This is a variant which notifies this view in advance about
+     * the upcoming state of hiding sensitive notifications. It gets called at the very beginning
+     * of a stack scroller update such that the updated intrinsic height (which is dependent on
+     * whether private or public layout is showing) gets taken into account into all layout
+     * calculations.
+     */
+    public void setHideSensitiveForIntrinsicHeight(boolean hideSensitive) {
+    }
+
+    /**
+     * Sets whether the notification should hide its private contents if it is sensitive.
+     */
+    public void setHideSensitive(boolean hideSensitive, boolean animated, long delay,
+            long duration) {
     }
 
     /**
@@ -220,6 +258,7 @@ public abstract class ExpandableView extends FrameLayout {
     /**
      * Perform a remove animation on this view.
      *
+     * @param duration The duration of the remove animation.
      * @param translationDirection The direction value from [-1 ... 1] indicating in which the
      *                             animation should be performed. A value of -1 means that The
      *                             remove animation should be performed upwards,
@@ -227,14 +266,36 @@ public abstract class ExpandableView extends FrameLayout {
      *                             Should mean the opposite.
      * @param onFinishedRunnable A runnable which should be run when the animation is finished.
      */
-    public abstract void performRemoveAnimation(float translationDirection,
+    public abstract void performRemoveAnimation(long duration, float translationDirection,
             Runnable onFinishedRunnable);
 
-    public abstract void performAddAnimation(long delay);
-
-    public abstract void setScrimAmount(float scrimAmount);
+    public abstract void performAddAnimation(long delay, long duration);
 
     public void setBelowSpeedBump(boolean below) {
+    }
+
+    public void onHeightReset() {
+        if (mOnHeightChangedListener != null) {
+            mOnHeightChangedListener.onReset(this);
+        }
+    }
+
+    /**
+     * This method returns the drawing rect for the view which is different from the regular
+     * drawing rect, since we layout all children in the {@link NotificationStackScrollLayout} at
+     * position 0 and usually the translation is neglected. Since we are manually clipping this
+     * view,we also need to subtract the clipTopAmount from the top. This is needed in order to
+     * ensure that accessibility and focusing work correctly.
+     *
+     * @param outRect The (scrolled) drawing bounds of the view.
+     */
+    @Override
+    public void getDrawingRect(Rect outRect) {
+        super.getDrawingRect(outRect);
+        outRect.left += getTranslationX();
+        outRect.right += getTranslationX();
+        outRect.bottom = (int) (outRect.top + getTranslationY() + getActualHeight());
+        outRect.top += getTranslationY() + getClipTopAmount();
     }
 
     /**
@@ -247,5 +308,12 @@ public abstract class ExpandableView extends FrameLayout {
          *             padding or the padding between the elements changed
          */
         void onHeightChanged(ExpandableView view);
+
+        /**
+         * Called when the view is reset and therefore the height will change abruptly
+         *
+         * @param view The view which was reset.
+         */
+        void onReset(ExpandableView view);
     }
 }

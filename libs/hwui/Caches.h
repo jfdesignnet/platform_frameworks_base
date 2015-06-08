@@ -107,6 +107,7 @@ struct CacheLogger {
 ///////////////////////////////////////////////////////////////////////////////
 
 class RenderNode;
+class RenderState;
 
 class ANDROID_API Caches: public Singleton<Caches> {
     Caches();
@@ -131,6 +132,8 @@ public:
      * Initialize global system properties.
      */
     bool initProperties();
+
+    void setRenderState(RenderState* renderState) { mRenderState = renderState; }
 
     /**
      * Flush the cache.
@@ -337,7 +340,6 @@ public:
     TessellationCache tessellationCache;
     TextDropShadowCache dropShadowCache;
     FboCache fboCache;
-    ResourceCache resourceCache;
 
     GammaFontRenderer* fontRenderer;
 
@@ -345,8 +347,6 @@ public:
 
     Dither dither;
     Stencil stencil;
-
-    AssetAtlas assetAtlas;
 
     bool gpuPixelBuffersEnabled;
 
@@ -368,7 +368,7 @@ public:
     float propertyAmbientRatio;
     int propertyAmbientShadowStrength;
     int propertySpotShadowStrength;
-    std::vector<float> propertyExtraRasterBuckets;
+
 private:
     enum OverdrawColorSet {
         kColorSet_Default = 0,
@@ -428,9 +428,12 @@ private:
 
     uint32_t mFunctorsCount;
 
+    // Caches texture bindings for the GL_TEXTURE_2D target
     GLuint mBoundTextures[REQUIRED_TEXTURE_UNITS_COUNT];
 
     OverdrawColorSet mOverdrawDebugColorSet;
+
+    RenderState* mRenderState;
 }; // class Caches
 
 }; // namespace uirenderer

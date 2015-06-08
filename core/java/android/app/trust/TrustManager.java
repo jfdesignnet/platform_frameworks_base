@@ -31,8 +31,10 @@ import android.util.Log;
 public class TrustManager {
 
     private static final int MSG_TRUST_CHANGED = 1;
+    private static final int MSG_TRUST_MANAGED_CHANGED = 2;
 
     private static final String TAG = "TrustManager";
+    private static final String DATA_INITIATED_BY_USER = "initiatedByUser";
 
     private final ITrustManager mService;
     private final ArrayMap<TrustListener, ITrustListener> mTrustListeners;
@@ -86,6 +88,19 @@ public class TrustManager {
     }
 
     /**
+     * Reports that the visibility of the keyguard has changed.
+     *
+     * Requires the {@link android.Manifest.permission#ACCESS_KEYGUARD_SECURE_STORAGE} permission.
+     */
+    public void reportKeyguardShowingChanged() {
+        try {
+            mService.reportKeyguardShowingChanged();
+        } catch (RemoteException e) {
+            onError(e);
+        }
+    }
+
+    /**
      * Registers a listener for trust events.
      *
      * Requires the {@link android.Manifest.permission#TRUST_LISTENER} permission.
@@ -94,8 +109,18 @@ public class TrustManager {
         try {
             ITrustListener.Stub iTrustListener = new ITrustListener.Stub() {
                 @Override
-                public void onTrustChanged(boolean enabled, int userId) throws RemoteException {
-                    mHandler.obtainMessage(MSG_TRUST_CHANGED, (enabled ? 1 : 0), userId,
+                public void onTrustChanged(boolean enabled, int userId, boolean initiatedByUser) {
+                    Message m = mHandler.obtainMessage(MSG_TRUST_CHANGED, (enabled ? 1 : 0), userId,
+                            trustListener);
+                    if (initiatedByUser) {
+                        m.getData().putBoolean(DATA_INITIATED_BY_USER, initiatedByUser);
+                    }
+                    m.sendToTarget();
+                }
+
+                @Override
+                public void onTrustManagedChanged(boolean managed, int userId) {
+                    mHandler.obtainMessage(MSG_TRUST_MANAGED_CHANGED, (managed ? 1 : 0), userId,
                             trustListener).sendToTarget();
                 }
             };
@@ -131,8 +156,14 @@ public class TrustManager {
         public void handleMessage(Message msg) {
             switch(msg.what) {
                 case MSG_TRUST_CHANGED:
-                    ((TrustListener)msg.obj).onTrustChanged(msg.arg1 != 0, msg.arg2);
+                    boolean initiatedByUser = msg.peekData() != null &&
+                            msg.peekData().getBoolean(DATA_INITIATED_BY_USER);
+                    ((TrustListener)msg.obj).onTrustChanged(
+                            msg.arg1 != 0, msg.arg2, initiatedByUser);
+
                     break;
+                case MSG_TRUST_MANAGED_CHANGED:
+                    ((TrustListener)msg.obj).onTrustManagedChanged(msg.arg1 != 0, msg.arg2);
             }
         }
     };
@@ -143,7 +174,16 @@ public class TrustManager {
          * Reports that the trust state has changed.
          * @param enabled if true, the system believes the environment to be trusted.
          * @param userId the user, for which the trust changed.
+         * @param initiatedByUser indicates that the user has explicitly initiated an action that
+         *                        proves the user is about to use the device.
          */
-        void onTrustChanged(boolean enabled, int userId);
+        void onTrustChanged(boolean enabled, int userId, boolean initiatedByUser);
+
+        /**
+         * Reports that whether trust is managed has changed
+         * @param enabled if true, at least one trust agent is managing trust.
+         * @param userId the user, for which the state changed.
+         */
+        void onTrustManagedChanged(boolean enabled, int userId);
     }
 }

@@ -56,9 +56,7 @@ public class RecentsVerticalScrollView extends ScrollView
 
     public RecentsVerticalScrollView(Context context, AttributeSet attrs) {
         super(context, attrs, 0);
-        float densityScale = getResources().getDisplayMetrics().density;
-        float pagingTouchSlop = ViewConfiguration.get(getContext()).getScaledPagingTouchSlop();
-        mSwipeHelper = new SwipeHelper(SwipeHelper.X, this, densityScale, pagingTouchSlop);
+        mSwipeHelper = new SwipeHelper(SwipeHelper.X, this, context);
 
         mFadedEdgeDrawHelper = FadedEdgeDrawHelper.create(context, attrs, this, true);
         mRecycledViews = new HashSet<View>();
@@ -199,6 +197,16 @@ public class RecentsVerticalScrollView extends ScrollView
 
     public boolean canChildBeDismissed(View v) {
         return true;
+    }
+
+    @Override
+    public boolean isAntiFalsingNeeded() {
+        return false;
+    }
+
+    @Override
+    public float getFalsingThresholdFactor() {
+        return 1.0f;
     }
 
     public void dismissChild(View v) {

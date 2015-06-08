@@ -16,7 +16,6 @@
 
 package com.android.internal.app;
 
-import android.content.res.TypedArray;
 import com.android.internal.R;
 
 import android.app.ActivityManagerNative;
@@ -28,6 +27,7 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.RemoteException;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -37,7 +37,6 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import java.text.Collator;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -50,10 +49,6 @@ public class LocalePicker extends ListFragment {
     public static interface LocaleSelectionListener {
         // You can add any argument if you really need it...
         public void onLocaleSelected(Locale locale);
-    }
-
-    protected boolean isInDeveloperMode() {
-        return false;
     }
 
     LocaleSelectionListener mListener;  // default to null
@@ -88,41 +83,17 @@ public class LocalePicker extends ListFragment {
         }
     }
 
-    /**
-     * Constructs an Adapter object containing Locale information. Content is sorted by
-     * {@link LocaleInfo#label}.
-     */
-    public static ArrayAdapter<LocaleInfo> constructAdapter(Context context) {
-        return constructAdapter(context, false /* disable pesudolocales */);
-    }
-
-    public static ArrayAdapter<LocaleInfo> constructAdapter(Context context,
-                                                            final boolean isInDeveloperMode) {
-        return constructAdapter(context, R.layout.locale_picker_item, R.id.locale,
-                isInDeveloperMode);
-    }
-
-    public static ArrayAdapter<LocaleInfo> constructAdapter(Context context,
-            final int layoutId, final int fieldId) {
-        return constructAdapter(context, layoutId, fieldId, false /* disable pseudolocales */);
-    }
-
-    public static ArrayAdapter<LocaleInfo> constructAdapter(Context context,
-            final int layoutId, final int fieldId, final boolean isInDeveloperMode) {
+    public static List<LocaleInfo> getAllAssetLocales(Context context, boolean isInDeveloperMode) {
         final Resources resources = context.getResources();
 
-        String[] locales = Resources.getSystem().getAssets().getLocales();
+        final String[] locales = Resources.getSystem().getAssets().getLocales();
         List<String> localeList = new ArrayList<String>(locales.length);
         Collections.addAll(localeList, locales);
-        if (isInDeveloperMode) {
-            if (!localeList.contains("zz_ZZ")) {
-                localeList.add("zz_ZZ");
-            }
-        /** - TODO: Enable when zz_ZY Pseudolocale is complete
-         *  if (!localeList.contains("zz_ZY")) {
-         *      localeList.add("zz_ZY");
-         *  }
-         */
+
+        // Don't show the pseudolocales unless we're in developer mode. http://b/17190407.
+        if (!isInDeveloperMode) {
+            localeList.remove("ar-XB");
+            localeList.remove("en-XA");
         }
 
         Collections.sort(localeList);
@@ -163,14 +134,7 @@ public class LocalePicker extends ListFragment {
                     localeInfos.add(new LocaleInfo(toTitleCase(
                             getDisplayName(l, specialLocaleCodes, specialLocaleNames)), l));
                 } else {
-                    String displayName;
-                    if (locale.equals("zz_ZZ")) {
-                        displayName = "[Developer] Accented English";
-                    } else if (locale.equals("zz_ZY")) {
-                        displayName = "[Developer] Fake Bi-Directional";
-                    } else {
-                        displayName = toTitleCase(l.getDisplayLanguage(l));
-                    }
+                    String displayName = toTitleCase(l.getDisplayLanguage(l));
                     if (DEBUG) {
                         Log.v(TAG, "adding "+displayName);
                     }
@@ -180,6 +144,23 @@ public class LocalePicker extends ListFragment {
         }
 
         Collections.sort(localeInfos);
+        return localeInfos;
+    }
+
+    /**
+     * Constructs an Adapter object containing Locale information. Content is sorted by
+     * {@link LocaleInfo#label}.
+     */
+    public static ArrayAdapter<LocaleInfo> constructAdapter(Context context) {
+        return constructAdapter(context, R.layout.locale_picker_item, R.id.locale);
+    }
+
+    public static ArrayAdapter<LocaleInfo> constructAdapter(Context context,
+            final int layoutId, final int fieldId) {
+        boolean isInDeveloperMode = Settings.Global.getInt(context.getContentResolver(),
+                Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0;
+        final List<LocaleInfo> localeInfos = getAllAssetLocales(context, isInDeveloperMode);
+
         final LayoutInflater inflater =
                 (LayoutInflater)context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
         return new ArrayAdapter<LocaleInfo>(context, layoutId, fieldId, localeInfos) {
@@ -228,14 +209,7 @@ public class LocalePicker extends ListFragment {
     @Override
     public void onActivityCreated(final Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
-
-        final int[] attrs = { android.R.attr.colorBackground };
-        final TypedArray a = getActivity().getTheme().obtainStyledAttributes(attrs);
-        getListView().setBackgroundColor(a.getColor(0, android.R.color.transparent));
-        a.recycle();
-
-        final ArrayAdapter<LocaleInfo> adapter = constructAdapter(getActivity(),
-                isInDeveloperMode());
+        final ArrayAdapter<LocaleInfo> adapter = constructAdapter(getActivity());
         setListAdapter(adapter);
     }
 

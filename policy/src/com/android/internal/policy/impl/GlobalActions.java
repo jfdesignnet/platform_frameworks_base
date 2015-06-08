@@ -23,6 +23,7 @@ import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.R;
 import com.android.internal.widget.LockPatternUtils;
 
+import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -68,6 +69,7 @@ import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.view.WindowManagerInternal;
 import android.view.WindowManagerPolicy.WindowManagerFuncs;
+import android.view.accessibility.AccessibilityEvent;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.ImageView;
@@ -272,18 +274,22 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                 mItems.add(new PowerAction());
             } else if (GLOBAL_ACTION_KEY_AIRPLANE.equals(actionKey)) {
                 mItems.add(mAirplaneModeOn);
-            } else if (GLOBAL_ACTION_KEY_BUGREPORT.equals(actionKey)
-                    && (Settings.Global.getInt(mContext.getContentResolver(),
-                        Settings.Global.BUGREPORT_IN_POWER_MENU, 0) != 0 && isCurrentUserOwner())) {
-                mItems.add(getBugReportAction());
-            } else if (GLOBAL_ACTION_KEY_SILENT.equals(actionKey) && mShowSilentToggle) {
-                mItems.add(mSilentModeAction);
-            } else if (GLOBAL_ACTION_KEY_USERS.equals(actionKey)
-                    && SystemProperties.getBoolean("fw.power_user_switcher", false)) {
-                addUsersToMenu(mItems);
+            } else if (GLOBAL_ACTION_KEY_BUGREPORT.equals(actionKey)) {
+                if (Settings.Global.getInt(mContext.getContentResolver(),
+                        Settings.Global.BUGREPORT_IN_POWER_MENU, 0) != 0 && isCurrentUserOwner()) {
+                    mItems.add(getBugReportAction());
+                }
+            } else if (GLOBAL_ACTION_KEY_SILENT.equals(actionKey)) {
+                if (mShowSilentToggle) {
+                    mItems.add(mSilentModeAction);
+                }
+            } else if (GLOBAL_ACTION_KEY_USERS.equals(actionKey)) {
+                if (SystemProperties.getBoolean("fw.power_user_switcher", false)) {
+                    addUsersToMenu(mItems);
+                }
             } else if (GLOBAL_ACTION_KEY_SETTINGS.equals(actionKey)) {
                 mItems.add(getSettingsAction());
-            } else if (GLOBAL_ACTION_KEY_LOCKDOWN.equals(actionKey) && hasTrustAgents()) {
+            } else if (GLOBAL_ACTION_KEY_LOCKDOWN.equals(actionKey)) {
                 mItems.add(getLockdownAction());
             } else {
                 Log.e(TAG, "Invalid global action key " + actionKey);
@@ -321,11 +327,6 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         dialog.setOnDismissListener(this);
 
         return dialog;
-    }
-
-    private boolean hasTrustAgents() {
-        // TODO: Add implementation.
-        return true;
     }
 
     private final class PowerAction extends SinglePressAction implements LongPressAction {
@@ -370,6 +371,11 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
+                                // don't actually trigger the bugreport if we are running stability
+                                // tests via monkey
+                                if (ActivityManager.isUserAMonkey()) {
+                                    return;
+                                }
                                 // Add a little delay before executing, to give the
                                 // dialog a chance to go away before it takes a
                                 // screenshot.
@@ -414,7 +420,7 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
             @Override
             public void onPress() {
                 Intent intent = new Intent(Settings.ACTION_SETTINGS);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                 mContext.startActivity(intent);
             }
 
@@ -626,6 +632,12 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
      * What each item in the global actions dialog must be able to support.
      */
     private interface Action {
+        /**
+         * @return Text that will be announced when dialog is created.  null
+         *     for none.
+         */
+        CharSequence getLabelForAccessibility(Context context);
+
         View create(Context context, View convertView, ViewGroup parent, LayoutInflater inflater);
 
         void onPress();
@@ -692,6 +704,14 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         }
 
         abstract public void onPress();
+
+        public CharSequence getLabelForAccessibility(Context context) {
+            if (mMessage != null) {
+                return mMessage;
+            } else {
+                return context.getString(mMessageResId);
+            }
+        }
 
         public View create(
                 Context context, View convertView, ViewGroup parent, LayoutInflater inflater) {
@@ -780,6 +800,11 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
          */
         void willCreate() {
 
+        }
+
+        @Override
+        public CharSequence getLabelForAccessibility(Context context) {
+            return context.getString(mMessageResId);
         }
 
         public View create(Context context, View convertView, ViewGroup parent,
@@ -896,6 +921,11 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         private int indexToRingerMode(int index) {
             // They just happen to coincide
             return index;
+        }
+
+        @Override
+        public CharSequence getLabelForAccessibility(Context context) {
+            return null;
         }
 
         public View create(Context context, View convertView, ViewGroup parent,
@@ -1046,6 +1076,7 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         private final Context mContext;
         private final int mWindowTouchSlop;
         private final AlertController mAlert;
+        private final MyAdapter mAdapter;
 
         private EnableAccessibilityController mEnableAccessibilityController;
 
@@ -1056,6 +1087,7 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
             super(context, getDialogTheme(context));
             mContext = context;
             mAlert = new AlertController(mContext, this, getWindow());
+            mAdapter = (MyAdapter) params.mAdapter;
             mWindowTouchSlop = ViewConfiguration.get(context).getScaledWindowTouchSlop();
             params.apply(mAlert);
         }
@@ -1074,7 +1106,13 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
             // is dismissed on the first down while the global gesture is a long press
             // with two fingers anywhere on the screen.
             if (EnableAccessibilityController.canEnableAccessibilityViaGesture(mContext)) {
-                mEnableAccessibilityController = new EnableAccessibilityController(mContext);
+                mEnableAccessibilityController = new EnableAccessibilityController(mContext,
+                        new Runnable() {
+                    @Override
+                    public void run() {
+                        dismiss();
+                    }
+                });
                 super.setCanceledOnTouchOutside(false);
             } else {
                 mEnableAccessibilityController = null;
@@ -1141,6 +1179,20 @@ class GlobalActions implements DialogInterface.OnDismissListener, DialogInterfac
         protected void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
             mAlert.installContent();
+        }
+
+        @Override
+        public boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
+            if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                for (int i = 0; i < mAdapter.getCount(); ++i) {
+                    CharSequence label =
+                            mAdapter.getItem(i).getLabelForAccessibility(getContext());
+                    if (label != null) {
+                        event.getText().add(label);
+                    }
+                }
+            }
+            return super.dispatchPopulateAccessibilityEvent(event);
         }
 
         @Override

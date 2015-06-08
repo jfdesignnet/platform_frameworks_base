@@ -1,14 +1,14 @@
 package android.hardware.hdmi;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.hardware.hdmi.HdmiControlManager.VendorCommandListener;
-import android.hardware.hdmi.IHdmiVendorCommandListener;
 import android.os.RemoteException;
 import android.util.Log;
 
 /**
  * Parent for classes of various HDMI-CEC device type used to access
- * {@link HdmiControlService}. Contains methods and data used in common.
+ * the HDMI control system service. Contains methods and data used in common.
  *
  * @hide
  */
@@ -16,16 +16,33 @@ import android.util.Log;
 public abstract class HdmiClient {
     private static final String TAG = "HdmiClient";
 
-    protected final IHdmiControlService mService;
+    /* package */ final IHdmiControlService mService;
 
-    protected abstract int getDeviceType();
+    private IHdmiVendorCommandListener mIHdmiVendorCommandListener;
 
-    public HdmiClient(IHdmiControlService service) {
+    /* package */ abstract int getDeviceType();
+
+    /* package */ HdmiClient(IHdmiControlService service) {
         mService = service;
     }
 
     /**
-     * Send a key event to other logical device.
+     * Returns the active source information.
+     *
+     * @return {@link HdmiDeviceInfo} object that describes the active source
+     *         or active routing path
+     */
+    public HdmiDeviceInfo getActiveSource() {
+        try {
+            return mService.getActiveSource();
+        } catch (RemoteException e) {
+            Log.e(TAG, "getActiveSource threw exception ", e);
+        }
+        return null;
+    }
+
+    /**
+     * Sends a key event to other logical device.
      *
      * @param keyCode key code to send. Defined in {@link android.view.KeyEvent}.
      * @param isPressed true if this is key press event
@@ -34,12 +51,12 @@ public abstract class HdmiClient {
         try {
             mService.sendKeyEvent(getDeviceType(), keyCode, isPressed);
         } catch (RemoteException e) {
-            Log.e(TAG, "queryDisplayStatus threw exception ", e);
+            Log.e(TAG, "sendKeyEvent threw exception ", e);
         }
     }
 
     /**
-     * Send vendor-specific command.
+     * Sends vendor-specific command.
      *
      * @param targetAddress address of the target device
      * @param params vendor-specific parameter. For &lt;Vendor Command With ID&gt; do not
@@ -56,15 +73,23 @@ public abstract class HdmiClient {
     }
 
     /**
-     * Add a listener used to receive incoming vendor-specific command.
+     * Sets a listener used to receive incoming vendor-specific command.
      *
      * @param listener listener object
      */
-    public void addVendorCommandListener(VendorCommandListener listener) {
+    public void setVendorCommandListener(@NonNull VendorCommandListener listener) {
+        if (listener == null) {
+            throw new IllegalArgumentException("listener cannot be null");
+        }
+        if (mIHdmiVendorCommandListener != null) {
+            throw new IllegalStateException("listener was already set");
+        }
         try {
-            mService.addVendorCommandListener(getListenerWrapper(listener), getDeviceType());
+            IHdmiVendorCommandListener wrappedListener = getListenerWrapper(listener);
+            mService.addVendorCommandListener(wrappedListener, getDeviceType());
+            mIHdmiVendorCommandListener = wrappedListener;
         } catch (RemoteException e) {
-            Log.e(TAG, "failed to add vendor command listener: ", e);
+            Log.e(TAG, "failed to set vendor command listener: ", e);
         }
     }
 
@@ -72,8 +97,13 @@ public abstract class HdmiClient {
             final VendorCommandListener listener) {
         return new IHdmiVendorCommandListener.Stub() {
             @Override
-            public void onReceived(int srcAddress, byte[] params, boolean hasVendorId) {
-                listener.onReceived(srcAddress, params, hasVendorId);
+            public void onReceived(int srcAddress, int destAddress, byte[] params,
+                    boolean hasVendorId) {
+                listener.onReceived(srcAddress, destAddress, params, hasVendorId);
+            }
+            @Override
+            public void onControlStateChanged(boolean enabled, int reason) {
+                listener.onControlStateChanged(enabled, reason);
             }
         };
     }

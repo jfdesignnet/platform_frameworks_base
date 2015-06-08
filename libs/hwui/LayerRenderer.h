@@ -49,7 +49,7 @@ public:
     LayerRenderer(RenderState& renderState, Layer* layer);
     virtual ~LayerRenderer();
 
-    virtual void onViewportInitialized(int width, int height) { /* do nothing */ }
+    virtual void onViewportInitialized() { /* do nothing */ }
     virtual status_t prepareDirty(float left, float top, float right, float bottom, bool opaque);
     virtual status_t clear(float left, float top, float right, float bottom, bool opaque);
     virtual void finish();
@@ -60,7 +60,6 @@ public:
     static void updateTextureLayer(Layer* layer, uint32_t width, uint32_t height,
             bool isOpaque, bool forceFilter, GLenum renderTarget, float* textureTransform);
     static void destroyLayer(Layer* layer);
-    ANDROID_API static void destroyLayerDeferred(Layer* layer);
     static bool copyLayer(RenderState& renderState, Layer* layer, SkBitmap* bitmap);
 
     static void flushLayer(RenderState& renderState, Layer* layer);

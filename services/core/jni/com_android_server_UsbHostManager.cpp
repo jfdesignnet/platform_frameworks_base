@@ -21,7 +21,6 @@
 #include "JNIHelp.h"
 #include "android_runtime/AndroidRuntime.h"
 #include "android_runtime/Log.h"
-#include "utils/Vector.h"
 
 #include <usbhost/usbhost.h>
 
@@ -68,8 +67,6 @@ static int usb_device_added(const char *devname, void* client_data) {
 
     JNIEnv* env = AndroidRuntime::getJNIEnv();
     jobject thiz = (jobject)client_data;
-    Vector<int> interfaceValues;
-    Vector<int> endpointValues;
     const usb_device_descriptor* deviceDesc = usb_device_get_device_descriptor(device);
 
     char *manufacturer = usb_device_get_manufacturer_name(device);
@@ -77,9 +74,9 @@ static int usb_device_added(const char *devname, void* client_data) {
     char *serial = usb_device_get_serial(device);
 
     jstring deviceName = env->NewStringUTF(devname);
-    jstring manufacturerName = env->NewStringUTF(manufacturer);
-    jstring productName = env->NewStringUTF(product);
-    jstring serialNumber = env->NewStringUTF(serial);
+    jstring manufacturerName = AndroidRuntime::NewStringLatin1(env, manufacturer);
+    jstring productName = AndroidRuntime::NewStringLatin1(env, product);
+    jstring serialNumber = AndroidRuntime::NewStringLatin1(env, serial);
 
     jboolean result = env->CallBooleanMethod(thiz, method_beginUsbDeviceAdded,
             deviceName, usb_device_get_vendor_id(device), usb_device_get_product_id(device),
@@ -102,7 +99,7 @@ static int usb_device_added(const char *devname, void* client_data) {
         if (desc->bDescriptorType == USB_DT_CONFIG) {
             struct usb_config_descriptor *config = (struct usb_config_descriptor *)desc;
             char *name = usb_device_get_string(device, config->iConfiguration);
-            jstring configName = env->NewStringUTF(name);
+            jstring configName = AndroidRuntime::NewStringLatin1(env, name);
 
             env->CallVoidMethod(thiz, method_addUsbConfiguration,
                     config->bConfigurationValue, configName, config->bmAttributes,
@@ -113,7 +110,7 @@ static int usb_device_added(const char *devname, void* client_data) {
         } else if (desc->bDescriptorType == USB_DT_INTERFACE) {
             struct usb_interface_descriptor *interface = (struct usb_interface_descriptor *)desc;
             char *name = usb_device_get_string(device, interface->iInterface);
-            jstring interfaceName = env->NewStringUTF(name);
+            jstring interfaceName = AndroidRuntime::NewStringLatin1(env, name);
 
             env->CallVoidMethod(thiz, method_addUsbInterface,
                     interface->bInterfaceNumber, interfaceName, interface->bAlternateSetting,

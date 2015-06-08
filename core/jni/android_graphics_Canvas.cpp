@@ -19,12 +19,12 @@
 #include <android_runtime/AndroidRuntime.h>
 
 #include "Canvas.h"
+#include "SkDrawFilter.h"
 #include "SkGraphics.h"
 #include "SkPorterDuff.h"
+#include "Paint.h"
 #include "TypefaceImpl.h"
 
-#include <minikin/Layout.h>
-#include "MinikinSkia.h"
 #include "MinikinUtils.h"
 
 namespace android {
@@ -76,7 +76,7 @@ static jint save(JNIEnv*, jobject, jlong canvasHandle, jint flagsHandle) {
 
 static jint saveLayer(JNIEnv* env, jobject, jlong canvasHandle, jfloat l, jfloat t,
                       jfloat r, jfloat b, jlong paintHandle, jint flagsHandle) {
-    SkPaint* paint  = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint  = reinterpret_cast<Paint*>(paintHandle);
     SkCanvas::SaveFlags flags = static_cast<SkCanvas::SaveFlags>(flagsHandle);
     return static_cast<jint>(get_canvas(canvasHandle)->saveLayer(l, t, r, b, paint, flags));
 }
@@ -191,13 +191,13 @@ static void drawColor(JNIEnv* env, jobject, jlong canvasHandle, jint color, jint
 }
 
 static void drawPaint(JNIEnv* env, jobject, jlong canvasHandle, jlong paintHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawPaint(*paint);
 }
 
 static void drawPoint(JNIEnv*, jobject, jlong canvasHandle, jfloat x, jfloat y,
                       jlong paintHandle) {
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawPoint(x, y, *paint);
 }
 
@@ -213,13 +213,13 @@ static void drawPoints(JNIEnv* env, jobject, jlong canvasHandle, jfloatArray jpt
         return;
     }
 
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawPoints(floats + offset, count, *paint);
 }
 
 static void drawLine(JNIEnv* env, jobject, jlong canvasHandle, jfloat startX, jfloat startY,
                      jfloat stopX, jfloat stopY, jlong paintHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawLine(startX, startY, stopX, stopY, *paint);
 }
 
@@ -235,38 +235,38 @@ static void drawLines(JNIEnv* env, jobject, jlong canvasHandle, jfloatArray jpts
         return;
     }
 
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawLines(floats + offset, count, *paint);
 }
 
 static void drawRect(JNIEnv* env, jobject, jlong canvasHandle, jfloat left, jfloat top,
                      jfloat right, jfloat bottom, jlong paintHandle) {
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawRect(left, top, right, bottom, *paint);
 }
 
 static void drawRoundRect(JNIEnv* env, jobject, jlong canvasHandle, jfloat left, jfloat top,
                           jfloat right, jfloat bottom, jfloat rx, jfloat ry, jlong paintHandle) {
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawRoundRect(left, top, right, bottom, rx, ry, *paint);
 }
 
 static void drawCircle(JNIEnv* env, jobject, jlong canvasHandle, jfloat cx, jfloat cy,
                        jfloat radius, jlong paintHandle) {
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawCircle(cx, cy, radius, *paint);
 }
 
 static void drawOval(JNIEnv* env, jobject, jlong canvasHandle, jfloat left, jfloat top,
                      jfloat right, jfloat bottom, jlong paintHandle) {
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawOval(left, top, right, bottom, *paint);
 }
 
 static void drawArc(JNIEnv* env, jobject, jlong canvasHandle, jfloat left, jfloat top,
                     jfloat right, jfloat bottom, jfloat startAngle, jfloat sweepAngle,
                     jboolean useCenter, jlong paintHandle) {
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawArc(left, top, right, bottom, startAngle, sweepAngle,
                                        useCenter, *paint);
 }
@@ -274,7 +274,7 @@ static void drawArc(JNIEnv* env, jobject, jlong canvasHandle, jfloat left, jfloa
 static void drawPath(JNIEnv* env, jobject, jlong canvasHandle, jlong pathHandle,
                      jlong paintHandle) {
     const SkPath* path = reinterpret_cast<SkPath*>(pathHandle);
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawPath(*path, *paint);
 }
 
@@ -303,7 +303,7 @@ static void drawVertices(JNIEnv* env, jobject, jlong canvasHandle,
     }
 
     SkCanvas::VertexMode mode = static_cast<SkCanvas::VertexMode>(modeHandle);
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawVertices(mode, vertexCount, verts, texs, colors,
                                            indices, indexCount, *paint);
 }
@@ -313,15 +313,15 @@ static void drawBitmap(JNIEnv* env, jobject jcanvas, jlong canvasHandle, jlong b
                        jint screenDensity, jint bitmapDensity) {
     Canvas* canvas = get_canvas(canvasHandle);
     const SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
 
     if (canvasDensity == bitmapDensity || canvasDensity == 0 || bitmapDensity == 0) {
         if (screenDensity != 0 && screenDensity != bitmapDensity) {
-            SkPaint filteredPaint;
+            Paint filteredPaint;
             if (paint) {
                 filteredPaint = *paint;
             }
-            filteredPaint.setFilterLevel(SkPaint::kLow_FilterLevel);
+            filteredPaint.setFilterLevel(Paint::kLow_FilterLevel);
             canvas->drawBitmap(*bitmap, left, top, &filteredPaint);
         } else {
             canvas->drawBitmap(*bitmap, left, top, paint);
@@ -332,11 +332,11 @@ static void drawBitmap(JNIEnv* env, jobject jcanvas, jlong canvasHandle, jlong b
         canvas->translate(left, top);
         canvas->scale(scale, scale);
 
-        SkPaint filteredPaint;
+        Paint filteredPaint;
         if (paint) {
             filteredPaint = *paint;
         }
-        filteredPaint.setFilterLevel(SkPaint::kLow_FilterLevel);
+        filteredPaint.setFilterLevel(Paint::kLow_FilterLevel);
 
         canvas->drawBitmap(*bitmap, 0, 0, &filteredPaint);
         canvas->restore();
@@ -347,7 +347,7 @@ static void drawBitmapMatrix(JNIEnv* env, jobject, jlong canvasHandle, jlong bit
                              jlong matrixHandle, jlong paintHandle) {
     const SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
     const SkMatrix* matrix = reinterpret_cast<SkMatrix*>(matrixHandle);
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawBitmap(*bitmap, *matrix, paint);
 }
 
@@ -357,14 +357,14 @@ static void drawBitmapRect(JNIEnv* env, jobject, jlong canvasHandle, jlong bitma
                            jlong paintHandle, jint screenDensity, jint bitmapDensity) {
     Canvas* canvas = get_canvas(canvasHandle);
     const SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
 
     if (screenDensity != 0 && screenDensity != bitmapDensity) {
-        SkPaint filteredPaint;
+        Paint filteredPaint;
         if (paint) {
             filteredPaint = *paint;
         }
-        filteredPaint.setFilterLevel(SkPaint::kLow_FilterLevel);
+        filteredPaint.setFilterLevel(Paint::kLow_FilterLevel);
         canvas->drawBitmap(*bitmap, srcLeft, srcTop, srcRight, srcBottom,
                            dstLeft, dstTop, dstRight, dstBottom, &filteredPaint);
     } else {
@@ -391,7 +391,7 @@ static void drawBitmapArray(JNIEnv* env, jobject, jlong canvasHandle,
         return;
     }
 
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawBitmap(bitmap, x, y, paint);
 }
 
@@ -403,45 +403,140 @@ static void drawBitmapMesh(JNIEnv* env, jobject, jlong canvasHandle, jlong bitma
     AutoJavaIntArray colorA(env, jcolors, colorIndex + ptCount);
 
     const SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
-    const SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    const Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     get_canvas(canvasHandle)->drawBitmapMesh(*bitmap, meshWidth, meshHeight,
                                              vertA.ptr(), colorA.ptr(), paint);
+}
+
+class DrawTextFunctor {
+public:
+    DrawTextFunctor(const Layout& layout, Canvas* canvas, uint16_t* glyphs, float* pos,
+                    const SkPaint& paint, float x, float y, MinikinRect& bounds)
+            : layout(layout), canvas(canvas), glyphs(glyphs), pos(pos), paint(paint),
+              x(x), y(y), bounds(bounds) { }
+
+    void operator()(size_t start, size_t end) {
+        if (canvas->drawTextAbsolutePos()) {
+            for (size_t i = start; i < end; i++) {
+                glyphs[i] = layout.getGlyphId(i);
+                pos[2 * i] = x + layout.getX(i);
+                pos[2 * i + 1] = y + layout.getY(i);
+            }
+        } else {
+            for (size_t i = start; i < end; i++) {
+                glyphs[i] = layout.getGlyphId(i);
+                pos[2 * i] = layout.getX(i);
+                pos[2 * i + 1] = layout.getY(i);
+            }
+        }
+
+        size_t glyphCount = end - start;
+        canvas->drawText(glyphs + start, pos + (2 * start), glyphCount, paint, x, y,
+                         bounds.mLeft , bounds.mTop , bounds.mRight , bounds.mBottom);
+    }
+private:
+    const Layout& layout;
+    Canvas* canvas;
+    uint16_t* glyphs;
+    float* pos;
+    const SkPaint& paint;
+    float x;
+    float y;
+    MinikinRect& bounds;
+};
+
+// Same values used by Skia
+#define kStdStrikeThru_Offset   (-6.0f / 21.0f)
+#define kStdUnderline_Offset    (1.0f / 9.0f)
+#define kStdUnderline_Thickness (1.0f / 18.0f)
+
+void drawTextDecorations(Canvas* canvas, float x, float y, float length, const SkPaint& paint) {
+    uint32_t flags;
+    SkDrawFilter* drawFilter = canvas->getDrawFilter();
+    if (drawFilter) {
+        SkPaint paintCopy(paint);
+        drawFilter->filter(&paintCopy, SkDrawFilter::kText_Type);
+        flags = paintCopy.getFlags();
+    } else {
+        flags = paint.getFlags();
+    }
+    if (flags & (SkPaint::kUnderlineText_Flag | SkPaint::kStrikeThruText_Flag)) {
+        SkScalar left = x;
+        SkScalar right = x + length;
+        float textSize = paint.getTextSize();
+        float strokeWidth = fmax(textSize * kStdUnderline_Thickness, 1.0f);
+        if (flags & SkPaint::kUnderlineText_Flag) {
+            SkScalar top = y + textSize * kStdUnderline_Offset - 0.5f * strokeWidth;
+            SkScalar bottom = y + textSize * kStdUnderline_Offset + 0.5f * strokeWidth;
+            canvas->drawRect(left, top, right, bottom, paint);
+        }
+        if (flags & SkPaint::kStrikeThruText_Flag) {
+            SkScalar top = y + textSize * kStdStrikeThru_Offset - 0.5f * strokeWidth;
+            SkScalar bottom = y + textSize * kStdStrikeThru_Offset + 0.5f * strokeWidth;
+            canvas->drawRect(left, top, right, bottom, paint);
+        }
+    }
+}
+
+void drawText(Canvas* canvas, const uint16_t* text, int start, int count, int contextCount,
+             float x, float y, int bidiFlags, const Paint& origPaint, TypefaceImpl* typeface) {
+    // minikin may modify the original paint
+    Paint paint(origPaint);
+
+    Layout layout;
+    MinikinUtils::doLayout(&layout, &paint, bidiFlags, typeface, text, start, count, contextCount);
+
+    size_t nGlyphs = layout.nGlyphs();
+    uint16_t* glyphs = new uint16_t[nGlyphs];
+    float* pos = new float[nGlyphs * 2];
+
+    x += MinikinUtils::xOffsetForTextAlign(&paint, layout);
+
+    MinikinRect bounds;
+    layout.getBounds(&bounds);
+
+    DrawTextFunctor f(layout, canvas, glyphs, pos, paint, x, y, bounds);
+    MinikinUtils::forFontRun(layout, &paint, f);
+
+    drawTextDecorations(canvas, x, y, layout.getAdvance(), paint);
+
+    delete[] glyphs;
+    delete[] pos;
 }
 
 static void drawTextChars(JNIEnv* env, jobject, jlong canvasHandle, jcharArray text,
                           jint index, jint count, jfloat x, jfloat y, jint bidiFlags,
                           jlong paintHandle, jlong typefaceHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     TypefaceImpl* typeface = reinterpret_cast<TypefaceImpl*>(typefaceHandle);
     jchar* jchars = env->GetCharArrayElements(text, NULL);
-    const char* textArray = reinterpret_cast<const char*>(jchars) + index;
-    get_canvas(canvasHandle)->drawText(textArray, 0, count, count, x, y, bidiFlags, *paint, typeface);
+    drawText(get_canvas(canvasHandle), jchars + index, 0, count, count, x, y,
+                                       bidiFlags, *paint, typeface);
     env->ReleaseCharArrayElements(text, jchars, JNI_ABORT);
 }
 
 static void drawTextString(JNIEnv* env, jobject, jlong canvasHandle, jstring text,
                            jint start, jint end, jfloat x, jfloat y, jint bidiFlags,
                            jlong paintHandle, jlong typefaceHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     TypefaceImpl* typeface = reinterpret_cast<TypefaceImpl*>(typefaceHandle);
     const int count = end - start;
     const jchar* jchars = env->GetStringChars(text, NULL);
-    const char* textArray = reinterpret_cast<const char*>(jchars) + start;
-    get_canvas(canvasHandle)->drawText(textArray, 0, count, count, x, y, bidiFlags, *paint, typeface);
+    drawText(get_canvas(canvasHandle), jchars + start, 0, count, count, x, y,
+                                       bidiFlags, *paint, typeface);
     env->ReleaseStringChars(text, jchars);
 }
 
 static void drawTextRunChars(JNIEnv* env, jobject, jlong canvasHandle, jcharArray text, jint index,
                              jint count, jint contextIndex, jint contextCount, jfloat x, jfloat y,
                              jboolean isRtl, jlong paintHandle, jlong typefaceHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     TypefaceImpl* typeface = reinterpret_cast<TypefaceImpl*>(typefaceHandle);
 
     const int bidiFlags = isRtl ? kBidi_Force_RTL : kBidi_Force_LTR;
     jchar* jchars = env->GetCharArrayElements(text, NULL);
-    const char* textArray = reinterpret_cast<const char*>(jchars) + contextIndex;
-    get_canvas(canvasHandle)->drawText(textArray, index - contextIndex, count, contextCount,
-                                       x, y, bidiFlags, *paint, typeface);
+    drawText(get_canvas(canvasHandle), jchars + contextIndex, index - contextIndex, count,
+                                       contextCount, x, y, bidiFlags, *paint, typeface);
     env->ReleaseCharArrayElements(text, jchars, JNI_ABORT);
 }
 
@@ -449,28 +544,26 @@ static void drawTextRunString(JNIEnv* env, jobject obj, jlong canvasHandle, jstr
                               jint start, jint end, jint contextStart, jint contextEnd,
                               jfloat x, jfloat y, jboolean isRtl, jlong paintHandle,
                               jlong typefaceHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     TypefaceImpl* typeface = reinterpret_cast<TypefaceImpl*>(typefaceHandle);
 
     int bidiFlags = isRtl ? kBidi_Force_RTL : kBidi_Force_LTR;
     jint count = end - start;
     jint contextCount = contextEnd - contextStart;
     const jchar* jchars = env->GetStringChars(text, NULL);
-    const char* textArray = reinterpret_cast<const char*>(jchars) + contextStart;
-    get_canvas(canvasHandle)->drawText(textArray, start - contextStart, count, contextCount,
-                                       x, y, bidiFlags, *paint, typeface);
+    drawText(get_canvas(canvasHandle), jchars + contextStart, start - contextStart, count,
+                                       contextCount, x, y, bidiFlags, *paint, typeface);
     env->ReleaseStringChars(text, jchars);
 }
 
 static void drawPosTextChars(JNIEnv* env, jobject, jlong canvasHandle, jcharArray text,
                              jint index, jint count, jfloatArray pos, jlong paintHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     jchar* jchars = text ? env->GetCharArrayElements(text, NULL) : NULL;
     float* posArray = pos ? env->GetFloatArrayElements(pos, NULL) : NULL;
     int posCount = pos ? env->GetArrayLength(pos) >> 1: 0;
 
-    const char* textArray = reinterpret_cast<const char*>(jchars) + index;
-    get_canvas(canvasHandle)->drawPosText(textArray, posArray, count << 1, posCount, *paint);
+    get_canvas(canvasHandle)->drawPosText(jchars + index, posArray, count << 1, posCount, *paint);
 
     if (text) {
         env->ReleaseCharArrayElements(text, jchars, 0);
@@ -483,14 +576,13 @@ static void drawPosTextChars(JNIEnv* env, jobject, jlong canvasHandle, jcharArra
 
 static void drawPosTextString(JNIEnv* env, jobject, jlong canvasHandle, jstring text,
                               jfloatArray pos, jlong paintHandle) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     const jchar* jchars = text ? env->GetStringChars(text, NULL) : NULL;
     int byteLength = text ? env->GetStringLength(text) : 0;
     float* posArray = pos ? env->GetFloatArrayElements(pos, NULL) : NULL;
     int posCount = pos ? env->GetArrayLength(pos) >> 1: 0;
 
-    const char* textArray = reinterpret_cast<const char*>(jchars);
-    get_canvas(canvasHandle)->drawPosText(textArray , posArray, byteLength << 1, posCount, *paint);
+    get_canvas(canvasHandle)->drawPosText(jchars , posArray, byteLength << 1, posCount, *paint);
 
     if (text) {
         env->ReleaseStringChars(text, jchars);
@@ -503,7 +595,7 @@ static void drawPosTextString(JNIEnv* env, jobject, jlong canvasHandle, jstring 
 class DrawTextOnPathFunctor {
 public:
     DrawTextOnPathFunctor(const Layout& layout, Canvas* canvas, float hOffset,
-                float vOffset, const SkPaint& paint, const SkPath& path)
+                float vOffset, const Paint& paint, const SkPath& path)
             : layout(layout), canvas(canvas), hOffset(hOffset), vOffset(vOffset),
                 paint(paint), path(path) {
     }
@@ -513,7 +605,7 @@ public:
             glyphs[0] = layout.getGlyphId(i);
             float x = hOffset + layout.getX(i);
             float y = vOffset + layout.getY(i);
-            canvas->drawTextOnPath((const char*) glyphs, 1, path, x, y, paint);
+            canvas->drawTextOnPath(glyphs, 1, path, x, y, paint);
         }
     }
 private:
@@ -521,23 +613,22 @@ private:
     Canvas* canvas;
     float hOffset;
     float vOffset;
-    const SkPaint& paint;
+    const Paint& paint;
     const SkPath& path;
 };
 
-static void drawTextOnPath(Canvas* canvas, const char* text, int count, int bidiFlags,
+static void drawTextOnPath(Canvas* canvas, const uint16_t* text, int count, int bidiFlags,
                            const SkPath& path, float hOffset, float vOffset,
-                           const SkPaint& paint, TypefaceImpl* typeface) {
-    SkPaint paintCopy(paint);
+                           const Paint& paint, TypefaceImpl* typeface) {
+    Paint paintCopy(paint);
     Layout layout;
-    std::string css = MinikinUtils::setLayoutProperties(&layout, &paintCopy, bidiFlags, typeface);
-    layout.doLayout((uint16_t*)text, 0, count, count, css);
+    MinikinUtils::doLayout(&layout, &paintCopy, bidiFlags, typeface, text, 0, count, count);
     hOffset += MinikinUtils::hOffsetForTextAlign(&paintCopy, layout, path);
 
     // Set align to left for drawing, as we don't want individual
     // glyphs centered or right-aligned; the offset above takes
     // care of all alignment.
-    paintCopy.setTextAlign(SkPaint::kLeft_Align);
+    paintCopy.setTextAlign(Paint::kLeft_Align);
 
     DrawTextOnPathFunctor f(layout, canvas, hOffset, vOffset, paintCopy, path);
     MinikinUtils::forFontRun(layout, &paintCopy, f);
@@ -548,13 +639,12 @@ static void drawTextOnPathChars(JNIEnv* env, jobject, jlong canvasHandle, jcharA
                                 jfloat vOffset, jint bidiFlags, jlong paintHandle,
                                 jlong typefaceHandle) {
     SkPath* path = reinterpret_cast<SkPath*>(pathHandle);
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     TypefaceImpl* typeface = reinterpret_cast<TypefaceImpl*>(typefaceHandle);
 
     jchar* jchars = env->GetCharArrayElements(text, NULL);
-    const char* textArray = reinterpret_cast<const char*>(jchars);
 
-    drawTextOnPath(get_canvas(canvasHandle), textArray + index, count, bidiFlags, *path,
+    drawTextOnPath(get_canvas(canvasHandle), jchars + index, count, bidiFlags, *path,
                    hOffset, vOffset, *paint, typeface);
 
     env->ReleaseCharArrayElements(text, jchars, 0);
@@ -564,14 +654,13 @@ static void drawTextOnPathString(JNIEnv* env, jobject, jlong canvasHandle, jstri
                                  jlong pathHandle, jfloat hOffset, jfloat vOffset,
                                  jint bidiFlags, jlong paintHandle, jlong typefaceHandle) {
     SkPath* path = reinterpret_cast<SkPath*>(pathHandle);
-    SkPaint* paint = reinterpret_cast<SkPaint*>(paintHandle);
+    Paint* paint = reinterpret_cast<Paint*>(paintHandle);
     TypefaceImpl* typeface = reinterpret_cast<TypefaceImpl*>(typefaceHandle);
 
     const jchar* jchars = env->GetStringChars(text, NULL);
-    const char* textArray = reinterpret_cast<const char*>(jchars);
     int count = env->GetStringLength(text);
 
-    drawTextOnPath(get_canvas(canvasHandle), textArray, count, bidiFlags, *path,
+    drawTextOnPath(get_canvas(canvasHandle), jchars, count, bidiFlags, *path,
                    hOffset, vOffset, *paint, typeface);
 
     env->ReleaseStringChars(text, jchars);

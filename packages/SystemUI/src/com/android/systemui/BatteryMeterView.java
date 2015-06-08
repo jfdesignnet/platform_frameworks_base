@@ -33,7 +33,10 @@ import android.provider.Settings;
 import android.util.AttributeSet;
 import android.view.View;
 
-public class BatteryMeterView extends View implements DemoMode {
+import com.android.systemui.statusbar.policy.BatteryController;
+
+public class BatteryMeterView extends View implements DemoMode,
+        BatteryController.BatteryStateChangeCallback {
     public static final String TAG = BatteryMeterView.class.getSimpleName();
     public static final String ACTION_LEVEL_TEST = "com.android.systemui.BATTERY_LEVEL_TEST";
 
@@ -43,12 +46,14 @@ public class BatteryMeterView extends View implements DemoMode {
 
     private static final int FULL = 96;
 
-    private static final float SUBPIXEL = 0.4f;  // inset rects for softer edges
     private static final float BOLT_LEVEL_THRESHOLD = 0.3f;  // opaque bolt below this fraction
 
     private final int[] mColors;
 
     boolean mShowPercent = true;
+    private float mButtonHeightFraction;
+    private float mSubpixelSmoothingLeft;
+    private float mSubpixelSmoothingRight;
     private final Paint mFramePaint, mBatteryPaint, mWarningTextPaint, mTextPaint, mBoltPaint;
     private float mTextHeight, mWarningTextHeight;
 
@@ -67,6 +72,9 @@ public class BatteryMeterView extends View implements DemoMode {
     private final Path mShapePath = new Path();
     private final Path mClipPath = new Path();
     private final Path mTextPath = new Path();
+
+    private BatteryController mBatteryController;
+    private boolean mPowerSaveEnabled;
 
     private class BatteryTracker extends BroadcastReceiver {
         public static final int UNKNOWN_LEVEL = -1;
@@ -155,6 +163,7 @@ public class BatteryMeterView extends View implements DemoMode {
             // preload the battery level
             mTracker.onReceive(getContext(), sticky);
         }
+        mBatteryController.addStateChangedCallback(this);
     }
 
     @Override
@@ -162,6 +171,7 @@ public class BatteryMeterView extends View implements DemoMode {
         super.onDetachedFromWindow();
 
         getContext().unregisterReceiver(mTracker);
+        mBatteryController.removeStateChangedCallback(this);
     }
 
     public BatteryMeterView(Context context) {
@@ -197,6 +207,12 @@ public class BatteryMeterView extends View implements DemoMode {
         mWarningString = context.getString(R.string.battery_meter_very_low_overlay_symbol);
         mCriticalLevel = mContext.getResources().getInteger(
                 com.android.internal.R.integer.config_criticalBatteryWarningLevel);
+        mButtonHeightFraction = context.getResources().getFraction(
+                R.fraction.battery_button_height_fraction, 1, 1);
+        mSubpixelSmoothingLeft = context.getResources().getFraction(
+                R.fraction.battery_subpixel_smoothing_left, 1, 1);
+        mSubpixelSmoothingRight = context.getResources().getFraction(
+                R.fraction.battery_subpixel_smoothing_right, 1, 1);
 
         mFramePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mFramePaint.setColor(frameColor);
@@ -227,6 +243,22 @@ public class BatteryMeterView extends View implements DemoMode {
         mBoltPoints = loadBoltPoints(res);
     }
 
+    public void setBatteryController(BatteryController batteryController) {
+        mBatteryController = batteryController;
+        mPowerSaveEnabled = mBatteryController.isPowerSave();
+    }
+
+    @Override
+    public void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {
+        // TODO: Use this callback instead of own broadcast receiver.
+    }
+
+    @Override
+    public void onPowerSaveChanged() {
+        mPowerSaveEnabled = mBatteryController.isPowerSave();
+        invalidate();
+    }
+
     private static float[] loadBoltPoints(Resources res) {
         final int[] pts = res.getIntArray(R.array.batterymeter_bolt_points);
         int maxX = 0, maxY = 0;
@@ -251,6 +283,11 @@ public class BatteryMeterView extends View implements DemoMode {
     }
 
     private int getColorForLevel(int percent) {
+
+        // If we are in power save mode, always use the normal color.
+        if (mPowerSaveEnabled) {
+            return mColors[mColors.length-1];
+        }
         int thresh, color = 0;
         for (int i=0; i<mColors.length; i+=2) {
             thresh = mColors[i];
@@ -275,28 +312,28 @@ public class BatteryMeterView extends View implements DemoMode {
         final int height = mHeight - pt - pb;
         final int width = mWidth - pl - pr;
 
-        final int buttonHeight = (int) (height * 0.12f);
+        final int buttonHeight = (int) (height * mButtonHeightFraction);
 
         mFrame.set(0, 0, width, height);
         mFrame.offset(pl, pt);
 
         // button-frame: area above the battery body
         mButtonFrame.set(
-                mFrame.left + width * 0.25f,
+                mFrame.left + Math.round(width * 0.25f),
                 mFrame.top,
-                mFrame.right - width * 0.25f,
+                mFrame.right - Math.round(width * 0.25f),
                 mFrame.top + buttonHeight);
 
-        mButtonFrame.top += SUBPIXEL;
-        mButtonFrame.left += SUBPIXEL;
-        mButtonFrame.right -= SUBPIXEL;
+        mButtonFrame.top += mSubpixelSmoothingLeft;
+        mButtonFrame.left += mSubpixelSmoothingLeft;
+        mButtonFrame.right -= mSubpixelSmoothingRight;
 
         // frame: battery body area
         mFrame.top += buttonHeight;
-        mFrame.left += SUBPIXEL;
-        mFrame.top += SUBPIXEL;
-        mFrame.right -= SUBPIXEL;
-        mFrame.bottom -= SUBPIXEL;
+        mFrame.left += mSubpixelSmoothingLeft;
+        mFrame.top += mSubpixelSmoothingLeft;
+        mFrame.right -= mSubpixelSmoothingRight;
+        mFrame.bottom -= mSubpixelSmoothingRight;
 
         // set the battery charging color
         mBatteryPaint.setColor(tracker.plugged ? mChargeColor : getColorForLevel(level));
@@ -400,6 +437,11 @@ public class BatteryMeterView extends View implements DemoMode {
                 c.drawText(pctText, pctX, pctY, mTextPaint);
             }
         }
+    }
+
+    @Override
+    public boolean hasOverlappingRendering() {
+        return false;
     }
 
     private boolean mDemoMode;

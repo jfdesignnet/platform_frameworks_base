@@ -16,6 +16,7 @@
 
 package android.app.backup;
 
+import android.annotation.SystemApi;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.os.IBinder;
@@ -30,6 +31,7 @@ import com.android.internal.backup.IBackupTransport;
  *
  * @hide
  */
+@SystemApi
 public class BackupTransport {
     // Zero return always means things are okay.  If returned from
     // getNextFullRestoreDataChunk(), it means that no data could be delivered at
@@ -49,7 +51,7 @@ public class BackupTransport {
     public static final int AGENT_UNKNOWN = -1004;
 
     IBackupTransport mBinderImpl = new TransportImpl();
-    /** @hide */
+
     public IBinder getBinder() {
         return mBinderImpl.asBinder();
     }
@@ -72,11 +74,11 @@ public class BackupTransport {
      * may offer a UI for allowing the user to supply login credentials for the
      * transport's off-device backend.
      *
-     * If the transport does not supply any user-facing configuration UI, it should
-     * return null from this method.
+     * <p>If the transport does not supply any user-facing configuration UI, it should
+     * return {@code null} from this method.
      *
      * @return An Intent that can be passed to Context.startActivity() in order to
-     *         launch the transport's configuration UI.  This method will return null
+     *         launch the transport's configuration UI.  This method will return {@code null}
      *         if the transport does not offer any user-facing configuration UI.
      */
     public Intent configurationIntent() {
@@ -95,6 +97,43 @@ public class BackupTransport {
     public String currentDestinationString() {
         throw new UnsupportedOperationException(
                 "Transport currentDestinationString() not implemented");
+    }
+
+    /**
+     * Ask the transport for an Intent that can be used to launch a more detailed
+     * secondary data management activity.  For example, the configuration intent might
+     * be one for allowing the user to select which account they wish to associate
+     * their backups with, and the management intent might be one which presents a
+     * UI for managing the data on the backend.
+     *
+     * <p>In the Settings UI, the configuration intent will typically be invoked
+     * when the user taps on the preferences item labeled with the current
+     * destination string, and the management intent will be placed in an overflow
+     * menu labelled with the management label string.
+     *
+     * <p>If the transport does not supply any user-facing data management
+     * UI, then it should return {@code null} from this method.
+     *
+     * @return An intent that can be passed to Context.startActivity() in order to
+     *         launch the transport's data-management UI.  This method will return
+     *         {@code null} if the transport does not offer any user-facing data
+     *         management UI.
+     */
+    public Intent dataManagementIntent() {
+        return null;
+    }
+
+    /**
+     * On demand, supply a short string that can be shown to the user as the label
+     * on an overflow menu item used to invoked the data management UI.
+     *
+     * @return A string to be used as the label for the transport's data management
+     *         affordance.  If the transport supplies a data management intent, this
+     *         method must not return {@code null}.
+     */
+    public String dataManagementLabel() {
+        throw new UnsupportedOperationException(
+                "Transport dataManagementLabel() not implemented");
     }
 
     /**
@@ -174,8 +213,9 @@ public class BackupTransport {
 
     /**
      * Send one application's key/value data update to the backup destination.  The
-     * transport may send the data immediately, or may buffer it.  After this is called,
-     * {@link #finishBackup} will be called to ensure the data is sent and recorded successfully.
+     * transport may send the data immediately, or may buffer it.  If this method returns
+     * {@link #TRANSPORT_OK}, {@link #finishBackup} will then be called to ensure the data
+     * is sent and recorded successfully.
      *
      * @param packageInfo The identity of the application whose data is being backed up.
      *   This specifically includes the signature list for the package.
@@ -187,6 +227,8 @@ public class BackupTransport {
      *   is to provide a guarantee that no stale data exists in the restore set when the
      *   device begins providing incremental backups.
      * @return one of {@link BackupTransport#TRANSPORT_OK} (OK so far),
+     *  {@link BackupTransport#TRANSPORT_PACKAGE_REJECTED} (to suppress backup of this
+     *  specific package, but allow others to proceed),
      *  {@link BackupTransport#TRANSPORT_ERROR} (on network error or other failure), or
      *  {@link BackupTransport#TRANSPORT_NOT_INITIALIZED} (if the backend dataset has
      *  become lost due to inactivity purge or some other reason and needs re-initializing)
@@ -366,6 +408,25 @@ public class BackupTransport {
         return BackupTransport.TRANSPORT_ERROR;
     }
 
+    /**
+     * Tells the transport to cancel the currently-ongoing full backup operation.  This
+     * will happen between {@link #performFullBackup()} and {@link #finishBackup()}
+     * if the OS needs to abort the backup operation for any reason, such as a crash in
+     * the application undergoing backup.
+     *
+     * <p>When it receives this call, the transport should discard any partial archive
+     * that it has stored so far.  If possible it should also roll back to the previous
+     * known-good archive in its datastore.
+     *
+     * <p>If the transport receives this callback, it will <em>not</em> receive a
+     * call to {@link #finishBackup()}.  It needs to tear down any ongoing backup state
+     * here.
+     */
+    public void cancelFullBackup() {
+        throw new UnsupportedOperationException(
+                "Transport cancelFullBackup() not implemented");
+    }
+
     // ------------------------------------------------------------------------------------
     // Full restore interfaces
 
@@ -446,6 +507,16 @@ public class BackupTransport {
         }
 
         @Override
+        public Intent dataManagementIntent() {
+            return BackupTransport.this.dataManagementIntent();
+        }
+
+        @Override
+        public String dataManagementLabel() {
+            return BackupTransport.this.dataManagementLabel();
+        }
+
+        @Override
         public String transportDirName() throws RemoteException {
             return BackupTransport.this.transportDirName();
         }
@@ -519,6 +590,11 @@ public class BackupTransport {
         @Override
         public int sendBackupData(int numBytes) throws RemoteException {
             return BackupTransport.this.sendBackupData(numBytes);
+        }
+
+        @Override
+        public void cancelFullBackup() throws RemoteException {
+            BackupTransport.this.cancelFullBackup();
         }
 
         @Override

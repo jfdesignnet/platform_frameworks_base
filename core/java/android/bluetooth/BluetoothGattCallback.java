@@ -143,27 +143,13 @@ public abstract class BluetoothGattCallback {
      * Callback indicating the MTU for a given device connection has changed.
      *
      * This callback is triggered in response to the
-     * {@link BluetoothGatt#configureMTU} function, or in response to a connection
+     * {@link BluetoothGatt#requestMtu} function, or in response to a connection
      * event.
      *
-     * @param gatt GATT client invoked {@link BluetoothGatt#configureMTU}
+     * @param gatt GATT client invoked {@link BluetoothGatt#requestMtu}
      * @param mtu The new MTU size
      * @param status {@link BluetoothGatt#GATT_SUCCESS} if the MTU has been changed successfully
      */
-    public void onConfigureMTU(BluetoothGatt gatt, int mtu, int status) {
-    }
-
-    /**
-     * Callback indicating that a remote device connection congestestion status has changed.
-     *
-     * An application should refrain from sending additional data to a remote device when
-     * a callback is received with the congested flag set to true. Once the congestion status
-     * is cleared up, the application will receive an additional callback with the congested
-     * flag set to false.
-     *
-     * @param gatt The GATT client associated with the remote device
-     * @param congested true, if the connection is currently congested
-     */
-    public void onConnectionCongested(BluetoothGatt gatt, boolean congested) {
+    public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
     }
 }

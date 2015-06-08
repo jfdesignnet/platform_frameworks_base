@@ -20,6 +20,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.telephony.SubscriptionManager;
 import android.telephony.CellLocation;
 import android.telephony.CellInfo;
 import android.telephony.VoLteServiceState;
@@ -31,6 +32,7 @@ import android.telephony.PreciseCallState;
 import android.telephony.PreciseDataConnectionState;
 
 import com.android.internal.telephony.IPhoneStateListener;
+import com.android.internal.telephony.PhoneConstants;
 
 import java.util.List;
 
@@ -50,7 +52,8 @@ import java.util.List;
  * appropriate LISTEN_ flags.
  */
 public class PhoneStateListener {
-    private static final String TAG = "PhoneStateListener";
+    private static final String LOG_TAG = "PhoneStateListener";
+    private static final boolean DBG = false; // STOPSHIP if true
 
     /**
      * Stop listening for updates.
@@ -211,34 +214,65 @@ public class PhoneStateListener {
      */
     public static final int LISTEN_VOLTE_STATE                              = 0x00004000;
 
+    /**
+     * Listen for OEM hook raw event
+     *
+     * @see #onOemHookRawEvent
+     * @hide
+     */
+    public static final int LISTEN_OEM_HOOK_RAW_EVENT                       = 0x00008000;
+
      /*
      * Subscription used to listen to the phone state changes
      * @hide
      */
     /** @hide */
-    protected long mSubId = 0;
+    protected int mSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
 
     private final Handler mHandler;
 
+    /**
+     * Create a PhoneStateListener for the Phone with the default subscription.
+     * This class requires Looper.myLooper() not return null. To supply your
+     * own non-null looper use PhoneStateListener(Looper looper) below.
+     */
     public PhoneStateListener() {
-        this(SubscriptionManager.DEFAULT_SUB_ID, Looper.myLooper());
+        this(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID, Looper.myLooper());
     }
 
     /**
+     * Create a PhoneStateListener for the Phone with the default subscription
+     * using a particular non-null Looper.
      * @hide
      */
-    public PhoneStateListener(long subId) {
+    public PhoneStateListener(Looper looper) {
+        this(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID, looper);
+    }
+
+    /**
+     * Create a PhoneStateListener for the Phone using the specified subscription.
+     * This class requires Looper.myLooper() not return null. To supply your
+     * own non-null Looper use PhoneStateListener(int subId, Looper looper) below.
+     * @hide
+     */
+    public PhoneStateListener(int subId) {
         this(subId, Looper.myLooper());
     }
 
-    /** @hide */
-    public PhoneStateListener(long subId, Looper looper) {
-        Rlog.d(TAG, "ctor: subId=" + subId + " looper=" + looper);
+    /**
+     * Create a PhoneStateListener for the Phone using the specified subscription
+     * and non-null Looper.
+     * @hide
+     */
+    public PhoneStateListener(int subId, Looper looper) {
+        if (DBG) log("ctor: subId=" + subId + " looper=" + looper);
         mSubId = subId;
         mHandler = new Handler(looper) {
             public void handleMessage(Message msg) {
-                Rlog.d(TAG, "mSubId=" + mSubId + " what=0x" + Integer.toHexString(msg.what)
-                 + " msg=" + msg);
+                if (DBG) {
+                    log("mSubId=" + mSubId + " what=0x" + Integer.toHexString(msg.what)
+                            + " msg=" + msg);
+                }
                 switch (msg.what) {
                     case LISTEN_SERVICE_STATE:
                         PhoneStateListener.this.onServiceStateChanged((ServiceState)msg.obj);
@@ -288,6 +322,10 @@ public class PhoneStateListener {
                     case LISTEN_VOLTE_STATE:
                         PhoneStateListener.this.onVoLteServiceStateChanged((VoLteServiceState)msg.obj);
                         break;
+                    case LISTEN_OEM_HOOK_RAW_EVENT:
+                        PhoneStateListener.this.onOemHookRawEvent((byte[])msg.obj);
+                        break;
+
                 }
             }
         };
@@ -456,6 +494,16 @@ public class PhoneStateListener {
     }
 
     /**
+     * Callback invoked when OEM hook raw event is received. Requires
+     * the READ_PRIVILEGED_PHONE_STATE permission.
+     * @param rawData is the byte array of the OEM hook raw data.
+     * @hide
+     */
+    public void onOemHookRawEvent(byte[] rawData) {
+        // default implementation empty
+    }
+
+    /**
      * The callback methods need to be called on the handler thread where
      * this object was created.  If the binder did that for us it'd be nice.
      */
@@ -527,5 +575,13 @@ public class PhoneStateListener {
         public void onVoLteServiceStateChanged(VoLteServiceState lteState) {
             Message.obtain(mHandler, LISTEN_VOLTE_STATE, 0, 0, lteState).sendToTarget();
         }
+
+        public void onOemHookRawEvent(byte[] rawData) {
+            Message.obtain(mHandler, LISTEN_OEM_HOOK_RAW_EVENT, 0, 0, rawData).sendToTarget();
+        }
     };
+
+    private void log(String s) {
+        Rlog.d(LOG_TAG, s);
+    }
 }

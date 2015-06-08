@@ -14,17 +14,7 @@
 #include <utils/String8.h>
 #include <utils/Vector.h>
 
-enum {
-    SDK_CUPCAKE = 3,
-    SDK_DONUT = 4,
-    SDK_ECLAIR = 5,
-    SDK_ECLAIR_0_1 = 6,
-    SDK_MR1 = 7,
-    SDK_FROYO = 8,
-    SDK_HONEYCOMB_MR2 = 13,
-    SDK_ICE_CREAM_SANDWICH = 14,
-    SDK_ICE_CREAM_SANDWICH_MR1 = 15,
-};
+#include "SdkConstants.h"
 
 /*
  * Things we can do.
@@ -39,6 +29,7 @@ typedef enum Command {
     kCommandPackage,
     kCommandCrunch,
     kCommandSingleCrunch,
+    kCommandDaemon
 } Command;
 
 /*
@@ -129,6 +120,10 @@ public:
     void setErrorOnFailedInsert(bool val) { mErrorOnFailedInsert = val; }
     bool getErrorOnMissingConfigEntry() { return mErrorOnMissingConfigEntry; }
     void setErrorOnMissingConfigEntry(bool val) { mErrorOnMissingConfigEntry = val; }
+    const android::String8& getPlatformBuildVersionCode() { return mPlatformVersionCode; }
+    void setPlatformBuildVersionCode(const android::String8& code) { mPlatformVersionCode = code; }
+    const android::String8& getPlatformBuildVersionName() { return mPlatformVersionName; }
+    void setPlatformBuildVersionName(const android::String8& name) { mPlatformVersionName = name; }
 
     bool getUTF16StringsOption() {
         return mWantUTF16 || !isMinSdkAtLeast(SDK_FROYO);
@@ -159,12 +154,16 @@ public:
     const android::Vector<android::String8>& getSplitConfigurations() const { return mPartialConfigurations; }
     const char* getResourceIntermediatesDir() const { return mResourceIntermediatesDir; }
     void setResourceIntermediatesDir(const char* dir) { mResourceIntermediatesDir = dir; }
-    const android::Vector<const char*>& getPackageIncludes() const { return mPackageIncludes; }
-    void addPackageInclude(const char* file) { mPackageIncludes.add(file); }
+    const android::Vector<android::String8>& getPackageIncludes() const { return mPackageIncludes; }
+    void addPackageInclude(const char* file) { mPackageIncludes.add(android::String8(file)); }
     const android::Vector<const char*>& getJarFiles() const { return mJarFiles; }
     void addJarFile(const char* file) { mJarFiles.add(file); }
     const android::Vector<const char*>& getNoCompressExtensions() const { return mNoCompressExtensions; }
     void addNoCompressExtension(const char* ext) { mNoCompressExtensions.add(ext); }
+    void setFeatureOfPackage(const char* str) { mFeatureOfPackage = str; }
+    const android::String8& getFeatureOfPackage() const { return mFeatureOfPackage; }
+    void setFeatureAfterPackage(const char* str) { mFeatureAfterPackage = str; }
+    const android::String8& getFeatureAfterPackage() const { return mFeatureAfterPackage; }
 
     const char*  getManifestMinSdkVersion() const { return mManifestMinSdkVersion; }
     void setManifestMinSdkVersion(const char*  val) { mManifestMinSdkVersion = val; }
@@ -180,6 +179,8 @@ public:
     void setVersionName(const char* val) { mVersionName = val; }
     bool getReplaceVersion() { return mReplaceVersion; }
     void setReplaceVersion(bool val) { mReplaceVersion = val; }
+    const android::String8& getRevisionCode() { return mRevisionCode; }
+    void setRevisionCode(const char* val) { mRevisionCode = android::String8(val); }
     const char* getCustomPackage() const { return mCustomPackage; }
     void setCustomPackage(const char* val) { mCustomPackage = val; }
     const char* getExtraPackages() const { return mExtraPackages; }
@@ -290,12 +291,15 @@ private:
     android::String8 mConfigurations;
     android::String8 mPreferredDensity;
     android::Vector<android::String8> mPartialConfigurations;
-    android::Vector<const char*> mPackageIncludes;
+    android::Vector<android::String8> mPackageIncludes;
     android::Vector<const char*> mJarFiles;
     android::Vector<const char*> mNoCompressExtensions;
     android::Vector<const char*> mAssetSourceDirs;
     android::Vector<const char*> mResourceSourceDirs;
 
+    android::String8 mFeatureOfPackage;
+    android::String8 mFeatureAfterPackage;
+    android::String8 mRevisionCode;
     const char* mManifestMinSdkVersion;
     const char* mMinSdkVersion;
     const char* mTargetSdkVersion;
@@ -316,6 +320,8 @@ private:
     const char* mSingleCrunchInputFile;
     const char* mSingleCrunchOutputFile;
     bool        mBuildSharedLibrary;
+    android::String8 mPlatformVersionCode;
+    android::String8 mPlatformVersionName;
 
     /* file specification */
     int         mArgc;

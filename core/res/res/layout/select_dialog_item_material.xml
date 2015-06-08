@@ -28,6 +28,6 @@
     android:textAppearance="?android:attr/textAppearanceListItemSmall"
     android:textColor="?android:attr/textColorAlertDialogListItem"
     android:gravity="center_vertical"
-    android:paddingStart="16dip"
-    android:paddingEnd="16dip"
+    android:paddingStart="?attr/listPreferredItemPaddingStart"
+    android:paddingEnd="?attr/listPreferredItemPaddingEnd"
     android:ellipsize="marquee" />
