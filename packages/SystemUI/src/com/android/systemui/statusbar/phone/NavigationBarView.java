@@ -447,6 +447,9 @@ public class NavigationBarView extends LinearLayout {
 
         mButtonIdList.clear();
 
+        mRippleColor = Settings.System.getIntForUser(mContext.getContentResolver(),
+                Settings.System.NAVIGATION_BAR_GLOW_TINT, -2, UserHandle.USER_CURRENT);
+
         ((LinearLayout) mRot0.findViewById(R.id.nav_buttons)).removeAllViews();
         ((LinearLayout) mRot0.findViewById(R.id.lights_out)).removeAllViews();
         ((LinearLayout) mRot90.findViewById(R.id.nav_buttons)).removeAllViews();
@@ -575,6 +578,7 @@ public class NavigationBarView extends LinearLayout {
                 v.setImageDrawable(d);
             }
         }
+        v.setRippleColor(mRippleColor);
         return v;
     }
 
@@ -628,6 +632,7 @@ public class NavigationBarView extends LinearLayout {
         } else {
             v.setImageDrawable(d);
         }
+        v.setRippleColor(mRippleColor);
 
         return v;
     }

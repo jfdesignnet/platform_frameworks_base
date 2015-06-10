@@ -3239,6 +3239,12 @@ public final class Settings {
         public static final String NAVIGATION_BAR_BUTTON_TINT_MODE = "navigation_bar_button_tint_mode";
 
         /**
+         * Navigation bar glow color
+         * @hide
+         */
+        public static final String NAVIGATION_BAR_GLOW_TINT = "navigation_bar_glow_tint";
+
+        /**
          * Wether navigation bar is enabled or not
          * @hide
          */
@@ -3273,12 +3279,6 @@ public final class Settings {
          * @hide
          */
         public static final String NAVIGATION_BAR_CONFIG = "navigation_bar_config";
-
-        /**
-         * Navigation bar button color
-         * @hide
-         */
-        public static final String NAVIGATION_BAR_TINT = "navigation_bar_tint";
 
         /**
          * Wether the navbar menu button is on the left/right/both
