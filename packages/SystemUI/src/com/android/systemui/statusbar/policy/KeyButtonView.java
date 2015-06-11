@@ -353,7 +353,7 @@ public class KeyButtonView extends ImageView {
 
     public void setTint(boolean tint) {
         setColorFilter(null);
-        if (tint) {
+        if (true/*tint*/) {
             int color = Settings.System.getInt(mContext.getContentResolver(),
                     Settings.System.NAVIGATION_BAR_BUTTON_TINT, -1);
             if (color != -1) {
