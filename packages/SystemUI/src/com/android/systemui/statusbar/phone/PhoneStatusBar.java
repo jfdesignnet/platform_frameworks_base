@@ -498,31 +498,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         @Override
         public void onChange(boolean selfChange, Uri uri) {
             super.onChange(selfChange, uri);
-            if (uri.equals(Settings.System.getUriFor(
-                    Settings.System.HEADS_UP_SNOOZE_TIME))) {
-                final int snoozeTime = Settings.System.getIntForUser(
-                        mContext.getContentResolver(),
-                        Settings.System.HEADS_UP_SNOOZE_TIME,
-                        mContext.getResources().getInteger(
-                        R.integer.heads_up_snooze_time),
-                        UserHandle.USER_CURRENT);
-                setHeadsUpSnoozeTime(snoozeTime);
-                if (mHeadsUpNotificationView != null) {
-                    mHeadsUpNotificationView.setSnoozeVisibility(snoozeTime != 0);
-                }
-            } else if (uri.equals(Settings.System.getUriFor(
-                    Settings.System.HEADS_UP_NOTIFCATION_DECAY))) {
-                mHeadsUpNotificationDecay = Settings.System.getIntForUser(
-                        mContext.getContentResolver(),
-                        Settings.System.HEADS_UP_NOTIFCATION_DECAY,
-                        mContext.getResources().getInteger(
-                        R.integer.heads_up_notification_decay),
-                        UserHandle.USER_CURRENT);
-                resetHeadsUpDecayTimer();
-            }
-            super.onChange(selfChange, uri);
-
->>>>>>> 227da3d... fb: Slims navbar customizations
             update();
 
             if (uri.equals(Settings.System.getUriFor(
