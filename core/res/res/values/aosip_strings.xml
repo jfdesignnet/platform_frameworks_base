@@ -45,10 +45,6 @@
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_accessTorchService">Allows an app to access the torch service. Should never be needed for normal apps.</string>
 
-    <!-- Heads up -->
-    <string name="permlab_changeHeadsUpState">enable or disable heads up</string>
-    <string name="permdesc_changeHeadsUpState">Allows the application to change whether another application is allowed to show normal notifications as heads up notification.</string>
-
     <!-- Title of an application permission, listed so the user can choose whether they want the application to do this. -->
     <string name="permlab_setKeyguardWallpaper">set keyguard wallpaper</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
@@ -76,4 +72,5 @@
     <string name="theme_install_error_message">%s failed to install</string>
     <string name="theme_reset_notification_title">Theme reset</string>
     <string name="theme_reset_notification_body">System theme restored due to multiple app crashes.</string>
+
 </resources>
