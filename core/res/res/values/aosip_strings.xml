@@ -84,4 +84,7 @@
     <string name="floating_window_snap_left">Snap left</string>
     <string name="floating_window_snap_right">Snap right</string>
     <string name="floating_window_minimize">Minimize</string>
+
+    <!-- Default fingerprint name when a new fingerprint is added -->
+    <string name="fingerprint_default_name">Fingerprint <xliff:g id="number">%d</xliff:g></string>
 </resources>
