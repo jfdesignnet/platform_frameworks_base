@@ -2388,14 +2388,6 @@
         android:description="@string/permdesc_changeComponentState"
         android:protectionLevel="signature|system" />
 
-    <!-- @hide Allows an application to change heads up state only with correct signature.
-        Maybe overkill...but we do not want to allow whatever third party app
-        without permission to confuse the user. -->
-    <permission android:name="android.permission.CHANGE_HEADS_UP_STATE"
-        android:label="@string/permlab_changeHeadsUpState"
-        android:description="@string/permdesc_changeHeadsUpState"
-        android:protectionLevel="signature|system" />
-
     <!-- @hide Allows an application to grant or revoke specific permissions. -->
     <permission android:name="android.permission.GRANT_REVOKE_PERMISSIONS"
         android:label="@string/permlab_grantRevokePermissions"
@@ -2974,6 +2966,21 @@
      <permission android:name="android.permission.WRITE_THEMES"
          android:label="@string/permlab_writeThemes"
          android:description="@string/permdesc_writeThemesDesc"
+         android:protectionLevel="system|signature" />
+
+    <!-- Allows an application access to the CM hardware abstraction framework (DANGEROUS)
+         <p>Not for use by third-party applications.
+         @hide -->
+    <permission android:name="android.permission.HARDWARE_ABSTRACTION_ACCESS"
+        android:label="@string/permlab_useHardwareFramework"
+        android:description="@string/permdesc_useHardwareFramework"
+        android:protectionLevel="signature" />
+
+     <!-- Allows an application to access Fingerprint Service
+          @hide -->
+     <permission android:name="android.permission.ACCESS_FINGERPRINT_SERVICE"
+         android:label="@string/permlab_accessFingerprintService"
+         android:description="@string/permdesc_accessFingerprintService"
          android:protectionLevel="system|signature" />
 
     <!-- The system process is explicitly the only one allowed to launch the

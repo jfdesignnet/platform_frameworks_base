@@ -2113,20 +2113,6 @@ public final class Settings {
         public static final String QS_USE_MAIN_TILES = "sysui_qs_main_tiles";
 
         /**
-         * Defines global heads up snooze time if user want to snooze it.
-         *
-         * @hide
-         */
-        public static final String HEADS_UP_SNOOZE_TIME = "heads_up_snooze_time";
-
-        /**
-         * Defines the global heads up notification decay
-         *
-         * @hide
-         */
-        public static final String HEADS_UP_NOTIFCATION_DECAY = "heads_up_notification_decay";
-
-        /**
          * Control whether the process CPU usage meter should be shown.
          *
          * @deprecated Use {@link Global#SHOW_PROCESSES} instead
@@ -2909,6 +2895,52 @@ public final class Settings {
         public static final String APP_SIDEBAR_SHOW_TRIGGER = "app_sidebar_show_trigger";
 
         /**
+         * Whether to show the weather info on the lock screen
+         * @hide
+         */
+        public static final String LOCK_SCREEN_SHOW_WEATHER = "lock_screen_show_weather";
+
+        /**
+         * Whether to show the weather location on the lock screen
+         * @hide
+         */
+        public static final String LOCK_SCREEN_SHOW_WEATHER_LOCATION = "lock_screen_show_weather_location";
+
+        /**
+         * Whether to show the weather update timestamp on the lock screen
+         * @hide
+         */
+        public static final String LOCK_SCREEN_SHOW_WEATHER_TIMESTAMP = "lock_screen_show_weather_timestamp";
+
+        /**
+         * Weather condition icon on the lock screen
+         * 0: monochrome
+         * 1: colored
+         * 2: vclouds
+         * default: 0
+         * @hide
+         */
+        public static final String LOCK_SCREEN_WEATHER_CONDITION_ICON = "lock_screen_weather_condition_icon";
+
+        /**
+         * Whether to colorize all weather condition icons on the lock screen
+         * @hide
+         */
+        public static final String LOCK_SCREEN_WEATHER_COLORIZE_ALL_ICONS = "lock_screen_weather_colorize_all_icons";
+
+        /**
+         * Color of the weather text on the lock screen
+         * @hide
+         */
+        public static final String LOCK_SCREEN_WEATHER_TEXT_COLOR = "lock_screen_weather_text_color";
+
+        /**
+         * Color of the weather condition icons on the lock screen
+         * @hide
+         */
+        public static final String LOCK_SCREEN_WEATHER_ICON_COLOR = "lock_screen_weather_icon_color";
+
+        /**
          * Whether lock-to-app will be triggered by long-press on recents.
          * @hide
          */
@@ -3332,6 +3364,140 @@ public final class Settings {
         public static final String ENABLE_TASK_MANAGER = "enable_task_manager";
 
         /**
+         * Whether to use slim recents
+         * @hide
+         */
+        public static final String USE_SLIM_RECENTS = "use_slim_recents";
+
+        /**
+         * Whether to only show actually running tasks
+         * @hide
+         */
+        public static final String RECENT_SHOW_RUNNING_TASKS = "show_running_tasks";
+
+        /**
+         * Amount of apps to show in recents
+         * @hide
+         */
+        public static final String RECENTS_MAX_APPS = "recents_max_apps";
+
+        /**
+         * Whether recent panel gravity is left or right (default = Gravity.RIGHT).
+         * @hide
+         */
+        public static final String RECENT_PANEL_GRAVITY = "recent_panel_gravity";
+
+        /**
+         * Size of recent panel view in percent (default = 100).
+         * @hide
+         */
+        public static final String RECENT_PANEL_SCALE_FACTOR = "recent_panel_scale_factor";
+
+        /**
+         * User favorite tasks for recent panel.
+         * @hide
+         */
+        public static final String RECENT_PANEL_FAVORITES = "recent_panel_favorites";
+
+        /**
+         * Recent panel expanded mode (auto = 0, always = 1, never = 2).
+         * default = 0.
+         *
+         * @hide
+         */
+        public static final String RECENT_PANEL_EXPANDED_MODE = "recent_panel_expanded_mode";
+
+        /**
+         * Recent panel: Show topmost task
+         *
+         * @hide
+         */
+        public static final String RECENT_PANEL_SHOW_TOPMOST = "recent_panel_show_topmost";
+
+        /**
+         * Recent panel background color
+         *
+         * @hide
+         */
+        public static final String RECENT_PANEL_BG_COLOR = "recent_panel_bg_color";
+
+        /**
+         * Recent card background color
+         *
+         * @hide
+         */
+        public static final String RECENT_CARD_BG_COLOR = "recent_card_bg_color";
+
+        /**
+         * Recent card text color
+         *
+         * @hide
+         */
+        public static final String RECENT_CARD_TEXT_COLOR = "recent_card_text_color";
+
+        /**
+         * Boolean value on whether to show weather in the statusbar
+         */
+        public static final String STATUS_BAR_SHOW_WEATHER = "status_bar_show_weather";
+
+        /**
+         * Whether the user has enabled headsup (Default 1)
+         * HeadsUp is enabled by default within its Settings.Global.HEADS_UP_NOTIFICATIONS_ENABLED
+         * setting. Avoid changing low level implementations and use a System setting to
+         * override per-user heads up on/off preference.
+         *
+         * Enable headsup = 1 (on by default)
+         * Disable headsup = 0
+         *
+         * @see com.android.systemui.statusbar.BaseStatusBar#addNotification
+         * @hide
+         */
+        public static final String HEADS_UP_USER_ENABLED =
+                "heads_up_user_enabled";
+
+        /** @hide */ public static final int HEADS_UP_USER_OFF = 0;
+        /** @hide */ public static final int HEADS_UP_USER_ON = 1;
+
+        /**
+         * Hide notification instead of remove when swiping headsup
+         * @hide
+         */
+        public static final String HEADS_UP_DISMISS_ON_REMOVE = "heads_up_dismiss_on_remove";
+
+        /**
+         * Which applications to disable heads up notifications for
+         *
+         * @hide
+         */
+        public static final String HEADS_UP_CUSTOM_VALUES = "heads_up_custom_values";
+
+        /**
+         * Which applications to disable heads up notifications for
+         *
+         * @hide
+         */
+        public static final String HEADS_UP_BLACKLIST_VALUES = "heads_up_blacklist_values";
+
+        /**
+         * Defines the global heads up notification decay
+         *
+         * @hide
+         */
+        public static final String HEADS_UP_NOTIFCATION_DECAY = "heads_up_notification_decay";
+
+        /**
+         * Hide notification 1 second after touching outside
+         * @hide
+         */
+        public static final String HEADS_UP_TOUCH_OUTSIDE = "heads_up_touch_outside";
+
+        /**
+         * Option to launch slim actions in floating mode
+         * @hide
+         */
+        public static final String SLIM_ACTION_FLOATS = "slim_action_floats";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
@@ -3557,6 +3723,13 @@ public final class Settings {
         @Deprecated
         public static final String WIFI_NETWORKS_AVAILABLE_NOTIFICATION_ON =
                 Global.WIFI_NETWORKS_AVAILABLE_NOTIFICATION_ON;
+
+        /**
+         * wake up when plugged or unplugged
+         *
+         * @hide
+         */
+        public static final String WAKEUP_WHEN_PLUGGED_UNPLUGGED = "wakeup_when_plugged_unplugged";
 
         /**
          * @deprecated Use
@@ -4461,12 +4634,6 @@ public final class Settings {
          */
         public static final String LOCK_SCREEN_APPWIDGET_IDS =
             "lock_screen_appwidget_ids";
-
-        /**
-         * List of enrolled fingerprint identifiers (comma-delimited).
-         * @hide
-         */
-        public static final String USER_FINGERPRINT_IDS = "user_fingerprint_ids";
 
         /**
          * Id of the appwidget shown on the lock screen when appwidgets are disabled.
@@ -7493,6 +7660,33 @@ public final class Settings {
         public static final String ENHANCED_4G_MODE_ENABLED = "volte_vt_enabled";
 
         /**
+         * Whether WFC is enabled
+         * <p>
+         * Type: int (0 for false, 1 for true)
+         *
+         * @hide
+         */
+        public static final String WFC_IMS_ENABLED = "wfc_ims_enabled";
+
+        /**
+         * WFC Mode.
+         * <p>
+         * Type: int - 2=Wi-Fi preferred, 1=Cellular preferred, 0=Wi-Fi only
+         *
+         * @hide
+         */
+        public static final String WFC_IMS_MODE = "wfc_ims_mode";
+
+        /**
+         * Whether WFC roaming is enabled
+         * <p>
+         * Type: int (0 for false, 1 for true)
+         *
+         * @hide
+         */
+        public static final String WFC_IMS_ROAMING_ENABLED = "wfc_ims_roaming_enabled";
+
+        /**
          * Global override to disable VoLTE (independent of user setting)
          * <p>
          * Type: int (1 for disable VoLTE, 0 to use user configuration)
@@ -7508,6 +7702,12 @@ public final class Settings {
          * @hide
          */
         public static final String LTE_SERVICE_FORCED = "lte_service_forced";
+
+        /**
+         * List of enrolled fingerprint identifiers (comma-delimited).
+         * @hide
+         */
+        public static final String USER_FINGERPRINTS = "user_fingerprints";
 
         /**
          * Settings to backup. This is here so that it's in the same place as the settings

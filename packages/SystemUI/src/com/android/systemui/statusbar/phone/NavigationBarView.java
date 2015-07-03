@@ -41,6 +41,7 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
 import android.util.TypedValue;
 import android.view.Display;
 import android.view.Gravity;
@@ -709,7 +710,6 @@ public class NavigationBarView extends LinearLayout {
         }
 
         mNavigationIconHints = hints;
-
         ((ImageView)getBackButton()).setImageDrawable(backAlt
                 ? (mVertical ? mBackAltLandIcon : mBackAltIcon)
                 : (mVertical ? mBackLandIcon : mBackIcon));

@@ -372,4 +372,3 @@ public class KeyButtonRipple extends Drawable {
     }
 }
 
-

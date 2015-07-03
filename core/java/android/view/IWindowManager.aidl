@@ -280,4 +280,17 @@ interface IWindowManager
      * @hide
      */
     void toggleGlobalMenu();
+
+    /** FLOAT VIEW **/
+    Rect getAppFullscreenViewRect();
+    Rect getAppMinimumViewRect();
+    Rect getFloatViewRect();
+    void notifyFloatActivityTouched(IBinder token, boolean force);
+
+    /**
+     * Get current system ui visibility mode.
+     *
+     * @hide
+     */
+    int getSystemUIVisibility();
 }

@@ -320,8 +320,7 @@ public class SwipeHelper implements Gefingerpoken {
         // Reminder: direction is set to default false here due that
         // we do not need it for normal notifications (no heads up) and recents
         // screen.
-        dismissChild(view, velocity, endAction, delay, useAccelerateInterpolator,
-                fixedDuration, false);
+        dismissChild(view, velocity, endAction, delay, useAccelerateInterpolator, fixedDuration, false);
     }
 
     /**

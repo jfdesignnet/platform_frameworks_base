@@ -149,9 +149,6 @@
     <!-- milliseconds before the heads up notification accepts touches. -->
     <integer name="heads_up_sensitivity_delay">650</integer>
 
-    <!-- milliseconds how long heads up should be in snooze. -->
-    <integer name="heads_up_snooze_time">300000</integer>
-
     <!-- The duration in seconds to wait before the dismiss buttons are shown. -->
     <integer name="recents_task_bar_dismiss_delay_seconds">1</integer>
 
@@ -298,5 +295,8 @@
 
     <!-- Enable the default volume dialog -->
     <bool name="enable_volume_ui">true</bool>
-</resources>
 
+    <!-- Default value how much apps show the app screenshot on recents view entry -->
+    <integer name="expanded_items_default">2</integer>
+
+</resources>
