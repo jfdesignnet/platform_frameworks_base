@@ -20,51 +20,31 @@ package com.android.ims.internal;
 import com.android.ims.ImsConfigListener;
 
 /**
- * Provides APIs to get/set the IMS service capability/parameters.
- * The parameters can be configured by operator and/or user.
- * We define 4 storage locations for the IMS config items:
- * 1) Default config:For factory out device or device after factory data reset,
- * the default config is used to build the initial state of the master config value.
- * 2) Provisioned value: as the parameters provisioned by operator need to be preserved
- * across FDR(factory data reset)/BOTA(over the air software upgrade), the operator
- * provisioned items should be stored in memory location preserved across FDR/BOTA.
- * 3) Master value: as the provisioned value can override the user setting,
- * and the master config are used by IMS stack. They should be stored in the
- * storage based on IMS vendor implementations.
- * 4) User setting: For items can be changed by both user/operator, the user
- * setting should take effect in some cases. So the user setting should be stored in
- * database like setting.db.
+ * Provides APIs to get/set the IMS service feature/capability/parameters.
+ * The config items include:
+ * 1) Items provisioned by the operator.
+ * 2) Items configured by user. Mainly service feature class.
  *
- * Priority consideration if both operator/user can config the same item:
- * 1)  For feature config items, the master value is obtained from the provisioned value
- * masks with the user setting. Specifically the provisioned values overrides
- * the user setting if feature is provisioned off. Otherwise, user setting takes
- * effect.
- * 2) For non-feature config item: to be implemented based on cases.
- * Special cases considered as below:
- * 1) Factory out device, the master configuration is built from default config.
- * 2) For Factory data reset/SW upgrade device, the master config is built by
- * taking provisioned value overriding default config.
  * {@hide}
  */
 interface IImsConfig {
     /**
-     * Gets the value for ims service/capabilities parameters from the master
+     * Gets the value for ims service/capabilities parameters from the provisioned
      * value storage. Synchronous blocking call.
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @return value in Integer format.
      */
-    int getMasterValue(int item);
+    int getProvisionedValue(int item);
 
     /**
-     * Gets the value for ims service/capabilities parameters from the master
+     * Gets the value for ims service/capabilities parameters from the provisioned
      * value storage. Synchronous blocking call.
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @return value in String format.
      */
-    String getMasterStringValue(int item);
+    String getProvisionedStringValue(int item);
 
     /**
      * Sets the value for IMS service/capabilities parameters by the operator device
@@ -73,9 +53,9 @@ interface IImsConfig {
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @param value in Integer format.
-     * @return void.
+     * @return as defined in com.android.ims.ImsConfig#OperationStatusConstants.
      */
-    void setProvisionedValue(int item, int value);
+    int setProvisionedValue(int item, int value);
 
     /**
      * Sets the value for IMS service/capabilities parameters by the operator device
@@ -84,9 +64,9 @@ interface IImsConfig {
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @param value in String format.
-     * @return void.
+     * @return as defined in com.android.ims.ImsConfig#OperationStatusConstants.
      */
-    void setProvisionedStringValue(int item, String value);
+    int setProvisionedStringValue(int item, String value);
 
     /**
      * Gets the value of the specified IMS feature item for specified network type.
@@ -112,4 +92,12 @@ interface IImsConfig {
      * @return void
      */
     oneway void setFeatureValue(int feature, int network, int value, ImsConfigListener listener);
+
+    /**
+     * Gets the value for IMS volte provisioned.
+     * This should be the same as the operator provisioned value if applies.
+     *
+     * @return void
+     */
+    boolean getVolteProvisioned();
 }

@@ -111,6 +111,8 @@ interface IPackageManager {
 
     int getFlagsForUid(int uid);
 
+    boolean isUidPrivileged(int uid);
+
     String[] getAppOpPermissionPackages(String permissionName);
 
     ResolveInfo resolveIntent(in Intent intent, String resolvedType, int flags, int userId);
@@ -434,6 +436,7 @@ interface IPackageManager {
 
     boolean isFirstBoot();
     boolean isOnlyCoreApps();
+    boolean isUpgrade();
 
     void setPermissionEnforced(String permission, boolean enforced);
     boolean isPermissionEnforced(String permission);

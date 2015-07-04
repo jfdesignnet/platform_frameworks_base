@@ -73,8 +73,9 @@ abstract class HdmiCecFeatureAction {
     }
 
     /**
-     * Called right after the action is created. Initialization or first step to take
-     * for the action can be done in this method.
+     * Called after the action is created. Initialization or first step to take
+     * for the action can be done in this method. Shall update {@code mState} to
+     * indicate that the action has started.
      *
      * @return true if the operation is successful; otherwise false.
      */
@@ -84,8 +85,7 @@ abstract class HdmiCecFeatureAction {
      * Process the command. Called whenever a new command arrives.
      *
      * @param cmd command to process
-     * @return true if the command was consumed in the process; Otherwise false, which
-     *          indicates that the command shall be handled by other actions.
+     * @return true if the command was consumed in the process; Otherwise false.
      */
     abstract boolean processCommand(HdmiCecMessage cmd);
 
@@ -160,6 +160,10 @@ abstract class HdmiCecFeatureAction {
     // delayMillis.
     protected void addTimer(int state, int delayMillis) {
         mActionTimer.sendTimerMessage(state, delayMillis);
+    }
+
+    boolean started() {
+        return mState != STATE_NONE;
     }
 
     protected final void sendCommand(HdmiCecMessage cmd) {

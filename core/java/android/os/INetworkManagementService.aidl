@@ -92,6 +92,11 @@ interface INetworkManagementService
     void enableIpv6(String iface);
 
     /**
+     * Enables or enables IPv6 ND offload.
+     */
+    void setInterfaceIpv6NdOffload(String iface, boolean enable);
+
+    /**
      * Retrieves the network routes currently configured on the specified
      * interface
      */
@@ -171,6 +176,18 @@ interface INetworkManagementService
      * Returns the list of DNS forwarders (in order of priority)
      */
     String[] getDnsForwarders();
+
+    /**
+     * Enables unidirectional packet forwarding from {@code fromIface} to
+     * {@code toIface}.
+     */
+    void startInterfaceForwarding(String fromIface, String toIface);
+
+    /**
+     * Disables unidirectional packet forwarding from {@code fromIface} to
+     * {@code toIface}.
+     */
+    void stopInterfaceForwarding(String fromIface, String toIface);
 
     /**
      *  Enables Network Address Translation between two interfaces.
@@ -336,19 +353,19 @@ interface INetworkManagementService
     void removeVpnUidRanges(int netId, in UidRange[] ranges);
 
     /**
-     * Start the clatd (464xlat) service
+     * Start the clatd (464xlat) service on the given interface.
      */
     void startClatd(String interfaceName);
 
     /**
-     * Stop the clatd (464xlat) service
+     * Stop the clatd (464xlat) service on the given interface.
      */
-    void stopClatd();
+    void stopClatd(String interfaceName);
 
     /**
-     * Determine whether the clatd (464xlat) service has been started
+     * Determine whether the clatd (464xlat) service has been started on the given interface.
      */
-    boolean isClatdStarted();
+    boolean isClatdStarted(String interfaceName);
 
     /**
      * Start listening for mobile activity state changes.

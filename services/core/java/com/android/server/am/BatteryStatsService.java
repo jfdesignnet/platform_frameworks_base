@@ -143,6 +143,18 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
+    void noteProcessCrash(String name, int uid) {
+        synchronized (mStats) {
+            mStats.noteProcessCrashLocked(name, uid);
+        }
+    }
+
+    void noteProcessAnr(String name, int uid) {
+        synchronized (mStats) {
+            mStats.noteProcessAnrLocked(name, uid);
+        }
+    }
+
     void noteProcessState(String name, int uid, int state) {
         synchronized (mStats) {
             mStats.noteProcessStateLocked(name, uid, state);
@@ -346,6 +358,13 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteInteractiveLocked(interactive);
+        }
+    }
+
+    public void noteConnectivityChanged(int type, String extra) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteConnectivityChangedLocked(type, extra);
         }
     }
 
@@ -870,6 +889,16 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
         if (BatteryStatsHelper.checkWifiOnly(mContext)) {
             flags |= BatteryStats.DUMP_DEVICE_WIFI_ONLY;
+        }
+        if (reqUid >= 0) {
+            // By default, if the caller is only interested in a specific package, then
+            // we only dump the aggregated data since charged.
+            if ((flags&(BatteryStats.DUMP_HISTORY_ONLY|BatteryStats.DUMP_UNPLUGGED_ONLY
+                    |BatteryStats.DUMP_CHARGED_ONLY)) == 0) {
+                flags |= BatteryStats.DUMP_CHARGED_ONLY;
+                // Also if they are doing -c, we don't want history.
+                flags &= ~BatteryStats.DUMP_INCLUDE_HISTORY;
+            }
         }
         if (useCheckinFormat) {
             List<ApplicationInfo> apps = mContext.getPackageManager().getInstalledApplications(0);

@@ -18,10 +18,15 @@ package android.media;
 
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
+import java.util.Iterator;
 
+import android.os.Binder;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.util.Log;
 
 /**
@@ -99,6 +104,8 @@ public class AudioRecord
 
     private final static String TAG = "android.media.AudioRecord";
 
+    /** @hide */
+    public final static String SUBMIX_FIXED_VOLUME = "fixedVolume";
 
     //---------------------------------------------------------
     // Used exclusively by native code
@@ -184,6 +191,7 @@ public class AudioRecord
      * AudioAttributes
      */
     private AudioAttributes mAudioAttributes;
+    private boolean mIsSubmixFullVolume = false;
 
     //---------------------------------------------------------
     // Constructor, Finalize
@@ -265,7 +273,24 @@ public class AudioRecord
             mInitializationLooper = Looper.getMainLooper();
         }
 
-        mAudioAttributes = attributes;
+        // is this AudioRecord using REMOTE_SUBMIX at full volume?
+        if (attributes.getCapturePreset() == MediaRecorder.AudioSource.REMOTE_SUBMIX) {
+            final AudioAttributes.Builder filteredAttr = new AudioAttributes.Builder();
+            final Iterator<String> tagsIter = attributes.getTags().iterator();
+            while (tagsIter.hasNext()) {
+                final String tag = tagsIter.next();
+                if (tag.equalsIgnoreCase(SUBMIX_FIXED_VOLUME)) {
+                    mIsSubmixFullVolume = true;
+                    Log.v(TAG, "Will record from REMOTE_SUBMIX at full fixed volume");
+                } else { // SUBMIX_FIXED_VOLUME: is not to be propagated to the native layers
+                    filteredAttr.addTag(tag);
+                }
+            }
+            filteredAttr.setInternalCapturePreset(attributes.getCapturePreset());
+            mAudioAttributes = filteredAttr.build();
+        } else {
+            mAudioAttributes = attributes;
+        }
 
         int rate = 0;
         if ((format.getPropertySetMask()
@@ -351,6 +376,7 @@ public class AudioRecord
         // audio source
         if ( (audioSource < MediaRecorder.AudioSource.DEFAULT) ||
              ((audioSource > MediaRecorder.getAudioSourceMax()) &&
+              (audioSource != MediaRecorder.AudioSource.FM_TUNER) &&
               (audioSource != MediaRecorder.AudioSource.HOTWORD)) )  {
             throw new IllegalArgumentException("Invalid audio source.");
         }
@@ -419,7 +445,8 @@ public class AudioRecord
 
     @Override
     protected void finalize() {
-        native_finalize();
+        // will cause stop() to be called, and if appropriate, will handle fixed volume recording
+        release();
     }
 
 
@@ -586,6 +613,7 @@ public class AudioRecord
         // start recording
         synchronized(mRecordingStateLock) {
             if (native_start(MediaSyncEvent.SYNC_EVENT_NONE, 0) == SUCCESS) {
+                handleFullVolumeRec(true);
                 mRecordingState = RECORDSTATE_RECORDING;
             }
         }
@@ -608,6 +636,7 @@ public class AudioRecord
         // start recording
         synchronized(mRecordingStateLock) {
             if (native_start(syncEvent.getType(), syncEvent.getAudioSessionId()) == SUCCESS) {
+                handleFullVolumeRec(true);
                 mRecordingState = RECORDSTATE_RECORDING;
             }
         }
@@ -625,11 +654,25 @@ public class AudioRecord
 
         // stop recording
         synchronized(mRecordingStateLock) {
+            handleFullVolumeRec(false);
             native_stop();
             mRecordingState = RECORDSTATE_STOPPED;
         }
     }
 
+    private final IBinder mICallBack = new Binder();
+    private void handleFullVolumeRec(boolean starting) {
+        if (!mIsSubmixFullVolume) {
+            return;
+        }
+        final IBinder b = ServiceManager.getService(android.content.Context.AUDIO_SERVICE);
+        final IAudioService ias = IAudioService.Stub.asInterface(b);
+        try {
+            ias.forceRemoteSubmixFullVolume(starting, mICallBack);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error talking to AudioService when handling full submix volume", e);
+        }
+    }
 
     //---------------------------------------------------------
     // Audio data supply
@@ -880,6 +923,7 @@ public class AudioRecord
             int sampleRate, int channelMask, int audioFormat,
             int buffSizeInBytes, int[] sessionId);
 
+    // TODO remove: implementation calls directly into implementation of native_release()
     private native final void native_finalize();
 
     private native final void native_release();

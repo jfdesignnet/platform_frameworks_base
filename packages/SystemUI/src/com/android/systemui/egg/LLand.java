@@ -19,30 +19,45 @@ package com.android.systemui.egg;
 import android.animation.TimeAnimator;
 import android.content.Context;
 import android.content.res.Resources;
-import android.graphics.*;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Matrix;
+import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PorterDuff;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.os.Vibrator;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.view.*;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.util.Slog;
+import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
-import java.util.ArrayList;
-
 import com.android.systemui.R;
+
+import java.util.ArrayList;
 
 public class LLand extends FrameLayout {
     public static final String TAG = "LLand";
 
     public static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
-    public static final boolean DEBUG_DRAW = false && DEBUG;
+    public static final boolean DEBUG_DRAW = false; // DEBUG
 
-    public static final void L(String s, Object ... objects) {
+    public static void L(String s, Object ... objects) {
         if (DEBUG) {
-            Log.d(TAG, String.format(s, objects));
+            Slog.d(TAG, objects.length == 0 ? s : String.format(s, objects));
         }
     }
 
@@ -50,7 +65,19 @@ public class LLand extends FrameLayout {
     public static final boolean HAVE_STARS = true;
 
     public static final float DEBUG_SPEED_MULTIPLIER = 1f; // 0.1f;
-    public static final boolean DEBUG_IDDQD = false;
+    public static final boolean DEBUG_IDDQD = Log.isLoggable(TAG + ".iddqd", Log.DEBUG);
+
+    final static int[] POPS = {
+            // resid                // spinny!  // alpha
+            R.drawable.pop_belt,    0,          255,
+            R.drawable.pop_droid,   0,          255,
+            R.drawable.pop_pizza,   1,          255,
+            R.drawable.pop_stripes, 0,          255,
+            R.drawable.pop_swirl,   1,          255,
+            R.drawable.pop_vortex,  1,          255,
+            R.drawable.pop_vortex2, 1,          255,
+            R.drawable.pop_ball,    0,          190,
+    };
 
     private static class Params {
         public float TRANSLATION_PER_SEC;
@@ -58,7 +85,7 @@ public class LLand extends FrameLayout {
         public int BOOST_DV;
         public int PLAYER_HIT_SIZE;
         public int PLAYER_SIZE;
-        public int OBSTACLE_WIDTH;
+        public int OBSTACLE_WIDTH, OBSTACLE_STEM_WIDTH;
         public int OBSTACLE_GAP;
         public int OBSTACLE_MIN;
         public int BUILDING_WIDTH_MIN, BUILDING_WIDTH_MAX;
@@ -76,6 +103,7 @@ public class LLand extends FrameLayout {
             PLAYER_HIT_SIZE = res.getDimensionPixelSize(R.dimen.player_hit_size);
             PLAYER_SIZE = res.getDimensionPixelSize(R.dimen.player_size);
             OBSTACLE_WIDTH = res.getDimensionPixelSize(R.dimen.obstacle_width);
+            OBSTACLE_STEM_WIDTH = res.getDimensionPixelSize(R.dimen.obstacle_stem_width);
             OBSTACLE_GAP = res.getDimensionPixelSize(R.dimen.obstacle_gap);
             OBSTACLE_MIN = res.getDimensionPixelSize(R.dimen.obstacle_height_min);
             BUILDING_HEIGHT_MIN = res.getDimensionPixelSize(R.dimen.building_height_min);
@@ -94,10 +122,20 @@ public class LLand extends FrameLayout {
             PLAYER_Z = res.getDimensionPixelSize(R.dimen.player_z);
             PLAYER_Z_BOOST = res.getDimensionPixelSize(R.dimen.player_z_boost);
             HUD_Z = res.getDimensionPixelSize(R.dimen.hud_z);
+
+            // Sanity checking
+            if (OBSTACLE_MIN <= OBSTACLE_WIDTH / 2) {
+                Slog.e(TAG, "error: obstacles might be too short, adjusting");
+                OBSTACLE_MIN = OBSTACLE_WIDTH / 2 + 1;
+            }
         }
     }
 
     private TimeAnimator mAnim;
+    private Vibrator mVibrator;
+    private AudioManager mAudioManager;
+    private final AudioAttributes mAudioAttrs = new AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_GAME).build();
 
     private TextView mScoreField;
     private View mSplash;
@@ -112,6 +150,7 @@ public class LLand extends FrameLayout {
     private int mWidth, mHeight;
     private boolean mAnimating, mPlaying;
     private boolean mFrozen; // after death, a short backoff
+    private boolean mFlipped;
 
     private int mTimeOfDay;
     private static final int DAY = 0, NIGHT = 1, TWILIGHT = 2, SUNSET = 3;
@@ -119,7 +158,7 @@ public class LLand extends FrameLayout {
             { 0xFFc0c0FF, 0xFFa0a0FF }, // DAY
             { 0xFF000010, 0xFF000000 }, // NIGHT
             { 0xFF000040, 0xFF000010 }, // TWILIGHT
-            { 0xFF805010, 0xFF202080 }, // SUNSET
+            { 0xFFa08020, 0xFF204080 }, // SUNSET
     };
 
     private static Params PARAMS;
@@ -134,9 +173,14 @@ public class LLand extends FrameLayout {
 
     public LLand(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
+        mVibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+        mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         setFocusable(true);
         PARAMS = new Params(getResources());
         mTimeOfDay = irand(0, SKIES.length);
+
+        // we assume everything will be laid out left|top
+        setLayoutDirection(LAYOUT_DIRECTION_LTR);
     }
 
     @Override
@@ -174,7 +218,15 @@ public class LLand extends FrameLayout {
 
     final float hsv[] = {0, 0, 0};
 
-    private void reset() {
+    private void thump() {
+        if (mAudioManager.getRingerMode() == AudioManager.RINGER_MODE_SILENT) {
+            // No interruptions. Not even game haptics.
+            return;
+        }
+        mVibrator.vibrate(80, mAudioAttrs);
+    }
+
+    public void reset() {
         L("reset");
         final Drawable sky = new GradientDrawable(
                 GradientDrawable.Orientation.BOTTOM_TOP,
@@ -183,7 +235,8 @@ public class LLand extends FrameLayout {
         sky.setDither(true);
         setBackground(sky);
 
-        setScaleX(frand() > 0.5f ? 1 : -1);
+        mFlipped = frand() > 0.5f;
+        setScaleX(mFlipped ? -1 : 1);
 
         setScore(0);
 
@@ -276,9 +329,7 @@ public class LLand extends FrameLayout {
         mDroid.setX(mWidth / 2);
         mDroid.setY(mHeight / 2);
         addView(mDroid, new LayoutParams(PARAMS.PLAYER_SIZE, PARAMS.PLAYER_SIZE));
-        if (mAnim != null) {
-            Log.wtf(TAG, "reseting while animating??!?");
-        }
+
         mAnim = new TimeAnimator();
         mAnim.setTimeListener(new TimeAnimator.TimeListener() {
             @Override
@@ -290,20 +341,23 @@ public class LLand extends FrameLayout {
 
     private void setScore(int score) {
         mScore = score;
-        if (mScoreField != null) mScoreField.setText(String.valueOf(score));
+        if (mScoreField != null) {
+            mScoreField.setText(DEBUG_IDDQD ? "??" : String.valueOf(score));
+        }
     }
 
     private void addScore(int incr) {
         setScore(mScore + incr);
     }
 
-    private void start(boolean startPlaying) {
+    public void start(boolean startPlaying) {
         L("start(startPlaying=%s)", startPlaying?"true":"false");
         if (startPlaying) {
             mPlaying = true;
 
             t = 0;
-            mLastPipeTime = getGameTime() - PARAMS.OBSTACLE_PERIOD; // queue up a obstacle
+            // there's a sucker born every OBSTACLE_PERIOD
+            mLastPipeTime = getGameTime() - PARAMS.OBSTACLE_PERIOD;
 
             if (mSplash != null && mSplash.getAlpha() > 0f) {
                 mSplash.setTranslationZ(PARAMS.HUD_Z);
@@ -328,7 +382,7 @@ public class LLand extends FrameLayout {
         }
     }
 
-    private void stop() {
+    public void stop() {
         if (mAnimating) {
             mAnim.cancel();
             mAnim = null;
@@ -393,8 +447,10 @@ public class LLand extends FrameLayout {
         if (mPlaying && mDroid.below(mHeight)) {
             if (DEBUG_IDDQD) {
                 poke();
+                unpoke();
             } else {
                 L("player hit the floor");
+                thump();
                 stop();
             }
         }
@@ -405,9 +461,10 @@ public class LLand extends FrameLayout {
             final Obstacle ob = mObstaclesInPlay.get(j);
             if (mPlaying && ob.intersects(mDroid) && !DEBUG_IDDQD) {
                 L("player hit an obstacle");
+                thump();
                 stop();
             } else if (ob.cleared(mDroid)) {
-                passedBarrier = true;
+                if (ob instanceof Stem) passedBarrier = true;
                 mObstaclesInPlay.remove(j);
             }
         }
@@ -435,72 +492,116 @@ public class LLand extends FrameLayout {
         // 3. Time for more obstacles!
         if (mPlaying && (t - mLastPipeTime) > PARAMS.OBSTACLE_PERIOD) {
             mLastPipeTime = t;
-            final int obstacley = (int) (Math.random()
-                    * (mHeight - 2*PARAMS.OBSTACLE_MIN - PARAMS.OBSTACLE_GAP)) + PARAMS.OBSTACLE_MIN;
+            final int obstacley =
+                    (int)(frand() * (mHeight - 2*PARAMS.OBSTACLE_MIN - PARAMS.OBSTACLE_GAP)) +
+                    PARAMS.OBSTACLE_MIN;
 
-            final Obstacle p1 = new Obstacle(getContext(), obstacley);
+            final int inset = (PARAMS.OBSTACLE_WIDTH - PARAMS.OBSTACLE_STEM_WIDTH) / 2;
+            final int yinset = PARAMS.OBSTACLE_WIDTH/2;
+
+            final int d1 = irand(0,250);
+            final Obstacle s1 = new Stem(getContext(), obstacley - yinset, false);
+            addView(s1, new LayoutParams(
+                    PARAMS.OBSTACLE_STEM_WIDTH,
+                    (int) s1.h,
+                    Gravity.TOP|Gravity.LEFT));
+            s1.setTranslationX(mWidth+inset);
+            s1.setTranslationY(-s1.h-yinset);
+            s1.setTranslationZ(PARAMS.OBSTACLE_Z*0.75f);
+            s1.animate()
+                    .translationY(0)
+                    .setStartDelay(d1)
+                    .setDuration(250);
+            mObstaclesInPlay.add(s1);
+
+            final Obstacle p1 = new Pop(getContext(), PARAMS.OBSTACLE_WIDTH);
             addView(p1, new LayoutParams(
                     PARAMS.OBSTACLE_WIDTH,
-                    mHeight,
+                    PARAMS.OBSTACLE_WIDTH,
                     Gravity.TOP|Gravity.LEFT));
             p1.setTranslationX(mWidth);
-            p1.setTranslationY(-mHeight);
-            p1.setTranslationZ(0);
+            p1.setTranslationY(-PARAMS.OBSTACLE_WIDTH);
+            p1.setTranslationZ(PARAMS.OBSTACLE_Z);
+            p1.setScaleX(0.25f);
+            p1.setScaleY(0.25f);
             p1.animate()
-                    .translationY(-mHeight+p1.h)
-                    .translationZ(PARAMS.OBSTACLE_Z)
-                    .setStartDelay(irand(0,250))
+                    .translationY(s1.h-inset)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setStartDelay(d1)
                     .setDuration(250);
             mObstaclesInPlay.add(p1);
 
-            final Obstacle p2 = new Obstacle(getContext(),
-                    mHeight - obstacley - PARAMS.OBSTACLE_GAP);
+            final int d2 = irand(0,250);
+            final Obstacle s2 = new Stem(getContext(),
+                    mHeight - obstacley - PARAMS.OBSTACLE_GAP - yinset,
+                    true);
+            addView(s2, new LayoutParams(
+                    PARAMS.OBSTACLE_STEM_WIDTH,
+                    (int) s2.h,
+                    Gravity.TOP|Gravity.LEFT));
+            s2.setTranslationX(mWidth+inset);
+            s2.setTranslationY(mHeight+yinset);
+            s2.setTranslationZ(PARAMS.OBSTACLE_Z*0.75f);
+            s2.animate()
+                    .translationY(mHeight-s2.h)
+                    .setStartDelay(d2)
+                    .setDuration(400);
+            mObstaclesInPlay.add(s2);
+
+            final Obstacle p2 = new Pop(getContext(), PARAMS.OBSTACLE_WIDTH);
             addView(p2, new LayoutParams(
                     PARAMS.OBSTACLE_WIDTH,
-                    mHeight,
+                    PARAMS.OBSTACLE_WIDTH,
                     Gravity.TOP|Gravity.LEFT));
             p2.setTranslationX(mWidth);
             p2.setTranslationY(mHeight);
-            p2.setTranslationZ(0);
+            p2.setTranslationZ(PARAMS.OBSTACLE_Z);
+            p2.setScaleX(0.25f);
+            p2.setScaleY(0.25f);
             p2.animate()
-                    .translationY(mHeight-p2.h)
-                    .translationZ(PARAMS.OBSTACLE_Z)
-                    .setStartDelay(irand(0,100))
+                    .translationY(mHeight-s2.h-yinset)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setStartDelay(d2)
                     .setDuration(400);
             mObstaclesInPlay.add(p2);
         }
 
-        if (DEBUG) {
-            final Rect r = new Rect();
-            mDroid.getHitRect(r);
-            r.inset(-4, -4);
-            invalidate(r);
-        }
+        if (DEBUG_DRAW) invalidate();
     }
     
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
-        if (DEBUG) L("touch: %s", ev);
-        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
-            poke();
-            return true;
+        L("touch: %s", ev);
+        switch (ev.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                poke();
+                return true;
+            case MotionEvent.ACTION_UP:
+                unpoke();
+                return true;
         }
         return false;
     }
 
     @Override
     public boolean onTrackballEvent(MotionEvent ev) {
-        if (DEBUG) L("trackball: %s", ev);
-        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
-            poke();
-            return true;
+        L("trackball: %s", ev);
+        switch (ev.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                poke();
+                return true;
+            case MotionEvent.ACTION_UP:
+                unpoke();
+                return true;
         }
         return false;
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent ev) {
-        if (DEBUG) L("keyDown: %d", keyCode);
+        L("keyDown: %d", keyCode);
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_DPAD_UP:
@@ -514,8 +615,23 @@ public class LLand extends FrameLayout {
     }
 
     @Override
+    public boolean onKeyUp(int keyCode, KeyEvent ev) {
+        L("keyDown: %d", keyCode);
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_SPACE:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_BUTTON_A:
+                unpoke();
+                return true;
+        }
+        return false;
+    }
+
+    @Override
     public boolean onGenericMotionEvent (MotionEvent ev) {
-        if (DEBUG) L("generic: %s", ev);
+        L("generic: %s", ev);
         return false;
     }
 
@@ -533,6 +649,13 @@ public class LLand extends FrameLayout {
             mDroid.dv *= DEBUG_SPEED_MULTIPLIER;
             mDroid.animate().setDuration((long) (200/DEBUG_SPEED_MULTIPLIER));
         }
+    }
+
+    private void unpoke() {
+        L("unboost");
+        if (mFrozen) return;
+        if (!mAnimating) return;
+        mDroid.unboost();
     }
 
     @Override
@@ -555,15 +678,23 @@ public class LLand extends FrameLayout {
                     pt);
         }
 
+        pt.setStyle(Paint.Style.STROKE);
+        pt.setStrokeWidth(getResources().getDisplayMetrics().density);
+
         final int M = getChildCount();
-        pt.setColor(0x6000FF00);
+        pt.setColor(0x8000FF00);
         for (int i=0; i<M; i++) {
             final View v = getChildAt(i);
             if (v == mDroid) continue;
             if (!(v instanceof GameView)) continue;
-            final Rect r = new Rect();
-            v.getHitRect(r);
-            c.drawRect(r, pt);
+            if (v instanceof Pop) {
+                final Pop p = (Pop) v;
+                c.drawCircle(p.cx, p.cy, p.r, pt);
+            } else {
+                final Rect r = new Rect();
+                v.getHitRect(r);
+                c.drawRect(r, pt);
+            }
         }
 
         pt.setColor(Color.BLACK);
@@ -585,6 +716,12 @@ public class LLand extends FrameLayout {
     private class Player extends ImageView implements GameView {
         public float dv;
 
+        private boolean mBoosting;
+
+        private final int[] sColors = new int[] {
+                0xFF78C557,
+        };
+
         private final float[] sHull = new float[] {
                 0.3f,  0f,    // left antenna
                 0.7f,  0f,    // right antenna
@@ -593,7 +730,7 @@ public class LLand extends FrameLayout {
                 0.6f,  1f,    // right foot
                 0.4f,  1f,    // left foot BLUE!
                 0.08f, 0.75f, // sinistram
-                0.08f, 0.33f,  // cold shoulder
+                0.08f, 0.33f, // cold shoulder
         };
         public final float[] corners = new float[sHull.length];
 
@@ -602,7 +739,7 @@ public class LLand extends FrameLayout {
 
             setBackgroundResource(R.drawable.android);
             getBackground().setTintMode(PorterDuff.Mode.SRC_ATOP);
-            getBackground().setTint(0xFF00FF00);
+            getBackground().setTint(sColors[0]);
             setOutlineProvider(new ViewOutlineProvider() {
                 @Override
                 public void getOutline(View view, Outline outline) {
@@ -639,7 +776,11 @@ public class LLand extends FrameLayout {
         public void step(long t_ms, long dt_ms, float t, float dt) {
             if (getVisibility() != View.VISIBLE) return; // not playing yet
 
-            dv += PARAMS.G;
+            if (mBoosting) {
+                dv = -PARAMS.BOOST_DV;
+            } else {
+                dv += PARAMS.G;
+            }
             if (dv < -PARAMS.MAX_V) dv = -PARAMS.MAX_V;
             else if (dv > PARAMS.MAX_V) dv = PARAMS.MAX_V;
 
@@ -652,15 +793,28 @@ public class LLand extends FrameLayout {
         }
 
         public void boost() {
+            mBoosting = true;
             dv = -PARAMS.BOOST_DV;
-            setTranslationZ(PARAMS.PLAYER_Z_BOOST);
+
+            animate().cancel();
+            animate()
+                    .scaleX(1.25f)
+                    .scaleY(1.25f)
+                    .translationZ(PARAMS.PLAYER_Z_BOOST)
+                    .setDuration(100);
             setScaleX(1.25f);
             setScaleY(1.25f);
+        }
+
+        public void unboost() {
+            mBoosting = false;
+
+            animate().cancel();
             animate()
-                .scaleX(1f)
-                .scaleY(1f)
-                .translationZ(PARAMS.PLAYER_Z)
-                .setDuration(200);
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .translationZ(PARAMS.PLAYER_Z)
+                    .setDuration(200);
         }
     }
 
@@ -671,7 +825,7 @@ public class LLand extends FrameLayout {
 
         public Obstacle(Context context, float h) {
             super(context);
-            setBackgroundResource(R.drawable.placeholder);
+            setBackgroundColor(0xFFFF0000);
             this.h = h;
         }
 
@@ -698,6 +852,92 @@ public class LLand extends FrameLayout {
         public void step(long t_ms, long dt_ms, float t, float dt) {
             setTranslationX(getTranslationX()-PARAMS.TRANSLATION_PER_SEC*dt);
             getHitRect(hitRect);
+        }
+    }
+
+    private class Pop extends Obstacle {
+        int mRotate;
+        int cx, cy, r;
+        public Pop(Context context, float h) {
+            super(context, h);
+            int idx = 3*irand(0, POPS.length/3);
+            setBackgroundResource(POPS[idx]);
+            setAlpha((float)(POPS[idx+2])/255);
+            setScaleX(frand() < 0.5f ? -1 : 1);
+            mRotate = POPS[idx+1] == 0 ? 0 : (frand() < 0.5f ? -1 : 1);
+            setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    final int pad = (int) (getWidth() * 0.02f);
+                    outline.setOval(pad, pad, getWidth()-pad, getHeight()-pad);
+                }
+            });
+        }
+
+        public boolean intersects(Player p) {
+            final int N = p.corners.length/2;
+            for (int i=0; i<N; i++) {
+                final int x = (int) p.corners[i*2];
+                final int y = (int) p.corners[i*2+1];
+                if (Math.hypot(x-cx, y-cy) <= r) return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void step(long t_ms, long dt_ms, float t, float dt) {
+            super.step(t_ms, dt_ms, t, dt);
+            if (mRotate != 0) {
+                setRotation(getRotation() + dt * 45 * mRotate);
+            }
+
+            cx = (hitRect.left + hitRect.right)/2;
+            cy = (hitRect.top + hitRect.bottom)/2;
+            r = getWidth()/2;
+        }
+    }
+
+    private class Stem extends Obstacle {
+        Paint mPaint = new Paint();
+        Path mShadow = new Path();
+        boolean mDrawShadow;
+
+        public Stem(Context context, float h, boolean drawShadow) {
+            super(context, h);
+            mDrawShadow = drawShadow;
+            mPaint.setColor(0xFFAAAAAA);
+            setBackground(null);
+        }
+
+        @Override
+        public void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            setWillNotDraw(false);
+            setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRect(0, 0, getWidth(), getHeight());
+                }
+            });
+        }
+        @Override
+        public void onDraw(Canvas c) {
+            final int w = c.getWidth();
+            final int h = c.getHeight();
+            final GradientDrawable g = new GradientDrawable();
+            g.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+            g.setGradientCenter(w * 0.75f, 0);
+            g.setColors(new int[] { 0xFFFFFFFF, 0xFFAAAAAA });
+            g.setBounds(0, 0, w, h);
+            g.draw(c);
+            if (!mDrawShadow) return;
+            mShadow.reset();
+            mShadow.moveTo(0,0);
+            mShadow.lineTo(w, 0);
+            mShadow.lineTo(w, PARAMS.OBSTACLE_WIDTH/2+w*1.5f);
+            mShadow.lineTo(0, PARAMS.OBSTACLE_WIDTH/2);
+            mShadow.close();
+            c.drawPath(mShadow, mPaint);
         }
     }
 

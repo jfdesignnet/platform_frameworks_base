@@ -213,6 +213,13 @@ public class ActivityManager {
     public static final int BROADCAST_STICKY_CANT_HAVE_PERMISSION = -1;
 
     /**
+     * Result for IActivityManager.broadcastIntent: trying to send a broadcast
+     * to a stopped user. Fail.
+     * @hide
+     */
+    public static final int BROADCAST_FAILED_USER_STOPPED = -2;
+
+    /**
      * Type for IActivityManaqer.getIntentSender: this PendingIntent is
      * for a sendBroadcast operation.
      * @hide
@@ -930,8 +937,8 @@ public class ActivityManager {
      * same time, assumptions made about the meaning of the data here for
      * purposes of control flow will be incorrect.</p>
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#L}, this method is
-     * no longer available to third party applications: as the introduction of
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this method is
+     * no longer available to third party applications: the introduction of
      * document-centric recents means
      * it can leak personal information to the caller.  For backwards compatibility,
      * it will still return a small subset of its data: at least the caller's
@@ -947,9 +954,6 @@ public class ActivityManager {
      * 
      * @return Returns a list of RecentTaskInfo records describing each of
      * the recent tasks.
-     * 
-     * @throws SecurityException Throws SecurityException if the caller does
-     * not hold the {@link android.Manifest.permission#GET_TASKS} permission.
      */
     @Deprecated
     public List<RecentTaskInfo> getRecentTasks(int maxNum, int flags)
@@ -976,9 +980,6 @@ public class ActivityManager {
      * @return Returns a list of RecentTaskInfo records describing each of
      * the recent tasks.
      *
-     * @throws SecurityException Throws SecurityException if the caller does
-     * not hold the {@link android.Manifest.permission#GET_TASKS} or the
-     * {@link android.Manifest.permission#INTERACT_ACROSS_USERS_FULL} permissions.
      * @hide
      */
     public List<RecentTaskInfo> getRecentTasksForUser(int maxNum, int flags, int userId)
@@ -1222,7 +1223,7 @@ public class ActivityManager {
      * same time, assumptions made about the meaning of the data here for
      * purposes of control flow will be incorrect.</p>
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#L}, this method
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this method
      * is no longer available to third party
      * applications: the introduction of document-centric recents means
      * it can leak person information to the caller.  For backwards compatibility,
@@ -1236,9 +1237,6 @@ public class ActivityManager {
      *
      * @return Returns a list of RunningTaskInfo records describing each of
      * the running tasks.
-     *
-     * @throws SecurityException Throws SecurityException if the caller does
-     * not hold the {@link android.Manifest.permission#GET_TASKS} permission.
      */
     @Deprecated
     public List<RunningTaskInfo> getRunningTasks(int maxNum)
@@ -1252,26 +1250,16 @@ public class ActivityManager {
     }
 
     /**
-     * If set, the process of the root activity of the task will be killed
-     * as part of removing the task.
-     * @hide
-     */
-    public static final int REMOVE_TASK_KILL_PROCESS = 0x0001;
-
-    /**
      * Completely remove the given task.
      *
      * @param taskId Identifier of the task to be removed.
-     * @param flags Additional operational flags.  May be 0 or
-     * {@link #REMOVE_TASK_KILL_PROCESS}.
      * @return Returns true if the given task was found and removed.
      *
      * @hide
      */
-    public boolean removeTask(int taskId, int flags)
-            throws SecurityException {
+    public boolean removeTask(int taskId) throws SecurityException {
         try {
-            return ActivityManagerNative.getDefault().removeTask(taskId, flags);
+            return ActivityManagerNative.getDefault().removeTask(taskId);
         } catch (RemoteException e) {
             // System dead, we will be dead too soon!
             return false;
@@ -2630,16 +2618,16 @@ public class ActivityManager {
     public static void dumpPackageStateStatic(FileDescriptor fd, String packageName) {
         FileOutputStream fout = new FileOutputStream(fd);
         PrintWriter pw = new FastPrintWriter(fout);
+        dumpService(pw, fd, "package", new String[] { packageName });
+        pw.println();
         dumpService(pw, fd, Context.ACTIVITY_SERVICE, new String[] {
                 "-a", "package", packageName });
         pw.println();
-        dumpService(pw, fd, "meminfo", new String[] { "--local", packageName });
+        dumpService(pw, fd, "meminfo", new String[] { "--local", "--package", packageName });
         pw.println();
-        dumpService(pw, fd, ProcessStats.SERVICE_NAME, new String[] { "-a", packageName });
+        dumpService(pw, fd, ProcessStats.SERVICE_NAME, new String[] { packageName });
         pw.println();
         dumpService(pw, fd, "usagestats", new String[] { "--packages", packageName });
-        pw.println();
-        dumpService(pw, fd, "package", new String[] { packageName });
         pw.println();
         dumpService(pw, fd, BatteryStats.SERVICE_NAME, new String[] { packageName });
         pw.flush();
@@ -2658,7 +2646,7 @@ public class ActivityManager {
             tp = new TransferPipe();
             tp.setBufferPrefix("  ");
             service.dumpAsync(tp.getWriteFd().getFileDescriptor(), args);
-            tp.go(fd);
+            tp.go(fd, 10000);
         } catch (Throwable e) {
             if (tp != null) {
                 tp.kill();

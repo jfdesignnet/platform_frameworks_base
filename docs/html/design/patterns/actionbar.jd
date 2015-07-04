@@ -5,13 +5,20 @@ page.metaDescription=The Action bar is an essential design element for all apps.
 
 <img src="{@docRoot}design/media/action_bar_pattern_overview.png">
 
+
+<a class="notice-designers-material" href="http://www.google.com/design/spec/layout/structure.html#structure-app-bar">
+  <div>
+    <h3>Material Design</h3>
+    <p>App Bar<p>
+  </div>
+</a>
+
 <a class="notice-developers" href="{@docRoot}guide/topics/ui/actionbar.html">
   <div>
     <h3>Developer Docs</h3>
     <p>Action Bar</p>
   </div>
 </a>
-
 
 <p>The <em>action bar</em> is a dedicated piece of real estate at the top of each screen that is generally persistent throughout the app.</p>
 <p><strong>It provides several key functions</strong>:</p>
@@ -182,7 +189,7 @@ files for further customization.
 </p>
 <p>
 
-<a onClick="_gaq.push(['_trackEvent', 'Design', 'Download', 'Action Bar Icons (@actionbar page)']);"
+<a onClick="ga('send', 'event', 'Design', 'Download', 'Action Bar Icons (@actionbar page)');"
    href="{@docRoot}downloads/design/Android_Design_Icons_20131106.zip">Download the Action Bar Icon Pack</a>
 
 </p>

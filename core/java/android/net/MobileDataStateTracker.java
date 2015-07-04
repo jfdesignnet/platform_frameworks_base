@@ -430,6 +430,7 @@ public class MobileDataStateTracker extends BaseNetworkStateTracker {
             networkTypeStr = "iden";
             break;
         case TelephonyManager.NETWORK_TYPE_LTE:
+        case TelephonyManager.NETWORK_TYPE_IWLAN:
             networkTypeStr = "lte";
             break;
         case TelephonyManager.NETWORK_TYPE_EHRPD:
@@ -658,16 +659,6 @@ public class MobileDataStateTracker extends BaseNetworkStateTracker {
         }
         if (DBG) log("isProvisioningNetwork: retVal=" + retVal);
         return retVal;
-    }
-
-    @Override
-    public void addStackedLink(LinkProperties link) {
-        mLinkProperties.addStackedLink(link);
-    }
-
-    @Override
-    public void removeStackedLink(LinkProperties link) {
-        mLinkProperties.removeStackedLink(link);
     }
 
     @Override

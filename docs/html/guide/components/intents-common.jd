@@ -26,6 +26,8 @@ page.tags="IntentFilter"
   <li><a href="#Camera">Camera</a>
     <ol>
       <li><a href="#ImageCapture">Capture a picture or video and return it</a></li>
+      <li><a href="#CameraStill">Start a camera app in still image mode</a></li>
+      <li><a href="#CameraVideo">Start a camera app in video mode</a></li>
     </ol>
   </li>
   <li><a href="#Contacts">Contacts/People App</a>
@@ -48,6 +50,11 @@ page.tags="IntentFilter"
       <li><a href="#OpenFile">Open a specific type of file</a></li>
     </ol>
   </li>
+  <li><a href="#Local">Local Actions</a>
+    <ol>
+      <li><a href="#CallCar">Call a car</a></li>
+    </ol>
+  </li>
   <li><a href="#Maps">Maps</a>
     <ol>
       <li><a href="#ViewMap">Show a location on a map</a></li>
@@ -64,6 +71,13 @@ page.tags="IntentFilter"
       <li><a href="#DialPhone">Initiate a phone call</a></li>
     </ol>
   </li>
+  </li>
+  <li><a href="#Search">Search</a>
+    <ol>
+      <li><a href="#SearchOnApp">Search in a specific app</a></li>
+      <li><a href="#SearchWeb">Perform a web search</a></li>
+    </ol>
+  </li>
   <li><a href="#Settings">Settings</a>
     <ol>
       <li><a href="#OpenSettings">Open a specific section of Settings</a></li>
@@ -77,9 +91,10 @@ page.tags="IntentFilter"
   <li><a href="#Browser">Web Browser</a>
     <ol>
       <li><a href="#ViewUrl">Load a web URL</a></li>
-      <li><a href="#SearchWeb">Perform a web search</a></li>
     </ol>
   </li>
+  <li><a href="#AdbIntents">Verify Intents with the Android Debug Bridge</a></li>
+  <li><a href="#Now">Intents Fired by Google Now</a></li>
 </ol>
 
   <h2>See also</h2>
@@ -90,6 +105,46 @@ Filters</a></li>
 </div>
 </div>
 
+<!-- Google Now box styles -->
+<style type="text/css">
+.now-box {
+  border-color: rgb(204,204,204);
+  border-style: solid;
+  border-width: 1px;
+  float: right;
+  margin: 0px 0px 20px 15px;
+  padding: 17px;
+  width: 200px;
+}
+.now-box li {
+  font-size: 13px;
+  font-style: italic;
+  margin-top: 0px;
+}
+.now-box ul {
+  margin-bottom: 0px;
+}
+.now-img {
+  width: 30px;
+  margin-bottom: 0px !important;
+}
+.now-img-cont {
+  float: left;
+  margin-right: 10px;
+}
+.now-title {
+  font-weight: bold;
+  margin-top: 7px;
+}
+.now-list {
+  font-size: 13px;
+  margin-bottom: 10px !important;
+  list-style-type: none;
+}
+.now-list li {
+  font-style: italic;
+}
+</style>
 
 <p>An intent allows you to start an activity in another app by describing a simple
 action you'd like to perform (such as "view a map" or "take a picture")
@@ -121,12 +176,17 @@ it's safe to call {@link android.content.Context#startActivity startActivity()}.
 null, you should not use the intent and, if possible, you should disable the feature that invokes
 the intent.</p>
 
-
 <p>If you're not familiar with how to create intents or intent filters, you should first read
 <a href="{@docRoot}guide/components/intents-filters.html">Intents and Intent Filters</a>.</p>
 
+<p>To learn how to fire the intents listed on this page from your development host, see
+<a href="#AdbIntents">Verify Intents with the Android Debug Bridge</a>.</p>
 
+<h4>Google Now</h4>
 
+<p><a href="http://www.google.com/landing/now/">Google Now</a> fires some of the intents listed
+on this page in response to voice commands. For more information, see
+<a href="#Now">Intents Fired by Google Now</a>.</p>
 
 
 
@@ -138,11 +198,26 @@ the intent.</p>
 
 <h3 id="CreateAlarm">Create an alarm</h3>
 
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img" width="30"
+           height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"set an alarm for 7 am"</li>
+  </ul>
+</div>
+
 <p>To create a new alarm, use the {@link android.provider.AlarmClock#ACTION_SET_ALARM}
 action and specify alarm details such as the time and message using extras defined below.</p>
 
 <p class="note"><strong>Note:</strong> Only the hour, minutes, and message extras are available
-since Android 2.3 (API level 9). The other extras were added in later versions of the platform.</p>
+in Android 2.3 (API level 9) and higher. The other extras were added in later versions of the
+platform.</p>
 
 <dl>
 <dt><b>Action</b></dt>
@@ -220,6 +295,20 @@ android.provider.AlarmClock#ACTION_SET_ALARM} intent, your app must have the
 
 
 <h3 id="CreateTimer">Create a timer</h3>
+
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"set timer for 5 minutes"</li>
+  </ul>
+</div>
 
 <p>To create a countdown timer, use the {@link android.provider.AlarmClock#ACTION_SET_TIMER}
 action and specify timer details such as the duration using extras defined below.</p>
@@ -509,6 +598,118 @@ in an extra named <code>"data"</code>.</p>
 
 
 
+<h3 id="CameraStill">Start a camera app in still image mode</h3>
+
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"take a picture"</li>
+  </ul>
+</div>
+
+<p>To open a camera app in still image mode, use the {@link
+android.provider.MediaStore#INTENT_ACTION_STILL_IMAGE_CAMERA} action.</p>
+
+<dl>
+<dt><b>Action</b></dt>
+<dd>{@link android.provider.MediaStore#INTENT_ACTION_STILL_IMAGE_CAMERA}</dd>
+
+<dt><b>Data URI Scheme</b></dt>
+<dd>None</dd>
+
+<dt><b>MIME Type</b></dt>
+<dd>None</dd>
+
+<dt><b>Extras</b></dt>
+<dd>None</dd>
+</dl>
+
+
+<p><b>Example intent:</b></p>
+<pre>
+public void capturePhoto() {
+    Intent intent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+    if (intent.resolveActivity(getPackageManager()) != null) {
+        startActivityForResult(intent);
+    }
+}
+</pre>
+
+<p><b>Example intent filter:</b></p>
+<pre>
+&lt;activity ...>
+    &lt;intent-filter>
+        &lt;action android:name="android.media.action.STILL_IMAGE_CAMERA" />
+        &lt;category android:name="android.intent.category.DEFAULT" />
+    &lt;/intent-filter>
+&lt;/activity>
+</pre>
+
+
+
+<h3 id="CameraVideo">Start a camera app in video mode</h3>
+
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"record a video"</li>
+  </ul>
+</div>
+
+<p>To open a camera app in video mode, use the {@link
+android.provider.MediaStore#INTENT_ACTION_VIDEO_CAMERA} action.</p>
+
+<dl>
+<dt><b>Action</b></dt>
+<dd>{@link android.provider.MediaStore#INTENT_ACTION_VIDEO_CAMERA}</dd>
+
+<dt><b>Data URI Scheme</b></dt>
+<dd>None</dd>
+
+<dt><b>MIME Type</b></dt>
+<dd>None</dd>
+
+<dt><b>Extras</b></dt>
+<dd>None</dd>
+</dl>
+
+
+<p><b>Example intent:</b></p>
+<pre>
+public void capturePhoto() {
+    Intent intent = new Intent(MediaStore.INTENT_ACTION_VIDEO_CAMERA);
+    if (intent.resolveActivity(getPackageManager()) != null) {
+        startActivityForResult(intent);
+    }
+}
+</pre>
+
+<p><b>Example intent filter:</b></p>
+<pre>
+&lt;activity ...>
+    &lt;intent-filter>
+        &lt;action android:name="android.media.action.VIDEO_CAMERA" />
+        &lt;category android:name="android.intent.category.DEFAULT" />
+    &lt;/intent-filter>
+&lt;/activity>
+</pre>
+
+
+
 
 
 <h2 id="Contacts">Contacts/People App</h2>
@@ -668,10 +869,10 @@ action and specify the contact with a {@code content:} URI as the intent data.</
 <p>There are primarily two ways to initially retrieve the contact's URI:</p>
 <ul>
   <li>Use the contact URI returned by the {@link android.content.Intent#ACTION_PICK},
-  shown in the previous section (this does not require any app permissions).</li>
+  shown in the previous section (this approach does not require any app permissions).</li>
   <li>Access the list of all contacts directly, as described in <a
   href="{@docRoot}training/contacts-provider/retrieve-names.html">Retrieving a List of
-  Contacts</a> (this requires the {@link android.Manifest.permission#READ_CONTACTS}
+  Contacts</a> (this approach requires the {@link android.Manifest.permission#READ_CONTACTS}
   permission).</li>
 </ul>
 
@@ -709,10 +910,10 @@ constants in {@link android.provider.ContactsContract.Intents.Insert}.</p>
 <p>There are primarily two ways to initially retrieve the contact URI:</p>
 <ul>
   <li>Use the contact URI returned by the {@link android.content.Intent#ACTION_PICK},
-  shown in the previous section (this does not require any app permissions).</li>
+  shown in the previous section (this approach does not require any app permissions).</li>
   <li>Access the list of all contacts directly, as described in <a
   href="{@docRoot}training/contacts-provider/retrieve-names.html">Retrieving a List of
-  Contacts</a> (this requires the {@link android.Manifest.permission#READ_CONTACTS}
+  Contacts</a> (this approach requires the {@link android.Manifest.permission#READ_CONTACTS}
   permission).</li>
 </ul>
 
@@ -801,7 +1002,6 @@ Contacts Using Intents</a>.</p>
 
 
 <h3 id="ComposeEmail">Compose an email with optional attachments</h3>
-
 
 <p>To compose an email, use one of the below actions based on whether you'll include attachments,
 and include email details such as the recipient and subject using the extra keys listed below.</p>
@@ -892,15 +1092,6 @@ public void composeEmail(String[] addresses, String subject) {
     &lt;/intent-filter>
 &lt;/activity>
 </pre>
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1148,6 +1339,68 @@ Framework</a> guide.</p>
 
 
 
+<h2 id="Local">Local Actions</h2>
+
+<h3 id="CallCar">Call a car</h3>
+
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"get me a taxi"</li>
+    <li>"call me a car"</li>
+  </ul>
+  <p style="font-size:13px;margin-bottom:0px;margin-top:10px">(Android Wear only)</p>
+</div>
+
+<p>To call a taxi, use the
+<a href="{@docRoot}reference/com/google/android/gms/actions/ReserveIntents.html#ACTION_RESERVE_TAXI_RESERVATION"><code>ACTION_RESERVE_TAXI_RESERVATION</code></a>
+action.</p>
+
+<p class="note"><strong>Note:</strong> Apps must ask for confirmation from the user
+before completing the action.</p>
+
+<dl>
+  <dt><b>Action</b></dt>
+  <dd><a href="{@docRoot}reference/com/google/android/gms/actions/ReserveIntents.html#ACTION_RESERVE_TAXI_RESERVATION"><code>ACTION_RESERVE_TAXI_RESERVATION</code></a></dd>
+
+  <dt><b>Data URI</b></dt>
+  <dd>None</dd>
+
+  <dt><b>MIME Type</b></dt>
+  <dd>None</dd>
+
+  <dt><b>Extras</b></dt>
+  <dd>None</dd>
+</dl>
+
+
+<p><b>Example intent:</b></p>
+<pre>
+public void callCar() {
+    Intent intent = new Intent(ReserveIntents.ACTION_RESERVE_TAXI_RESERVATION);
+    if (intent.resolveActivity(getPackageManager()) != null) {
+        startActivity(intent);
+    }
+}
+</pre>
+
+
+<p><b>Example intent filter:</b></p>
+<pre>
+&lt;activity ...>
+    &lt;intent-filter>
+        &lt;action android:name="com.google.android.gms.actions.RESERVE_TAXI_RESERVATION" />
+        &lt;category android:name="android.intent.category.DEFAULT" />
+    &lt;/intent-filter>
+&lt;/activity>
+</pre>
 
 
 
@@ -1289,6 +1542,20 @@ public void playMedia(Uri file) {
 
 
 <h3 id="PlaySearch">Play music based on a search query</h3>
+
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"play michael jackson billie jean"</li>
+  </ul>
+</div>
 
 <p>To play music based on a search query, use the
 {@link android.provider.MediaStore#INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH} intent. An app may fire
@@ -1523,13 +1790,50 @@ android.content.Intent#ACTION_DIAL} action and specify a phone number using
 the URI scheme defined below. When the phone app opens, it displays the phone number
 but the user must press the <em>Call</em> button to begin the phone call.</p>
 
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"call 555-5555"</li>
+    <li>"call bob"</li>
+    <li>"call voicemail"</li>
+  </ul>
+</div>
+
+<p>To place a phone call directly, use the {@link android.content.Intent#ACTION_CALL} action
+and specify a phone number using the URI scheme defined below. When the phone app opens, it
+begins the phone call; the user does not need to press the <em>Call</em> button.</p>
+
+<p>The {@link android.content.Intent#ACTION_CALL} action requires that you add the
+<code>CALL_PHONE</code> permission to your manifest file:</p>
+
+<pre style="margin-top:45px">
+&lt;uses-permission android:name="android.permission.CALL_PHONE" />
+</pre>
 
 <dl>
 <dt><b>Action</b></dt>
-<dd>{@link android.content.Intent#ACTION_DIAL}</dd>
+<dd>
+<ul>
+  <li>{@link android.content.Intent#ACTION_DIAL} - Opens the dialer or phone app.</li>
+  <li>{@link android.content.Intent#ACTION_CALL} - Places a phone call (requires the
+      <code>CALL_PHONE</code> permission)</li>
+</ul>
+</dd>
 
 <dt><b>Data URI Scheme</b></dt>
-<dd>{@code tel:&lt;phone-number>}</dd>
+<dd>
+<ul>
+  <li>{@code tel:&lt;phone-number>}</li>
+  <li>{@code voicemail:&lt;phone-number>}</li>
+</ul>
+</dd>
 
 <dt><b>MIME Type</b></dt>
 <dd>None</dd>
@@ -1565,6 +1869,103 @@ public void dialPhoneNumber(String phoneNumber) {
 
 
 
+
+
+
+<h2 id="Search">Search</h2>
+
+<h3 id="SearchOnApp">Search using a specific app</h3>
+
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30"/></a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"search for cat videos on myvideoapp"</li>
+  </ul>
+</div>
+<!-- Video box -->
+<a class="notice-developers-video"
+   href="https://www.youtube.com/watch?v=PS1FbB5qWEI">
+<div>
+    <h3>Video</h3>
+    <p>Voice search in your app</p>
+</div>
+</a>
+
+<p>To support search within the context of your app, declare an intent filter in your app with
+the <code>SEARCH_ACTION</code> action, as shown in the example intent filter below.</p>
+
+<dl>
+<dt><b>Action</b></dt>
+<dd>
+  <dl>
+    <dt><code>"com.google.android.gms.actions.SEARCH_ACTION"</code></dt>
+    <dd>Support search queries from Google Now.</dd>
+  </dl>
+</dd>
+
+<dt><b>Extras</b></dt>
+<dd>
+  <dl>
+    <dt><code>{@link android.app.SearchManager#QUERY}</code></dt>
+    <dd>A string that contains the search query.</dd>
+  <dl>
+</dd>
+</dl>
+
+<p><b>Example intent filter:</b></p>
+<pre>
+&lt;activity android:name=".SearchActivity">
+    &lt;intent-filter>
+        &lt;action android:name="com.google.android.gms.actions.SEARCH_ACTION"/>
+        &lt;category android:name="android.intent.category.DEFAULT"/>
+    &lt;/intent-filter>
+&lt;/activity>
+</pre>
+
+
+
+<h3 id="SearchWeb">Perform a web search</h3>
+
+<p>To initiate a web search, use the {@link android.content.Intent#ACTION_WEB_SEARCH} action
+and specify the search string in the
+{@link android.app.SearchManager#QUERY SearchManager.QUERY} extra.</p>
+
+
+<dl>
+  <dt><b>Action</b></dt>
+  <dd>{@link android.content.Intent#ACTION_WEB_SEARCH}</dd>
+
+  <dt><b>Data URI Scheme</b></dt>
+  <dd>None</dd>
+
+  <dt><b>MIME Type</b></dt>
+  <dd>None</dd>
+
+  <dt><b>Extras</b></dt>
+  <dd>
+    <dl>
+      <dt>{@link android.app.SearchManager#QUERY SearchManager.QUERY}</dt>
+      <dd>The search string.</dd>
+    </dl>
+  </dd>
+</dl>
+
+<p><b>Example intent:</b></p>
+<pre>
+public void searchWeb(String query) {
+    Intent intent = new Intent(Intent.ACTION_SEARCH);
+    intent.putExtra(SearchManager.QUERY, query);
+    if (intent.resolveActivity(getPackageManager()) != null) {
+        startActivity(intent);
+    }
+}
+</pre>
 
 
 
@@ -1735,6 +2136,20 @@ at {@link android.provider.Telephony}.</p>
 
 <h3 id="ViewUrl">Load a web URL</h3>
 
+<!-- Google Now box -->
+<div class="now-box">
+  <div class="now-img-cont">
+    <a href="#Now">
+      <img src="{@docRoot}guide/components/images/voice-icon.png" class="now-img"
+           width="30" height="30" alt=""/>
+    </a>
+  </div>
+  <p class="now-title">Google Now</p>
+  <ul>
+    <li>"open example.com"</li>
+  </ul>
+</div>
+
 <p>To open a web page, use the {@link android.content.Intent#ACTION_VIEW} action
 and specify the web URL in the intent data.</p>
 
@@ -1794,42 +2209,155 @@ open your Android app instead of your web page.</p>
 
 
 
-<h3 id="SearchWeb">Perform a web search</h3>
-
-<p>To initiate a web search, use the {@link android.content.Intent#ACTION_WEB_SEARCH} action
-and specify the search string in the
-{@link android.app.SearchManager#QUERY SearchManager.QUERY} extra.</p>
 
 
-<dl>
-  <dt><b>Action</b></dt>
-  <dd>{@link android.content.Intent#ACTION_WEB_SEARCH}</dd>
 
-  <dt><b>Data URI Scheme</b></dt>
-  <dd>None</dd>
+<h2 id="AdbIntents">Verify Intents with the Android Debug Bridge</h2>
 
-  <dt><b>MIME Type</b></dt>
-  <dd>None</dd>
+<p>To verify that your app responds to the intents that you want to support, you can use the
+<a href="{@docRoot}tools/help/adb.html"><code>adb</code></a> tool to fire specific intents:</p>
 
-  <dt><b>Extras</b></dt>
-  <dd>
-    <dl>
-      <dt>{@link android.app.SearchManager#QUERY SearchManager.QUERY}</dt>
-      <dd>The search string.</dd>
-    </dl>
-  </dd>
-</dl>
-
-<p><b>Example intent:</b></p>
-<pre>
-public void searchWeb(String query) {
-    Intent intent = new Intent(Intent.ACTION_SEARCH);
-    intent.putExtra(SearchManager.QUERY, query);
-    if (intent.resolveActivity(getPackageManager()) != null) {
-        startActivity(intent);
-    }
-}
+<ol>
+<li>Set up an Android device for <a href="{@docRoot}tools/device.html#setting-up">development</a>,
+or use a <a href="{@docRoot}tools/devices/emulator.html#avds">virtual device</a>.</li>
+<li>Install a version of your app that handles the intents you want to support.</li>
+<li>Fire an intent using <code>adb</code>:
+<pre class="no-pretty-print">
+adb shell am start -a &lt;ACTION&gt; -t &lt;MIME_TYPE&gt; -d &lt;DATA&gt; \
+  -e &lt;EXTRA_NAME&gt; &lt;EXTRA_VALUE&gt; -n &lt;ACTIVITY&gt;
 </pre>
+<p>For example:</p>
+<pre class="no-pretty-print">
+adb shell am start -a android.intent.action.DIAL \
+  -d tel:555-5555 -n org.example.MyApp/.MyActivity
+</pre>
+<li>If you defined the required intent filters, your app should handle the intent.</li>
+</ol>
+
+
+<p>For more information, see
+<a href="{@docRoot}tools/help/adb.html#am">Using activity manager (am)</a>.</p>
 
 
 
+
+
+
+<h2 id="Now">Intents Fired by Google Now</h2>
+
+<p><a href="http://www.google.com/landing/now/">Google Now</a> recognizes many voice commands
+and fires intents for them. As such, users may launch your app with a Google Now voice command
+if your app declares the corresponding intent filter. For example, if your app can
+<a href="#CreateAlarm">set an alarm</a> and you add the corresponding intent filter to your
+manifest file, Google Now lets users choose your app when they request to set an alarm, as
+shown in figure 1.</p>
+
+<img src="{@docRoot}guide/components/images/google-action.png"
+     srcset="{@docRoot}guide/components/images/google-action_2x.png 2x"
+     width="700" height="241" alt=""/>
+<p class="img-caption"><strong>Figure 1.</strong> Google Now lets users choose from installed
+apps that support a given action.</p>
+
+<p>Google Now recognizes voice commands for the actions listed in table 1. For more information
+about declaring each intent filter, click on the action description.</p>
+
+<p class="table-caption"><strong>Table 1.</strong> Voice commands recognized by Google Now
+(Google Search app v3.6).</p>
+<table>
+<tr>
+  <th>Category</th>
+  <th>Details and Examples</th>
+  <th>Action Name</th>
+</tr>
+<tr>
+  <td rowspan="2" style="vertical-align:middle">Alarm</td>
+  <td>
+    <p><a href="#CreateAlarm">Set alarm</a></p>
+    <ul class="now-list">
+      <li>"set an alarm for 7 am"</li>
+    </ul>
+  </td>
+  <td>{@link android.provider.AlarmClock#ACTION_SET_ALARM AlarmClock.ACTION_SET_ALARM}</td>
+</tr>
+<tr>
+  <td>
+    <p><a href="#CreateTimer">Set timer</a></p>
+    <ul class="now-list">
+      <li>"set a timer for 5 minutes"</li>
+    </ul>
+  </td>
+  <td>{@link android.provider.AlarmClock#ACTION_SET_TIMER AlarmClock.ACTION_SET_TIMER}</td>
+</tr>
+<tr>
+  <td style="vertical-align:middle">Communication</td>
+  <td>
+    <p><a href="#DialPhone">Call a number</a></p>
+    <ul class="now-list">
+      <li>"call 555-5555"</li>
+      <li>"call bob"</li>
+      <li>"call voicemail"</li>
+    </ul>
+  </td>
+  <td>{@link android.content.Intent#ACTION_CALL Intent.ACTION_CALL}</td>
+</tr>
+<tr>
+  <td style="vertical-align:middle">Local</td>
+  <td>
+    <p><a href="#CallCar">Book a car</a></p>
+    <ul class="now-list">
+      <li>"call me a car"</li>
+      <li>"book me a taxi"</li>
+    </ul>
+  </td>
+  <td><a href="{@docRoot}reference/com/google/android/gms/actions/ReserveIntents.html#ACTION_RESERVE_TAXI_RESERVATION">
+      <code>ReserveIntents<br/>.ACTION_RESERVE_TAXI_RESERVATION</code></a></td>
+</tr>
+<tr>
+  <td rowspan="3" style="vertical-align:middle">Media</td>
+  <td>
+    <p><a href="#PlaySearch">Play music from search</a></p>
+    <ul class="now-list">
+      <li>"play michael jackson billie jean"</li>
+    </ul>
+  </td>
+  <td>{@link android.provider.MediaStore#INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH MediaStore<br/>.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH}</td>
+</tr>
+<tr>
+  <td>
+    <p><a href="#CameraStill">Take a picture</a></p>
+    <ul class="now-list">
+      <li>"take a picture"</li>
+    </ul>
+  </td>
+  <td>{@link android.provider.MediaStore#INTENT_ACTION_STILL_IMAGE_CAMERA MediaStore<br/>.INTENT_ACTION_STILL_IMAGE_CAMERA}</td>
+</tr>
+<tr>
+  <td>
+    <p><a href="#CameraVideo">Record a video</a></p>
+    <ul class="now-list">
+      <li>"record a video"</li>
+    </ul>
+  </td>
+  <td>{@link android.provider.MediaStore#INTENT_ACTION_VIDEO_CAMERA MediaStore<br/>.INTENT_ACTION_VIDEO_CAMERA}</td>
+</tr>
+<tr>
+  <td style="vertical-align:middle">Search</td>
+  <td>
+    <p><a href="#SearchOnApp">Search using a specific app</a></p>
+    <ul class="now-list">
+      <li>"search for cat videos <br/>on myvideoapp"</li>
+    </ul>
+  </td>
+  <td><code>"com.google.android.gms.actions<br/>.SEARCH_ACTION"</code></td>
+</tr>
+<tr>
+  <td style="vertical-align:middle">Web browser</td>
+  <td>
+    <p><a href="#ViewUrl">Open URL</a></p>
+    <ul class="now-list">
+      <li>"open example.com"</li>
+    </ul>
+  </td>
+  <td>{@link android.content.Intent#ACTION_VIEW Intent.ACTION_VIEW}</td>
+</tr>
+</table>

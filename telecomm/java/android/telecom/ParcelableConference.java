@@ -30,18 +30,24 @@ public final class ParcelableConference implements Parcelable {
 
     private PhoneAccountHandle mPhoneAccount;
     private int mState;
-    private int mCapabilities;
+    private int mConnectionCapabilities;
     private List<String> mConnectionIds;
+    private long mConnectTimeMillis = Conference.CONNECT_TIME_NOT_SPECIFIED;
+    private StatusHints mStatusHints;
 
     public ParcelableConference(
             PhoneAccountHandle phoneAccount,
             int state,
-            int capabilities,
-            List<String> connectionIds) {
+            int connectionCapabilities,
+            List<String> connectionIds,
+            long connectTimeMillis,
+            StatusHints statusHints) {
         mPhoneAccount = phoneAccount;
         mState = state;
-        mCapabilities = capabilities;
+        mConnectionCapabilities = connectionCapabilities;
         mConnectionIds = connectionIds;
+        mConnectTimeMillis = connectTimeMillis;
+        mStatusHints = statusHints;
     }
 
     @Override
@@ -52,7 +58,9 @@ public final class ParcelableConference implements Parcelable {
                 .append(", state: ")
                 .append(Connection.stateToString(mState))
                 .append(", capabilities: ")
-                .append(PhoneCapabilities.toString(mCapabilities))
+                .append(Connection.capabilitiesToString(mConnectionCapabilities))
+                .append(", connectTime: ")
+                .append(mConnectTimeMillis)
                 .append(", children: ")
                 .append(mConnectionIds)
                 .toString();
@@ -66,12 +74,20 @@ public final class ParcelableConference implements Parcelable {
         return mState;
     }
 
-    public int getCapabilities() {
-        return mCapabilities;
+    public int getConnectionCapabilities() {
+        return mConnectionCapabilities;
     }
 
     public List<String> getConnectionIds() {
         return mConnectionIds;
+    }
+
+    public long getConnectTimeMillis() {
+        return mConnectTimeMillis;
+    }
+
+    public StatusHints getStatusHints() {
+        return mStatusHints;
     }
 
     public static final Parcelable.Creator<ParcelableConference> CREATOR =
@@ -84,8 +100,11 @@ public final class ParcelableConference implements Parcelable {
             int capabilities = source.readInt();
             List<String> connectionIds = new ArrayList<>(2);
             source.readList(connectionIds, classLoader);
+            long connectTimeMillis = source.readLong();
+            StatusHints statusHints = source.readParcelable(classLoader);
 
-            return new ParcelableConference(phoneAccount, state, capabilities, connectionIds);
+            return new ParcelableConference(phoneAccount, state, capabilities, connectionIds,
+                    connectTimeMillis, statusHints);
         }
 
         @Override
@@ -105,7 +124,9 @@ public final class ParcelableConference implements Parcelable {
     public void writeToParcel(Parcel destination, int flags) {
         destination.writeParcelable(mPhoneAccount, 0);
         destination.writeInt(mState);
-        destination.writeInt(mCapabilities);
+        destination.writeInt(mConnectionCapabilities);
         destination.writeList(mConnectionIds);
+        destination.writeLong(mConnectTimeMillis);
+        destination.writeParcelable(mStatusHints, 0);
     }
 }

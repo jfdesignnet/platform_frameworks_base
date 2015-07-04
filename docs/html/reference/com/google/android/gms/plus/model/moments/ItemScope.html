@@ -84,6 +84,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <html>
 <head>
 
@@ -99,7 +113,7 @@
 href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Roboto:light,regular,medium,thin,italic,mediumitalic,bold"
   title="roboto">
-<link href="/assets/css/default.css?v=2" rel="stylesheet" type="text/css">
+<link href="/assets/css/default.css?v=5" rel="stylesheet" type="text/css">
 
 
 
@@ -111,7 +125,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   var metaTags = [];
   var devsite = false;
 </script>
-<script src="/assets/js/docs.js?v=2" type="text/javascript"></script>
+<script src="/assets/js/docs.js?v=3" type="text/javascript"></script>
+
+
 
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
@@ -128,16 +144,66 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 </head>
 
 <body class="gc-documentation google
-  develop" itemscope itemtype="http://schema.org/Article">
+  develop reference" itemscope itemtype="http://schema.org/Article">
   <div id="doc-api-level" class="" style="display:none"></div>
   <a name="top"></a>
 
 
 <a name="top"></a>
 
+<!-- dialog to prompt lang pref change when loaded from hardcoded URL 
+<div id="langMessage" style="display:none">
+  <div>
+    <div class="lang en">
+      <p>You requested a page in English, would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang es">
+      <p>You requested a page in Spanish (Español), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ja">
+      <p>You requested a page in Japanese (日本語), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ko">
+      <p>You requested a page in Korean (한국어), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang ru">
+      <p>You requested a page in Russian (Русский), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-cn">
+      <p>You requested a page in Simplified Chinese (简体中文), would you like to proceed with this language setting?</p>
+    </div>
+    <div class="lang zh-tw">
+      <p>You requested a page in Traditional Chinese (繁體中文), would you like to proceed with this language setting?</p>
+    </div>
+    <a href="#" class="button yes" onclick="return false;">
+      <span class="lang en">Yes</span>
+      <span class="lang es">Sí</span>
+      <span class="lang ja">Yes</span>
+      <span class="lang ko">Yes</span>
+      <span class="lang ru">Yes</span>
+      <span class="lang zh-cn">是的</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+    <a href="#" class="button" onclick="$('#langMessage').hide();return false;">
+      <span class="lang en">No</span>
+      <span class="lang es">No</span>
+      <span class="lang ja">No</span>
+      <span class="lang ko">No</span>
+      <span class="lang ru">No</span>
+      <span class="lang zh-cn">没有</span>
+      <span class="lang zh-tw">没有</span>
+    </a>
+  </div>
+</div> -->
+
+
   <!-- Header -->
   <div id="header-wrapper">
     <div id="header">
+
+    
+
+
       <div class="wrap" id="header-wrap">
         <div class="col-3 logo">
           <a href="/index.html">
@@ -179,8 +245,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
         </ul>
 
 
-
-
+        
+        
 <div class="menu-container">
   <div class="moremenu">
     <div id="more-btn"></div>
@@ -211,8 +277,8 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 <option value="ja">日本語</option>
                 <option value="ko">한국어</option>
                 <option value="ru">Русский</option>
-                <option value="zh-cn">中文 (中国)</option>
-                <option value="zh-tw">中文 (台灣)</option>
+                <option value="zh-cn">中文（简体)</option>
+                <option value="zh-tw">中文（繁體)</option>
             </select>
           </div>
         <script type="text/javascript">
@@ -335,10 +401,10 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 </li>
                 <li><a href="/google/index.html">Google Services</a>
                 </li>
-
+                
                   <li><a href="/samples/index.html">Samples</a>
                   </li>
-
+                
               </ul>
             </li>
             <li class="distribute last">
@@ -348,6 +414,7 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
                 <li><a href="/distribute/users/index.html">Get Users</a></li>
                 <li><a href="/distribute/engage/index.html">Engage &amp; Retain</a></li>
                 <li><a href="/distribute/monetize/index.html">Monetize</a></li>
+                <li><a href="/distribute/analyze/index.html">Analyze</a></li>
                 <li><a href="/distribute/tools/index.html">Tools &amp; Reference</a></li>
                 <li><a href="/distribute/stories/index.html">Developer Stories</a></li>
               </ul>
@@ -360,7 +427,12 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
   
     <!-- Secondary x-nav -->
     <div id="nav-x">
-        <div class="wrap">
+        <div class="wrap" style="position:relative;z-index:1">
+
+        
+        
+        
+
             <ul class="nav-x col-9 develop" style="width:100%">
                 <li class="training"><a href="/training/index.html"
                   zh-tw-lang="訓練課程"
@@ -420,7 +492,7 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <a class="logo" href="#top"></a>
       <a class="top" href="#top"></a>
       <ul class="breadcrumb">
-
+        
         <li class="current">ItemScope</li>
       </ul>
     </div>
@@ -490,7 +562,18 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
           <span class="en">Wallet</span>
       </a></div>
   </li>
-
+  <li class="nav-section">
+    <div class="nav-section-header"><a href="/google/play/safetynet/index.html">
+          <span class="en">SafetyNet</span>
+      </a></div>
+      <ul>
+        <li>
+          <a href="/google/play/safetynet/start.html">
+            <span class="en">Getting Started</span>
+          </a>
+        </li>
+      </ul>
+  </li>
 
   <li class="nav-section">
     <div class="nav-section-header"><a href="/google/play-services/index.html">
@@ -498,11 +581,11 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
     </div>
     <ul>
       <li><a href="/google/play-services/setup.html">
-          <span class="en">Setup</span></a>
+          <span class="en">Setting Up Google Play Services</span></a>
       </li>
       <li class="nav-section">
         <div class="nav-section-header"><a href="/google/auth/api-client.html">
-          <span class="en">Accessing Google Play Services APIs</span></a>
+          <span class="en">Accessing Google APIs</span></a>
         </div>
         <ul>
           <li>
@@ -524,14 +607,14 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
 
 
   <li class="nav-section">
-    <div class="nav-section-header"><a href="/google/play/billing/index.html">
+    <div class="nav-section-header"><a href="/google/play/billing/index.html" zh-cn-lang="应用内结算">
       <span class="en">Google Play In-app Billing</span></a>
     </div>
     <ul>
-      <li><a href="/google/play/billing/billing_overview.html">
+      <li><a href="/google/play/billing/billing_overview.html" zh-cn-lang="应用内结算概述">
               <span class="en">Overview</span></a>
       </li>
-      <li class="nav-section"><div class="nav-section-header"><a href="/google/play/billing/api.html">
+      <li class="nav-section"><div class="nav-section-header"><a href="/google/play/billing/api.html" zh-cn-lang="应用内结算 API">
               <span class="en">Version 3 API</span></a></div>
               <ul>
               <li><a href="/google/play/billing/billing_integrate.html">
@@ -554,17 +637,14 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/billing/billing_subscriptions.html">
               <span class="en">Subscriptions</span></a>
       </li>
-      <li><a href="/google/play/billing/billing_best_practices.html">
+      <li><a href="/google/play/billing/billing_best_practices.html" zh-cn-lang="安全性和设计">
               <span class="en">Security and Design</span></a>
       </li>
-      <li><a href="/google/play/billing/billing_testing.html">
+      <li><a href="/google/play/billing/billing_testing.html" zh-cn-lang="测试应用内结算">
               <span class="en">Testing In-app Billing</span></a>
       </li>
-      <li><a href="/google/play/billing/billing_admin.html">
+      <li><a href="/google/play/billing/billing_admin.html" zh-cn-lang="管理应用内结算">
               <span class="en">Administering In-app Billing</span></a>
-      </li>
-      <li><a href="/google/play/billing/gp-purchase-status-api.html">
-              <span class="en">Purchase Status API</span></a>
       </li>
       <li><a href="/google/play/billing/versions.html">
               <span class="en">Version Notes</span></a>
@@ -597,23 +677,22 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
               <span class="en">HTTP</span></a></li>
               </ul>
         </li>
+        <li><a href="/google/gcm/server-ref.html">
+            <span class="en">Server Reference</span></a>
+        </li>
         <li><a href="/google/gcm/notifications.html">
               <span class="en">User Notifications</span></a>
-        </li>
-        <li><a href="/google/gcm/adv.html">
-            <span class="en">Advanced Topics</span></a>
         </li>
         <li><a href="/google/gcm/c2dm.html">
             <span class="en">Migration</span></a>
         </li>
-        <li id="gcm-tree-list" class="nav-section">
-          <div class="nav-section-header">
-            <a href="/reference/gcm-packages.html">
-              <span class="en">Reference</span>
-            </a>
-          <div>
-        </li>
       </ul>
+  </li>
+
+  <li class="nav-section">
+  <div class="nav-section-header empty"><a href="/google/gcs/index.html">
+        <span class="en">Google Cloud Save</span></a>
+      </div>
   </li>
 
   <li class="nav-section">
@@ -624,7 +703,9 @@ href="//fonts.googleapis.com/css?family=Roboto+Condensed">
       <li><a href="/google/play/filters.html">
           <span class="en">Filters on Google Play</span></a>
       </li>
-
+      <li><a href="/google/play/billing/gp-purchase-status-api.html">
+              <span class="en">Google Play Developer API</span></a>
+      </li>
       <li><a href="/google/play/publishing/multiple-apks.html">
           <span class="en">Multiple APK Support</span></a>
       </li>
@@ -763,10 +844,13 @@ Summary:
   
       implements 
       
-        <a href="/reference/com/google/android/gms/common/data/Freezable.html">Freezable</a>&lt;T&gt; 
+        <a href="/reference/com/google/android/gms/common/data/Freezable.html">Freezable</a>&lt;<a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html">ItemScope</a>&gt;
       
   
   
+
+
+    
 
 
 </div><!-- end header -->
@@ -835,7 +919,12 @@ Summary:
         
         class</nobr></td>
       <td class="jd-linkcol"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.Builder.html">ItemScope.Builder</a></td>
-      <td class="jd-descrcol" width="100%">&nbsp;</td>
+      <td class="jd-descrcol" width="100%">
+        &nbsp;
+        
+    
+
+      </td>
     </tr>
     
     
@@ -884,7 +973,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAbout()">getAbout</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The subject matter of the content.</div>
+        <div class="jd-descrdiv">
+          The subject matter of the content.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -902,7 +996,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAdditionalName()">getAdditionalName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">An additional name for a Person, can be used for a middle name.</div>
+        <div class="jd-descrdiv">
+          An additional name for a Person, can be used for a middle name.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -920,7 +1019,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAddress()">getAddress</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Postal address.</div>
+        <div class="jd-descrdiv">
+          Postal address.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -938,7 +1042,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAddressCountry()">getAddressCountry</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Address country.</div>
+        <div class="jd-descrdiv">
+          Address country.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -956,7 +1065,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAddressLocality()">getAddressLocality</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Address locality.</div>
+        <div class="jd-descrdiv">
+          Address locality.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -974,7 +1088,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAddressRegion()">getAddressRegion</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Address region.</div>
+        <div class="jd-descrdiv">
+          Address region.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -992,7 +1111,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAssociated_media()">getAssociated_media</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The encoding.</div>
+        <div class="jd-descrdiv">
+          The encoding.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1010,7 +1134,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAttendeeCount()">getAttendeeCount</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Number of attendees.</div>
+        <div class="jd-descrdiv">
+          Number of attendees.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1028,7 +1157,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAttendees()">getAttendees</a></span>()</nobr>
         
-        <div class="jd-descrdiv">A person attending the event.</div>
+        <div class="jd-descrdiv">
+          A person attending the event.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1046,7 +1180,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAudio()">getAudio</a></span>()</nobr>
         
-        <div class="jd-descrdiv">From http://schema.org/MusicRecording, the audio file.</div>
+        <div class="jd-descrdiv">
+          From http://schema.org/MusicRecording, the audio file.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1064,7 +1203,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getAuthor()">getAuthor</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The person or persons who created this result.</div>
+        <div class="jd-descrdiv">
+          The person or persons who created this result.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1082,7 +1226,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getBestRating()">getBestRating</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Best possible rating value that a result might obtain.</div>
+        <div class="jd-descrdiv">
+          Best possible rating value that a result might obtain.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1100,7 +1249,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getBirthDate()">getBirthDate</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Date of birth.</div>
+        <div class="jd-descrdiv">
+          Date of birth.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1118,7 +1272,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getByArtist()">getByArtist</a></span>()</nobr>
         
-        <div class="jd-descrdiv">From http://schema.org/MusicRecording, the artist that performed this recording.</div>
+        <div class="jd-descrdiv">
+          From http://schema.org/MusicRecording, the artist that performed this recording.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1136,7 +1295,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getCaption()">getCaption</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The caption for this object.</div>
+        <div class="jd-descrdiv">
+          The caption for this object.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1154,7 +1318,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getContentSize()">getContentSize</a></span>()</nobr>
         
-        <div class="jd-descrdiv">File size in (mega/kilo) bytes.</div>
+        <div class="jd-descrdiv">
+          File size in (mega/kilo) bytes.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1172,7 +1341,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getContentUrl()">getContentUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Actual bytes of the media object, for example the image file or video file.</div>
+        <div class="jd-descrdiv">
+          Actual bytes of the media object, for example the image file or video file.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1190,7 +1364,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getContributor()">getContributor</a></span>()</nobr>
         
-        <div class="jd-descrdiv">A list of contributors to this result.</div>
+        <div class="jd-descrdiv">
+          A list of contributors to this result.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1208,7 +1387,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getDateCreated()">getDateCreated</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The date the result was created such as the date that a review was first created.</div>
+        <div class="jd-descrdiv">
+          The date the result was created such as the date that a review was first created.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1226,7 +1410,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getDateModified()">getDateModified</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The date the result was last modified such as the date that a review was last edited.</div>
+        <div class="jd-descrdiv">
+          The date the result was last modified such as the date that a review was last edited.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1244,7 +1433,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getDatePublished()">getDatePublished</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The initial date that the result was published.</div>
+        <div class="jd-descrdiv">
+          The initial date that the result was published.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1262,7 +1456,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getDescription()">getDescription</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The string that describes the content of the result.</div>
+        <div class="jd-descrdiv">
+          The string that describes the content of the result.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1280,7 +1479,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getDuration()">getDuration</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The duration of the item (movie, audio recording, event, etc.) in ISO 8601 date format.</div>
+        <div class="jd-descrdiv">
+          The duration of the item (movie, audio recording, event, etc.) in ISO 8601 date format.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1298,7 +1502,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getEmbedUrl()">getEmbedUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">A URL pointing to a player for a specific video.</div>
+        <div class="jd-descrdiv">
+          A URL pointing to a player for a specific video.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1316,7 +1525,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getEndDate()">getEndDate</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The end date and time of the event (in ISO 8601 date format).</div>
+        <div class="jd-descrdiv">
+          The end date and time of the event (in ISO 8601 date format).
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1334,7 +1548,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getFamilyName()">getFamilyName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Family name.</div>
+        <div class="jd-descrdiv">
+          Family name.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1352,7 +1571,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getGender()">getGender</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Gender of the person.</div>
+        <div class="jd-descrdiv">
+          Gender of the person.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1370,7 +1594,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getGeo()">getGeo</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Geo coordinates.</div>
+        <div class="jd-descrdiv">
+          Geo coordinates.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1388,7 +1617,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getGivenName()">getGivenName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Given name.</div>
+        <div class="jd-descrdiv">
+          Given name.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1406,7 +1640,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getHeight()">getHeight</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The height of the media object.</div>
+        <div class="jd-descrdiv">
+          The height of the media object.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1424,7 +1663,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getId()">getId</a></span>()</nobr>
         
-        <div class="jd-descrdiv">An identifier for the target.</div>
+        <div class="jd-descrdiv">
+          An identifier for the target.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1442,7 +1686,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getImage()">getImage</a></span>()</nobr>
         
-        <div class="jd-descrdiv">A URL to the image that represents this result.</div>
+        <div class="jd-descrdiv">
+          A URL to the image that represents this result.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1460,7 +1709,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getInAlbum()">getInAlbum</a></span>()</nobr>
         
-        <div class="jd-descrdiv">From http://schema.org/MusicRecording, which album a song is in.</div>
+        <div class="jd-descrdiv">
+          From http://schema.org/MusicRecording, which album a song is in.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1478,7 +1732,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getLatitude()">getLatitude</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Latitude.</div>
+        <div class="jd-descrdiv">
+          Latitude.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1496,7 +1755,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getLocation()">getLocation</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The location of the event or organization.</div>
+        <div class="jd-descrdiv">
+          The location of the event or organization.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1514,7 +1778,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getLongitude()">getLongitude</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Longitude.</div>
+        <div class="jd-descrdiv">
+          Longitude.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1532,7 +1801,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getName()">getName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The name of the result.</div>
+        <div class="jd-descrdiv">
+          The name of the result.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1550,7 +1824,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getPartOfTVSeries()">getPartOfTVSeries</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Property of http://schema.org/TVEpisode indicating which series the episode belongs to.</div>
+        <div class="jd-descrdiv">
+          Property of http://schema.org/TVEpisode indicating which series the episode belongs to.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1568,7 +1847,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getPerformers()">getPerformers</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The main performer or performers of the event-for example, a presenter, musician, or actor.</div>
+        <div class="jd-descrdiv">
+          The main performer or performers of the event-for example, a presenter, musician, or actor.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1586,7 +1870,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getPlayerType()">getPlayerType</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Player type that is required.</div>
+        <div class="jd-descrdiv">
+          Player type that is required.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1604,7 +1893,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getPostOfficeBoxNumber()">getPostOfficeBoxNumber</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Post office box number.</div>
+        <div class="jd-descrdiv">
+          Post office box number.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1622,7 +1916,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getPostalCode()">getPostalCode</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Postal code.</div>
+        <div class="jd-descrdiv">
+          Postal code.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1640,7 +1939,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getRatingValue()">getRatingValue</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Rating value.</div>
+        <div class="jd-descrdiv">
+          Rating value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1658,7 +1962,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getReviewRating()">getReviewRating</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Review rating.</div>
+        <div class="jd-descrdiv">
+          Review rating.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1676,7 +1985,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getStartDate()">getStartDate</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The start date and time of the event (in ISO 8601 date format).</div>
+        <div class="jd-descrdiv">
+          The start date and time of the event (in ISO 8601 date format).
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1694,7 +2008,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getStreetAddress()">getStreetAddress</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Street address.</div>
+        <div class="jd-descrdiv">
+          Street address.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1712,7 +2031,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getText()">getText</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The text that is the result of the app activity.</div>
+        <div class="jd-descrdiv">
+          The text that is the result of the app activity.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1730,7 +2054,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getThumbnail()">getThumbnail</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Thumbnail image for an image or video.</div>
+        <div class="jd-descrdiv">
+          Thumbnail image for an image or video.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1748,7 +2077,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getThumbnailUrl()">getThumbnailUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">A URL to a thumbnail image that represents this result.</div>
+        <div class="jd-descrdiv">
+          A URL to a thumbnail image that represents this result.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1766,7 +2100,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getTickerSymbol()">getTickerSymbol</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The exchange traded instrument associated with a Corporation object.</div>
+        <div class="jd-descrdiv">
+          The exchange traded instrument associated with a Corporation object.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1784,7 +2123,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getType()">getType</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The schema.org URL that best describes the referenced target and matches the type of moment.</div>
+        <div class="jd-descrdiv">
+          The schema.org URL that best describes the referenced target and matches the type of moment.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1802,7 +2146,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getUrl()">getUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The URL that points to the result object.</div>
+        <div class="jd-descrdiv">
+          The URL that points to the result object.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1820,7 +2169,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getWidth()">getWidth</a></span>()</nobr>
         
-        <div class="jd-descrdiv">The width of the media object.</div>
+        <div class="jd-descrdiv">
+          The width of the media object.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1838,7 +2192,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#getWorstRating()">getWorstRating</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Worst possible rating value that a result might obtain.</div>
+        <div class="jd-descrdiv">
+          Worst possible rating value that a result might obtain.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1856,7 +2215,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAbout()">hasAbout</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "about" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "about" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1874,7 +2238,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAdditionalName()">hasAdditionalName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "additionalName" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "additionalName" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1892,7 +2261,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAddress()">hasAddress</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "address" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "address" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1910,7 +2284,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAddressCountry()">hasAddressCountry</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "addressCountry" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "addressCountry" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1928,7 +2307,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAddressLocality()">hasAddressLocality</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "addressLocality" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "addressLocality" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1946,7 +2330,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAddressRegion()">hasAddressRegion</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "addressRegion" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "addressRegion" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1964,7 +2353,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAssociated_media()">hasAssociated_media</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "associated_media" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "associated_media" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -1982,7 +2376,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAttendeeCount()">hasAttendeeCount</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "attendeeCount" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "attendeeCount" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2000,7 +2399,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAttendees()">hasAttendees</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "attendees" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "attendees" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2018,7 +2422,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAudio()">hasAudio</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "audio" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "audio" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2036,7 +2445,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasAuthor()">hasAuthor</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "author" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "author" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2054,7 +2468,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasBestRating()">hasBestRating</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "bestRating" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "bestRating" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2072,7 +2491,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasBirthDate()">hasBirthDate</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "birthDate" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "birthDate" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2090,7 +2514,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasByArtist()">hasByArtist</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "byArtist" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "byArtist" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2108,7 +2537,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasCaption()">hasCaption</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "caption" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "caption" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2126,7 +2560,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasContentSize()">hasContentSize</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "contentSize" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "contentSize" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2144,7 +2583,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasContentUrl()">hasContentUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "contentUrl" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "contentUrl" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2162,7 +2606,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasContributor()">hasContributor</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "contributor" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "contributor" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2180,7 +2629,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasDateCreated()">hasDateCreated</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "dateCreated" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "dateCreated" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2198,7 +2652,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasDateModified()">hasDateModified</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "dateModified" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "dateModified" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2216,7 +2675,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasDatePublished()">hasDatePublished</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "datePublished" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "datePublished" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2234,7 +2698,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasDescription()">hasDescription</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "description" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "description" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2252,7 +2721,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasDuration()">hasDuration</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "duration" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "duration" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2270,7 +2744,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasEmbedUrl()">hasEmbedUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "embedUrl" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "embedUrl" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2288,7 +2767,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasEndDate()">hasEndDate</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "endDate" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "endDate" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2306,7 +2790,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasFamilyName()">hasFamilyName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "familyName" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "familyName" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2324,7 +2813,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasGender()">hasGender</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "gender" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "gender" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2342,7 +2836,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasGeo()">hasGeo</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "geo" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "geo" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2360,7 +2859,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasGivenName()">hasGivenName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "givenName" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "givenName" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2378,7 +2882,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasHeight()">hasHeight</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "height" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "height" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2396,7 +2905,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasId()">hasId</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "id" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "id" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2414,7 +2928,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasImage()">hasImage</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "image" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "image" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2432,7 +2951,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasInAlbum()">hasInAlbum</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "inAlbum" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "inAlbum" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2450,7 +2974,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasLatitude()">hasLatitude</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "latitude" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "latitude" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2468,7 +2997,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasLocation()">hasLocation</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "location" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "location" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2486,7 +3020,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasLongitude()">hasLongitude</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "longitude" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "longitude" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2504,7 +3043,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasName()">hasName</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "name" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "name" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2522,7 +3066,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasPartOfTVSeries()">hasPartOfTVSeries</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "partOfTVSeries" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "partOfTVSeries" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2540,7 +3089,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasPerformers()">hasPerformers</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "performers" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "performers" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2558,7 +3112,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasPlayerType()">hasPlayerType</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "playerType" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "playerType" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2576,7 +3135,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasPostOfficeBoxNumber()">hasPostOfficeBoxNumber</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "postOfficeBoxNumber" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "postOfficeBoxNumber" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2594,7 +3158,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasPostalCode()">hasPostalCode</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "postalCode" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "postalCode" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2612,7 +3181,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasRatingValue()">hasRatingValue</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "ratingValue" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "ratingValue" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2630,7 +3204,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasReviewRating()">hasReviewRating</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "reviewRating" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "reviewRating" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2648,7 +3227,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasStartDate()">hasStartDate</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "startDate" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "startDate" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2666,7 +3250,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasStreetAddress()">hasStreetAddress</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "streetAddress" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "streetAddress" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2684,7 +3273,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasText()">hasText</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "text" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "text" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2702,7 +3296,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasThumbnail()">hasThumbnail</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "thumbnail" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "thumbnail" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2720,7 +3319,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasThumbnailUrl()">hasThumbnailUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "thumbnailUrl" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "thumbnailUrl" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2738,7 +3342,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasTickerSymbol()">hasTickerSymbol</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "tickerSymbol" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "tickerSymbol" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2756,7 +3365,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasType()">hasType</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "type" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "type" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2774,7 +3388,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasUrl()">hasUrl</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "url" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "url" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2792,7 +3411,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasWidth()">hasWidth</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "width" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "width" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2810,7 +3434,12 @@ Summary:
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html#hasWorstRating()">hasWorstRating</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Indicates whether the "worstRating" field is explicitly set to a value.</div>
+        <div class="jd-descrdiv">
+          Indicates whether the "worstRating" field is explicitly set to a value.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2857,12 +3486,17 @@ From interface
             
             
             
-            T</nobr>
+            <a href="/reference/com/google/android/gms/plus/model/moments/ItemScope.html">ItemScope</a></nobr>
         </td>
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/common/data/Freezable.html#freeze()">freeze</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Freeze a volatile representation into an immutable representation.</div>
+        <div class="jd-descrdiv">
+          Freeze a volatile representation into an immutable representation.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2880,7 +3514,12 @@ From interface
         <td class="jd-linkcol" width="100%"><nobr>
         <span class="sympad"><a href="/reference/com/google/android/gms/common/data/Freezable.html#isDataValid()">isDataValid</a></span>()</nobr>
         
-        <div class="jd-descrdiv">Check to see if this object is valid for use.</div>
+        <div class="jd-descrdiv">
+          Check to see if this object is valid for use.
+          
+    
+
+        </div>
   
   </td></tr>
 
@@ -2956,6 +3595,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The subject matter of the content.
 </p></div>
 
@@ -2985,6 +3627,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>An additional name for a Person, can be used for a middle name.
 </p></div>
@@ -3016,6 +3661,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Postal address.
 </p></div>
 
@@ -3045,6 +3693,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Address country.
 </p></div>
@@ -3076,6 +3727,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Address locality.
 </p></div>
 
@@ -3105,6 +3759,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Address region.
 </p></div>
@@ -3136,6 +3793,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The encoding.
 </p></div>
 
@@ -3165,6 +3825,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Number of attendees.
 </p></div>
@@ -3196,6 +3859,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>A person attending the event.
 </p></div>
 
@@ -3225,6 +3891,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>From http://schema.org/MusicRecording, the audio file.
 </p></div>
@@ -3256,6 +3925,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The person or persons who created this result. In the example of restaurant reviews, this
  might be the reviewer's name.
 </p></div>
@@ -3286,6 +3958,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Best possible rating value that a result might obtain. This property defines the upper bound
  for the ratingValue. For example, you might have a 5 star rating scale, you would provide 5
@@ -3319,6 +3994,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Date of birth.
 </p></div>
 
@@ -3348,6 +4026,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>From http://schema.org/MusicRecording, the artist that performed this recording.
 </p></div>
@@ -3379,6 +4060,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The caption for this object.
 </p></div>
 
@@ -3408,6 +4092,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>File size in (mega/kilo) bytes.
 </p></div>
@@ -3439,6 +4126,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Actual bytes of the media object, for example the image file or video file.
 </p></div>
 
@@ -3468,6 +4158,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>A list of contributors to this result.
 </p></div>
@@ -3499,6 +4192,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The date the result was created such as the date that a review was first created.
 </p></div>
 
@@ -3529,6 +4225,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The date the result was last modified such as the date that a review was last edited.
 </p></div>
 
@@ -3558,6 +4257,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>The initial date that the result was published. For example, a user writes a comment on a
  blog, which has a result.dateCreated of when they submit it. If the blog users comment
@@ -3592,6 +4294,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The string that describes the content of the result.
 </p></div>
 
@@ -3622,6 +4327,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The duration of the item (movie, audio recording, event, etc.) in ISO 8601 date format.
 </p></div>
 
@@ -3651,6 +4359,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>A URL pointing to a player for a specific video. In general, this is the information in the
  src element of an embed tag and should not be the same as the content of the loc tag.
@@ -3683,6 +4394,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The end date and time of the event (in ISO 8601 date format).
 </p></div>
 
@@ -3712,6 +4426,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Family name. This property can be used with givenName instead of the name property.
 </p></div>
@@ -3743,6 +4460,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Gender of the person.
 </p></div>
 
@@ -3772,6 +4492,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Geo coordinates.
 </p></div>
@@ -3803,6 +4526,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Given name. This property can be used with familyName instead of the name property.
 </p></div>
 
@@ -3833,6 +4559,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The height of the media object.
 </p></div>
 
@@ -3862,6 +4591,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>An identifier for the target. Your app can choose how to identify targets. The target.id is
  required if you are writing an activity that does not have a corresponding web page or
@@ -3895,6 +4627,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>A URL to the image that represents this result. For example, if a user writes a review of a
  restaurant and attaches a photo of their meal, you might use that photo as the result.image.
 </p></div>
@@ -3926,6 +4661,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>From http://schema.org/MusicRecording, which album a song is in.
 </p></div>
 
@@ -3955,6 +4693,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Latitude.
 </p></div>
@@ -3986,6 +4727,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The location of the event or organization.
 </p></div>
 
@@ -4016,6 +4760,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Longitude.
 </p></div>
 
@@ -4045,6 +4792,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>The name of the result. In the example of a restaurant review, this might be the summary the
  user gave their review such as "Great ambiance, but overpriced."
@@ -4077,6 +4827,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Property of http://schema.org/TVEpisode indicating which series the episode belongs to.
 </p></div>
 
@@ -4106,6 +4859,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>The main performer or performers of the event-for example, a presenter, musician, or actor.
 </p></div>
@@ -4137,6 +4893,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Player type that is required. For example: Flash or Silverlight.
 </p></div>
 
@@ -4166,6 +4925,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Post office box number.
 </p></div>
@@ -4197,6 +4959,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Postal code.
 </p></div>
 
@@ -4226,6 +4991,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Rating value.
 </p></div>
@@ -4257,6 +5025,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Review rating.
 </p></div>
 
@@ -4286,6 +5057,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>The start date and time of the event (in ISO 8601 date format).
 </p></div>
@@ -4317,6 +5091,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Street address.
 </p></div>
 
@@ -4346,6 +5123,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>The text that is the result of the app activity. For example, if a user leaves a review of a
  restaurant, this might be the text of the review.
@@ -4378,6 +5158,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Thumbnail image for an image or video.
 </p></div>
 
@@ -4408,6 +5191,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>A URL to a thumbnail image that represents this result.
 </p></div>
 
@@ -4437,6 +5223,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>The exchange traded instrument associated with a Corporation object. The tickerSymbol is
  expressed as an exchange and an instrument name separated by a space character. For the
@@ -4471,6 +5260,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The schema.org URL that best describes the referenced target and matches the type of moment.
 </p></div>
 
@@ -4500,6 +5292,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>The URL that points to the result object. For example, a permalink directly to a restaurant
  reviewer's comment.
@@ -4532,6 +5327,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>The width of the media object.
 </p></div>
 
@@ -4561,6 +5359,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Worst possible rating value that a result might obtain. This property defines the lower bound
  for the ratingValue.
@@ -4593,6 +5394,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "about" field is explicitly set to a value.
 </p></div>
 
@@ -4622,6 +5426,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "additionalName" field is explicitly set to a value.
 </p></div>
@@ -4653,6 +5460,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "address" field is explicitly set to a value.
 </p></div>
 
@@ -4682,6 +5492,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "addressCountry" field is explicitly set to a value.
 </p></div>
@@ -4713,6 +5526,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "addressLocality" field is explicitly set to a value.
 </p></div>
 
@@ -4742,6 +5558,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "addressRegion" field is explicitly set to a value.
 </p></div>
@@ -4773,6 +5592,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "associated_media" field is explicitly set to a value.
 </p></div>
 
@@ -4802,6 +5624,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "attendeeCount" field is explicitly set to a value.
 </p></div>
@@ -4833,6 +5658,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "attendees" field is explicitly set to a value.
 </p></div>
 
@@ -4862,6 +5690,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "audio" field is explicitly set to a value.
 </p></div>
@@ -4893,6 +5724,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "author" field is explicitly set to a value.
 </p></div>
 
@@ -4922,6 +5756,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "bestRating" field is explicitly set to a value.
 </p></div>
@@ -4953,6 +5790,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "birthDate" field is explicitly set to a value.
 </p></div>
 
@@ -4982,6 +5822,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "byArtist" field is explicitly set to a value.
 </p></div>
@@ -5013,6 +5856,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "caption" field is explicitly set to a value.
 </p></div>
 
@@ -5042,6 +5888,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "contentSize" field is explicitly set to a value.
 </p></div>
@@ -5073,6 +5922,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "contentUrl" field is explicitly set to a value.
 </p></div>
 
@@ -5102,6 +5954,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "contributor" field is explicitly set to a value.
 </p></div>
@@ -5133,6 +5988,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "dateCreated" field is explicitly set to a value.
 </p></div>
 
@@ -5162,6 +6020,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "dateModified" field is explicitly set to a value.
 </p></div>
@@ -5193,6 +6054,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "datePublished" field is explicitly set to a value.
 </p></div>
 
@@ -5222,6 +6086,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "description" field is explicitly set to a value.
 </p></div>
@@ -5253,6 +6120,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "duration" field is explicitly set to a value.
 </p></div>
 
@@ -5282,6 +6152,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "embedUrl" field is explicitly set to a value.
 </p></div>
@@ -5313,6 +6186,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "endDate" field is explicitly set to a value.
 </p></div>
 
@@ -5342,6 +6218,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "familyName" field is explicitly set to a value.
 </p></div>
@@ -5373,6 +6252,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "gender" field is explicitly set to a value.
 </p></div>
 
@@ -5402,6 +6284,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "geo" field is explicitly set to a value.
 </p></div>
@@ -5433,6 +6318,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "givenName" field is explicitly set to a value.
 </p></div>
 
@@ -5462,6 +6350,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "height" field is explicitly set to a value.
 </p></div>
@@ -5493,6 +6384,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "id" field is explicitly set to a value.
 </p></div>
 
@@ -5522,6 +6416,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "image" field is explicitly set to a value.
 </p></div>
@@ -5553,6 +6450,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "inAlbum" field is explicitly set to a value.
 </p></div>
 
@@ -5582,6 +6482,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "latitude" field is explicitly set to a value.
 </p></div>
@@ -5613,6 +6516,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "location" field is explicitly set to a value.
 </p></div>
 
@@ -5642,6 +6548,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "longitude" field is explicitly set to a value.
 </p></div>
@@ -5673,6 +6582,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "name" field is explicitly set to a value.
 </p></div>
 
@@ -5702,6 +6614,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "partOfTVSeries" field is explicitly set to a value.
 </p></div>
@@ -5733,6 +6648,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "performers" field is explicitly set to a value.
 </p></div>
 
@@ -5762,6 +6680,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "playerType" field is explicitly set to a value.
 </p></div>
@@ -5793,6 +6714,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "postOfficeBoxNumber" field is explicitly set to a value.
 </p></div>
 
@@ -5822,6 +6746,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "postalCode" field is explicitly set to a value.
 </p></div>
@@ -5853,6 +6780,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "ratingValue" field is explicitly set to a value.
 </p></div>
 
@@ -5882,6 +6812,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "reviewRating" field is explicitly set to a value.
 </p></div>
@@ -5913,6 +6846,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "startDate" field is explicitly set to a value.
 </p></div>
 
@@ -5942,6 +6878,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "streetAddress" field is explicitly set to a value.
 </p></div>
@@ -5973,6 +6912,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "text" field is explicitly set to a value.
 </p></div>
 
@@ -6002,6 +6944,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "thumbnail" field is explicitly set to a value.
 </p></div>
@@ -6033,6 +6978,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "thumbnailUrl" field is explicitly set to a value.
 </p></div>
 
@@ -6062,6 +7010,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "tickerSymbol" field is explicitly set to a value.
 </p></div>
@@ -6093,6 +7044,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "type" field is explicitly set to a value.
 </p></div>
 
@@ -6122,6 +7076,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "url" field is explicitly set to a value.
 </p></div>
@@ -6153,6 +7110,9 @@ From interface
       </div>
     <div class="jd-details-descr">
       
+    
+
+      
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "width" field is explicitly set to a value.
 </p></div>
 
@@ -6182,6 +7142,9 @@ From interface
 
       </div>
     <div class="jd-details-descr">
+      
+    
+
       
   <div class="jd-tagdata jd-tagdescr"><p>Indicates whether the "worstRating" field is explicitly set to a value.
 </p></div>

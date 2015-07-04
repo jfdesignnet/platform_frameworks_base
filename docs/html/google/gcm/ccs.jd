@@ -13,16 +13,14 @@ page.title=GCM Cloud Connection Server (XMPP)
       <li><a href="#auth">Authentication</a></li>
       </ol>
       </li>
-    <li><a href="#format">Message Format</a>
+    <li><a href="#format">Downstream Messages</a>
       <ol class="toc">
         <li><a href="#request">Request format</a></li>
         <li><a href="#response">Response format</a></li>
+        <li><a href="#receipts">Receive delivery receipts</a></li>
       </ol>
       </li>
   <li><a href="#upstream">Upstream Messages</a>
-    <ol>
-      <li><a href="#receipts">Receive return receipts</a></li>
-    </ol>
   </li>
   <li><a href="#flow">Flow Control</a> </li>
   <li><a href="#implement">Implementing an XMPP-based App Server</a>
@@ -36,6 +34,7 @@ page.title=GCM Cloud Connection Server (XMPP)
 <h2>See Also</h2>
 
 <ol class="toc">
+<li><a href="server-ref.html">Server Reference</a></li>
 <li><a href="{@docRoot}google/gcm/http.html">HTTP</a></li>
 <li><a href="{@docRoot}google/gcm/gs.html">Getting Started</a></li>
 <li><a href="{@docRoot}google/gcm/server.html">Implementing GCM Server</a></li>
@@ -45,10 +44,14 @@ page.title=GCM Cloud Connection Server (XMPP)
 </div>
 </div>
 
-<p>The GCM Cloud Connection Server (CCS) is an XMPP endpoint that provides a
+<p>The Google Cloud Messaging (GCM) Cloud Connection Server (CCS) is an XMPP endpoint that provides a
 persistent, asynchronous, bidirectional connection to Google servers. The
 connection can be used to send and receive messages between your server and
 your users' GCM-connected devices.</p>
+
+<p class="note"><strong>Note:</strong> The content in this document
+applies to <a href="http://developer.chrome.com/apps/cloudMessaging">
+GCM with Chrome apps</a> as well as Android.
 
 <p>You can continue to use the HTTP request mechanism to send messages to GCM
 servers, side-by-side with CCS which uses XMPP. Some of the benefits of CCS include:</p>
@@ -69,8 +72,8 @@ Play services platform. Upstream messaging is available through the
 APIs. For examples, see
 <a href="#implement">Implementing an XMPP-based App Server</a>.</p>
 
-<p class="note"><strong>Note:</strong> See
-<a href="server.html#params">Implementing GCM Server</a> for a list of all the message
+<p class="note"><strong>Note:</strong> See the
+<a href="server-ref.html">Server Reference</a> for a list of all the message
 parameters and which connection server(s) supports them.</p>
 
 <h2 id="connecting">Establishing a Connection</h2>
@@ -133,7 +136,7 @@ mFTeUIzcmNaTmtmbnFLZEZiOW1oekNCaVlwT1JEQTJKV1d0dw==&lt;/auth&gt;
 <h4>Server</h4>
 <pre>&lt;success xmlns=&quot;urn:ietf:params:xml:ns:xmpp-sasl&quot;/&gt;</pre>
 
-<h2 id="format">Message Format</h2>
+<h2 id="format">Downstream Messages</h2>
 <p>Once the XMPP connection is established, CCS and your server use normal XMPP
 <code>&lt;message&gt;</code> stanzas to send JSON-encoded messages back and
 forth. The body of the <code>&lt;message&gt;</code> must be:</p>
@@ -164,7 +167,8 @@ unknown {@code message_type} can be ignored by your server.</p>
 <p>For each device message your app server receives from CCS, it needs to send
 an ACK message.
 It never needs to send a NACK message. If you don't send an ACK for a message,
-CCS will just resend it.
+CCS resends it the next time a new XMPP connection is established, unless the
+message expires first.
 </p>
 <p>CCS also sends an ACK or NACK for each server-to-device message. If you do not
 receive either, it means that the TCP connection was closed in the middle of the
@@ -172,8 +176,8 @@ operation and your server needs to resend the messages. See
 <a href="#flow">Flow Control</a> for details.
 </p>
 
-<p class="note"><strong>Note:</strong> See
-<a href="server.html#params">Implementing GCM Server</a> for a list of all the message
+<p class="note"><strong>Note:</strong> See the
+<a href="server-ref.html">Server Reference</a> for a list of all the message
 parameters and which connection server(s) supports them.</p>
 
 <h3 id="request">Request format</h3>
@@ -259,72 +263,25 @@ message is &quot;nack&quot;. A NACK message contains:</p>
 &lt;/message&gt;
 </pre>
 
-<p>Quota exceeded:</p>
+<p>Device Message Rate Exceeded:</p>
 
-<pre>&lt;message&gt;
- &lt;gcm xmlns=&quot;google:mobile:data&quot;&gt;
- {
-   &quot;message_type&quot;:&quot;nack&quot;,
-   &quot;message_id&quot;:&quot;msgId1&quot;,
-   &quot;from&quot;:&quot;APA91bHFOtaQGSwupt5l1og&quot;,
-   &quot;error&quot;:&quot;QUOTA_EXCEEDED&quot;,
-   &quot;error_description&quot;:&quot;Short-term downstream quota exceeded for this registration id&quot;
- }
- &lt;/gcm&gt;
+<pre>&lt;message id=&quot;...&quot;&gt;
+  &lt;gcm xmlns=&quot;google:mobile:data&quot;&gt;
+  {
+    &quot;message_type&quot;:&quot;nack&quot;,
+    &quot;message_id&quot;:&quot;msgId1&quot;,
+    &quot;from&quot;:&quot;REGID&quot;,
+    &quot;error&quot;:&quot;DEVICE_MESSAGE_RATE_EXCEEDED&quot;,
+    &quot;error_description&quot;:&quot;Downstream message rate exceeded for this registration id&quot;
+  }
+  &lt;/gcm&gt;
 &lt;/message&gt;
 </pre>
 
-
-<p>The following table lists NACK error codes. Unless otherwise
+<p>See the <a href="server-ref.html#table11">Server Reference</a> for a complete list of the
+NACK error codes. Unless otherwise
 indicated, a NACKed message should not be retried. Unexpected NACK error codes
 should be treated the same as {@code INTERNAL_SERVER_ERROR}.</p>
-
-<p class="table-caption" id="table1">
-  <strong>Table 1.</strong> NACK error codes.</p>
-
-<table border="1">
-<tr>
-<th>Error Code</th>
-<th>Description</th>
-</tr>
-<tr>
-<td>{@code BAD_ACK}</td>
-<td>The ACK message is improperly formed.</td>
-</tr>
-<tr>
-<td>{@code BAD_REGISTRATION}</td>
-<td>The device has a registration ID, but it's invalid or expired.</td>
-</tr>
-<tr>
-<td>{@code CONNECTION_DRAINING}</td>
-<td>The message couldn't be processed because the connection is draining. The
-message should be immediately retried over another connection.</td>
-</tr>
-<tr>
-<td>{@code DEVICE_UNREGISTERED}</td>
-<td>The device is not registered.</td>
-</tr>
-<tr>
-<td>{@code INTERNAL_SERVER_ERROR}</td>
-<td>The server encountered an error while trying to process the request.</td>
-</tr>
-<tr>
-<td>{@code INVALID_JSON}</td>
-<td>The JSON message payload is not valid.</td>
-</tr>
-<tr>
-<td>{@code QUOTA_EXCEEDED}</td>
-<td>The rate of messages to a particular registration ID (in other words, to a
-sender/device pair) is too high. If you want to retry the message, try using a slower
-rate.</td>
-</tr>
-<tr>
-  <td>{@code SERVICE_UNAVAILABLE}</td>
-  <td>CCS is not currently able to process the message. The
-    message should be retried over the same connection using exponential backoff
-    with an initial delay of 1 second.</td>
-</tr>
-</table>
 
 <h4 id="stanza">Stanza error</h4>
 
@@ -358,7 +315,7 @@ connection, but allowing whatever is already in the pipeline to continue. When y
 a {@code CONNECTION_DRAINING} message, you should immediately begin sending messages to another CCS
 connection, opening a new connection if necessary. You should, however, keep the original
 connection open and continue receiving messages that may come over the connection (and
-ACKing them)&mdash;CCS will handle initiating a connection close when it is ready.</p>
+ACKing them)&mdash;CCS handles initiating a connection close when it is ready.</p>
 
 <p>The {@code CONNECTION_DRAINING} message looks like this:</p>
 <pre>&lt;message&gt;
@@ -371,6 +328,77 @@ ACKing them)&mdash;CCS will handle initiating a connection close when it is read
 &lt;/message&gt;</pre>
 
 <p>{@code CONNECTION_DRAINING} is currently the only {@code control_type} supported.</p>
+
+<!--Delivery receipts section-->
+
+<h3 id="receipts">Receive delivery receipts</h3>
+
+<p>You can get delivery receipts (sent from CCS to
+your 3rd party app server) when
+a device confirms that it received a message sent by CCS.</p>
+
+<p>To enable this feature, the message your 3rd-party app server sends to CCS must include
+a field called <code>&quot;delivery_receipt_requested&quot;</code>. When this field is set to
+<code>true</code>, CCS sends a delivery receipt when a device confirms that it received a particular message.</p>
+
+<p>Here is an XMPP stanza containing a JSON
+message with <code>&quot;delivery_receipt_requested&quot;</code> set to <code>true</code>:</p>
+
+<pre>&lt;message id=&quot;&quot;&gt;
+  &lt;gcm xmlns=&quot;google:mobile:data&quot;&gt;
+  {
+      &quot;to&quot;:&quot;REGISTRATION_ID&quot;,
+      &quot;message_id&quot;:&quot;m-1366082849205&quot;
+      &quot;data&quot;:
+      {
+          &quot;hello&quot;:&quot;world&quot;,
+      }
+      &quot;time_to_live&quot;:&quot;600&quot;,
+      &quot;delay_while_idle&quot;: true,
+      <strong>&quot;delivery_receipt_requested&quot;: true</strong>
+  }
+  &lt;/gcm&gt;
+&lt;/message&gt;
+</pre>
+
+
+
+<p>Here is an example of the delivery receipt that CCS sends to tell your 3rd-party
+app server that a device received a message that CCS sent it:</p>
+
+</p>
+<pre>&lt;message id=&quot;&quot;&gt;
+  &lt;gcm xmlns=&quot;google:mobile:data&quot;&gt;
+  {
+      &quot;category&quot;:&quot;com.example.yourapp&quot;, // to know which app sent it
+      &quot;data&quot;:
+      {
+         &#x201c;message_status&quot;:&quot;MESSAGE_SENT_TO_DEVICE&quot;,
+         &#x201c;original_message_id&#x201d;:&#x201d;m-1366082849205&#x201d;
+         &#x201c;device_registration_id&#x201d;: &#x201c;REGISTRATION_ID&#x201d;
+      },
+      &quot;message_id&quot;:&quot;dr2:m-1366082849205&quot;,
+      &quot;message_type&quot;:&quot;receipt&quot;,
+      &quot;from&quot;:&quot;gcm.googleapis.com&quot;
+  }
+  &lt;/gcm&gt;
+&lt;/message&gt;</pre>
+
+<p>Note the following:</p>
+
+<ul>
+  <li>The {@code &quot;message_type&quot;} is set to {@code &quot;receipt&quot;}.
+  <li>The {@code &quot;message_status&quot;} is set to {@code &quot;MESSAGE_SENT_TO_DEVICE&quot;},
+  indicating that the device received the message. Notice that in this case,
+{@code &quot;message_status&quot;} is not a field but rather part of the data payload.</li>
+  <li>The receipt message ID consists of the original message ID, but with a
+<code>dr2:</code> prefix. Your 3rd-party app server must send an ACK back with this ID,
+which in this example is {@code dr2:m-1366082849205}.</li>
+  <li>The original message ID, the device registration ID, and the status are inside the
+{@code &quot;data&quot;} field.</li>
+<li>If the connection between CCS and the device is poor, GCM may send multiple, duplicate delivery
+ receipts. You can safely ignore such duplicates.</li>
+</ul>
 
 <h2 id="upstream">Upstream Messages</h2>
 
@@ -429,68 +457,6 @@ response to the above message:</p>
   &lt;/gcm&gt;
 &lt;/message&gt;</pre>
 
-<h3 id="receipts">Receive return receipts</h3>
-
-<p>You can use upstream messaging to get receipt notifications, confirming
-that a given message was sent to a device. Your 3rd-party app server receives the receipt
-notification from CCS once the message has been sent to the device.</p>
-
-<p>To enable this feature, the message your 3rd-party app server sends to CCS must include
-a field called <code>&quot;delivery_receipt_requested&quot;</code>. When this field is set to
-<code>true</code>, CCS sends a return receipt. Here is an XMPP stanza containing a JSON
-message with <code>&quot;delivery_receipt_requested&quot;</code> set to <code>true</code>:</p>
-
-<pre>&lt;message id=&quot;&quot;&gt;
-  &lt;gcm xmlns=&quot;google:mobile:data&quot;&gt;
-  {
-      &quot;to&quot;:&quot;REGISTRATION_ID&quot;,
-      &quot;message_id&quot;:&quot;m-1366082849205&quot;
-      &quot;data&quot;:
-      {
-          &quot;hello&quot;:&quot;world&quot;,
-      }
-      &quot;time_to_live&quot;:&quot;600&quot;,
-      &quot;delay_while_idle&quot;: true,
-      <strong>&quot;delivery_receipt_requested&quot;: true</strong>
-  }
-  &lt;/gcm&gt;
-&lt;/message&gt;
-</pre>
-
-<p>Here is an example of a receipt notification message that CCS sends back to your 3rd-party
-app server:</p>
-
-</p>
-<pre>&lt;message id=&quot;&quot;&gt;
-  &lt;gcm xmlns=&quot;google:mobile:data&quot;&gt;
-  {
-      &quot;category&quot;:&quot;com.example.yourapp&quot;, // to know which app sent it
-      &quot;data&quot;:
-      {
-         &#x201c;message_status&quot;:&quot;MESSAGE_SENT_TO_DEVICE&quot;,
-         &#x201c;original_message_id&#x201d;:&#x201d;m-1366082849205&#x201d;
-         &#x201c;device_registration_id&#x201d;: &#x201c;REGISTRATION_ID&#x201d;
-      },
-      &quot;message_id&quot;:&quot;dr2:m-1366082849205&quot;,
-      &quot;message_type&quot;:&quot;receipt&quot;,
-      &quot;from&quot;:&quot;gcm.googleapis.com&quot;
-  }
-  &lt;/gcm&gt;
-&lt;/message&gt;</pre>
-
-<p>Note the following:</p>
-
-<ul>
-  <li>The {@code &quot;message_type&quot;} is set to {@code &quot;receipt&quot;}.
-  <li>The {@code &quot;message_status&quot;} is set to {@code &quot;MESSAGE_SENT_TO_DEVICE&quot;},
-  indicating that the message was delivered. Notice that in this case,
-{@code &quot;message_status&quot;} is not a field but rather part of the data payload.</li>
-  <li>The receipt message ID consists of the original message ID, but with a
-<code>dr:</code> prefix. Your 3rd-party app server must send an ACK back with this ID,
-which in this example is {@code dr2:m-1366082849205}.</li>
-  <li>The original message ID and status are inside the
-{@code &quot;data&quot;} field.</li>
-</ul>
 
 <h2 id="flow">Flow Control</h2>
 
@@ -506,7 +472,7 @@ figure 1:</p>
   <strong>Figure 1.</strong> Message/ack flow.
 </p>
 
-<p>Conversely, to avoid overloading the 3rd-party app server, CCS will stop sending
+<p>Conversely, to avoid overloading the 3rd-party app server, CCS stops sending
 if there are too many unacknowledged messages. Therefore, the 3rd-party app server
 should "ACK" upstream messages, received from the client application via CCS, as soon as possible
 to maintain a constant flow of incoming messages. The aforementioned pending message limit doesn't
@@ -701,7 +667,7 @@ public class SmackCcsClient {
      * Creates a JSON encoded GCM message.
      *
      * &#64;param to RegistrationId of the target device (Required).
-     * &#64;param messageId Unique messageId for which CCS will send an
+     * &#64;param messageId Unique messageId for which CCS sends an
      *         &quot;ack/nack&quot; (Required).
      * &#64;param payload Message content intended for the application. (Optional).
      * &#64;param collapseKey GCM collapse_key parameter (Optional).

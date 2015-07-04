@@ -239,7 +239,7 @@ public class NetworkManagementService extends INetworkManagementService.Stub
 
         mDaemonHandler = new Handler(FgThread.get().getLooper());
 
-        mPhoneStateListener = new PhoneStateListener(SubscriptionManager.DEFAULT_SUB_ID,
+        mPhoneStateListener = new PhoneStateListener(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
                 mDaemonHandler.getLooper()) {
             @Override
             public void onDataConnectionRealTimeInfoChanged(
@@ -940,6 +940,17 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     @Override
+    public void setInterfaceIpv6NdOffload(String iface, boolean enable) {
+        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
+        try {
+            mConnector.execute(
+                    "interface", "ipv6ndoffload", iface, (enable ? "enable" : "disable"));
+        } catch (NativeDaemonConnectorException e) {
+            throw e.rethrowAsParcelableException();
+        }
+    }
+
+    @Override
     public void addRoute(int netId, RouteInfo route) {
         modifyRoute("add", "" + netId, route);
     }
@@ -1122,7 +1133,7 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     public void setIpForwardingEnabled(boolean enable) {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
         try {
-            mConnector.execute("ipfwd", enable ? "enable" : "disable");
+            mConnector.execute("ipfwd", enable ? "enable" : "disable", "tethering");
         } catch (NativeDaemonConnectorException e) {
             throw e.rethrowAsParcelableException();
         }
@@ -1246,6 +1257,27 @@ public class NetworkManagementService extends INetworkManagementService.Stub
                 filtered.add(ia);
         }
         return filtered;
+    }
+
+    private void modifyInterfaceForward(boolean add, String fromIface, String toIface) {
+        final Command cmd = new Command("ipfwd", add ? "add" : "remove", fromIface, toIface);
+        try {
+            mConnector.execute(cmd);
+        } catch (NativeDaemonConnectorException e) {
+            throw e.rethrowAsParcelableException();
+        }
+    }
+
+    @Override
+    public void startInterfaceForwarding(String fromIface, String toIface) {
+        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
+        modifyInterfaceForward(true, fromIface, toIface);
+    }
+
+    @Override
+    public void stopInterfaceForwarding(String fromIface, String toIface) {
+        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
+        modifyInterfaceForward(false, fromIface, toIface);
     }
 
     private void modifyNat(String action, String internalInterface, String externalInterface)
@@ -1699,14 +1731,18 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     public void setDnsServersForNetwork(int netId, String[] servers, String domains) {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
 
-        final Command cmd = new Command("resolver", "setnetdns", netId,
-                (domains == null ? "" : domains));
-
-        for (String s : servers) {
-            InetAddress a = NetworkUtils.numericToInetAddress(s);
-            if (a.isAnyLocalAddress() == false) {
-                cmd.appendArg(a.getHostAddress());
+        Command cmd;
+        if (servers.length > 0) {
+            cmd = new Command("resolver", "setnetdns", netId,
+                    (domains == null ? "" : domains));
+            for (String s : servers) {
+                InetAddress a = NetworkUtils.numericToInetAddress(s);
+                if (a.isAnyLocalAddress() == false) {
+                    cmd.appendArg(a.getHostAddress());
+                }
             }
+        } else {
+            cmd = new Command("resolver", "clearnetdns", netId);
         }
 
         try {
@@ -1854,23 +1890,23 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     @Override
-    public void stopClatd() throws IllegalStateException {
+    public void stopClatd(String interfaceName) throws IllegalStateException {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
 
         try {
-            mConnector.execute("clatd", "stop");
+            mConnector.execute("clatd", "stop", interfaceName);
         } catch (NativeDaemonConnectorException e) {
             throw e.rethrowAsParcelableException();
         }
     }
 
     @Override
-    public boolean isClatdStarted() {
+    public boolean isClatdStarted(String interfaceName) {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
 
         final NativeDaemonEvent event;
         try {
-            event = mConnector.execute("clatd", "status");
+            event = mConnector.execute("clatd", "status", interfaceName);
         } catch (NativeDaemonConnectorException e) {
             throw e.rethrowAsParcelableException();
         }

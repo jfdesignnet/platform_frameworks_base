@@ -1,4 +1,7 @@
 page.title=Adding Voice Capabilities
+page.tags=wear
+helpoutsWidget=true
+
 @jd:body
 
 <div id="tb-wrapper">
@@ -123,6 +126,17 @@ named <code>MyNoteActivity</code>:
         <dt>Extras</dt>
         <dd><code>android.provider.AlarmClock.EXTRA_LENGTH</code> - an integer in the range of
         1 to 86400 (number of seconds in 24 hours) representing the length of the timer </dd>
+      </dl>
+   </td>
+  </tr>
+
+  <tr>
+    <td>Start stopwatch</td>
+    <td>"Ok Google, start stopwatch"</td>
+    <td>
+      <dl>
+        <dt>Action</dt>
+        <dd><code>com.google.android.wearable.action.STOPWATCH</code></dd>
       </dl>
    </td>
   </tr>

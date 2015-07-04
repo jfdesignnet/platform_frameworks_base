@@ -45,6 +45,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.view.Window;
+import com.android.internal.content.ReferrerIntent;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -1042,7 +1043,7 @@ public class Instrumentation {
         activity.attach(context, aThread, this, token, 0, application, intent,
                 info, title, parent, id,
                 (Activity.NonConfigurationInstances)lastNonConfigurationInstance,
-                new Configuration(), null);
+                new Configuration(), null, null);
         return activity;
     }
 
@@ -1208,6 +1209,21 @@ public class Instrumentation {
      */
     public void callActivityOnNewIntent(Activity activity, Intent intent) {
         activity.onNewIntent(intent);
+    }
+
+    /**
+     * @hide
+     */
+    public void callActivityOnNewIntent(Activity activity, ReferrerIntent intent) {
+        final String oldReferrer = activity.mReferrer;
+        try {
+            if (intent != null) {
+                activity.mReferrer = intent.mReferrer;
+            }
+            callActivityOnNewIntent(activity, intent != null ? new Intent(intent) : null);
+        } finally {
+            activity.mReferrer = oldReferrer;
+        }
     }
 
     /**
@@ -1671,7 +1687,7 @@ public class Instrumentation {
      */
     public ActivityResult execStartActivityAsCaller(
             Context who, IBinder contextThread, IBinder token, Activity target,
-            Intent intent, int requestCode, Bundle options) {
+            Intent intent, int requestCode, Bundle options, int userId) {
         IApplicationThread whoThread = (IApplicationThread) contextThread;
         if (mActivityMonitors != null) {
             synchronized (mSync) {
@@ -1695,7 +1711,7 @@ public class Instrumentation {
                 .startActivityAsCaller(whoThread, who.getBasePackageName(), intent,
                         intent.resolveTypeIfNeeded(who.getContentResolver()),
                         token, target != null ? target.mEmbeddedID : null,
-                        requestCode, 0, null, options);
+                        requestCode, 0, null, options, userId);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
         }

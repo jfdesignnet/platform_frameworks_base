@@ -53,6 +53,9 @@ public class Surface implements Parcelable {
 
     private static native void nativeAllocateBuffers(long nativeObject);
 
+    private static native int nativeGetWidth(long nativeObject);
+    private static native int nativeGetHeight(long nativeObject);
+
     public static final Parcelable.Creator<Surface> CREATOR =
             new Parcelable.Creator<Surface>() {
         @Override
@@ -86,6 +89,8 @@ public class Surface implements Parcelable {
     // A matrix to scale the matrix set by application. This is set to null for
     // non compatibility mode.
     private Matrix mCompatibleMatrix;
+
+    private HwuiContext mHwuiContext;
 
     /** @hide */
     @IntDef({ROTATION_0, ROTATION_90, ROTATION_180, ROTATION_270})
@@ -171,6 +176,10 @@ public class Surface implements Parcelable {
                 nativeRelease(mNativeObject);
                 setNativeObjectLocked(0);
             }
+            if (mHwuiContext != null) {
+                mHwuiContext.destroy();
+                mHwuiContext = null;
+            }
         }
     }
 
@@ -250,7 +259,7 @@ public class Surface implements Parcelable {
                 // double-lock, but that won't happen if mNativeObject was updated.  We can't
                 // abandon the old mLockedObject because it might still be in use, so instead
                 // we just refuse to re-lock the Surface.
-                throw new IllegalStateException("Surface was already locked");
+                throw new IllegalArgumentException("Surface was already locked");
             }
             mLockedObject = nativeLockCanvas(mNativeObject, mCanvas, inOutDirty);
             return mCanvas;
@@ -264,24 +273,66 @@ public class Surface implements Parcelable {
      * @param canvas The canvas previously obtained from {@link #lockCanvas}.
      */
     public void unlockCanvasAndPost(Canvas canvas) {
+        synchronized (mLock) {
+            checkNotReleasedLocked();
+
+            if (mHwuiContext != null) {
+                mHwuiContext.unlockAndPost(canvas);
+            } else {
+                unlockSwCanvasAndPost(canvas);
+            }
+        }
+    }
+
+    private void unlockSwCanvasAndPost(Canvas canvas) {
         if (canvas != mCanvas) {
             throw new IllegalArgumentException("canvas object must be the same instance that "
                     + "was previously returned by lockCanvas");
         }
-
-        synchronized (mLock) {
-            checkNotReleasedLocked();
-            if (mNativeObject != mLockedObject) {
-                Log.w(TAG, "WARNING: Surface's mNativeObject (0x" +
-                        Long.toHexString(mNativeObject) + ") != mLockedObject (0x" +
-                        Long.toHexString(mLockedObject) +")");
-            }
-            if (mLockedObject == 0) {
-                throw new IllegalStateException("Surface was not locked");
-            }
+        if (mNativeObject != mLockedObject) {
+            Log.w(TAG, "WARNING: Surface's mNativeObject (0x" +
+                    Long.toHexString(mNativeObject) + ") != mLockedObject (0x" +
+                    Long.toHexString(mLockedObject) +")");
+        }
+        if (mLockedObject == 0) {
+            throw new IllegalStateException("Surface was not locked");
+        }
+        try {
             nativeUnlockCanvasAndPost(mLockedObject, canvas);
+        } finally {
             nativeRelease(mLockedObject);
             mLockedObject = 0;
+        }
+    }
+
+    /**
+     * Gets a {@link Canvas} for drawing into this surface.
+     *
+     * After drawing into the provided {@link Canvas}, the caller must
+     * invoke {@link #unlockCanvasAndPost} to post the new contents to the surface.
+     *
+     * Unlike {@link #lockCanvas(Rect)} this will return a hardware-accelerated
+     * canvas. See the <a href="{@docRoot}guide/topics/graphics/hardware-accel.html#unsupported">
+     * unsupported drawing operations</a> for a list of what is and isn't
+     * supported in a hardware-accelerated canvas. It is also required to
+     * fully cover the surface every time {@link #lockHardwareCanvas()} is
+     * called as the buffer is not preserved between frames. Partial updates
+     * are not supported.
+     *
+     * @return A canvas for drawing into the surface.
+     *
+     * @throws IllegalStateException If the canvas cannot be locked.
+     * @hide
+     */
+    public Canvas lockHardwareCanvas() {
+        synchronized (mLock) {
+            checkNotReleasedLocked();
+            if (mHwuiContext == null) {
+                mHwuiContext = new HwuiContext();
+            }
+            return mHwuiContext.lockCanvas(
+                    nativeGetWidth(mNativeObject),
+                    nativeGetHeight(mNativeObject));
         }
     }
 
@@ -412,6 +463,9 @@ public class Surface implements Parcelable {
             }
             mNativeObject = ptr;
             mGenerationId += 1;
+            if (mHwuiContext != null) {
+                mHwuiContext.updateSurface();
+            }
         }
     }
 
@@ -515,4 +569,50 @@ public class Surface implements Parcelable {
             mOrigMatrix.set(m);
         }
     }
+
+    private final class HwuiContext {
+        private final RenderNode mRenderNode;
+        private long mHwuiRenderer;
+        private HardwareCanvas mCanvas;
+
+        HwuiContext() {
+            mRenderNode = RenderNode.create("HwuiCanvas", null);
+            mRenderNode.setClipToBounds(false);
+            mHwuiRenderer = nHwuiCreate(mRenderNode.mNativeRenderNode, mNativeObject);
+        }
+
+        Canvas lockCanvas(int width, int height) {
+            if (mCanvas != null) {
+                throw new IllegalStateException("Surface was already locked!");
+            }
+            mCanvas = mRenderNode.start(width, height);
+            return mCanvas;
+        }
+
+        void unlockAndPost(Canvas canvas) {
+            if (canvas != mCanvas) {
+                throw new IllegalArgumentException("canvas object must be the same instance that "
+                        + "was previously returned by lockCanvas");
+            }
+            mRenderNode.end(mCanvas);
+            mCanvas = null;
+            nHwuiDraw(mHwuiRenderer);
+        }
+
+        void updateSurface() {
+            nHwuiSetSurface(mHwuiRenderer, mNativeObject);
+        }
+
+        void destroy() {
+            if (mHwuiRenderer != 0) {
+                nHwuiDestroy(mHwuiRenderer);
+                mHwuiRenderer = 0;
+            }
+        }
+    }
+
+    private static native long nHwuiCreate(long rootNode, long surface);
+    private static native void nHwuiSetSurface(long renderer, long surface);
+    private static native void nHwuiDraw(long renderer);
+    private static native void nHwuiDestroy(long renderer);
 }

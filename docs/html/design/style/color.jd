@@ -88,6 +88,13 @@ page.title=Color
   }
 </style>
 
+<a class="notice-designers-material" href="http://www.google.com/design/spec/style/color.html">
+  <div>
+    <h3>Material Design</h3>
+    <p>Color<p>
+  </div>
+</a>
+
 <p>Use color primarily for emphasis. Choose colors that fit with your brand and provide good contrast
 between visual components. Note that red and green may be indistinguishable to color-blind users.</p>
 
@@ -115,7 +122,7 @@ between visual components. Note that red and green may be indistinguishable to c
 
 <p>Blue is the standard accent color in Android's color palette. Each color has a corresponding darker
 shade that can be used as a complement when needed.</p>
-<p><a onClick="_gaq.push(['_trackEvent', 'Design', 'Download', 'Color Swatches (@color page)']);"
+<p><a onClick="ga('send', 'event', 'Design', 'Download', 'Color Swatches (@color page)');"
       href="{@docRoot}downloads/design/Android_Design_Color_Swatches_20120229.zip">Download the swatches</a></p>
 
 <img src="{@docRoot}design/media/color_spectrum.png">
@@ -129,6 +136,6 @@ shade that can be used as a complement when needed.</p>
           .css('color', color)
           .text(color.toUpperCase());
     });
-    
+
   });
 </script>

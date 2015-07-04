@@ -16,8 +16,6 @@
 
 package com.android.layoutlib.bridge.impl;
 
-import static com.android.ide.common.rendering.api.Result.Status.ERROR_UNKNOWN;
-
 import com.android.ide.common.rendering.api.DrawableParams;
 import com.android.ide.common.rendering.api.HardwareConfig;
 import com.android.ide.common.rendering.api.ResourceValue;
@@ -38,7 +36,6 @@ import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
-import java.io.IOException;
 
 /**
  * Action to render a given Drawable provided through {@link DrawableParams#getDrawable()}.
@@ -57,63 +54,59 @@ public class RenderDrawable extends RenderAction<DrawableParams> {
 
     public Result render() {
         checkLock();
-        try {
-            // get the drawable resource value
-            DrawableParams params = getParams();
-            HardwareConfig hardwareConfig = params.getHardwareConfig();
-            ResourceValue drawableResource = params.getDrawable();
+        // get the drawable resource value
+        DrawableParams params = getParams();
+        HardwareConfig hardwareConfig = params.getHardwareConfig();
+        ResourceValue drawableResource = params.getDrawable();
 
-            // resolve it
-            BridgeContext context = getContext();
-            drawableResource = context.getRenderResources().resolveResValue(drawableResource);
+        // resolve it
+        BridgeContext context = getContext();
+        drawableResource = context.getRenderResources().resolveResValue(drawableResource);
 
-            if (drawableResource == null ||
-                    drawableResource.getResourceType() != ResourceType.DRAWABLE) {
-                return Status.ERROR_NOT_A_DRAWABLE.createResult();
-            }
-
-            // create a simple FrameLayout
-            FrameLayout content = new FrameLayout(context);
-
-            // get the actual Drawable object to draw
-            Drawable d = ResourceHelper.getDrawable(drawableResource, context);
-            content.setBackground(d);
-
-            // set the AttachInfo on the root view.
-            AttachInfo_Accessor.setAttachInfo(content);
-
-
-            // measure
-            int w = hardwareConfig.getScreenWidth();
-            int h = hardwareConfig.getScreenHeight();
-            int w_spec = MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY);
-            int h_spec = MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY);
-            content.measure(w_spec, h_spec);
-
-            // now do the layout.
-            content.layout(0, 0, w, h);
-
-            // preDraw setup
-            AttachInfo_Accessor.dispatchOnPreDraw(content);
-
-            // draw into a new image
-            BufferedImage image = getImage(w, h);
-
-            // create an Android bitmap around the BufferedImage
-            Bitmap bitmap = Bitmap_Delegate.createBitmap(image,
-                    true /*isMutable*/, hardwareConfig.getDensity());
-
-            // create a Canvas around the Android bitmap
-            Canvas canvas = new Canvas(bitmap);
-            canvas.setDensity(hardwareConfig.getDensity().getDpiValue());
-
-            // and draw
-            content.draw(canvas);
-
-            return Status.SUCCESS.createResult(image);
-        } catch (IOException e) {
-            return ERROR_UNKNOWN.createResult(e.getMessage(), e);
+        if (drawableResource == null ||
+                drawableResource.getResourceType() != ResourceType.DRAWABLE) {
+            return Status.ERROR_NOT_A_DRAWABLE.createResult();
         }
+
+        // create a simple FrameLayout
+        FrameLayout content = new FrameLayout(context);
+
+        // get the actual Drawable object to draw
+        Drawable d = ResourceHelper.getDrawable(drawableResource, context);
+        content.setBackground(d);
+
+        // set the AttachInfo on the root view.
+        AttachInfo_Accessor.setAttachInfo(content);
+
+
+        // measure
+        int w = hardwareConfig.getScreenWidth();
+        int h = hardwareConfig.getScreenHeight();
+        int w_spec = MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY);
+        int h_spec = MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY);
+        content.measure(w_spec, h_spec);
+
+        // now do the layout.
+        content.layout(0, 0, w, h);
+
+        // preDraw setup
+        AttachInfo_Accessor.dispatchOnPreDraw(content);
+
+        // draw into a new image
+        BufferedImage image = getImage(w, h);
+
+        // create an Android bitmap around the BufferedImage
+        Bitmap bitmap = Bitmap_Delegate.createBitmap(image,
+                true /*isMutable*/, hardwareConfig.getDensity());
+
+        // create a Canvas around the Android bitmap
+        Canvas canvas = new Canvas(bitmap);
+        canvas.setDensity(hardwareConfig.getDensity().getDpiValue());
+
+        // and draw
+        content.draw(canvas);
+
+        return Status.SUCCESS.createResult(image);
     }
 
     protected BufferedImage getImage(int w, int h) {

@@ -17,7 +17,7 @@
 
 #include <jni.h>
 
-#include <Caches.h>
+#include <ResourceCache.h>
 
 #if 0
     #define TRACE_BITMAP(code)  code
@@ -365,8 +365,8 @@ static jobject Bitmap_copy(JNIEnv* env, jobject, jlong srcHandle,
 static void Bitmap_destructor(JNIEnv* env, jobject, jlong bitmapHandle) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
 #ifdef USE_OPENGL_RENDERER
-    if (android::uirenderer::Caches::hasInstance()) {
-        android::uirenderer::Caches::getInstance().resourceCache.destructor(bitmap);
+    if (android::uirenderer::ResourceCache::hasInstance()) {
+        android::uirenderer::ResourceCache::getInstance().destructor(bitmap);
         return;
     }
 #endif // USE_OPENGL_RENDERER
@@ -376,9 +376,9 @@ static void Bitmap_destructor(JNIEnv* env, jobject, jlong bitmapHandle) {
 static jboolean Bitmap_recycle(JNIEnv* env, jobject, jlong bitmapHandle) {
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
 #ifdef USE_OPENGL_RENDERER
-    if (android::uirenderer::Caches::hasInstance()) {
+    if (android::uirenderer::ResourceCache::hasInstance()) {
         bool result;
-        result = android::uirenderer::Caches::getInstance().resourceCache.recycle(bitmap);
+        result = android::uirenderer::ResourceCache::getInstance().recycle(bitmap);
         return result ? JNI_TRUE : JNI_FALSE;
     }
 #endif // USE_OPENGL_RENDERER
@@ -575,24 +575,33 @@ static jobject Bitmap_createFromParcel(JNIEnv* env, jobject, jobject parcel) {
         return NULL;
     }
 
-    SkBitmap* bitmap = new SkBitmap;
+    SkAutoTDelete<SkBitmap> bitmap(new SkBitmap);
 
-    bitmap->setInfo(SkImageInfo::Make(width, height, colorType, alphaType), rowBytes);
+    if (!bitmap->setInfo(SkImageInfo::Make(width, height, colorType, alphaType), rowBytes)) {
+        return NULL;
+    }
 
     SkColorTable* ctable = NULL;
     if (colorType == kIndex_8_SkColorType) {
         int count = p->readInt32();
+        if (count < 0 || count > 256) {
+            // The data is corrupt, since SkColorTable enforces a value between 0 and 256,
+            // inclusive.
+            return NULL;
+        }
         if (count > 0) {
             size_t size = count * sizeof(SkPMColor);
             const SkPMColor* src = (const SkPMColor*)p->readInplace(size);
+            if (src == NULL) {
+                return NULL;
+            }
             ctable = new SkColorTable(src, count);
         }
     }
 
-    jbyteArray buffer = GraphicsJNI::allocateJavaPixelRef(env, bitmap, ctable);
+    jbyteArray buffer = GraphicsJNI::allocateJavaPixelRef(env, bitmap.get(), ctable);
     if (NULL == buffer) {
         SkSafeUnref(ctable);
-        delete bitmap;
         return NULL;
     }
 
@@ -604,7 +613,6 @@ static jobject Bitmap_createFromParcel(JNIEnv* env, jobject, jobject parcel) {
     android::status_t status = p->readBlob(size, &blob);
     if (status) {
         doThrowRE(env, "Could not read bitmap from parcel blob.");
-        delete bitmap;
         return NULL;
     }
 
@@ -614,8 +622,8 @@ static jobject Bitmap_createFromParcel(JNIEnv* env, jobject, jobject parcel) {
 
     blob.release();
 
-    return GraphicsJNI::createBitmap(env, bitmap, buffer, getPremulBitmapCreateFlags(isMutable),
-            NULL, NULL, density);
+    return GraphicsJNI::createBitmap(env, bitmap.detach(), buffer,
+            getPremulBitmapCreateFlags(isMutable), NULL, NULL, density);
 }
 
 static jboolean Bitmap_writeToParcel(JNIEnv* env, jobject,

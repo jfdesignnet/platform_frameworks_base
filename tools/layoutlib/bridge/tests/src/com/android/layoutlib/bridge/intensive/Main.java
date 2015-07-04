@@ -39,6 +39,7 @@ import org.junit.Test;
 
 import java.io.File;
 import java.io.FileFilter;
+import java.io.IOException;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -75,7 +76,10 @@ public class Main {
 
     private static final String PLATFORM_DIR;
     private static final String TEST_RES_DIR;
-    private static final String APP_TEST_RES = "/testApp/MyApplication/src/main/res";
+    /** Location of the app to test inside {@link #TEST_RES_DIR}*/
+    private static final String APP_TEST_DIR = "/testApp/MyApplication";
+    /** Location of the app's res dir inside {@link #TEST_RES_DIR}*/
+    private static final String APP_TEST_RES = APP_TEST_DIR + "/src/main/res";
 
     private LayoutLog mLayoutLibLog;
     private FrameworkResources mFrameworkRepo;
@@ -161,11 +165,27 @@ public class Main {
         if (!out.isDirectory()) {
             return null;
         }
-        File sdkDir = new File(out, "sdk" + File.separator + "sdk");
+        File sdkDir = new File(out, "sdk");
         if (!sdkDir.isDirectory()) {
-            // The directory we thought that should contain the sdk is not a directory.
             return null;
         }
+        File[] sdkDirs = sdkDir.listFiles(new FileFilter() {
+            @Override
+            public boolean accept(File path) {
+                // We need to search for $TARGET_PRODUCT (usually, sdk_phone_armv7)
+                return path.isDirectory() && path.getName().startsWith("sdk");
+            }
+        });
+        for (File dir : sdkDirs) {
+            String platformDir = getPlatformDirFromHostOutSdkSdk(dir);
+            if (platformDir != null) {
+                return platformDir;
+            }
+        }
+        return null;
+    }
+
+    private static String getPlatformDirFromHostOutSdkSdk(File sdkDir) {
         File[] possibleSdks = sdkDir.listFiles(new FileFilter() {
             @Override
             public boolean accept(File path) {
@@ -280,6 +300,12 @@ public class Main {
             getLogger().error(session.getResult().getException(),
                     session.getResult().getErrorMessage());
         }
+        try {
+            String goldenImagePath = APP_TEST_DIR + "/golden/activity.png";
+            ImageUtils.requireSimilar(goldenImagePath, session.getImage());
+        } catch (IOException e) {
+            getLogger().error(e, e.getMessage());
+        }
     }
 
     /**
@@ -290,7 +316,8 @@ public class Main {
         FolderConfiguration config = configGenerator.getFolderConfig();
         ResourceResolver resourceResolver =
                 ResourceResolver.create(mProjectResources.getConfiguredResources(config),
-                        mFrameworkRepo.getConfiguredResources(config), "Theme.Material", false);
+                        mFrameworkRepo.getConfiguredResources(config),
+                        "Theme.Material.Light.DarkActionBar", false);
 
         return new SessionParams(
                 layoutParser,
@@ -310,7 +337,7 @@ public class Main {
                 @Override
                 public void warning(String tag, String message, Object data) {
                     System.out.println("Warning " + tag + ": " + message);
-                    fail(message);
+                    failWithMsg(message);
                 }
 
                 @Override
@@ -320,13 +347,13 @@ public class Main {
                     if (throwable != null) {
                         throwable.printStackTrace();
                     }
-                    fail(message);
+                    failWithMsg(message);
                 }
 
                 @Override
                 public void error(String tag, String message, Object data) {
                     System.out.println("Error " + tag + ": " + message);
-                    fail(message);
+                    failWithMsg(message);
                 }
 
                 @Override
@@ -335,7 +362,7 @@ public class Main {
                     if (throwable != null) {
                         throwable.printStackTrace();
                     }
-                    fail(message);
+                    failWithMsg(message);
                 }
             };
         }
@@ -350,12 +377,12 @@ public class Main {
                     if (t != null) {
                         t.printStackTrace();
                     }
-                    fail(String.format(msgFormat, args));
+                    failWithMsg(msgFormat, args);
                 }
 
                 @Override
                 public void warning(String msgFormat, Object... args) {
-                    fail(String.format(msgFormat, args));
+                    failWithMsg(msgFormat, args);
                 }
 
                 @Override
@@ -370,5 +397,9 @@ public class Main {
             };
         }
         return mLogger;
+    }
+
+    private static void failWithMsg(String msgFormat, Object... args) {
+        fail(msgFormat == null || args == null ? "" : String.format(msgFormat, args));
     }
 }

@@ -2545,8 +2545,6 @@
     <!-- @hide This really shouldn't be public; clients using it should use @* to ref it.  -->
     <public type="style" name="Theme.Leanback.FormWizard" id="0x010302d0" />
 
-    <public type="string" name="config_webSettingsDefaultTextEncoding" id="0x01040018" />
-
     <public type="array" name="config_keySystemUuidMapping" id="0x01070005" />
 
     <!-- An interpolator which accelerates fast but decelerates slowly. -->
@@ -2585,11 +2583,19 @@
     <public type="raw" name="nodomain" id="0x01100001" />
 
     <!-- ===============================================================
-         Insert space from public API 21 attributes to private attributes
+         Resources added in version 22 of the platform
          =============================================================== -->
     <eat-comment />
 
-    <!-- @hide -->
-    <public-padding type="attr" name="private_resource_pad" end="0x01010500" />
+    <public type="attr" name="resizeClip" id="0x010104cf" />
+    <public type="attr" name="collapseContentDescription" id="0x010104d0" />
+    <public type="attr" name="accessibilityTraversalBefore" id="0x010104d1" />
+    <public type="attr" name="accessibilityTraversalAfter" id="0x010104d2" />
+    <public type="attr" name="dialogPreferredPadding" id="0x010104d3" />
+    <public type="attr" name="searchHintIcon" id="0x010104d4" />
+    <public type="attr" name="revisionCode" />
+
+    <public type="style" name="Theme.DeviceDefault.Dialog.Alert" />
+    <public type="style" name="Theme.DeviceDefault.Light.Dialog.Alert" />
 
 </resources>
