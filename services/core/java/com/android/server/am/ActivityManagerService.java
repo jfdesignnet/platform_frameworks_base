@@ -57,6 +57,7 @@ import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.SparseIntArray;
 
+import android.view.Display;
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.app.IAppOpsService;
@@ -2694,9 +2695,14 @@ public final class ActivityManagerService extends ActivityManagerNative
             // should never happen).
             SparseArray<ProcessRecord> procs = mProcessNames.getMap().get(processName);
             if (procs == null) return null;
-            final int N = procs.size();
-            for (int i = 0; i < N; i++) {
-                if (UserHandle.isSameUser(procs.keyAt(i), uid)) return procs.valueAt(i);
+            final int procCount = procs.size();
+            for (int i = 0; i < procCount; i++) {
+                final int procUid = procs.keyAt(i);
+                if (UserHandle.isApp(procUid) || !UserHandle.isSameUser(procUid, uid)) {
+                    // Don't use an app process or different user process for system component.
+                    continue;
+                }
+                return procs.valueAt(i);
             }
         }
         ProcessRecord proc = mProcessNames.get(processName, uid);
@@ -8125,7 +8131,7 @@ public final class ActivityManagerService extends ActivityManagerNative
         }
         if (!allowed) {
             Slog.w(TAG, caller + ": caller " + callingUid
-                    + " does not hold GET_TASKS; limiting output");
+                    + " does not hold REAL_GET_TASKS; limiting output");
         }
         return allowed;
     }
@@ -8667,14 +8673,13 @@ public final class ActivityManagerService extends ActivityManagerNative
     }
 
     @Override
-    public IActivityContainer getEnclosingActivityContainer(IBinder activityToken)
-            throws RemoteException {
+    public int getActivityDisplayId(IBinder activityToken) throws RemoteException {
         synchronized (this) {
             ActivityStack stack = ActivityRecord.getStackLocked(activityToken);
-            if (stack != null) {
-                return stack.mActivityContainer;
+            if (stack != null && stack.mActivityContainer.isAttachedLocked()) {
+                return stack.mActivityContainer.getDisplayId();
             }
-            return null;
+            return Display.DEFAULT_DISPLAY;
         }
     }
 
@@ -12250,16 +12255,23 @@ public final class ActivityManagerService extends ActivityManagerNative
 
     public List<ActivityManager.RunningAppProcessInfo> getRunningAppProcesses() {
         enforceNotIsolatedCaller("getRunningAppProcesses");
+
+        final int callingUid = Binder.getCallingUid();
+
         // Lazy instantiation of list
         List<ActivityManager.RunningAppProcessInfo> runList = null;
         final boolean allUsers = ActivityManager.checkUidPermission(INTERACT_ACROSS_USERS_FULL,
-                Binder.getCallingUid()) == PackageManager.PERMISSION_GRANTED;
-        int userId = UserHandle.getUserId(Binder.getCallingUid());
+                callingUid) == PackageManager.PERMISSION_GRANTED;
+        final int userId = UserHandle.getUserId(callingUid);
+        final boolean allUids = isGetTasksAllowed(
+                "getRunningAppProcesses", Binder.getCallingPid(), callingUid);
+
         synchronized (this) {
             // Iterate across all processes
-            for (int i=mLruProcesses.size()-1; i>=0; i--) {
+            for (int i = mLruProcesses.size() - 1; i >= 0; i--) {
                 ProcessRecord app = mLruProcesses.get(i);
-                if (!allUsers && app.userId != userId) {
+                if ((!allUsers && app.userId != userId)
+                        || (!allUids && app.uid != callingUid)) {
                     continue;
                 }
                 if ((app.thread != null) && (!app.crashing && !app.notResponding)) {
@@ -12283,7 +12295,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                     //Slog.v(TAG, "Proc " + app.processName + ": imp=" + currApp.importance
                     //        + " lru=" + currApp.lru);
                     if (runList == null) {
-                        runList = new ArrayList<ActivityManager.RunningAppProcessInfo>();
+                        runList = new ArrayList<>();
                     }
                     runList.add(currApp);
                 }
