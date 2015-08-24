@@ -19,6 +19,9 @@
    <!-- Doze invert -->
   <java-symbol type="bool" name="config_invert_colors_on_doze" />
 
+  <!-- Whether windows should show wallpapers -->
+  <java-symbol type="bool" name="config_windowShowWallpaper" />
+
   <!-- Config Power Menu -->
   <java-symbol type="array" name="shutdown_reboot_actions" />
   <java-symbol type="array" name="shutdown_reboot_options" />

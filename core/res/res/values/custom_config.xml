@@ -25,6 +25,9 @@
     needs to be set to false, to prevent the doze notifications from being light -->
     <bool name="config_invert_colors_on_doze">true</bool>
 
+     <!-- Whether windows should show wallpapers -->
+    <bool name="config_windowShowWallpaper">false</bool>
+
     <!-- The list of components which should be automatically disabled. -->
     <string-array name="config_disabledComponents" translatable="false">
     </string-array>
