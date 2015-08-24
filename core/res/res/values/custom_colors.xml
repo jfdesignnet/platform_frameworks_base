@@ -4,4 +4,9 @@
     <color name="notification_mtrl_big_picture_bg">#CCEEEEEE</color>
     <color name="resolver_list_bg">@color/white</color>
     <color name="chooser_grid_bg">@color/white</color>
+
+    <!-- Themes material -->
+    <color name="window_background_color_light">@color/background_material_light</color>
+    <color name="window_background_color_dark">@color/background_material_dark</color>
+    <color name="panel_color_background">#000</color>
 </resources>
