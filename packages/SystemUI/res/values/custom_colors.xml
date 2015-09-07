@@ -27,6 +27,9 @@
     <color name="kg_lock_icon_tint">@color/exposed_kg_lock_icon</color>
     <color name="kg_battery_level_text">@color/exposed_kg_batt_level</color>
     <color name="kg_carrier_text">@color/exposed_kg_carrier_text</color>
+    <color name="kg_icon_circle_color">#ffffffff</color>
+    <color name="kg_icon_normal_color">#ffffffff</color>
+    <color name="kg_icon_inverse_color">#ff000000</color>
     <color name="recents_search_bar_label_text">@color/exposed_recents_search_bar_label</color>
     <color name="alarm_status_text">@color/exposed_button</color>
     <color name="battery_level_text">@color/exposed_batt_text</color>

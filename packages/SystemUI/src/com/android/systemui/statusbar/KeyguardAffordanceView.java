@@ -123,11 +123,11 @@ public class KeyguardAffordanceView extends ImageView {
         super(context, attrs, defStyleAttr, defStyleRes);
         mCirclePaint = new Paint();
         mCirclePaint.setAntiAlias(true);
-        mCircleColor = 0xffffffff;
+        mCircleColor = mContext.getResources().getColor(R.color.kg_icon_circle_color);
         mCirclePaint.setColor(mCircleColor);
 
-        mNormalColor = 0xffffffff;
-        mInverseColor = 0xff000000;
+        mNormalColor = mContext.getResources().getColor(R.color.kg_icon_normal_color);
+        mInverseColor = mContext.getResources().getColor(R.color.kg_icon_inverse_color);
         mMinBackgroundRadius = mContext.getResources().getDimensionPixelSize(
                 R.dimen.keyguard_affordance_min_background_radius);
         mHintChevronPadding = mContext.getResources().getDimensionPixelSize(
