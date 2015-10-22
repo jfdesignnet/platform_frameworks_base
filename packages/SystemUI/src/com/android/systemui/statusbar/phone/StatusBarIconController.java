@@ -24,6 +24,7 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.view.View;
@@ -43,6 +44,7 @@ import com.android.systemui.R;
 import com.android.systemui.statusbar.NotificationData;
 import com.android.systemui.statusbar.SignalClusterView;
 import com.android.systemui.statusbar.StatusBarIconView;
+import com.android.systemui.statusbar.policy.Clock;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerService.Tunable;
 
@@ -76,7 +78,8 @@ public class StatusBarIconController implements Tunable {
     private ImageView mMoreIcon;
     private BatteryLevelTextView mBatteryLevelTextView;
     private BatteryMeterView mBatteryMeterView;
-    private TextView mClock;
+    private ClockController mClockController;
+    private View mCenterClockLayout;
 
     private int mIconSize;
     private int mIconHPadding;
@@ -122,7 +125,6 @@ public class StatusBarIconController implements Tunable {
         mBatteryLevelTextView =
                 (BatteryLevelTextView) statusBar.findViewById(R.id.battery_level_text);
         mBatteryMeterView = (BatteryMeterView) statusBar.findViewById(R.id.battery);
-        mClock = (TextView) statusBar.findViewById(R.id.clock);
         mLinearOutSlowIn = AnimationUtils.loadInterpolator(mContext,
                 android.R.interpolator.linear_out_slow_in);
         mFastOutSlowIn = AnimationUtils.loadInterpolator(mContext,
@@ -130,6 +132,8 @@ public class StatusBarIconController implements Tunable {
         mDarkModeIconColorSingleTone = context.getColor(R.color.dark_mode_icon_color_single_tone);
         mLightModeIconColorSingleTone = context.getColor(R.color.light_mode_icon_color_single_tone);
         mHandler = new Handler();
+        mClockController = new ClockController(statusBar, mNotificationIcons, mHandler);
+        mCenterClockLayout = statusBar.findViewById(R.id.center_clock_layout);
         updateResources();
 
         TunerService.get(mContext).addTunable(this, ICON_BLACKLIST);
@@ -162,7 +166,7 @@ public class StatusBarIconController implements Tunable {
                 com.android.internal.R.dimen.status_bar_icon_size);
         mIconHPadding = mContext.getResources().getDimensionPixelSize(
                 R.dimen.status_bar_icon_padding);
-        FontSizeUtils.updateFontSize(mClock, R.dimen.status_bar_clock_size);
+        mClockController.updateFontSize();
     }
 
     public void addSystemIcon(String slot, int index, int viewIndex, StatusBarIcon icon) {
@@ -251,22 +255,26 @@ public class StatusBarIconController implements Tunable {
 
     public void hideSystemIconArea(boolean animate) {
         animateHide(mSystemIconArea, animate);
+        animateHide(mCenterClockLayout, animate);
     }
 
     public void showSystemIconArea(boolean animate) {
         animateShow(mSystemIconArea, animate);
+        animateShow(mCenterClockLayout, animate);
     }
 
     public void hideNotificationIconArea(boolean animate) {
         animateHide(mNotificationIconArea, animate);
+        animateHide(mCenterClockLayout, animate);
     }
 
     public void showNotificationIconArea(boolean animate) {
         animateShow(mNotificationIconArea, animate);
+        animateShow(mCenterClockLayout, animate);
     }
 
     public void setClockVisibility(boolean visible) {
-        mClock.setVisibility(visible ? View.VISIBLE : View.GONE);
+        mClockController.setVisibility(visible);
     }
 
     public void dump(PrintWriter pw) {
@@ -398,7 +406,7 @@ public class StatusBarIconController implements Tunable {
         mMoreIcon.setImageTintList(ColorStateList.valueOf(mIconTint));
         mBatteryLevelTextView.setTextColor(mIconTint);
         mBatteryMeterView.setDarkIntensity(mDarkIntensity);
-        mClock.setTextColor(mIconTint);
+        mClockController.setTextColor(mIconTint);
         applyNotificationIconsTint();
     }
 
