@@ -44,6 +44,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.AsyncTask;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
@@ -65,7 +66,6 @@ import android.util.Slog;
 import android.util.SparseArray;
 import android.util.SparseBooleanArray;
 import android.view.Display;
-import android.view.Gravity;
 import android.view.IWindowManager;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -730,11 +730,15 @@ public abstract class BaseStatusBar extends SystemUI implements
     }
 
     protected void setNotificationShown(StatusBarNotification n) {
-        mNotificationListener.setNotificationsShown(new String[] { n.getKey() });
+        setNotificationsShown(new String[]{n.getKey()});
     }
 
     protected void setNotificationsShown(String[] keys) {
-        mNotificationListener.setNotificationsShown(keys);
+        try {
+            mNotificationListener.setNotificationsShown(keys);
+        } catch (RuntimeException e) {
+            Log.d(TAG, "failed setNotificationsShown: ", e);
+        }
     }
 
     protected boolean isCurrentProfile(int userId) {
@@ -1325,14 +1329,20 @@ public abstract class BaseStatusBar extends SystemUI implements
         View bigContentViewLocal = null;
         View headsUpContentViewLocal = null;
         try {
-            contentViewLocal = contentView.apply(mContext, contentContainer,
+            contentViewLocal = contentView.apply(
+                    sbn.getPackageContext(mContext),
+                    contentContainer,
                     mOnClickHandler);
             if (bigContentView != null) {
-                bigContentViewLocal = bigContentView.apply(mContext, contentContainer,
+                bigContentViewLocal = bigContentView.apply(
+                        sbn.getPackageContext(mContext),
+                        contentContainer,
                         mOnClickHandler);
             }
             if (headsUpContentView != null) {
-                headsUpContentViewLocal = headsUpContentView.apply(mContext, contentContainer,
+                headsUpContentViewLocal = headsUpContentView.apply(
+                        sbn.getPackageContext(mContext),
+                        contentContainer,
                         mOnClickHandler);
             }
         }
@@ -1359,7 +1369,8 @@ public abstract class BaseStatusBar extends SystemUI implements
         View publicViewLocal = null;
         if (publicNotification != null) {
             try {
-                publicViewLocal = publicNotification.contentView.apply(mContext,
+                publicViewLocal = publicNotification.contentView.apply(
+                        sbn.getPackageContext(mContext),
                         contentContainerPublic, mOnClickHandler);
 
                 if (publicViewLocal != null) {
@@ -1515,6 +1526,7 @@ public abstract class BaseStatusBar extends SystemUI implements
                         //
                         // In most cases, when FLAG_AUTO_CANCEL is set, the notification will
                         // become canceled shortly by NoMan, but we can't assume that.
+                        HeadsUpManager.setIsClickedNotification(row, true);
                         mHeadsUpManager.releaseImmediately(notificationKey);
                     }
                     new Thread() {
@@ -1620,11 +1632,13 @@ public abstract class BaseStatusBar extends SystemUI implements
     protected void handleVisibleToUserChanged(boolean visibleToUser) {
         try {
             if (visibleToUser) {
-                boolean clearNotificationEffects = !isPanelFullyCollapsed() &&
-                    (mShowLockscreenNotifications ||
-                        (mState == StatusBarState.SHADE || mState == StatusBarState.SHADE_LOCKED));
+                boolean pinnedHeadsUp = mHeadsUpManager.hasPinnedHeadsUp();
+                boolean clearNotificationEffects =
+                    ((mShowLockscreenNotifications && mState == StatusBarState.KEYGUARD) ||
+                            (!pinnedHeadsUp && (mState == StatusBarState.SHADE
+                                    || mState == StatusBarState.SHADE_LOCKED)));
                 int notificationLoad = mNotificationData.getActiveNotifications().size();
-                if (mHeadsUpManager.hasPinnedHeadsUp() && isPanelFullyCollapsed())  {
+                if (pinnedHeadsUp && isPanelFullyCollapsed())  {
                     notificationLoad = 1;
                 } else {
                     MetricsLogger.histogram(mContext, "note_load", notificationLoad);
@@ -1702,10 +1716,16 @@ public abstract class BaseStatusBar extends SystemUI implements
                 sbn.getPackageName() + "/0x" + Integer.toHexString(sbn.getId()), n);
         iconView.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
 
+        final Icon smallIcon = n.getSmallIcon();
+        if (smallIcon == null) {
+            handleNotificationError(sbn,
+                    "No small icon in notification from " + sbn.getPackageName());
+            return null;
+        }
         final StatusBarIcon ic = new StatusBarIcon(
                 sbn.getUser(),
                 sbn.getPackageName(),
-                n.getSmallIcon(),
+                smallIcon,
                 n.iconLevel,
                 n.number,
                 n.tickerText);
@@ -1834,7 +1854,7 @@ public abstract class BaseStatusBar extends SystemUI implements
             logUpdate(entry, n);
         }
         boolean applyInPlace = shouldApplyInPlace(entry, n);
-        boolean shouldInterrupt = shouldInterrupt(entry);
+        boolean shouldInterrupt = shouldInterrupt(entry, notification);
         boolean alertAgain = alertAgain(entry, n);
 
         entry.notification = notification;
@@ -1978,15 +1998,18 @@ public abstract class BaseStatusBar extends SystemUI implements
         // Reapply the RemoteViews
         contentView.reapply(mContext, entry.getContentView(), mOnClickHandler);
         if (bigContentView != null && entry.getExpandedContentView() != null) {
-            bigContentView.reapply(mContext, entry.getExpandedContentView(),
+            bigContentView.reapply(notification.getPackageContext(mContext),
+                    entry.getExpandedContentView(),
                     mOnClickHandler);
         }
         View headsUpChild = entry.getHeadsUpContentView();
         if (headsUpContentView != null && headsUpChild != null) {
-            headsUpContentView.reapply(mContext, headsUpChild, mOnClickHandler);
+            headsUpContentView.reapply(notification.getPackageContext(mContext),
+                    headsUpChild, mOnClickHandler);
         }
         if (publicContentView != null && entry.getPublicContentView() != null) {
-            publicContentView.reapply(mContext, entry.getPublicContentView(), mOnClickHandler);
+            publicContentView.reapply(notification.getPackageContext(mContext),
+                    entry.getPublicContentView(), mOnClickHandler);
         }
         // update the contentIntent
         mNotificationClicker.register(entry.row, notification);
@@ -2006,7 +2029,10 @@ public abstract class BaseStatusBar extends SystemUI implements
     }
 
     protected boolean shouldInterrupt(Entry entry) {
-        StatusBarNotification sbn = entry.notification;
+        return shouldInterrupt(entry, entry.notification);
+    }
+
+    protected boolean shouldInterrupt(Entry entry, StatusBarNotification sbn) {
         if (mNotificationData.shouldFilterOut(sbn)) {
             if (DEBUG) {
                 Log.d(TAG, "Skipping HUN check for " + sbn.getKey() + " since it's filtered out.");
@@ -2123,6 +2149,13 @@ public abstract class BaseStatusBar extends SystemUI implements
     public void showAssistDisclosure() {
         if (mAssistManager != null) {
             mAssistManager.showDisclosure();
+        }
+    }
+
+    @Override
+    public void startAssist(Bundle args) {
+        if (mAssistManager != null) {
+            mAssistManager.startAssist(args);
         }
     }
 }

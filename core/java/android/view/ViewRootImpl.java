@@ -79,7 +79,6 @@ import android.widget.Scroller;
 import com.android.internal.R;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.policy.PhoneFallbackEventHandler;
-import com.android.internal.util.ScreenShapeHelper;
 import com.android.internal.view.BaseSurfaceHolder;
 import com.android.internal.view.RootViewSurfaceTaker;
 
@@ -555,11 +554,6 @@ public final class ViewRootImpl implements ViewParent,
                 mPendingContentInsets.set(mAttachInfo.mContentInsets);
                 mPendingStableInsets.set(mAttachInfo.mStableInsets);
                 mPendingVisibleInsets.set(0, 0, 0, 0);
-                try {
-                    relayoutWindow(attrs, getHostVisibility(), false);
-                } catch (RemoteException e) {
-                    if (DEBUG_LAYOUT) Log.e(TAG, "failed to relayoutWindow", e);
-                }
                 if (DEBUG_LAYOUT) Log.v(TAG, "Added window " + mWindow);
                 if (res < WindowManagerGlobal.ADD_OKAY) {
                     mAttachInfo.mRootView = null;
@@ -3165,6 +3159,17 @@ public final class ViewRootImpl implements ViewParent,
         return (theParent instanceof ViewGroup) && isViewDescendantOf((View) theParent, parent);
     }
 
+    private static void forceLayout(View view) {
+        view.forceLayout();
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            final int count = group.getChildCount();
+            for (int i = 0; i < count; i++) {
+                forceLayout(group.getChildAt(i));
+            }
+        }
+    }
+
     private final static int MSG_INVALIDATE = 1;
     private final static int MSG_INVALIDATE_RECT = 2;
     private final static int MSG_DIE = 3;
@@ -3303,6 +3308,10 @@ public final class ViewRootImpl implements ViewParent,
                         mReportNextDraw = true;
                     }
 
+                    if (mView != null) {
+                        forceLayout(mView);
+                    }
+
                     requestLayout();
                 }
                 break;
@@ -3317,6 +3326,9 @@ public final class ViewRootImpl implements ViewParent,
                     mWinFrame.top = t;
                     mWinFrame.bottom = t + h;
 
+                    if (mView != null) {
+                        forceLayout(mView);
+                    }
                     requestLayout();
                 }
                 break;
@@ -5928,7 +5940,7 @@ public final class ViewRootImpl implements ViewParent,
     }
 
     private void adjustInputEventForCompatibility(InputEvent e) {
-        if (mTargetSdkVersion < Build.VERSION_CODES.MNC && e instanceof MotionEvent) {
+        if (mTargetSdkVersion < Build.VERSION_CODES.M && e instanceof MotionEvent) {
             MotionEvent motion = (MotionEvent) e;
             final int mask =
                 MotionEvent.BUTTON_STYLUS_PRIMARY | MotionEvent.BUTTON_STYLUS_SECONDARY;

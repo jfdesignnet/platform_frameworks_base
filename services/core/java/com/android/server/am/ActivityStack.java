@@ -617,12 +617,9 @@ final class ActivityStack {
             for (int activityNdx = activities.size() - 1; activityNdx >= 0; --activityNdx) {
                 ActivityRecord r = activities.get(activityNdx);
                 if (notCurrentUserTask && (r.info.flags & FLAG_SHOW_FOR_ALL_USERS) == 0) {
-                    return null;
+                    continue;
                 }
                 if (!r.finishing && r.intent.getComponent().equals(cls) && r.userId == userId) {
-                    //Slog.i(TAG, "Found matching class!");
-                    //dump();
-                    //Slog.i(TAG, "For Intent " + intent + " bringing to top: " + r.intent);
                     return r;
                 }
             }
@@ -2669,8 +2666,13 @@ final class ActivityStack {
             if (!r.finishing) {
                 if (!mService.isSleeping()) {
                     if (DEBUG_STATES) Slog.d(TAG_STATES, "no-history finish of " + r);
-                    requestFinishActivityLocked(r.appToken, Activity.RESULT_CANCELED, null,
-                            "stop-no-history", false);
+                    if (requestFinishActivityLocked(r.appToken, Activity.RESULT_CANCELED, null,
+                            "stop-no-history", false)) {
+                        // Activity was finished, no need to continue trying to schedule stop.
+                        adjustFocusedActivityLocked(r, "stopActivityFinished");
+                        r.resumeKeyDispatchingLocked();
+                        return;
+                    }
                 } else {
                     if (DEBUG_STATES) Slog.d(TAG_STATES, "Not finishing noHistory " + r
                             + " on stop because we're just sleeping");
@@ -3112,7 +3114,7 @@ final class ActivityStack {
                     int res = mStackSupervisor.startActivityLocked(srec.app.thread, destIntent,
                             null, aInfo, null, null, parent.appToken, null,
                             0, -1, parent.launchedFromUid, parent.launchedFromPackage,
-                            -1, parent.launchedFromUid, 0, null, true, null, null, null);
+                            -1, parent.launchedFromUid, 0, null, false, true, null, null, null);
                     foundParentInTask = res == ActivityManager.START_SUCCESS;
                 } catch (RemoteException e) {
                     foundParentInTask = false;
@@ -3738,7 +3740,12 @@ final class ActivityStack {
         if (DEBUG_TRANSITION) Slog.v(TAG_TRANSITION, "Prepare to back transition: task=" + taskId);
 
         boolean prevIsHome = false;
-        if (tr.isOverHomeStack()) {
+
+        // If true, we should resume the home activity next if the task we are moving to the
+        // back is over the home stack. We force to false if the task we are moving to back
+        // is the home task and we don't want it resumed after moving to the back.
+        final boolean canGoHome = !tr.isHomeTask() && tr.isOverHomeStack();
+        if (canGoHome) {
             final TaskRecord nextTask = getNextTask(tr);
             if (nextTask != null) {
                 nextTask.setTaskToReturnTo(tr.getTaskToReturnTo());
@@ -3772,8 +3779,7 @@ final class ActivityStack {
         }
 
         final TaskRecord task = mResumedActivity != null ? mResumedActivity.task : null;
-        if (prevIsHome || task == tr && tr.isOverHomeStack()
-                || numTasks <= 1 && isOnHomeDisplay()) {
+        if (prevIsHome || (task == tr && canGoHome) || (numTasks <= 1 && isOnHomeDisplay())) {
             if (!mService.mBooting && !mService.mBooted) {
                 // Not ready yet!
                 return false;

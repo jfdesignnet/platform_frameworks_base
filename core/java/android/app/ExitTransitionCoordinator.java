@@ -25,6 +25,7 @@ import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -203,6 +204,7 @@ class ExitTransitionCoordinator extends ActivityTransitionCoordinator {
     public void startExit() {
         if (!mIsExitStarted) {
             mIsExitStarted = true;
+            pauseInput();
             ViewGroup decorView = getDecor();
             if (decorView != null) {
                 decorView.suppressLayout(true);
@@ -220,6 +222,7 @@ class ExitTransitionCoordinator extends ActivityTransitionCoordinator {
     public void startExit(int resultCode, Intent data) {
         if (!mIsExitStarted) {
             mIsExitStarted = true;
+            pauseInput();
             ViewGroup decorView = getDecor();
             if (decorView != null) {
                 decorView.suppressLayout(true);
@@ -236,8 +239,12 @@ class ExitTransitionCoordinator extends ActivityTransitionCoordinator {
             if (decorView != null && decorView.getBackground() == null) {
                 getWindow().setBackgroundDrawable(new ColorDrawable(Color.BLACK));
             }
+            final boolean targetsM = decorView == null || decorView.getContext()
+                    .getApplicationInfo().targetSdkVersion >= VERSION_CODES.M;
+            ArrayList<String> sharedElementNames = targetsM ? mSharedElementNames :
+                    mAllSharedElementNames;
             ActivityOptions options = ActivityOptions.makeSceneTransitionAnimation(mActivity, this,
-                    mSharedElementNames, resultCode, data);
+                    sharedElementNames, resultCode, data);
             mActivity.convertToTranslucent(new Activity.TranslucentConversionListener() {
                 @Override
                 public void onTranslucentConversionComplete(boolean drawComplete) {

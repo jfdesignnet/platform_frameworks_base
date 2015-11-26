@@ -44,6 +44,9 @@ import android.content.res.TypedArray;
 import android.database.ContentObserver;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.hardware.hdmi.HdmiControlManager;
+import android.hardware.hdmi.HdmiPlaybackClient;
+import android.hardware.hdmi.HdmiPlaybackClient.OneTouchPlayCallback;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.AudioSystem;
@@ -101,7 +104,6 @@ import com.android.internal.policy.PhoneWindow;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.Window;
 import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.view.WindowManagerInternal;
@@ -117,12 +119,13 @@ import com.android.internal.util.ScreenShapeHelper;
 import com.android.internal.widget.PointerLocationView;
 import com.android.server.LocalServices;
 import com.android.server.policy.keyguard.KeyguardServiceDelegate;
-import com.android.server.policy.keyguard.KeyguardServiceDelegate.ShowListener;
+import com.android.server.policy.keyguard.KeyguardServiceDelegate.DrawnListener;
 
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
@@ -248,7 +251,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     }
 
     /** Amount of time (in milliseconds) to wait for windows drawn before powering on. */
-    static final int WAITING_FOR_DRAWN_TIMEOUT = 500;
+    static final int WAITING_FOR_DRAWN_TIMEOUT = 1000;
 
     /**
      * Lock protecting internal state.  Must not call out into window
@@ -320,10 +323,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             mHandler.sendEmptyMessage(MSG_WINDOW_MANAGER_DRAWN_COMPLETE);
         }
     };
-    final ShowListener mKeyguardDelegateCallback = new ShowListener() {
+    final DrawnListener mKeyguardDrawnCallback = new DrawnListener() {
         @Override
-        public void onShown(IBinder windowToken) {
-            if (DEBUG_WAKEUP) Slog.d(TAG, "mKeyguardDelegate.ShowListener.onShown.");
+        public void onDrawn() {
+            if (DEBUG_WAKEUP) Slog.d(TAG, "mKeyguardDelegate.ShowListener.onDrawn.");
             mHandler.sendEmptyMessage(MSG_KEYGUARD_DRAWN_COMPLETE);
         }
     };
@@ -355,7 +358,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
     boolean mSystemReady;
     boolean mSystemBooted;
+    private boolean mDeferBindKeyguard;
     boolean mHdmiPlugged;
+    HdmiControl mHdmiControl;
     IUiModeManager mUiModeManager;
     int mUiMode;
     int mDockMode = Intent.EXTRA_DOCK_STATE_UNDOCKED;
@@ -749,7 +754,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             synchronized (mLock) {
                 if (shouldEnableWakeGestureLp()) {
                     performHapticFeedbackLw(null, HapticFeedbackConstants.VIRTUAL_KEY, false);
-                    wakeUp(SystemClock.uptimeMillis(), mAllowTheaterModeWakeFromWakeGesture);
+                    wakeUp(SystemClock.uptimeMillis(), mAllowTheaterModeWakeFromWakeGesture,
+                            "android.policy:GESTURE");
                 }
             }
         }
@@ -1212,6 +1218,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     }
 
     private void handleShortPressOnHome() {
+        // Turn on the connected TV and switch HDMI input if we're a HDMI playback device.
+        getHdmiControl().turnOnTv();
+
         // If there's a dream running then use home to escape the dream
         // but don't actually go home.
         if (mDreamManagerInternal != null && mDreamManagerInternal.isDreaming()) {
@@ -1221,6 +1230,46 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
         // Go home!
         launchHomeFromHotKey();
+    }
+
+    /**
+     * Creates an accessor to HDMI control service that performs the operation of
+     * turning on TV (optional) and switching input to us. If HDMI control service
+     * is not available or we're not a HDMI playback device, the operation is no-op.
+     */
+    private HdmiControl getHdmiControl() {
+        if (null == mHdmiControl) {
+            HdmiControlManager manager = (HdmiControlManager) mContext.getSystemService(
+                        Context.HDMI_CONTROL_SERVICE);
+            HdmiPlaybackClient client = null;
+            if (manager != null) {
+                client = manager.getPlaybackClient();
+            }
+            mHdmiControl = new HdmiControl(client);
+        }
+        return mHdmiControl;
+    }
+
+    private static class HdmiControl {
+        private final HdmiPlaybackClient mClient;
+
+        private HdmiControl(HdmiPlaybackClient client) {
+            mClient = client;
+        }
+
+        public void turnOnTv() {
+            if (mClient == null) {
+                return;
+            }
+            mClient.oneTouchPlay(new OneTouchPlayCallback() {
+                @Override
+                public void onComplete(int result) {
+                    if (result != HdmiControlManager.RESULT_SUCCESS) {
+                        Log.w(TAG, "One touch play failed: " + result);
+                    }
+                }
+            });
+        }
     }
 
     private void handleLongPressOnHome(int deviceId) {
@@ -1827,21 +1876,33 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         if (permission != null) {
             if (permission == android.Manifest.permission.SYSTEM_ALERT_WINDOW) {
                 final int callingUid = Binder.getCallingUid();
-                // check if this is a system uid first before bothering with
-                // obtaining package name
+                // system processes will be automatically allowed privilege to draw
                 if (callingUid == Process.SYSTEM_UID) {
                     return WindowManagerGlobal.ADD_OKAY;
                 }
 
+                // check if user has enabled this operation. SecurityException will be thrown if
+                // this app has not been allowed by the user
                 final int mode = mAppOpsManager.checkOp(outAppOp[0], callingUid,
                         attrs.packageName);
-                if (mode == AppOpsManager.MODE_DEFAULT) {
-                    if (mContext.checkCallingPermission(permission) !=
-                            PackageManager.PERMISSION_GRANTED) {
+                switch (mode) {
+                    case AppOpsManager.MODE_ALLOWED:
+                    case AppOpsManager.MODE_IGNORED:
+                        // although we return ADD_OKAY for MODE_IGNORED, the added window will
+                        // actually be hidden in WindowManagerService
+                        return WindowManagerGlobal.ADD_OKAY;
+                    case AppOpsManager.MODE_ERRORED:
                         return WindowManagerGlobal.ADD_PERMISSION_DENIED;
-                    }
+                    default:
+                        // in the default mode, we will make a decision here based on
+                        // checkCallingPermission()
+                        if (mContext.checkCallingPermission(permission) !=
+                                PackageManager.PERMISSION_GRANTED) {
+                            return WindowManagerGlobal.ADD_PERMISSION_DENIED;
+                        } else {
+                            return WindowManagerGlobal.ADD_OKAY;
+                        }
                 }
-                return WindowManagerGlobal.ADD_OKAY;
             }
 
             if (mContext.checkCallingOrSelfPermission(permission)
@@ -2408,6 +2469,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 return isKeyguard ? -1 : R.anim.dock_top_enter;
             }
         } else if (win == mNavigationBar) {
+            if (win.getAttrs().windowAnimations != 0) {
+                return 0;
+            }
             // This can be on either the bottom or the right.
             if (mNavigationBarOnBottom) {
                 if (transit == TRANSIT_EXIT
@@ -3048,23 +3112,40 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
     }
 
-    private void launchAssistAction() {
-        launchAssistAction(null, Integer.MIN_VALUE);
-    }
-
-    private void launchAssistAction(String hint) {
-        launchAssistAction(hint, Integer.MIN_VALUE);
-    }
-
     private void launchAssistAction(String hint, int deviceId) {
         sendCloseSystemWindows(SYSTEM_DIALOG_REASON_ASSIST);
+        if (!isUserSetupComplete()) {
+            // Disable opening assist window during setup
+            return;
+        }
         Bundle args = null;
         if (deviceId > Integer.MIN_VALUE) {
             args = new Bundle();
             args.putInt(Intent.EXTRA_ASSIST_INPUT_DEVICE_ID, deviceId);
         }
-        ((SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE))
-                .launchAssistAction(hint, UserHandle.myUserId(), args);
+        if ((mContext.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION) {
+            // On TV, use legacy handling until assistants are implemented in the proper way.
+            ((SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE))
+                    .launchLegacyAssist(hint, UserHandle.myUserId(), args);
+        } else {
+            try {
+                if (hint != null) {
+                    if (args == null) {
+                        args = new Bundle();
+                    }
+                    args.putBoolean(hint, true);
+                }
+                IStatusBarService statusbar = getStatusBarService();
+                if (statusbar != null) {
+                    statusbar.startAssist(args);
+                }
+            } catch (RemoteException e) {
+                Slog.e(TAG, "RemoteException when starting assist", e);
+                // re-acquire status bar service next time it is needed.
+                mStatusBarService = null;
+            }
+        }
     }
 
     private void startActivityAsUser(Intent intent, UserHandle handle) {
@@ -3536,7 +3617,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                         // We currently want to hide the navigation UI.
                         mNavigationBarController.setBarShowingLw(false);
                     }
-                    if (navVisible && !navTranslucent && !mNavigationBar.isAnimatingLw()
+                    if (navVisible && !navTranslucent && !navAllowedHidden
+                            && !mNavigationBar.isAnimatingLw()
                             && !mNavigationBarController.wasRecentlyTranslucent()) {
                         // If the nav bar is currently requested to be visible,
                         // and not in the process of animating on or off, then
@@ -4631,7 +4713,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         updateRotation(true);
 
         if (lidOpen) {
-            wakeUp(SystemClock.uptimeMillis(), mAllowTheaterModeWakeFromLidSwitch);
+            wakeUp(SystemClock.uptimeMillis(), mAllowTheaterModeWakeFromLidSwitch,
+                    "android.policy:LID");
         } else if (!mLidControlsSleep) {
             mPowerManager.userActivity(SystemClock.uptimeMillis(), false);
         }
@@ -4653,7 +4736,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             } else {
                 intent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
             }
-            wakeUp(whenNanos / 1000000, mAllowTheaterModeWakeFromCameraLens);
+            wakeUp(whenNanos / 1000000, mAllowTheaterModeWakeFromCameraLens,
+                    "android.policy:CAMERA_COVER");
             startActivityAsUser(intent, UserHandle.CURRENT_OR_SELF);
         }
         mCameraLensCoverState = lensCoverState;
@@ -4832,7 +4916,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         if (isValidGlobalKey(keyCode)
                 && mGlobalKeyManager.shouldHandleGlobalKey(keyCode, event)) {
             if (isWakeKey) {
-                wakeUp(event.getEventTime(), mAllowTheaterModeWakeFromKey);
+                wakeUp(event.getEventTime(), mAllowTheaterModeWakeFromKey, "android.policy:KEY");
             }
             return result;
         }
@@ -5063,7 +5147,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
 
         if (isWakeKey) {
-            wakeUp(event.getEventTime(), mAllowTheaterModeWakeFromKey);
+            wakeUp(event.getEventTime(), mAllowTheaterModeWakeFromKey, "android.policy:KEY");
         }
 
         return result;
@@ -5124,7 +5208,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     @Override
     public int interceptMotionBeforeQueueingNonInteractive(long whenNanos, int policyFlags) {
         if ((policyFlags & FLAG_WAKE) != 0) {
-            if (wakeUp(whenNanos / 1000000, mAllowTheaterModeWakeFromMotion)) {
+            if (wakeUp(whenNanos / 1000000, mAllowTheaterModeWakeFromMotion,
+                    "android.policy:MOTION")) {
                 return 0;
             }
         }
@@ -5137,16 +5222,19 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         // there will be no dream to intercept the touch and wake into ambient.  The device should
         // wake up in this case.
         if (isTheaterModeEnabled() && (policyFlags & FLAG_WAKE) != 0) {
-            wakeUp(whenNanos / 1000000, mAllowTheaterModeWakeFromMotionWhenNotDreaming);
+            wakeUp(whenNanos / 1000000, mAllowTheaterModeWakeFromMotionWhenNotDreaming,
+                    "android.policy:MOTION");
         }
 
         return 0;
     }
 
     private boolean shouldDispatchInputWhenNonInteractive() {
-        // Send events to keyguard while the screen is on.
-        if (isKeyguardShowingAndNotOccluded() && mDisplay != null
-                && mDisplay.getState() != Display.STATE_OFF) {
+        if (mDisplay == null || mDisplay.getState() == Display.STATE_OFF) {
+            return false;
+        }
+        // Send events to keyguard while the screen is on and it's showing.
+        if (isKeyguardShowingAndNotOccluded()) {
             return true;
         }
 
@@ -5384,7 +5472,6 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         // the wake lock and let the system suspend once this function returns.
         synchronized (mLock) {
             mAwake = false;
-            mKeyguardDrawComplete = false;
             updateWakeGestureListenerLp();
             updateOrientationListenerLp();
             updateLockScreenTimeout();
@@ -5406,11 +5493,6 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         // may happen in a future call to goToSleep.
         synchronized (mLock) {
             mAwake = true;
-            mKeyguardDrawComplete = false;
-            if (mKeyguardDelegate != null) {
-                mHandler.removeMessages(MSG_KEYGUARD_DRAWN_TIMEOUT);
-                mHandler.sendEmptyMessageDelayed(MSG_KEYGUARD_DRAWN_TIMEOUT, 1000);
-            }
 
             updateWakeGestureListenerLp();
             updateOrientationListenerLp();
@@ -5418,11 +5500,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
 
         if (mKeyguardDelegate != null) {
-            mKeyguardDelegate.onStartedWakingUp(mKeyguardDelegateCallback);
-            // ... eventually calls finishKeyguardDrawn
-        } else {
-            if (DEBUG_WAKEUP) Slog.d(TAG, "null mKeyguardDelegate: setting mKeyguardDrawComplete.");
-            finishKeyguardDrawn();
+            mKeyguardDelegate.onStartedWakingUp();
         }
     }
 
@@ -5433,10 +5511,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     }
 
     private void wakeUpFromPowerKey(long eventTime) {
-        wakeUp(eventTime, mAllowTheaterModeWakeFromPowerKey);
+        wakeUp(eventTime, mAllowTheaterModeWakeFromPowerKey, "android.policy:POWER");
     }
 
-    private boolean wakeUp(long wakeTime, boolean wakeInTheaterMode) {
+    private boolean wakeUp(long wakeTime, boolean wakeInTheaterMode, String reason) {
         final boolean theaterModeEnabled = isTheaterModeEnabled();
         if (!wakeInTheaterMode && theaterModeEnabled) {
             return false;
@@ -5447,13 +5525,13 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     Settings.Global.THEATER_MODE_ON, 0);
         }
 
-        mPowerManager.wakeUp(wakeTime);
+        mPowerManager.wakeUp(wakeTime, reason);
         return true;
     }
 
     private void finishKeyguardDrawn() {
         synchronized (mLock) {
-            if (!mAwake || mKeyguardDrawComplete) {
+            if (!mScreenOnEarly || mKeyguardDrawComplete) {
                 return; // We are not awake yet or we have already informed of this event.
             }
 
@@ -5461,9 +5539,13 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             if (mKeyguardDelegate != null) {
                 mHandler.removeMessages(MSG_KEYGUARD_DRAWN_TIMEOUT);
             }
+            mWindowManagerDrawComplete = false;
         }
 
-        finishScreenTurningOn();
+        // ... eventually calls finishWindowsDrawn which will finalize our screen turn on
+        // as well as enabling the orientation change logic/sensor.
+        mWindowManagerInternal.waitForAllWindowsDrawn(mWindowManagerDrawCallback,
+                WAITING_FOR_DRAWN_TIMEOUT);
     }
 
     // Called on the DisplayManager's DisplayPowerController thread.
@@ -5475,9 +5557,14 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         synchronized (mLock) {
             mScreenOnEarly = false;
             mScreenOnFully = false;
+            mKeyguardDrawComplete = false;
             mWindowManagerDrawComplete = false;
             mScreenOnListener = null;
             updateOrientationListenerLp();
+
+            if (mKeyguardDelegate != null) {
+                mKeyguardDelegate.onScreenTurnedOff();
+            }
         }
     }
 
@@ -5490,14 +5577,30 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         synchronized (mLock) {
             mScreenOnEarly = true;
             mScreenOnFully = false;
+            mKeyguardDrawComplete = false;
             mWindowManagerDrawComplete = false;
             mScreenOnListener = screenOnListener;
-        }
 
-        mWindowManagerInternal.waitForAllWindowsDrawn(mWindowManagerDrawCallback,
-                WAITING_FOR_DRAWN_TIMEOUT);
-        // ... eventually calls finishWindowsDrawn which will finalize our screen turn on
-        // as well as enabling the orientation change logic/sensor.
+            if (mKeyguardDelegate != null) {
+                mHandler.removeMessages(MSG_KEYGUARD_DRAWN_TIMEOUT);
+                mHandler.sendEmptyMessageDelayed(MSG_KEYGUARD_DRAWN_TIMEOUT, 1000);
+                mKeyguardDelegate.onScreenTurningOn(mKeyguardDrawnCallback);
+            } else {
+                if (DEBUG_WAKEUP) Slog.d(TAG,
+                        "null mKeyguardDelegate: setting mKeyguardDrawComplete.");
+                finishKeyguardDrawn();
+            }
+        }
+    }
+
+    // Called on the DisplayManager's DisplayPowerController thread.
+    @Override
+    public void screenTurnedOn() {
+        synchronized (mLock) {
+            if (mKeyguardDelegate != null) {
+                mKeyguardDelegate.onScreenTurnedOn();
+            }
+        }
     }
 
     private void finishWindowsDrawn() {
@@ -5934,6 +6037,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
         readCameraLensCoverState();
         updateUiMode();
+        boolean bindKeyguardNow;
         synchronized (mLock) {
             updateOrientationListenerLp();
             mSystemReady = true;
@@ -5943,13 +6047,36 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     updateSettings();
                 }
             });
+
+            bindKeyguardNow = mDeferBindKeyguard;
+            if (bindKeyguardNow) {
+                // systemBooted ran but wasn't able to bind to the Keyguard, we'll do it now.
+                mDeferBindKeyguard = false;
+            }
+        }
+
+        if (bindKeyguardNow) {
+            mKeyguardDelegate.bindService(mContext);
+            mKeyguardDelegate.onBootCompleted();
         }
     }
 
     /** {@inheritDoc} */
     @Override
     public void systemBooted() {
-        if (mKeyguardDelegate != null) {
+        boolean bindKeyguardNow = false;
+        synchronized (mLock) {
+            // Time to bind Keyguard; take care to only bind it once, either here if ready or
+            // in systemReady if not.
+            if (mKeyguardDelegate != null) {
+                bindKeyguardNow = true;
+            } else {
+                // Because mKeyguardDelegate is null, we know that the synchronized block in
+                // systemReady didn't run yet and setting this will actually have an effect.
+                mDeferBindKeyguard = true;
+            }
+        }
+        if (bindKeyguardNow) {
             mKeyguardDelegate.bindService(mContext);
             mKeyguardDelegate.onBootCompleted();
         }

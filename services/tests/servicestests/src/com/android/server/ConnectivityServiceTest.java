@@ -20,8 +20,24 @@ import static android.net.ConnectivityManager.CONNECTIVITY_ACTION;
 import static android.net.ConnectivityManager.TYPE_MOBILE;
 import static android.net.ConnectivityManager.TYPE_WIFI;
 import static android.net.ConnectivityManager.getNetworkTypeName;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_CBS;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_DUN;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_EIMS;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_FOTA;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_IA;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_IMS;
 import static android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_MMS;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_RCS;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_SUPL;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_TRUSTED;
 import static android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_WIFI_P2P;
+import static android.net.NetworkCapabilities.NET_CAPABILITY_XCAP;
 import static android.net.NetworkCapabilities.TRANSPORT_CELLULAR;
 import static android.net.NetworkCapabilities.TRANSPORT_WIFI;
 import static org.mockito.Matchers.anyInt;
@@ -65,6 +81,7 @@ import android.test.suitebuilder.annotation.LargeTest;
 import android.util.Log;
 import android.util.LogPrinter;
 
+import com.android.server.connectivity.NetworkAgentInfo;
 import com.android.server.connectivity.NetworkMonitor;
 
 import org.mockito.ArgumentCaptor;
@@ -102,7 +119,7 @@ public class ConnectivityServiceTest extends AndroidTestCase {
     private INetworkPolicyManager mPolicyService;
 
     private BroadcastInterceptingContext mServiceContext;
-    private ConnectivityService mService;
+    private WrappedConnectivityService mService;
     private ConnectivityManager mCm;
     private MockNetworkAgent mWiFiNetworkAgent;
     private MockNetworkAgent mCellNetworkAgent;
@@ -132,9 +149,11 @@ public class ConnectivityServiceTest extends AndroidTestCase {
     }
 
     private class MockNetworkAgent {
+        private final WrappedNetworkMonitor mWrappedNetworkMonitor;
         private final NetworkInfo mNetworkInfo;
         private final NetworkCapabilities mNetworkCapabilities;
         private final Thread mThread;
+        private final ConditionVariable mDisconnected = new ConditionVariable();
         private int mScore;
         private NetworkAgent mNetworkAgent;
 
@@ -155,13 +174,14 @@ public class ConnectivityServiceTest extends AndroidTestCase {
                     throw new UnsupportedOperationException("unimplemented network type");
             }
             final ConditionVariable initComplete = new ConditionVariable();
+            final ConditionVariable networkMonitorAvailable = mService.getNetworkMonitorCreatedCV();
             mThread = new Thread() {
                 public void run() {
                     Looper.prepare();
                     mNetworkAgent = new NetworkAgent(Looper.myLooper(), mServiceContext,
                             "Mock" + typeName, mNetworkInfo, mNetworkCapabilities,
                             new LinkProperties(), mScore, new NetworkMisc()) {
-                        public void unwanted() {}
+                        public void unwanted() { mDisconnected.open(); }
                     };
                     initComplete.open();
                     Looper.loop();
@@ -169,6 +189,8 @@ public class ConnectivityServiceTest extends AndroidTestCase {
             };
             mThread.start();
             waitFor(initComplete);
+            waitFor(networkMonitorAvailable);
+            mWrappedNetworkMonitor = mService.getLastCreatedWrappedNetworkMonitor();
         }
 
         public void adjustScore(int change) {
@@ -176,51 +198,62 @@ public class ConnectivityServiceTest extends AndroidTestCase {
             mNetworkAgent.sendNetworkScore(mScore);
         }
 
+        public void addCapability(int capability) {
+            mNetworkCapabilities.addCapability(capability);
+            mNetworkAgent.sendNetworkCapabilities(mNetworkCapabilities);
+        }
+
+        public void connectWithoutInternet() {
+            mNetworkInfo.setDetailedState(DetailedState.CONNECTED, null, null);
+            mNetworkAgent.sendNetworkInfo(mNetworkInfo);
+        }
+
         /**
-         * Transition this NetworkAgent to CONNECTED state.
+         * Transition this NetworkAgent to CONNECTED state with NET_CAPABILITY_INTERNET.
          * @param validated Indicate if network should pretend to be validated.
          */
         public void connect(boolean validated) {
             assertEquals(mNetworkInfo.getDetailedState(), DetailedState.IDLE);
             assertFalse(mNetworkCapabilities.hasCapability(NET_CAPABILITY_INTERNET));
 
-            // To pretend network is validated, we transition it to the CONNECTED state without
-            // NET_CAPABILITY_INTERNET so NetworkMonitor doesn't bother trying to validate and
-            // just rubber stamps it as validated.  Afterwards we add NET_CAPABILITY_INTERNET so
-            // the network can satisfy the default request.
             NetworkCallback callback = null;
             final ConditionVariable validatedCv = new ConditionVariable();
             if (validated) {
-                // If we connect a network without INTERNET capability, it'll get reaped.
-                // Prevent the reaping by adding a NetworkRequest.
+                mWrappedNetworkMonitor.gen204ProbeResult = 204;
                 NetworkRequest request = new NetworkRequest.Builder()
                         .addTransportType(mNetworkCapabilities.getTransportTypes()[0])
                         .build();
                 callback = new NetworkCallback() {
                     public void onCapabilitiesChanged(Network network,
                             NetworkCapabilities networkCapabilities) {
-                        if (networkCapabilities.hasCapability(NET_CAPABILITY_VALIDATED)) {
+                        if (network.equals(getNetwork()) &&
+                            networkCapabilities.hasCapability(NET_CAPABILITY_VALIDATED)) {
                             validatedCv.open();
                         }
                     }
                 };
-                mCm.requestNetwork(request, callback);
-            } else {
-                mNetworkCapabilities.addCapability(NET_CAPABILITY_INTERNET);
-                mNetworkAgent.sendNetworkCapabilities(mNetworkCapabilities);
+                mCm.registerNetworkCallback(request, callback);
             }
+            addCapability(NET_CAPABILITY_INTERNET);
 
-            mNetworkInfo.setDetailedState(DetailedState.CONNECTED, null, null);
-            mNetworkAgent.sendNetworkInfo(mNetworkInfo);
+            connectWithoutInternet();
 
             if (validated) {
                 // Wait for network to validate.
                 waitFor(validatedCv);
-                mNetworkCapabilities.addCapability(NET_CAPABILITY_INTERNET);
-                mNetworkAgent.sendNetworkCapabilities(mNetworkCapabilities);
+                mWrappedNetworkMonitor.gen204ProbeResult = 500;
             }
 
             if (callback != null) mCm.unregisterNetworkCallback(callback);
+        }
+
+        public void connectWithCaptivePortal() {
+            mWrappedNetworkMonitor.gen204ProbeResult = 200;
+            connect(false);
+            waitFor(new Criteria() { public boolean get() {
+                NetworkCapabilities caps = mCm.getNetworkCapabilities(getNetwork());
+                return caps != null && caps.hasCapability(NET_CAPABILITY_CAPTIVE_PORTAL);} });
+            mWrappedNetworkMonitor.gen204ProbeResult = 500;
         }
 
         public void disconnect() {
@@ -231,14 +264,22 @@ public class ConnectivityServiceTest extends AndroidTestCase {
         public Network getNetwork() {
             return new Network(mNetworkAgent.netId);
         }
+
+        public ConditionVariable getDisconnectedCV() {
+            return mDisconnected;
+        }
+
+        public WrappedNetworkMonitor getWrappedNetworkMonitor() {
+            return mWrappedNetworkMonitor;
+        }
     }
 
     private static class MockNetworkFactory extends NetworkFactory {
-        final ConditionVariable mNetworkStartedCV = new ConditionVariable();
-        final ConditionVariable mNetworkStoppedCV = new ConditionVariable();
-        final ConditionVariable mNetworkRequestedCV = new ConditionVariable();
-        final ConditionVariable mNetworkReleasedCV = new ConditionVariable();
-        final AtomicBoolean mNetworkStarted = new AtomicBoolean(false);
+        private final ConditionVariable mNetworkStartedCV = new ConditionVariable();
+        private final ConditionVariable mNetworkStoppedCV = new ConditionVariable();
+        private final ConditionVariable mNetworkRequestedCV = new ConditionVariable();
+        private final ConditionVariable mNetworkReleasedCV = new ConditionVariable();
+        private final AtomicBoolean mNetworkStarted = new AtomicBoolean(false);
 
         public MockNetworkFactory(Looper looper, Context context, String logTag,
                 NetworkCapabilities filter) {
@@ -298,7 +339,26 @@ public class ConnectivityServiceTest extends AndroidTestCase {
         }
     }
 
+    // NetworkMonitor implementation allowing overriding of Internet connectivity probe result.
+    private class WrappedNetworkMonitor extends NetworkMonitor {
+        // HTTP response code fed back to NetworkMonitor for Internet connectivity probe.
+        public int gen204ProbeResult = 500;
+
+        public WrappedNetworkMonitor(Context context, Handler handler,
+            NetworkAgentInfo networkAgentInfo, NetworkRequest defaultRequest) {
+            super(context, handler, networkAgentInfo, defaultRequest);
+        }
+
+        @Override
+        protected int isCaptivePortal() {
+            return gen204ProbeResult;
+        }
+    }
+
     private class WrappedConnectivityService extends ConnectivityService {
+        private final ConditionVariable mNetworkMonitorCreated = new ConditionVariable();
+        private WrappedNetworkMonitor mLastCreatedNetworkMonitor;
+
         public WrappedConnectivityService(Context context, INetworkManagementService netManager,
                 INetworkStatsService statsService, INetworkPolicyManager policyManager) {
             super(context, netManager, statsService, policyManager);
@@ -329,6 +389,25 @@ public class ConnectivityServiceTest extends AndroidTestCase {
 
                 return netId;
             }
+        }
+
+        @Override
+        public NetworkMonitor createNetworkMonitor(Context context, Handler handler,
+                NetworkAgentInfo nai, NetworkRequest defaultRequest) {
+            final WrappedNetworkMonitor monitor = new WrappedNetworkMonitor(context, handler, nai,
+                    defaultRequest);
+            mLastCreatedNetworkMonitor = monitor;
+            mNetworkMonitorCreated.open();
+            return monitor;
+        }
+
+        public WrappedNetworkMonitor getLastCreatedWrappedNetworkMonitor() {
+            return mLastCreatedNetworkMonitor;
+        }
+
+        public ConditionVariable getNetworkMonitorCreatedCV() {
+            mNetworkMonitorCreated.close();
+            return mNetworkMonitorCreated;
         }
     }
 
@@ -384,7 +463,7 @@ public class ConnectivityServiceTest extends AndroidTestCase {
         mService = new WrappedConnectivityService(
                 mServiceContext, mNetManager, mStatsService, mPolicyService);
         mService.systemReady();
-        mCm = new ConnectivityManager(mService);
+        mCm = new ConnectivityManager(getContext(), mService);
     }
 
     private int transportToLegacyType(int transport) {
@@ -555,6 +634,34 @@ public class ConnectivityServiceTest extends AndroidTestCase {
     }
 
     @LargeTest
+    public void testUnlingeringDoesNotValidate() throws Exception {
+        // Test bringing up unvalidated WiFi.
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        ConditionVariable cv = waitForConnectivityBroadcasts(1);
+        mWiFiNetworkAgent.connect(false);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        assertFalse(mCm.getNetworkCapabilities(mWiFiNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        // Test bringing up validated cellular.
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        cv = waitForConnectivityBroadcasts(2);
+        mCellNetworkAgent.connect(true);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_CELLULAR);
+        assertFalse(mCm.getNetworkCapabilities(mWiFiNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        // Test cellular disconnect.
+        cv = waitForConnectivityBroadcasts(2);
+        mCellNetworkAgent.disconnect();
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        // Unlingering a network should not cause it to be marked as validated.
+        assertFalse(mCm.getNetworkCapabilities(mWiFiNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+    }
+
+    @LargeTest
     public void testCellularOutscoresWeakWifi() throws Exception {
         // Test bringing up validated cellular.
         mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
@@ -577,6 +684,107 @@ public class ConnectivityServiceTest extends AndroidTestCase {
         cv = waitForConnectivityBroadcasts(2);
         mWiFiNetworkAgent.adjustScore(11);
         waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        mCellNetworkAgent.disconnect();
+        mWiFiNetworkAgent.disconnect();
+    }
+
+    @LargeTest
+    public void testReapingNetwork() throws Exception {
+        // Test bringing up WiFi without NET_CAPABILITY_INTERNET.
+        // Expect it to be torn down immediately because it satisfies no requests.
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        ConditionVariable cv = mWiFiNetworkAgent.getDisconnectedCV();
+        mWiFiNetworkAgent.connectWithoutInternet();
+        waitFor(cv);
+        // Test bringing up cellular without NET_CAPABILITY_INTERNET.
+        // Expect it to be torn down immediately because it satisfies no requests.
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        cv = mCellNetworkAgent.getDisconnectedCV();
+        mCellNetworkAgent.connectWithoutInternet();
+        waitFor(cv);
+        // Test bringing up validated WiFi.
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        cv = waitForConnectivityBroadcasts(1);
+        mWiFiNetworkAgent.connect(true);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        // Test bringing up unvalidated cellular.
+        // Expect it to be torn down because it could never be the highest scoring network
+        // satisfying the default request even if it validated.
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        cv = mCellNetworkAgent.getDisconnectedCV();
+        mCellNetworkAgent.connect(false);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        cv = mWiFiNetworkAgent.getDisconnectedCV();
+        mWiFiNetworkAgent.disconnect();
+        waitFor(cv);
+    }
+
+    @LargeTest
+    public void testCellularFallback() throws Exception {
+        // Test bringing up validated cellular.
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        ConditionVariable cv = waitForConnectivityBroadcasts(1);
+        mCellNetworkAgent.connect(true);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_CELLULAR);
+        // Test bringing up validated WiFi.
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        cv = waitForConnectivityBroadcasts(2);
+        mWiFiNetworkAgent.connect(true);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        // Reevaluate WiFi (it'll instantly fail DNS).
+        cv = waitForConnectivityBroadcasts(2);
+        assertTrue(mCm.getNetworkCapabilities(mWiFiNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        mCm.reportBadNetwork(mWiFiNetworkAgent.getNetwork());
+        // Should quickly fall back to Cellular.
+        waitFor(cv);
+        assertFalse(mCm.getNetworkCapabilities(mWiFiNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        verifyActiveNetwork(TRANSPORT_CELLULAR);
+        // Reevaluate cellular (it'll instantly fail DNS).
+        cv = waitForConnectivityBroadcasts(2);
+        assertTrue(mCm.getNetworkCapabilities(mCellNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        mCm.reportBadNetwork(mCellNetworkAgent.getNetwork());
+        // Should quickly fall back to WiFi.
+        waitFor(cv);
+        assertFalse(mCm.getNetworkCapabilities(mCellNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        assertFalse(mCm.getNetworkCapabilities(mWiFiNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        mCellNetworkAgent.disconnect();
+        mWiFiNetworkAgent.disconnect();
+    }
+
+    @LargeTest
+    public void testWiFiFallback() throws Exception {
+        // Test bringing up unvalidated WiFi.
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        ConditionVariable cv = waitForConnectivityBroadcasts(1);
+        mWiFiNetworkAgent.connect(false);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        // Test bringing up validated cellular.
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        cv = waitForConnectivityBroadcasts(2);
+        mCellNetworkAgent.connect(true);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_CELLULAR);
+        // Reevaluate cellular (it'll instantly fail DNS).
+        cv = waitForConnectivityBroadcasts(2);
+        assertTrue(mCm.getNetworkCapabilities(mCellNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
+        mCm.reportBadNetwork(mCellNetworkAgent.getNetwork());
+        // Should quickly fall back to WiFi.
+        waitFor(cv);
+        assertFalse(mCm.getNetworkCapabilities(mCellNetworkAgent.getNetwork()).hasCapability(
+                NET_CAPABILITY_VALIDATED));
         verifyActiveNetwork(TRANSPORT_WIFI);
         mCellNetworkAgent.disconnect();
         mWiFiNetworkAgent.disconnect();
@@ -687,12 +895,8 @@ public class ConnectivityServiceTest extends AndroidTestCase {
 
         cellCv = cellNetworkCallback.getConditionVariable();
         wifiCv = wifiNetworkCallback.getConditionVariable();
-        // Our method for faking successful validation generates an additional callback, so wait
-        // for broadcast instead.
-        cv = waitForConnectivityBroadcasts(1);
         mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
         mCellNetworkAgent.connect(true);
-        waitFor(cv);
         waitFor(cellCv);
         assertEquals(CallbackState.AVAILABLE, cellNetworkCallback.getLastCallback());
         assertEquals(CallbackState.NONE, wifiNetworkCallback.getLastCallback());
@@ -709,12 +913,8 @@ public class ConnectivityServiceTest extends AndroidTestCase {
 
         cellCv = cellNetworkCallback.getConditionVariable();
         wifiCv = wifiNetworkCallback.getConditionVariable();
-        // Our method for faking successful validation generates an additional callback, so wait
-        // for broadcast instead.
-        cv = waitForConnectivityBroadcasts(1);
         mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
         mWiFiNetworkAgent.connect(true);
-        waitFor(cv);
         waitFor(wifiCv);
         assertEquals(CallbackState.AVAILABLE, wifiNetworkCallback.getLastCallback());
         waitFor(cellCv);
@@ -736,10 +936,21 @@ public class ConnectivityServiceTest extends AndroidTestCase {
         assertEquals(CallbackState.NONE, wifiNetworkCallback.getLastCallback());
     }
 
-    @LargeTest
-    public void testNetworkFactoryRequests() throws Exception {
+    private void tryNetworkFactoryRequests(int capability) throws Exception {
+        // Verify NOT_RESTRICTED is set appropriately
+        final NetworkCapabilities nc = new NetworkRequest.Builder().addCapability(capability)
+                .build().networkCapabilities;
+        if (capability == NET_CAPABILITY_CBS || capability == NET_CAPABILITY_DUN ||
+                capability == NET_CAPABILITY_EIMS || capability == NET_CAPABILITY_FOTA ||
+                capability == NET_CAPABILITY_IA || capability == NET_CAPABILITY_IMS ||
+                capability == NET_CAPABILITY_RCS || capability == NET_CAPABILITY_XCAP) {
+            assertFalse(nc.hasCapability(NET_CAPABILITY_NOT_RESTRICTED));
+        } else {
+            assertTrue(nc.hasCapability(NET_CAPABILITY_NOT_RESTRICTED));
+        }
+
         NetworkCapabilities filter = new NetworkCapabilities();
-        filter.addCapability(NET_CAPABILITY_INTERNET);
+        filter.addCapability(capability);
         final HandlerThread handlerThread = new HandlerThread("testNetworkFactoryRequests");
         handlerThread.start();
         final MockNetworkFactory testFactory = new MockNetworkFactory(handlerThread.getLooper(),
@@ -747,57 +958,91 @@ public class ConnectivityServiceTest extends AndroidTestCase {
         testFactory.setScoreFilter(40);
         ConditionVariable cv = testFactory.getNetworkStartedCV();
         testFactory.register();
+        int expectedRequestCount = 1;
+        NetworkCallback networkCallback = null;
+        // For non-INTERNET capabilities we cannot rely on the default request being present, so
+        // add one.
+        if (capability != NET_CAPABILITY_INTERNET) {
+            testFactory.waitForNetworkRequests(1);
+            assertFalse(testFactory.getMyStartRequested());
+            NetworkRequest request = new NetworkRequest.Builder().addCapability(capability).build();
+            networkCallback = new NetworkCallback();
+            mCm.requestNetwork(request, networkCallback);
+            expectedRequestCount++;
+        }
         waitFor(cv);
-        assertEquals(1, testFactory.getMyRequestCount());
-        assertEquals(true, testFactory.getMyStartRequested());
+        assertEquals(expectedRequestCount, testFactory.getMyRequestCount());
+        assertTrue(testFactory.getMyStartRequested());
 
-        // now bring in a higher scored network
+        // Now bring in a higher scored network.
         MockNetworkAgent testAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
-        cv = waitForConnectivityBroadcasts(1);
-        ConditionVariable cvRelease = testFactory.getNetworkStoppedCV();
-        testAgent.connect(true);
+        // Rather than create a validated network which complicates things by registering it's
+        // own NetworkRequest during startup, just bump up the score to cancel out the
+        // unvalidated penalty.
+        testAgent.adjustScore(40);
+        cv = testFactory.getNetworkStoppedCV();
+        testAgent.connect(false);
+        testAgent.addCapability(capability);
         waitFor(cv);
-        // part of the bringup makes another network request and then releases it
-        // wait for the release
-        waitFor(cvRelease);
-        assertEquals(false, testFactory.getMyStartRequested());
-        testFactory.waitForNetworkRequests(1);
+        assertEquals(expectedRequestCount, testFactory.getMyRequestCount());
+        assertFalse(testFactory.getMyStartRequested());
 
-        // bring in a bunch of requests..
+        // Bring in a bunch of requests.
         ConnectivityManager.NetworkCallback[] networkCallbacks =
                 new ConnectivityManager.NetworkCallback[10];
         for (int i = 0; i< networkCallbacks.length; i++) {
             networkCallbacks[i] = new ConnectivityManager.NetworkCallback();
             NetworkRequest.Builder builder = new NetworkRequest.Builder();
-            builder.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            builder.addCapability(capability);
             mCm.requestNetwork(builder.build(), networkCallbacks[i]);
         }
-        testFactory.waitForNetworkRequests(11);
-        assertEquals(false, testFactory.getMyStartRequested());
+        testFactory.waitForNetworkRequests(10 + expectedRequestCount);
+        assertFalse(testFactory.getMyStartRequested());
 
-        // remove the requests
+        // Remove the requests.
         for (int i = 0; i < networkCallbacks.length; i++) {
             mCm.unregisterNetworkCallback(networkCallbacks[i]);
         }
-        testFactory.waitForNetworkRequests(1);
-        assertEquals(false, testFactory.getMyStartRequested());
+        testFactory.waitForNetworkRequests(expectedRequestCount);
+        assertFalse(testFactory.getMyStartRequested());
 
-        // drop the higher scored network
-        cv = waitForConnectivityBroadcasts(1);
+        // Drop the higher scored network.
+        cv = testFactory.getNetworkStartedCV();
         testAgent.disconnect();
         waitFor(cv);
-        assertEquals(1, testFactory.getMyRequestCount());
-        assertEquals(true, testFactory.getMyStartRequested());
+        assertEquals(expectedRequestCount, testFactory.getMyRequestCount());
+        assertTrue(testFactory.getMyStartRequested());
 
         testFactory.unregister();
+        if (networkCallback != null) mCm.unregisterNetworkCallback(networkCallback);
         handlerThread.quit();
+    }
+
+    @LargeTest
+    public void testNetworkFactoryRequests() throws Exception {
+        tryNetworkFactoryRequests(NET_CAPABILITY_MMS);
+        tryNetworkFactoryRequests(NET_CAPABILITY_SUPL);
+        tryNetworkFactoryRequests(NET_CAPABILITY_DUN);
+        tryNetworkFactoryRequests(NET_CAPABILITY_FOTA);
+        tryNetworkFactoryRequests(NET_CAPABILITY_IMS);
+        tryNetworkFactoryRequests(NET_CAPABILITY_CBS);
+        tryNetworkFactoryRequests(NET_CAPABILITY_WIFI_P2P);
+        tryNetworkFactoryRequests(NET_CAPABILITY_IA);
+        tryNetworkFactoryRequests(NET_CAPABILITY_RCS);
+        tryNetworkFactoryRequests(NET_CAPABILITY_XCAP);
+        tryNetworkFactoryRequests(NET_CAPABILITY_EIMS);
+        tryNetworkFactoryRequests(NET_CAPABILITY_NOT_METERED);
+        tryNetworkFactoryRequests(NET_CAPABILITY_INTERNET);
+        tryNetworkFactoryRequests(NET_CAPABILITY_TRUSTED);
+        tryNetworkFactoryRequests(NET_CAPABILITY_NOT_VPN);
+        // Skipping VALIDATED and CAPTIVE_PORTAL as they're disallowed.
     }
 
     @LargeTest
     public void testNoMutableNetworkRequests() throws Exception {
         PendingIntent pendingIntent = PendingIntent.getBroadcast(mContext, 0, new Intent("a"), 0);
         NetworkRequest.Builder builder = new NetworkRequest.Builder();
-        builder.addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        builder.addCapability(NET_CAPABILITY_VALIDATED);
         try {
             mCm.requestNetwork(builder.build(), new NetworkCallback());
             fail();
@@ -807,7 +1052,7 @@ public class ConnectivityServiceTest extends AndroidTestCase {
             fail();
         } catch (IllegalArgumentException expected) {}
         builder = new NetworkRequest.Builder();
-        builder.addCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL);
+        builder.addCapability(NET_CAPABILITY_CAPTIVE_PORTAL);
         try {
             mCm.requestNetwork(builder.build(), new NetworkCallback());
             fail();
@@ -816,6 +1061,128 @@ public class ConnectivityServiceTest extends AndroidTestCase {
             mCm.requestNetwork(builder.build(), pendingIntent);
             fail();
         } catch (IllegalArgumentException expected) {}
+    }
+
+    @LargeTest
+    public void testMMSonWiFi() throws Exception {
+        // Test bringing up cellular without MMS NetworkRequest gets reaped
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        mCellNetworkAgent.addCapability(NET_CAPABILITY_MMS);
+        ConditionVariable cv = mCellNetworkAgent.getDisconnectedCV();
+        mCellNetworkAgent.connectWithoutInternet();
+        waitFor(cv);
+        waitFor(new Criteria() {
+                public boolean get() { return mCm.getAllNetworks().length == 0; } });
+        verifyNoNetwork();
+        // Test bringing up validated WiFi.
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        cv = waitForConnectivityBroadcasts(1);
+        mWiFiNetworkAgent.connect(true);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        // Register MMS NetworkRequest
+        NetworkRequest.Builder builder = new NetworkRequest.Builder();
+        builder.addCapability(NetworkCapabilities.NET_CAPABILITY_MMS);
+        final TestNetworkCallback networkCallback = new TestNetworkCallback();
+        mCm.requestNetwork(builder.build(), networkCallback);
+        // Test bringing up unvalidated cellular with MMS
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        mCellNetworkAgent.addCapability(NET_CAPABILITY_MMS);
+        cv = networkCallback.getConditionVariable();
+        mCellNetworkAgent.connectWithoutInternet();
+        waitFor(cv);
+        assertEquals(CallbackState.AVAILABLE, networkCallback.getLastCallback());
+        verifyActiveNetwork(TRANSPORT_WIFI);
+        // Test releasing NetworkRequest disconnects cellular with MMS
+        cv = mCellNetworkAgent.getDisconnectedCV();
+        mCm.unregisterNetworkCallback(networkCallback);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_WIFI);
+    }
+
+    @LargeTest
+    public void testMMSonCell() throws Exception {
+        // Test bringing up cellular without MMS
+        mCellNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        ConditionVariable cv = waitForConnectivityBroadcasts(1);
+        mCellNetworkAgent.connect(false);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_CELLULAR);
+        // Register MMS NetworkRequest
+        NetworkRequest.Builder builder = new NetworkRequest.Builder();
+        builder.addCapability(NetworkCapabilities.NET_CAPABILITY_MMS);
+        final TestNetworkCallback networkCallback = new TestNetworkCallback();
+        mCm.requestNetwork(builder.build(), networkCallback);
+        // Test bringing up MMS cellular network
+        cv = networkCallback.getConditionVariable();
+        MockNetworkAgent mmsNetworkAgent = new MockNetworkAgent(TRANSPORT_CELLULAR);
+        mmsNetworkAgent.addCapability(NET_CAPABILITY_MMS);
+        mmsNetworkAgent.connectWithoutInternet();
+        waitFor(cv);
+        assertEquals(CallbackState.AVAILABLE, networkCallback.getLastCallback());
+        verifyActiveNetwork(TRANSPORT_CELLULAR);
+        // Test releasing MMS NetworkRequest does not disconnect main cellular NetworkAgent
+        cv = mmsNetworkAgent.getDisconnectedCV();
+        mCm.unregisterNetworkCallback(networkCallback);
+        waitFor(cv);
+        verifyActiveNetwork(TRANSPORT_CELLULAR);
+    }
+
+    @LargeTest
+    public void testCaptivePortal() {
+        final TestNetworkCallback captivePortalCallback = new TestNetworkCallback();
+        final NetworkRequest captivePortalRequest = new NetworkRequest.Builder()
+                .addCapability(NET_CAPABILITY_CAPTIVE_PORTAL).build();
+        mCm.registerNetworkCallback(captivePortalRequest, captivePortalCallback);
+
+        final TestNetworkCallback validatedCallback = new TestNetworkCallback();
+        final NetworkRequest validatedRequest = new NetworkRequest.Builder()
+                .addCapability(NET_CAPABILITY_VALIDATED).build();
+        mCm.registerNetworkCallback(validatedRequest, validatedCallback);
+        ConditionVariable validatedCv = validatedCallback.getConditionVariable();
+
+        // Bring up a network with a captive portal.
+        // Expect onAvailable callback of listen for NET_CAPABILITY_CAPTIVE_PORTAL.
+        ConditionVariable cv = captivePortalCallback.getConditionVariable();
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        mWiFiNetworkAgent.connectWithCaptivePortal();
+        waitFor(cv);
+        assertEquals(CallbackState.AVAILABLE, captivePortalCallback.getLastCallback());
+
+        // Take down network.
+        // Expect onLost callback.
+        cv = captivePortalCallback.getConditionVariable();
+        mWiFiNetworkAgent.disconnect();
+        waitFor(cv);
+        assertEquals(CallbackState.LOST, captivePortalCallback.getLastCallback());
+
+        // Bring up a network with a captive portal.
+        // Expect onAvailable callback of listen for NET_CAPABILITY_CAPTIVE_PORTAL.
+        cv = captivePortalCallback.getConditionVariable();
+        mWiFiNetworkAgent = new MockNetworkAgent(TRANSPORT_WIFI);
+        mWiFiNetworkAgent.connectWithCaptivePortal();
+        waitFor(cv);
+        assertEquals(CallbackState.AVAILABLE, captivePortalCallback.getLastCallback());
+
+        // Make captive portal disappear then revalidate.
+        // Expect onLost callback because network no longer provides NET_CAPABILITY_CAPTIVE_PORTAL.
+        cv = captivePortalCallback.getConditionVariable();
+        mWiFiNetworkAgent.getWrappedNetworkMonitor().gen204ProbeResult = 204;
+        mCm.reportNetworkConnectivity(mWiFiNetworkAgent.getNetwork(), true);
+        waitFor(cv);
+        assertEquals(CallbackState.LOST, captivePortalCallback.getLastCallback());
+
+        // Expect NET_CAPABILITY_VALIDATED onAvailable callback.
+        waitFor(validatedCv);
+        assertEquals(CallbackState.AVAILABLE, validatedCallback.getLastCallback());
+
+        // Break network connectivity.
+        // Expect NET_CAPABILITY_VALIDATED onLost callback.
+        validatedCv = validatedCallback.getConditionVariable();
+        mWiFiNetworkAgent.getWrappedNetworkMonitor().gen204ProbeResult = 500;
+        mCm.reportNetworkConnectivity(mWiFiNetworkAgent.getNetwork(), false);
+        waitFor(validatedCv);
+        assertEquals(CallbackState.LOST, validatedCallback.getLastCallback());
     }
 
 //    @Override

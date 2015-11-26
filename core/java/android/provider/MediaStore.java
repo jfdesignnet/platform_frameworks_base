@@ -240,9 +240,6 @@ public final class MediaStore {
      * An application implementing a prewarm service should do the absolute minimum amount of work
      * to initialize the camera in order to reduce startup time in likely case that shortly after a
      * camera launch intent would be sent.
-     * <p>
-     * If the camera launch intent gets fired shortly after, the service will be unbound
-     * asynchronously, without receiving
      */
     public static final String META_DATA_STILL_IMAGE_CAMERA_PREWARM_SERVICE =
             "android.media.still_image_camera_preview_service";
@@ -284,7 +281,7 @@ public final class MediaStore {
      * If you don't set a ClipData, it will be copied there for you when calling
      * {@link Context#startActivity(Intent)}.
      *
-     * <p>Note: if you app targets {@link android.os.Build.VERSION_CODES#MNC MNC} and above
+     * <p>Note: if you app targets {@link android.os.Build.VERSION_CODES#M M} and above
      * and declares as using the {@link android.Manifest.permission#CAMERA} permission which
      * is not granted, then atempting to use this action will result in a {@link
      * java.lang.SecurityException}.
@@ -338,7 +335,7 @@ public final class MediaStore {
      * If you don't set a ClipData, it will be copied there for you when calling
      * {@link Context#startActivity(Intent)}.
      *
-     * <p>Note: if you app targets {@link android.os.Build.VERSION_CODES#MNC MNC} and above
+     * <p>Note: if you app targets {@link android.os.Build.VERSION_CODES#M M} and above
      * and declares as using the {@link android.Manifest.permission#CAMERA} permission which
      * is not granted, then atempting to use this action will result in a {@link
      * java.lang.SecurityException}.

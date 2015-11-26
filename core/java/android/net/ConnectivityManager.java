@@ -22,6 +22,7 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.NetworkUtils;
 import android.os.Binder;
 import android.os.Build.VERSION_CODES;
@@ -33,6 +34,7 @@ import android.os.INetworkManagementService;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.provider.Settings;
@@ -102,26 +104,26 @@ public class ConnectivityManager {
      * portal, which is blocking Internet connectivity. The user was presented
      * with a notification that network sign in is required,
      * and the user invoked the notification's action indicating they
-     * desire to sign in to the network. Apps handling this action should
+     * desire to sign in to the network. Apps handling this activity should
      * facilitate signing in to the network. This action includes a
      * {@link Network} typed extra called {@link #EXTRA_NETWORK} that represents
      * the network presenting the captive portal; all communication with the
      * captive portal must be done using this {@code Network} object.
      * <p/>
-     * When the app handling this action believes the user has signed in to
-     * the network and the captive portal has been dismissed, the app should call
-     * {@link #reportCaptivePortalDismissed} so the system can reevaluate the network.
-     * If reevaluation finds the network no longer subject to a captive portal,
-     * the network may become the default active data network.
-     * <p/>
-     * When the app handling this action believes the user explicitly wants
+     * This activity includes a {@link CaptivePortal} extra named
+     * {@link #EXTRA_CAPTIVE_PORTAL} that can be used to indicate different
+     * outcomes of the captive portal sign in to the system:
+     * <ul>
+     * <li> When the app handling this action believes the user has signed in to
+     * the network and the captive portal has been dismissed, the app should
+     * call {@link CaptivePortal#reportCaptivePortalDismissed} so the system can
+     * reevaluate the network. If reevaluation finds the network no longer
+     * subject to a captive portal, the network may become the default active
+     * data network. </li>
+     * <li> When the app handling this action believes the user explicitly wants
      * to ignore the captive portal and the network, the app should call
-     * {@link #ignoreNetworkWithCaptivePortal}.
-     * <p/>
-     * Note that this action includes a {@code String} extra named
-     * {@link #EXTRA_CAPTIVE_PORTAL_TOKEN} that must
-     * be passed in to {@link #reportCaptivePortalDismissed} and
-     * {@link #ignoreNetworkWithCaptivePortal}.
+     * {@link CaptivePortal#ignoreNetwork}. </li>
+     * </ul>
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_CAPTIVE_PORTAL_SIGN_IN = "android.net.conn.CAPTIVE_PORTAL";
@@ -187,16 +189,15 @@ public class ConnectivityManager {
      * {@hide}
      */
     public static final String EXTRA_INET_CONDITION = "inetCondition";
-
     /**
-     * The lookup key for a string that is sent out with
-     * {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN}. This string must be
-     * passed in to {@link #reportCaptivePortalDismissed} and
-     * {@link #ignoreNetworkWithCaptivePortal}. Retrieve it with
-     * {@link android.content.Intent#getStringExtra(String)}.
+     * The lookup key for a {@link CaptivePortal} object included with the
+     * {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN} intent.  The {@code CaptivePortal}
+     * object can be used to either indicate to the system that the captive
+     * portal has been dismissed or that the user does not want to pursue
+     * signing in to captive portal.  Retrieve it with
+     * {@link android.content.Intent#getParcelableExtra(String)}.
      */
-    public static final String EXTRA_CAPTIVE_PORTAL_TOKEN = "captivePortalToken";
-
+    public static final String EXTRA_CAPTIVE_PORTAL = "android.net.extra.CAPTIVE_PORTAL";
     /**
      * Broadcast action to indicate the change of data activity status
      * (idle or active) on a network in a recent period.
@@ -432,7 +433,8 @@ public class ConnectivityManager {
     public static final int TYPE_MOBILE_IA = 14;
 
     /**
-     * Emergency PDN connection for emergency calls
+     * Emergency PDN connection for emergency services.  This
+     * may include IMS and MMS in emergency situations.
      * {@hide}
      */
     public static final int TYPE_MOBILE_EMERGENCY = 15;
@@ -489,6 +491,8 @@ public class ConnectivityManager {
      * methods that take a Context argument.
      */
     private static ConnectivityManager sInstance;
+
+    private final Context mContext;
 
     private INetworkManagementService mNMService;
 
@@ -892,9 +896,11 @@ public class ConnectivityManager {
      *
      * @deprecated Deprecated in favor of the cleaner
      *             {@link #requestNetwork(NetworkRequest, NetworkCallback)} API.
-     * @removed
+     *             In {@link VERSION_CODES#M}, and above, this method is unsupported and will
+     *             throw {@code UnsupportedOperationException} if called.
      */
     public int startUsingNetworkFeature(int networkType, String feature) {
+        checkLegacyRoutingApiAccess();
         NetworkCapabilities netCap = networkCapabilitiesForFeature(networkType, feature);
         if (netCap == null) {
             Log.d(TAG, "Can't satisfy startUsingNetworkFeature for " + networkType + ", " +
@@ -939,10 +945,12 @@ public class ConnectivityManager {
      * implementation+feature combination, except that the value {@code -1}
      * always indicates failure.
      *
-     * @deprecated Deprecated in favor of the cleaner {@link unregisterNetworkCallback} API.
-     * @removed
+     * @deprecated Deprecated in favor of the cleaner {@link #unregisterNetworkCallback} API.
+     *             In {@link VERSION_CODES#M}, and above, this method is unsupported and will
+     *             throw {@code UnsupportedOperationException} if called.
      */
     public int stopUsingNetworkFeature(int networkType, String feature) {
+        checkLegacyRoutingApiAccess();
         NetworkCapabilities netCap = networkCapabilitiesForFeature(networkType, feature);
         if (netCap == null) {
             Log.d(TAG, "Can't satisfy stopUsingNetworkFeature for " + networkType + ", " +
@@ -954,41 +962,6 @@ public class ConnectivityManager {
             Log.d(TAG, "stopUsingNetworkFeature for " + networkType + ", " + feature);
         }
         return 1;
-    }
-
-    /**
-     * Removes the NET_CAPABILITY_NOT_RESTRICTED capability from the given
-     * NetworkCapabilities object if all the capabilities it provides are
-     * typically provided by restricted networks.
-     *
-     * TODO: consider:
-     * - Moving to NetworkCapabilities
-     * - Renaming it to guessRestrictedCapability and make it set the
-     *   restricted capability bit in addition to clearing it.
-     * @hide
-     */
-    public static void maybeMarkCapabilitiesRestricted(NetworkCapabilities nc) {
-        for (int capability : nc.getCapabilities()) {
-            switch (capability) {
-                case NetworkCapabilities.NET_CAPABILITY_CBS:
-                case NetworkCapabilities.NET_CAPABILITY_DUN:
-                case NetworkCapabilities.NET_CAPABILITY_EIMS:
-                case NetworkCapabilities.NET_CAPABILITY_FOTA:
-                case NetworkCapabilities.NET_CAPABILITY_IA:
-                case NetworkCapabilities.NET_CAPABILITY_IMS:
-                case NetworkCapabilities.NET_CAPABILITY_RCS:
-                case NetworkCapabilities.NET_CAPABILITY_XCAP:
-                case NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED: //there by default
-                    continue;
-                default:
-                    // At least one capability usually provided by unrestricted
-                    // networks. Conclude that this network is unrestricted.
-                    return;
-            }
-        }
-        // All the capabilities are typically provided by restricted networks.
-        // Conclude that this network is restricted.
-        nc.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
     }
 
     private NetworkCapabilities networkCapabilitiesForFeature(int networkType, String feature) {
@@ -1013,14 +986,14 @@ public class ConnectivityManager {
             }
             NetworkCapabilities netCap = new NetworkCapabilities();
             netCap.addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR).addCapability(cap);
-            maybeMarkCapabilitiesRestricted(netCap);
+            netCap.maybeMarkCapabilitiesRestricted();
             return netCap;
         } else if (networkType == TYPE_WIFI) {
             if ("p2p".equals(feature)) {
                 NetworkCapabilities netCap = new NetworkCapabilities();
                 netCap.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
                 netCap.addCapability(NetworkCapabilities.NET_CAPABILITY_WIFI_P2P);
-                maybeMarkCapabilitiesRestricted(netCap);
+                netCap.maybeMarkCapabilitiesRestricted();
                 return netCap;
             }
         }
@@ -1065,11 +1038,13 @@ public class ConnectivityManager {
             type = "enableDUN";
             result = TYPE_MOBILE_DUN;
         } else if (netCap.hasCapability(NetworkCapabilities.NET_CAPABILITY_SUPL)) {
-            type = "enableSUPL";
+           type = "enableSUPL";
             result = TYPE_MOBILE_SUPL;
-        } else if (netCap.hasCapability(NetworkCapabilities.NET_CAPABILITY_MMS)) {
-            type = "enableMMS";
-            result = TYPE_MOBILE_MMS;
+        // back out this hack for mms as they no longer need this and it's causing
+        // device slowdowns - b/23350688 (note, supl still needs this)
+        //} else if (netCap.hasCapability(NetworkCapabilities.NET_CAPABILITY_MMS)) {
+        //    type = "enableMMS";
+        //    result = TYPE_MOBILE_MMS;
         } else if (netCap.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
             type = "enableHIPRI";
             result = TYPE_MOBILE_HIPRI;
@@ -1220,7 +1195,8 @@ public class ConnectivityManager {
      * @deprecated Deprecated in favor of the
      *             {@link #requestNetwork(NetworkRequest, NetworkCallback)},
      *             {@link #bindProcessToNetwork} and {@link Network#getSocketFactory} API.
-     * @removed
+     *             In {@link VERSION_CODES#M}, and above, this method is unsupported and will
+     *             throw {@code UnsupportedOperationException} if called.
      */
     public boolean requestRouteToHost(int networkType, int hostAddress) {
         return requestRouteToHostAddress(networkType, NetworkUtils.intToInetAddress(hostAddress));
@@ -1239,9 +1215,9 @@ public class ConnectivityManager {
      * @hide
      * @deprecated Deprecated in favor of the {@link #requestNetwork} and
      *             {@link #bindProcessToNetwork} API.
-     * @removed
      */
     public boolean requestRouteToHostAddress(int networkType, InetAddress hostAddress) {
+        checkLegacyRoutingApiAccess();
         try {
             return mService.requestRouteToHostAddress(networkType, hostAddress.getAddress());
         } catch (RemoteException e) {
@@ -1420,7 +1396,8 @@ public class ConnectivityManager {
     /**
      * {@hide}
      */
-    public ConnectivityManager(IConnectivityManager service) {
+    public ConnectivityManager(Context context, IConnectivityManager service) {
+        mContext = checkNotNull(context, "missing context");
         mService = checkNotNull(service, "missing IConnectivityManager");
         sInstance = this;
     }
@@ -1439,8 +1416,9 @@ public class ConnectivityManager {
             context.enforceCallingOrSelfPermission(
                     android.Manifest.permission.CONNECTIVITY_INTERNAL, "ConnectivityService");
         } else {
-            context.enforceCallingOrSelfPermission(
-                    android.Manifest.permission.CHANGE_NETWORK_STATE, "ConnectivityService");
+            int uid = Binder.getCallingUid();
+            Settings.checkAndNoteChangeNetworkStateOperation(context, uid, Settings
+                    .getPackageNameForUid(context, uid), true);
         }
     }
 
@@ -1775,82 +1753,6 @@ public class ConnectivityManager {
     public void reportNetworkConnectivity(Network network, boolean hasConnectivity) {
         try {
             mService.reportNetworkConnectivity(network, hasConnectivity);
-        } catch (RemoteException e) {
-        }
-    }
-
-    /** {@hide} */
-    public static final int CAPTIVE_PORTAL_APP_RETURN_DISMISSED    = 0;
-    /** {@hide} */
-    public static final int CAPTIVE_PORTAL_APP_RETURN_UNWANTED     = 1;
-    /** {@hide} */
-    public static final int CAPTIVE_PORTAL_APP_RETURN_WANTED_AS_IS = 2;
-
-    /**
-     * Called by an app handling the {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN}
-     * action to indicate to the system that the captive portal has been
-     * dismissed.  In response the framework will re-evaluate the network's
-     * connectivity and might take further action thereafter.
-     *
-     * @param network The {@link Network} object passed via
-     *                {@link #EXTRA_NETWORK} with the
-     *                {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN} action.
-     * @param actionToken The {@code String} passed via
-     *                    {@link #EXTRA_CAPTIVE_PORTAL_TOKEN} with the
-     *                    {@code ACTION_CAPTIVE_PORTAL_SIGN_IN} action.
-     */
-    public void reportCaptivePortalDismissed(Network network, String actionToken) {
-        try {
-            mService.captivePortalAppResponse(network, CAPTIVE_PORTAL_APP_RETURN_DISMISSED,
-                    actionToken);
-        } catch (RemoteException e) {
-        }
-    }
-
-    /**
-     * Called by an app handling the {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN}
-     * action to indicate that the user does not want to pursue signing in to
-     * captive portal and the system should continue to prefer other networks
-     * without captive portals for use as the default active data network.  The
-     * system will not retest the network for a captive portal so as to avoid
-     * disturbing the user with further sign in to network notifications.
-     *
-     * @param network The {@link Network} object passed via
-     *                {@link #EXTRA_NETWORK} with the
-     *                {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN} action.
-     * @param actionToken The {@code String} passed via
-     *                    {@link #EXTRA_CAPTIVE_PORTAL_TOKEN} with the
-     *                    {@code ACTION_CAPTIVE_PORTAL_SIGN_IN} action.
-     */
-    public void ignoreNetworkWithCaptivePortal(Network network, String actionToken) {
-        try {
-            mService.captivePortalAppResponse(network, CAPTIVE_PORTAL_APP_RETURN_UNWANTED,
-                    actionToken);
-        } catch (RemoteException e) {
-        }
-    }
-
-    /**
-     * Called by an app handling the {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN}
-     * action to indicate the user wants to use this network as is, even though
-     * the captive portal is still in place.  The system will treat the network
-     * as if it did not have a captive portal when selecting the network to use
-     * as the default active data network. This may result in this network
-     * becoming the default active data network, which could disrupt network
-     * connectivity for apps because the captive portal is still in place.
-     *
-     * @param network The {@link Network} object passed via
-     *                {@link #EXTRA_NETWORK} with the
-     *                {@link #ACTION_CAPTIVE_PORTAL_SIGN_IN} action.
-     * @param actionToken The {@code String} passed via
-     *                    {@link #EXTRA_CAPTIVE_PORTAL_TOKEN} with the
-     *                    {@code ACTION_CAPTIVE_PORTAL_SIGN_IN} action.
-     * @hide
-     */
-    public void useNetworkWithCaptivePortal(Network network, String actionToken) {
-        try {
-            mService.captivePortalAppResponse(network, CAPTIVE_PORTAL_APP_RETURN_WANTED_AS_IS,
-                    actionToken);
         } catch (RemoteException e) {
         }
     }
@@ -2781,6 +2683,34 @@ public class ConnectivityManager {
         int netId = NetworkUtils.getBoundNetworkForProcess();
         if (netId == NETID_UNSET) return null;
         return new Network(netId);
+    }
+
+    private void unsupportedStartingFrom(int version) {
+        if (Process.myUid() == Process.SYSTEM_UID) {
+            // The getApplicationInfo() call we make below is not supported in system context, and
+            // we want to allow the system to use these APIs anyway.
+            return;
+        }
+
+        if (mContext.getApplicationInfo().targetSdkVersion >= version) {
+            throw new UnsupportedOperationException(
+                    "This method is not supported in target SDK version " + version + " and above");
+        }
+    }
+
+    // Checks whether the calling app can use the legacy routing API (startUsingNetworkFeature,
+    // stopUsingNetworkFeature, requestRouteToHost), and if not throw UnsupportedOperationException.
+    // TODO: convert the existing system users (Tethering, GpsLocationProvider) to the new APIs and
+    // remove these exemptions. Note that this check is not secure, and apps can still access these
+    // functions by accessing ConnectivityService directly. However, it should be clear that doing
+    // so is unsupported and may break in the future. http://b/22728205
+    private void checkLegacyRoutingApiAccess() {
+        if (mContext.checkCallingOrSelfPermission("com.android.permission.INJECT_OMADM_SETTINGS")
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        unsupportedStartingFrom(VERSION_CODES.M);
     }
 
     /**

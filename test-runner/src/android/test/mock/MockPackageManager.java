@@ -177,6 +177,17 @@ public class MockPackageManager extends PackageManager {
     }
 
     @Override
+    public boolean isPermissionRevokedByPolicy(String permName, String pkgName) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public String getPermissionControllerPackageName() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean addPermission(PermissionInfo info) {
         throw new UnsupportedOperationException();
     }

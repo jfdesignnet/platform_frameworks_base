@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Consente all\'applicazione di controllare il flash."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"chiamata diretta n. telefono"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Consente all\'applicazione di chiamare numeri di telefono senza il tuo intervento. Ciò può comportare chiamate o addebiti imprevisti. Tieni presente che ciò non consente all\'applicazione di chiamare numeri di emergenza. Applicazioni dannose potrebbero generare dei costi effettuando chiamate senza la tua conferma."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"Accesso al servizio di chiamata IMS"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Consente all\'app di utilizzare il servizio IMS per fare chiamate senza il tuo intervento."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"lettura stato e identità telefono"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Consente all\'applicazione di accedere alle funzioni telefoniche del dispositivo. Questa autorizzazione consente all\'applicazione di determinare il numero di telefono e gli ID dei dispositivi, se una chiamata è attiva e il numero remoto connesso da una chiamata."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"disattivazione stand-by del tablet"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Dito <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Icona dell\'impronta digitale"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"lettura impostazioni di sincronizz."</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Consente all\'applicazione di leggere le impostazioni di sincronizzazione per un account. Ad esempio, questa autorizzazione può determinare se l\'applicazione Persone è sincronizzata con un account."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"attivazione e disattivazione della sincronizzazione"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Cella aggiunta"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"È stata aggiunta la cella <xliff:g id="CELL_INDEX">%1$s</xliff:g>"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Sequenza completata"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Area sequenza."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Widget %2$d di %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Aggiungi widget."</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Vuoto"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB per il trasferimento di file"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB per il trasferimento di foto"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB per la modalità MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Collegato come installer"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Collegato a un accessorio USB"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Tocca per visualizzare più opzioni."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"Debug USB collegato"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="one">1 partita</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Fine"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Smontaggio dell\'archivio USB..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Smontaggio scheda SD..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Cancellazione dell\'archivio USB..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Cancellazione scheda SD..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Cancellazione archivio USB non riuscita."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Cancellazione scheda SD non riuscita."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"La scheda SD è stata rimossa prima che fosse smontata."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"Controllo dell\'archivio USB..."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"Controllo della scheda SD..."</string>
-    <string name="media_removed" msgid="7001526905057952097">"La scheda SD è stata rimossa."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"L\'archivio USB è attualmente utilizzato da un computer."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"La scheda SD è attualmente utilizzata da un computer."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"Stato dei supporti esterni sconosciuto."</string>
     <string name="share" msgid="1778686618230011964">"Condividi"</string>
     <string name="find" msgid="4808270900322985960">"Trova"</string>
     <string name="websearch" msgid="4337157977400211589">"Ricerca Web"</string>

@@ -27,6 +27,7 @@ import android.os.ParcelFileDescriptor;
 import android.util.Slog;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -230,6 +231,8 @@ public class UsbHostManager {
             mNewConfigurations = null;
             mNewInterfaces = null;
             mNewEndpoints = null;
+            mNewConfiguration = null;
+            mNewInterface = null;
         }
     }
 
@@ -283,11 +286,11 @@ public class UsbHostManager {
         }
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw) {
+    public void dump(IndentingPrintWriter pw) {
         synchronized (mLock) {
-            pw.println("  USB Host State:");
+            pw.println("USB Host State:");
             for (String name : mDevices.keySet()) {
-                pw.println("    " + name + ": " + mDevices.get(name));
+                pw.println("  " + name + ": " + mDevices.get(name));
             }
         }
     }

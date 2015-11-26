@@ -20,6 +20,10 @@ import android.app.SearchManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.os.Bundle;
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.provider.Settings;
@@ -42,17 +46,24 @@ public class AssistUtils {
                 ServiceManager.getService(Context.VOICE_INTERACTION_MANAGER_SERVICE));
     }
 
-    public void showSessionForActiveService(IVoiceInteractionSessionShowCallback showCallback) {
+    public boolean showSessionForActiveService(Bundle args, int sourceFlags,
+            IVoiceInteractionSessionShowCallback showCallback, IBinder activityToken) {
         try {
-            mVoiceInteractionManagerService.showSessionForActiveService(showCallback);
+            if (mVoiceInteractionManagerService != null) {
+                return mVoiceInteractionManagerService.showSessionForActiveService(args,
+                        sourceFlags, showCallback, activityToken);
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to call showSessionForActiveService", e);
         }
+        return false;
     }
 
     public void launchVoiceAssistFromKeyguard() {
         try {
-            mVoiceInteractionManagerService.launchVoiceAssistFromKeyguard();
+            if (mVoiceInteractionManagerService != null) {
+                mVoiceInteractionManagerService.launchVoiceAssistFromKeyguard();
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to call launchVoiceAssistFromKeyguard", e);
         }
@@ -80,7 +91,11 @@ public class AssistUtils {
 
     public ComponentName getActiveServiceComponentName() {
         try {
-            return mVoiceInteractionManagerService.getActiveServiceComponentName();
+            if (mVoiceInteractionManagerService != null) {
+                return mVoiceInteractionManagerService.getActiveServiceComponentName();
+            } else {
+                return null;
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to call getActiveServiceComponentName", e);
             return null;
@@ -99,9 +114,21 @@ public class AssistUtils {
 
     public void hideCurrentSession() {
         try {
-            mVoiceInteractionManagerService.hideCurrentSession();
+            if (mVoiceInteractionManagerService != null) {
+                mVoiceInteractionManagerService.hideCurrentSession();
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to call hideCurrentSession", e);
+        }
+    }
+
+    public void onLockscreenShown() {
+        try {
+            if (mVoiceInteractionManagerService != null) {
+                mVoiceInteractionManagerService.onLockscreenShown();
+            }
+        } catch (RemoteException e) {
+            Log.w(TAG, "Failed to call onLockscreenShown", e);
         }
     }
 
@@ -118,11 +145,14 @@ public class AssistUtils {
         }
 
         Intent intent = ((SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE))
-                .getAssistIntent(mContext, false, userId);
-        if (intent != null) {
-            return intent.getComponent();
+                .getAssistIntent(false);
+        PackageManager pm = mContext.getPackageManager();
+        ResolveInfo info = pm.resolveActivityAsUser(intent, PackageManager.MATCH_DEFAULT_ONLY,
+                userId);
+        if (info != null) {
+            return new ComponentName(info.activityInfo.applicationInfo.packageName,
+                    info.activityInfo.name);
         }
-
         return null;
     }
 

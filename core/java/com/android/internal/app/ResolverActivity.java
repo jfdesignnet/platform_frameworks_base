@@ -19,14 +19,11 @@ package com.android.internal.app;
 import android.annotation.Nullable;
 import android.app.Activity;
 import android.app.ActivityThread;
-import android.app.VoiceInteractor;
 import android.app.VoiceInteractor.PickOptionRequest;
 import android.app.VoiceInteractor.PickOptionRequest.Option;
 import android.app.VoiceInteractor.Prompt;
-import android.app.VoiceInteractor.Request;
 import android.os.AsyncTask;
 import android.provider.Settings;
-import android.service.chooser.ChooserTarget;
 import android.text.TextUtils;
 import android.util.Slog;
 import android.widget.AbsListView;
@@ -503,7 +500,7 @@ public class ResolverActivity extends Activity {
             mPackageMonitor.unregister();
             mRegistered = false;
         }
-        if ((getIntent().getFlags()&Intent.FLAG_ACTIVITY_NEW_TASK) != 0) {
+        if ((getIntent().getFlags()&Intent.FLAG_ACTIVITY_NEW_TASK) != 0 && !isVoiceInteraction()) {
             // This resolver is in the unusual situation where it has been
             // launched at the top of a new task.  We don't let it be added
             // to the recent tasks shown to the user, and we need to make sure
@@ -813,8 +810,13 @@ public class ResolverActivity extends Activity {
 
     void configureContentView(List<Intent> payloadIntents, Intent[] initialIntents,
             List<ResolveInfo> rList, boolean alwaysUseOption) {
+        // The last argument of createAdapter is whether to do special handling
+        // of the last used choice to highlight it in the list.  We need to always
+        // turn this off when running under voice interaction, since it results in
+        // a more complicated UI that the current voice interaction flow is not able
+        // to handle.
         mAdapter = createAdapter(this, payloadIntents, initialIntents, rList,
-                mLaunchedFromUid, alwaysUseOption);
+                mLaunchedFromUid, alwaysUseOption && !isVoiceInteraction());
 
         final int layoutId;
         if (mAdapter.hasFilteredItem()) {
@@ -930,6 +932,11 @@ public class ResolverActivity extends Activity {
         }
 
         @Override
+        public CharSequence getBadgeContentDescription() {
+            return null;
+        }
+
+        @Override
         public TargetInfo cloneFilledIn(Intent fillInIntent, int flags) {
             return new DisplayResolveInfo(this, fillInIntent, flags);
         }
@@ -973,7 +980,7 @@ public class ResolverActivity extends Activity {
 
         @Override
         public boolean startAsCaller(Activity activity, Bundle options, int userId) {
-            activity.startActivityAsCaller(mResolvedIntent, options, userId);
+            activity.startActivityAsCaller(mResolvedIntent, options, false, userId);
             return true;
         }
 
@@ -1068,6 +1075,11 @@ public class ResolverActivity extends Activity {
          * @return The (small) icon to badge the target with
          */
         public Drawable getBadgeIcon();
+
+        /**
+         * @return The content description for the badge icon
+         */
+        public CharSequence getBadgeContentDescription();
 
         /**
          * Clone this target with the given fill-in information.
@@ -1540,6 +1552,7 @@ public class ResolverActivity extends Activity {
                 final Drawable badge = info.getBadgeIcon();
                 if (badge != null) {
                     holder.badge.setImageDrawable(badge);
+                    holder.badge.setContentDescription(info.getBadgeContentDescription());
                     holder.badge.setVisibility(View.VISIBLE);
                 } else {
                     holder.badge.setVisibility(View.GONE);

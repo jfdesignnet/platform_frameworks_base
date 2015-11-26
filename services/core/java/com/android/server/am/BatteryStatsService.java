@@ -58,6 +58,11 @@ import java.io.File;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -101,8 +106,12 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                         mUpdateFlags = 0;
                     }
                     updateExternalStats((String)msg.obj, updateFlags);
-                    synchronized (this) {
-                        synchronized (mStats) {
+
+                    // other parts of the system could be calling into us
+                    // from mStats in order to report of changes. We must grab the mStats
+                    // lock before grabbing our own or we'll end up in a deadlock.
+                    synchronized (mStats) {
+                        synchronized (this) {
                             final int numUidsToRemove = mUidsToRemove.size();
                             for (int i = 0; i < numUidsToRemove; i++) {
                                 mStats.removeIsolatedUidLocked(mUidsToRemove.get(i));
@@ -489,6 +498,13 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
     
+    public void noteWakeUp(String reason, int reasonUid) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteWakeUpLocked(reason, reasonUid);
+        }
+    }
+
     public void noteInteractive(boolean interactive) {
         enforceCallingPermission();
         synchronized (mStats) {
@@ -843,26 +859,35 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     public boolean isOnBattery() {
         return mStats.isOnBattery();
     }
-    
-    public void setBatteryState(int status, int health, int plugType, int level,
-            int temp, int volt) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            final boolean onBattery = plugType == BatteryStatsImpl.BATTERY_PLUGGED_NONE;
-            if (mStats.isOnBattery() == onBattery) {
-                // The battery state has not changed, so we don't need to sync external
-                // stats immediately.
-                mStats.setBatteryStateLocked(status, health, plugType, level, temp, volt);
-                return;
-            }
-        }
 
-        // Sync external stats first as the battery has changed states. If we don't sync
-        // immediately here, we may not collect the relevant data later.
-        updateExternalStats("battery-state", UPDATE_ALL);
-        synchronized (mStats) {
-            mStats.setBatteryStateLocked(status, health, plugType, level, temp, volt);
-        }
+    @Override
+    public void setBatteryState(final int status, final int health, final int plugType,
+                                final int level, final int temp, final int volt) {
+        enforceCallingPermission();
+
+        // BatteryService calls us here and we may update external state. It would be wrong
+        // to block such a low level service like BatteryService on external stats like WiFi.
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (mStats) {
+                    final boolean onBattery = plugType == BatteryStatsImpl.BATTERY_PLUGGED_NONE;
+                    if (mStats.isOnBattery() == onBattery) {
+                        // The battery state has not changed, so we don't need to sync external
+                        // stats immediately.
+                        mStats.setBatteryStateLocked(status, health, plugType, level, temp, volt);
+                        return;
+                    }
+                }
+
+                // Sync external stats first as the battery has changed states. If we don't sync
+                // immediately here, we may not collect the relevant data later.
+                updateExternalStats("battery-state", UPDATE_ALL);
+                synchronized (mStats) {
+                    mStats.setBatteryStateLocked(status, health, plugType, level, temp, volt);
+                }
+            }
+        });
     }
     
     public long getAwakeTimeBattery() {
@@ -886,7 +911,10 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     }
 
     final class WakeupReasonThread extends Thread {
-        final String[] mReason = new String[1];
+        private static final int MAX_REASON_SIZE = 512;
+        private CharsetDecoder mDecoder;
+        private ByteBuffer mUtf8Buffer;
+        private CharBuffer mUtf16Buffer;
 
         WakeupReasonThread() {
             super("BatteryStats_wakeupReason");
@@ -895,31 +923,61 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         public void run() {
             Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND);
 
+            mDecoder = StandardCharsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPLACE)
+                    .onUnmappableCharacter(CodingErrorAction.REPLACE)
+                    .replaceWith("?");
+
+            mUtf8Buffer = ByteBuffer.allocateDirect(MAX_REASON_SIZE);
+            mUtf16Buffer = CharBuffer.allocate(MAX_REASON_SIZE);
+
             try {
-                int num;
-                while ((num = nativeWaitWakeup(mReason)) >= 0) {
+                String reason;
+                while ((reason = waitWakeup()) != null) {
                     synchronized (mStats) {
-                        // num will be either 0 or 1.
-                        if (num > 0) {
-                            mStats.noteWakeupReasonLocked(mReason[0]);
-                        } else {
-                            mStats.noteWakeupReasonLocked("unknown");
-                        }
+                        mStats.noteWakeupReasonLocked(reason);
                     }
                 }
             } catch (RuntimeException e) {
                 Slog.e(TAG, "Failure reading wakeup reasons", e);
             }
         }
+
+        private String waitWakeup() {
+            mUtf8Buffer.clear();
+            mUtf16Buffer.clear();
+            mDecoder.reset();
+
+            int bytesWritten = nativeWaitWakeup(mUtf8Buffer);
+            if (bytesWritten < 0) {
+                return null;
+            } else if (bytesWritten == 0) {
+                return "unknown";
+            }
+
+            // Set the buffer's limit to the number of bytes written.
+            mUtf8Buffer.limit(bytesWritten);
+
+            // Decode the buffer from UTF-8 to UTF-16.
+            // Unmappable characters will be replaced.
+            mDecoder.decode(mUtf8Buffer, mUtf16Buffer, true);
+            mUtf16Buffer.flip();
+
+            // Create a String from the UTF-16 buffer.
+            return mUtf16Buffer.toString();
+        }
     }
 
-    private static native int nativeWaitWakeup(String[] outReason);
+    private static native int nativeWaitWakeup(ByteBuffer outBuffer);
 
     private void dumpHelp(PrintWriter pw) {
         pw.println("Battery stats (batterystats) dump options:");
         pw.println("  [--checkin] [--history] [--history-start] [--charged] [-c]");
         pw.println("  [--daily] [--reset] [--write] [--new-daily] [--read-daily] [-h] [<package.name>]");
-        pw.println("  --checkin: format output for a checkin report.");
+        pw.println("  --checkin: generate output for a checkin report; will write (and clear) the");
+        pw.println("             last old completed stats when they had been reset.");
+        pw.println("  --c: write the current stats in checkin format.");
         pw.println("  --history: show only history data.");
         pw.println("  --history-start <num>: show only history data starting at given time offset.");
         pw.println("  --charged: only output data since last charged.");
@@ -1205,9 +1263,11 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                     Slog.v(TAG, "WiFi energy data was reset, new WiFi energy data is " + result);
                 }
 
+                // There is some accuracy error in reports so allow some slop in the results.
+                final long SAMPLE_ERROR_MILLIS = 750;
                 final long totalTimeMs = result.mControllerIdleTimeMs + result.mControllerRxTimeMs +
                         result.mControllerTxTimeMs;
-                if (totalTimeMs > timePeriodMs) {
+                if (totalTimeMs > timePeriodMs + SAMPLE_ERROR_MILLIS) {
                     StringBuilder sb = new StringBuilder();
                     sb.append("Total time ");
                     TimeUtils.formatDuration(totalTimeMs, sb);

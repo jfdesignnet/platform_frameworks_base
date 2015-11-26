@@ -110,6 +110,9 @@ final class ApplicationPackageManager extends PackageManager {
     @GuardedBy("mDelegates")
     private final ArrayList<MoveCallbackDelegate> mDelegates = new ArrayList<>();
 
+    @GuardedBy("mLock")
+    private String mPermissionsControllerPackageName;
+
     UserManager getUserManager() {
         synchronized (mLock) {
             if (mUserManager == null) {
@@ -417,6 +420,32 @@ final class ApplicationPackageManager extends PackageManager {
             return mPM.checkPermission(permName, pkgName, mContext.getUserId());
         } catch (RemoteException e) {
             throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    @Override
+    public boolean isPermissionRevokedByPolicy(String permName, String pkgName) {
+        try {
+            return mPM.isPermissionRevokedByPolicy(permName, pkgName, mContext.getUserId());
+        } catch (RemoteException e) {
+            throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public String getPermissionControllerPackageName() {
+        synchronized (mLock) {
+            if (mPermissionsControllerPackageName == null) {
+                try {
+                    mPermissionsControllerPackageName = mPM.getPermissionControllerPackageName();
+                } catch (RemoteException e) {
+                    throw new RuntimeException("Package manager has died", e);
+                }
+            }
+            return mPermissionsControllerPackageName;
         }
     }
 
@@ -748,7 +777,9 @@ final class ApplicationPackageManager extends PackageManager {
     public List<ProviderInfo> queryContentProviders(String processName,
                                                     int uid, int flags) {
         try {
-            return mPM.queryContentProviders(processName, uid, flags);
+            ParceledListSlice<ProviderInfo> slice
+                    = mPM.queryContentProviders(processName, uid, flags);
+            return slice != null ? slice.getList() : null;
         } catch (RemoteException e) {
             throw new RuntimeException("Package manager has died", e);
         }

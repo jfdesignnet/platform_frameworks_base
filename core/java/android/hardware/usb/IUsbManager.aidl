@@ -19,6 +19,8 @@ package android.hardware.usb;
 import android.app.PendingIntent;
 import android.hardware.usb.UsbAccessory;
 import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbPort;
+import android.hardware.usb.UsbPortStatus;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 
@@ -82,6 +84,9 @@ interface IUsbManager
     /* Clears default preferences and permissions for the package */
     void clearDefaults(String packageName, int userId);
 
+    /* Returns true if the specified USB function is enabled. */
+    boolean isFunctionEnabled(String function);
+
     /* Sets the current USB function. */
     void setCurrentFunction(String function);
 
@@ -91,9 +96,6 @@ interface IUsbManager
      * user information.
      */
     void setUsbDataUnlocked(boolean unlock);
-
-    /* Returns true iff sensitive user data is exposed on the USB connection. */
-    boolean isUsbDataUnlocked();
 
     /* Allow USB debugging from the attached host. If alwaysAllow is true, add the
      * the public key to list of host keys that the user has approved.
@@ -105,4 +107,13 @@ interface IUsbManager
 
     /* Clear public keys installed for secure USB debugging */
     void clearUsbDebuggingKeys();
+
+    /* Gets the list of USB ports. */
+    UsbPort[] getPorts();
+
+    /* Gets the status of the specified USB port. */
+    UsbPortStatus getPortStatus(in String portId);
+
+    /* Sets the port's current role. */
+    void setPortRoles(in String portId, int powerRole, int dataRole);
 }

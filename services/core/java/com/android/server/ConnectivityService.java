@@ -220,23 +220,13 @@ public class ConnectivityService extends IConnectivityManager.Stub
     private static final int ENABLED  = 1;
     private static final int DISABLED = 0;
 
-    // Arguments to rematchNetworkAndRequests()
-    private enum NascentState {
-        // Indicates a network was just validated for the first time.  If the network is found to
-        // be unwanted (i.e. not satisfy any NetworkRequests) it is torn down.
-        JUST_VALIDATED,
-        // Indicates a network was not validated for the first time immediately prior to this call.
-        NOT_JUST_VALIDATED
-    };
     private enum ReapUnvalidatedNetworks {
-        // Tear down unvalidated networks that have no chance (i.e. even if validated) of becoming
-        // the highest scoring network satisfying a NetworkRequest.  This should be passed when it's
-        // known that there may be unvalidated networks that could potentially be reaped, and when
+        // Tear down networks that have no chance (e.g. even if validated) of becoming
+        // the highest scoring network satisfying a NetworkRequest.  This should be passed when
         // all networks have been rematched against all NetworkRequests.
         REAP,
-        // Don't reap unvalidated networks.  This should be passed when it's known that there are
-        // no unvalidated networks that could potentially be reaped, and when some networks have
-        // not yet been rematched against all NetworkRequests.
+        // Don't reap networks.  This should be passed when some networks have not yet been
+        // rematched against all NetworkRequests.
         DONT_REAP
     };
 
@@ -417,6 +407,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
     // sequence number of NetworkRequests
     private int mNextNetworkRequestId = 1;
 
+    // NetworkRequest activity String log entries.
+    private static final int MAX_NETWORK_REQUEST_LOGS = 20;
+    private final LocalLog mNetworkRequestInfoLogs = new LocalLog(MAX_NETWORK_REQUEST_LOGS);
+
     // Array of <Network,ReadOnlyLocalLogs> tracking network validation and results
     private static final int MAX_VALIDATION_LOGS = 10;
     private final ArrayDeque<Pair<Network,ReadOnlyLocalLog>> mValidationLogs =
@@ -569,8 +563,9 @@ public class ConnectivityService extends IConnectivityManager.Stub
             final DetailedState state = nai.networkInfo.getDetailedState();
             for (int type = 0; type < mTypeLists.length; type++) {
                 final ArrayList<NetworkAgentInfo> list = mTypeLists[type];
+                final boolean contains = (list != null && list.contains(nai));
                 final boolean isFirst = (list != null && list.size() > 0 && nai == list.get(0));
-                if (isFirst || isDefault) {
+                if (isFirst || (contains && isDefault)) {
                     maybeLogBroadcast(nai, state, type, isDefault);
                     sendLegacyNetworkBroadcast(nai, state, type);
                 }
@@ -619,8 +614,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
         if (DBG) log("ConnectivityService starting up");
 
         mDefaultRequest = createInternetRequestForTransport(-1);
-        mNetworkRequests.put(mDefaultRequest, new NetworkRequestInfo(
-                null, mDefaultRequest, new Binder(), NetworkRequestInfo.REQUEST));
+        NetworkRequestInfo defaultNRI = new NetworkRequestInfo(null, mDefaultRequest,
+                new Binder(), NetworkRequestInfo.REQUEST);
+        mNetworkRequests.put(mDefaultRequest, defaultNRI);
+        mNetworkRequestInfoLogs.log("REGISTER " + defaultNRI);
 
         mDefaultMobileDataRequest = createInternetRequestForTransport(
                 NetworkCapabilities.TRANSPORT_CELLULAR);
@@ -890,7 +887,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
         Network network = null;
         String subscriberId = null;
 
-        NetworkAgentInfo nai = mNetworkForRequestId.get(mDefaultRequest.requestId);
+        NetworkAgentInfo nai = getDefaultNetwork();
 
         final Network[] networks = getVpnUnderlyingNetworks(uid);
         if (networks != null) {
@@ -1435,9 +1432,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
     }
 
     private void enforceChangePermission() {
-        mContext.enforceCallingOrSelfPermission(
-                android.Manifest.permission.CHANGE_NETWORK_STATE,
-                "ConnectivityService");
+        int uid = Binder.getCallingUid();
+        Settings.checkAndNoteChangeNetworkStateOperation(mContext, uid, Settings
+                .getPackageNameForUid(mContext, uid), true);
+
     }
 
     private void enforceTetherAccessPermission() {
@@ -1587,7 +1585,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
                 NetworkCapabilities.TRANSPORT_CELLULAR)) {
             timeout = Settings.Global.getInt(mContext.getContentResolver(),
                                              Settings.Global.DATA_ACTIVITY_TIMEOUT_MOBILE,
-                                             5);
+                                             10);
             type = ConnectivityManager.TYPE_MOBILE;
         } else if (networkAgent.networkCapabilities.hasTransport(
                 NetworkCapabilities.TRANSPORT_WIFI)) {
@@ -1775,7 +1773,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
                 // Start gathering diagnostic information.
                 netDiags.add(new NetworkDiagnostics(
                         nai.network,
-                        new LinkProperties(nai.linkProperties),
+                        new LinkProperties(nai.linkProperties),  // Must be a copy.
                         DIAG_TIME_MS));
             }
 
@@ -1795,7 +1793,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
         pw.println();
         pw.println();
 
-        NetworkAgentInfo defaultNai = mNetworkForRequestId.get(mDefaultRequest.requestId);
+        final NetworkAgentInfo defaultNai = getDefaultNetwork();
         pw.print("Active default network: ");
         if (defaultNai == null) {
             pw.println("none");
@@ -1868,6 +1866,12 @@ public class ConnectivityService extends IConnectivityManager.Stub
                     pw.decreaseIndent();
                 }
             }
+
+            pw.println();
+            pw.println("mNetworkRequestInfoLogs (most recent first):");
+            pw.increaseIndent();
+            mNetworkRequestInfoLogs.reverseDump(fd, pw, args);
+            pw.decreaseIndent();
         }
     }
 
@@ -1920,8 +1924,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
                                 networkCapabilities.hasCapability(NET_CAPABILITY_VALIDATED)) {
                             Slog.wtf(TAG, "BUG: " + nai + " has stateful capability.");
                         }
-                        updateCapabilities(nai, networkCapabilities,
-                                NascentState.NOT_JUST_VALIDATED);
+                        updateCapabilities(nai, networkCapabilities);
                     }
                     break;
                 }
@@ -2011,11 +2014,9 @@ public class ConnectivityService extends IConnectivityManager.Stub
                         if (DBG) log(nai.name() + " validation " + (valid ? " passed" : "failed"));
                         if (valid != nai.lastValidated) {
                             final int oldScore = nai.getCurrentScore();
-                            final NascentState nascent = (valid && !nai.everValidated) ?
-                                    NascentState.JUST_VALIDATED : NascentState.NOT_JUST_VALIDATED;
                             nai.lastValidated = valid;
                             nai.everValidated |= valid;
-                            updateCapabilities(nai, nai.networkCapabilities, nascent);
+                            updateCapabilities(nai, nai.networkCapabilities);
                             // If score has changed, rebroadcast to NetworkFactories. b/17726566
                             if (oldScore != nai.getCurrentScore()) sendUpdatedScoreToFactories(nai);
                         }
@@ -2046,8 +2047,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
                     if (nai != null && (visible != nai.lastCaptivePortalDetected)) {
                         nai.lastCaptivePortalDetected = visible;
                         nai.everCaptivePortalDetected |= visible;
-                        updateCapabilities(nai, nai.networkCapabilities,
-                                NascentState.NOT_JUST_VALIDATED);
+                        updateCapabilities(nai, nai.networkCapabilities);
                     }
                     if (!visible) {
                         setProvNotificationVisibleIntent(false, netId, null, 0, null, null, false);
@@ -2066,17 +2066,22 @@ public class ConnectivityService extends IConnectivityManager.Stub
         }
     }
 
+    private void linger(NetworkAgentInfo nai) {
+        nai.lingering = true;
+        nai.networkMonitor.sendMessage(NetworkMonitor.CMD_NETWORK_LINGER);
+        notifyNetworkCallbacks(nai, ConnectivityManager.CALLBACK_LOSING);
+    }
+
     // Cancel any lingering so the linger timeout doesn't teardown a network.
     // This should be called when a network begins satisfying a NetworkRequest.
     // Note: depending on what state the NetworkMonitor is in (e.g.,
     // if it's awaiting captive portal login, or if validation failed), this
     // may trigger a re-evaluation of the network.
     private void unlinger(NetworkAgentInfo nai) {
-        if (VDBG) log("Canceling linger of " + nai.name());
-        // If network has never been validated, it cannot have been lingered, so don't bother
-        // needlessly triggering a re-evaluation.
-        if (!nai.everValidated) return;
         nai.networkLingered.clear();
+        if (!nai.lingering) return;
+        nai.lingering = false;
+        if (VDBG) log("Canceling linger of " + nai.name());
         nai.networkMonitor.sendMessage(NetworkMonitor.CMD_NETWORK_CONNECTED);
     }
 
@@ -2138,6 +2143,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
                 mDefaultInetConditionPublished = 0;
             }
             notifyIfacesChanged();
+            // TODO - we shouldn't send CALLBACK_LOST to requests that can be satisfied
+            // by other networks that are already connected. Perhaps that can be done by
+            // sending all CALLBACK_LOST messages (for requests, not listens) at the end
+            // of rematchAllNetworksAndRequests
             notifyNetworkCallbacks(nai, ConnectivityManager.CALLBACK_LOST);
             nai.networkMonitor.sendMessage(NetworkMonitor.CMD_NETWORK_DISCONNECTED);
             mNetworkAgentInfos.remove(msg.replyTo);
@@ -2147,33 +2156,13 @@ public class ConnectivityService extends IConnectivityManager.Stub
                 // available until we've told netd to delete it below.
                 mNetworkForNetId.remove(nai.network.netId);
             }
-            // Since we've lost the network, go through all the requests that
-            // it was satisfying and see if any other factory can satisfy them.
-            // TODO: This logic may be better replaced with a call to rematchAllNetworksAndRequests
-            final ArrayList<NetworkAgentInfo> toActivate = new ArrayList<NetworkAgentInfo>();
+            // Remove all previously satisfied requests.
             for (int i = 0; i < nai.networkRequests.size(); i++) {
                 NetworkRequest request = nai.networkRequests.valueAt(i);
                 NetworkAgentInfo currentNetwork = mNetworkForRequestId.get(request.requestId);
                 if (currentNetwork != null && currentNetwork.network.netId == nai.network.netId) {
-                    if (DBG) {
-                        log("Checking for replacement network to handle request " + request );
-                    }
                     mNetworkForRequestId.remove(request.requestId);
                     sendUpdatedScoreToFactories(request, 0);
-                    NetworkAgentInfo alternative = null;
-                    for (NetworkAgentInfo existing : mNetworkAgentInfos.values()) {
-                        if (existing.satisfies(request) &&
-                                (alternative == null ||
-                                 alternative.getCurrentScore() < existing.getCurrentScore())) {
-                            alternative = existing;
-                        }
-                    }
-                    if (alternative != null) {
-                        if (DBG) log(" found replacement in " + alternative.name());
-                        if (!toActivate.contains(alternative)) {
-                            toActivate.add(alternative);
-                        }
-                    }
                 }
             }
             if (nai.networkRequests.get(mDefaultRequest.requestId) != null) {
@@ -2182,11 +2171,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
                 requestNetworkTransitionWakelock(nai.name());
             }
             mLegacyTypeTracker.remove(nai, wasDefault);
-            for (NetworkAgentInfo networkToActivate : toActivate) {
-                unlinger(networkToActivate);
-                rematchNetworkAndRequests(networkToActivate, NascentState.NOT_JUST_VALIDATED,
-                        ReapUnvalidatedNetworks.DONT_REAP);
-            }
+            rematchAllNetworksAndRequests(null, 0);
             if (nai.created) {
                 // Tell netd to clean up the configuration for this network
                 // (routing rules, DNS, etc).
@@ -2240,49 +2225,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
     private void handleRegisterNetworkRequest(NetworkRequestInfo nri) {
         mNetworkRequests.put(nri.request, nri);
-
-        // TODO: This logic may be better replaced with a call to rematchNetworkAndRequests
-
-        // Check for the best currently alive network that satisfies this request
-        NetworkAgentInfo bestNetwork = null;
-        for (NetworkAgentInfo network : mNetworkAgentInfos.values()) {
-            if (DBG) log("handleRegisterNetworkRequest checking " + network.name());
-            if (network.satisfies(nri.request)) {
-                if (DBG) log("apparently satisfied.  currentScore=" + network.getCurrentScore());
-                if (!nri.isRequest) {
-                    // Not setting bestNetwork here as a listening NetworkRequest may be
-                    // satisfied by multiple Networks.  Instead the request is added to
-                    // each satisfying Network and notified about each.
-                    if (!network.addRequest(nri.request)) {
-                        Slog.wtf(TAG, "BUG: " + network.name() + " already has " + nri.request);
-                    }
-                    notifyNetworkCallback(network, nri);
-                } else if (bestNetwork == null ||
-                        bestNetwork.getCurrentScore() < network.getCurrentScore()) {
-                    bestNetwork = network;
-                }
-            }
-        }
-        if (bestNetwork != null) {
-            if (DBG) log("using " + bestNetwork.name());
-            unlinger(bestNetwork);
-            if (!bestNetwork.addRequest(nri.request)) {
-                Slog.wtf(TAG, "BUG: " + bestNetwork.name() + " already has " + nri.request);
-            }
-            mNetworkForRequestId.put(nri.request.requestId, bestNetwork);
-            notifyNetworkCallback(bestNetwork, nri);
-            if (nri.request.legacyType != TYPE_NONE) {
-                mLegacyTypeTracker.add(nri.request.legacyType, bestNetwork);
-            }
-        }
-
-        if (nri.isRequest) {
-            if (DBG) log("sending new NetworkRequest to factories");
-            final int score = bestNetwork == null ? 0 : bestNetwork.getCurrentScore();
-            for (NetworkFactoryInfo nfi : mNetworkFactoryInfos.values()) {
-                nfi.asyncChannel.sendMessage(android.net.NetworkFactory.CMD_REQUEST_NETWORK, score,
-                        0, nri.request);
-            }
+        mNetworkRequestInfoLogs.log("REGISTER " + nri);
+        rematchAllNetworksAndRequests(null, 0);
+        if (nri.isRequest && mNetworkForRequestId.get(nri.request.requestId) == null) {
+            sendUpdatedScoreToFactories(nri.request, 0);
         }
     }
 
@@ -2295,43 +2241,28 @@ public class ConnectivityService extends IConnectivityManager.Stub
     }
 
     // Is nai unneeded by all NetworkRequests (and should be disconnected)?
-    // For validated Networks this is simply whether it is satsifying any NetworkRequests.
-    // For unvalidated Networks this is whether it is satsifying any NetworkRequests or
-    // were it to become validated, would it have a chance of satisfying any NetworkRequests.
+    // This is whether it is satisfying any NetworkRequests or were it to become validated,
+    // would it have a chance of satisfying any NetworkRequests.
     private boolean unneeded(NetworkAgentInfo nai) {
-        if (!nai.created || nai.isVPN()) return false;
-        boolean unneeded = true;
-        if (nai.everValidated) {
-            for (int i = 0; i < nai.networkRequests.size() && unneeded; i++) {
-                final NetworkRequest nr = nai.networkRequests.valueAt(i);
-                try {
-                    if (isRequest(nr)) unneeded = false;
-                } catch (Exception e) {
-                    loge("Request " + nr + " not found in mNetworkRequests.");
-                    loge("  it came from request list  of " + nai.name());
-                }
-            }
-        } else {
-            for (NetworkRequestInfo nri : mNetworkRequests.values()) {
-                // If this Network is already the highest scoring Network for a request, or if
-                // there is hope for it to become one if it validated, then it is needed.
-                if (nri.isRequest && nai.satisfies(nri.request) &&
-                        (nai.networkRequests.get(nri.request.requestId) != null ||
-                        // Note that this catches two important cases:
-                        // 1. Unvalidated cellular will not be reaped when unvalidated WiFi
-                        //    is currently satisfying the request.  This is desirable when
-                        //    cellular ends up validating but WiFi does not.
-                        // 2. Unvalidated WiFi will not be reaped when validated cellular
-                        //    is currently satsifying the request.  This is desirable when
-                        //    WiFi ends up validating and out scoring cellular.
-                        mNetworkForRequestId.get(nri.request.requestId).getCurrentScore() <
-                                nai.getCurrentScoreAsValidated())) {
-                    unneeded = false;
-                    break;
-                }
+        if (!nai.created || nai.isVPN() || nai.lingering) return false;
+        for (NetworkRequestInfo nri : mNetworkRequests.values()) {
+            // If this Network is already the highest scoring Network for a request, or if
+            // there is hope for it to become one if it validated, then it is needed.
+            if (nri.isRequest && nai.satisfies(nri.request) &&
+                    (nai.networkRequests.get(nri.request.requestId) != null ||
+                    // Note that this catches two important cases:
+                    // 1. Unvalidated cellular will not be reaped when unvalidated WiFi
+                    //    is currently satisfying the request.  This is desirable when
+                    //    cellular ends up validating but WiFi does not.
+                    // 2. Unvalidated WiFi will not be reaped when validated cellular
+                    //    is currently satisfying the request.  This is desirable when
+                    //    WiFi ends up validating and out scoring cellular.
+                    mNetworkForRequestId.get(nri.request.requestId).getCurrentScore() <
+                            nai.getCurrentScoreAsValidated())) {
+                return false;
             }
         }
-        return unneeded;
+        return true;
     }
 
     private void handleReleaseNetworkRequest(NetworkRequest request, int callingUid) {
@@ -2344,6 +2275,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
             if (DBG) log("releasing NetworkRequest " + request);
             nri.unlinkDeathRecipient();
             mNetworkRequests.remove(request);
+            mNetworkRequestInfoLogs.log("RELEASE " + nri);
             if (nri.isRequest) {
                 // Find all networks that are satisfying this request and remove the request
                 // from their request lists.
@@ -2441,7 +2373,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
         if (accept != nai.networkMisc.acceptUnvalidated) {
             int oldScore = nai.getCurrentScore();
             nai.networkMisc.acceptUnvalidated = accept;
-            rematchAllNetworksAndRequests(nai, oldScore, NascentState.NOT_JUST_VALIDATED);
+            rematchAllNetworksAndRequests(nai, oldScore);
             sendUpdatedScoreToFactories(nai);
         }
 
@@ -2451,14 +2383,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
         }
 
         if (!accept) {
-            // Tell the NetworkAgent that the network does not have Internet access (because that's
-            // what we just told the user). This will hint to Wi-Fi not to autojoin this network in
-            // the future. We do this now because NetworkMonitor might not yet have finished
-            // validating and thus we might not yet have received an EVENT_NETWORK_TESTED.
-            nai.asyncChannel.sendMessage(NetworkAgent.CMD_REPORT_NETWORK_STATUS,
-                    NetworkAgent.INVALID_NETWORK, 0, null);
-            // TODO: Tear the network down once we have determined how to tell WifiStateMachine not
-            // to reconnect to it immediately. http://b/20739299
+            // Tell the NetworkAgent to not automatically reconnect to the network.
+            nai.asyncChannel.sendMessage(NetworkAgent.CMD_PREVENT_AUTOMATIC_RECONNECT);
+            // Teardown the nework.
+            teardownUnneededNetwork(nai);
         }
 
     }
@@ -2748,16 +2676,6 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
             nai.networkMonitor.sendMessage(NetworkMonitor.CMD_FORCE_REEVALUATION, uid);
         }
-    }
-
-    public void captivePortalAppResponse(Network network, int response, String actionToken) {
-        if (response == ConnectivityManager.CAPTIVE_PORTAL_APP_RETURN_WANTED_AS_IS) {
-            enforceConnectivityInternalPermission();
-        }
-        final NetworkAgentInfo nai = getNetworkAgentInfoForNetwork(network);
-        if (nai == null) return;
-        nai.networkMonitor.sendMessage(NetworkMonitor.CMD_CAPTIVE_PORTAL_APP_FINISHED, response, 0,
-                actionToken);
     }
 
     private ProxyInfo getDefaultProxy() {
@@ -3129,11 +3047,14 @@ public class ConnectivityService extends IConnectivityManager.Stub
      * are checked in Vpn class.
      */
     @Override
-    public LegacyVpnInfo getLegacyVpnInfo() {
-        throwIfLockdownEnabled();
-        int user = UserHandle.getUserId(Binder.getCallingUid());
+    public LegacyVpnInfo getLegacyVpnInfo(int userId) {
+        enforceCrossUserPermission(userId);
+        if (mLockdownEnabled) {
+            return null;
+        }
+
         synchronized(mVpns) {
-            return mVpns.get(user).getLegacyVpnInfo();
+            return mVpns.get(userId).getLegacyVpnInfo();
         }
     }
 
@@ -3626,8 +3547,9 @@ public class ConnectivityService extends IConnectivityManager.Stub
         }
 
         public String toString() {
-            return (isRequest ? "Request" : "Listen") + " from uid/pid:" + mUid + "/" +
-                    mPid + " for " + request +
+            return (isRequest ? "Request" : "Listen") +
+                    " from uid/pid:" + mUid + "/" + mPid +
+                    " for " + request +
                     (mPendingIntent == null ? "" : " to trigger " + mPendingIntent);
         }
     }
@@ -3657,9 +3579,9 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
         NetworkRequest networkRequest = new NetworkRequest(networkCapabilities, legacyType,
                 nextNetworkRequestId());
-        if (DBG) log("requestNetwork for " + networkRequest);
         NetworkRequestInfo nri = new NetworkRequestInfo(messenger, networkRequest, binder,
                 NetworkRequestInfo.REQUEST);
+        if (DBG) log("requestNetwork for " + nri);
 
         mHandler.sendMessage(mHandler.obtainMessage(EVENT_REGISTER_NETWORK_REQUEST, nri));
         if (timeoutMs > 0) {
@@ -3722,9 +3644,9 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
         NetworkRequest networkRequest = new NetworkRequest(networkCapabilities, TYPE_NONE,
                 nextNetworkRequestId());
-        if (DBG) log("pendingRequest for " + networkRequest + " to trigger " + operation);
         NetworkRequestInfo nri = new NetworkRequestInfo(networkRequest, operation,
                 NetworkRequestInfo.REQUEST);
+        if (DBG) log("pendingRequest for " + nri);
         mHandler.sendMessage(mHandler.obtainMessage(EVENT_REGISTER_NETWORK_REQUEST_WITH_INTENT,
                 nri));
         return networkRequest;
@@ -3772,11 +3694,11 @@ public class ConnectivityService extends IConnectivityManager.Stub
             enforceAccessPermission();
         }
 
-        NetworkRequest networkRequest = new NetworkRequest(new NetworkCapabilities(
-                networkCapabilities), TYPE_NONE, nextNetworkRequestId());
-        if (DBG) log("listenForNetwork for " + networkRequest);
+        NetworkRequest networkRequest = new NetworkRequest(
+                new NetworkCapabilities(networkCapabilities), TYPE_NONE, nextNetworkRequestId());
         NetworkRequestInfo nri = new NetworkRequestInfo(messenger, networkRequest, binder,
                 NetworkRequestInfo.LISTEN);
+        if (DBG) log("listenForNetwork for " + nri);
 
         mHandler.sendMessage(mHandler.obtainMessage(EVENT_REGISTER_NETWORK_LISTENER, nri));
         return networkRequest;
@@ -3790,11 +3712,11 @@ public class ConnectivityService extends IConnectivityManager.Stub
             enforceAccessPermission();
         }
 
-        NetworkRequest networkRequest = new NetworkRequest(new NetworkCapabilities(
-                networkCapabilities), TYPE_NONE, nextNetworkRequestId());
-        if (DBG) log("pendingListenForNetwork for " + networkRequest + " to trigger " + operation);
+        NetworkRequest networkRequest = new NetworkRequest(
+                new NetworkCapabilities(networkCapabilities), TYPE_NONE, nextNetworkRequestId());
         NetworkRequestInfo nri = new NetworkRequestInfo(networkRequest, operation,
                 NetworkRequestInfo.LISTEN);
+        if (DBG) log("pendingListenForNetwork for " + nri);
 
         mHandler.sendMessage(mHandler.obtainMessage(EVENT_REGISTER_NETWORK_LISTENER, nri));
     }
@@ -3881,10 +3803,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
         // TODO: Instead of passing mDefaultRequest, provide an API to determine whether a Network
         // satisfies mDefaultRequest.
-        NetworkAgentInfo nai = new NetworkAgentInfo(messenger, new AsyncChannel(),
+        final NetworkAgentInfo nai = new NetworkAgentInfo(messenger, new AsyncChannel(),
                 new Network(reserveNetId()), new NetworkInfo(networkInfo), new LinkProperties(
                 linkProperties), new NetworkCapabilities(networkCapabilities), currentScore,
-                mContext, mTrackerHandler, new NetworkMisc(networkMisc), mDefaultRequest);
+                mContext, mTrackerHandler, new NetworkMisc(networkMisc), mDefaultRequest, this);
         synchronized (this) {
             nai.networkMonitor.systemReady = mSystemReady;
         }
@@ -4050,7 +3972,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
             } catch (Exception e) {
                 loge("Exception in setDnsServersForNetwork: " + e);
             }
-            NetworkAgentInfo defaultNai = mNetworkForRequestId.get(mDefaultRequest.requestId);
+            final NetworkAgentInfo defaultNai = getDefaultNetwork();
             if (defaultNai != null && defaultNai.network.netId == netId) {
                 setDefaultDnsSystemProperties(dnses);
             }
@@ -4085,31 +4007,39 @@ public class ConnectivityService extends IConnectivityManager.Stub
      * augmented with any stateful capabilities implied from {@code networkAgent}
      * (e.g., validated status and captive portal status).
      *
-     * @param networkAgent the network having its capabilities updated.
+     * @param nai the network having its capabilities updated.
      * @param networkCapabilities the new network capabilities.
-     * @param nascent indicates whether {@code networkAgent} was validated
-     *         (i.e. had everValidated set for the first time) immediately prior to this call.
      */
-    private void updateCapabilities(NetworkAgentInfo networkAgent,
-            NetworkCapabilities networkCapabilities, NascentState nascent) {
+    private void updateCapabilities(NetworkAgentInfo nai, NetworkCapabilities networkCapabilities) {
         // Don't modify caller's NetworkCapabilities.
         networkCapabilities = new NetworkCapabilities(networkCapabilities);
-        if (networkAgent.lastValidated) {
+        if (nai.lastValidated) {
             networkCapabilities.addCapability(NET_CAPABILITY_VALIDATED);
         } else {
             networkCapabilities.removeCapability(NET_CAPABILITY_VALIDATED);
         }
-        if (networkAgent.lastCaptivePortalDetected) {
+        if (nai.lastCaptivePortalDetected) {
             networkCapabilities.addCapability(NET_CAPABILITY_CAPTIVE_PORTAL);
         } else {
             networkCapabilities.removeCapability(NET_CAPABILITY_CAPTIVE_PORTAL);
         }
-        if (!Objects.equals(networkAgent.networkCapabilities, networkCapabilities)) {
-            synchronized (networkAgent) {
-                networkAgent.networkCapabilities = networkCapabilities;
+        if (!Objects.equals(nai.networkCapabilities, networkCapabilities)) {
+            final int oldScore = nai.getCurrentScore();
+            if (nai.networkCapabilities.hasCapability(NET_CAPABILITY_NOT_RESTRICTED) !=
+                    networkCapabilities.hasCapability(NET_CAPABILITY_NOT_RESTRICTED)) {
+                try {
+                    mNetd.setNetworkPermission(nai.network.netId,
+                            networkCapabilities.hasCapability(NET_CAPABILITY_NOT_RESTRICTED) ?
+                                    null : NetworkManagementService.PERMISSION_SYSTEM);
+                } catch (RemoteException e) {
+                    loge("Exception in setNetworkPermission: " + e);
+                }
             }
-            rematchAllNetworksAndRequests(networkAgent, networkAgent.getCurrentScore(), nascent);
-            notifyNetworkCallbacks(networkAgent, ConnectivityManager.CALLBACK_CAP_CHANGED);
+            synchronized (nai) {
+                nai.networkCapabilities = networkCapabilities;
+            }
+            rematchAllNetworksAndRequests(nai, oldScore);
+            notifyNetworkCallbacks(nai, ConnectivityManager.CALLBACK_CAP_CHANGED);
         }
     }
 
@@ -4251,7 +4181,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
     //   one or more NetworkRequests, or if it is a VPN.
     //
     // - Tears down newNetwork if it just became validated
-    //   (i.e. nascent==JUST_VALIDATED) but turns out to be unneeded.
+    //   but turns out to be unneeded.
     //
     // - If reapUnvalidatedNetworks==REAP, tears down unvalidated
     //   networks that have no chance (i.e. even if validated)
@@ -4264,17 +4194,12 @@ public class ConnectivityService extends IConnectivityManager.Stub
     // as it performs better by a factor of the number of Networks.
     //
     // @param newNetwork is the network to be matched against NetworkRequests.
-    // @param nascent indicates if newNetwork just became validated, in which case it should be
-    //               torn down if unneeded.
     // @param reapUnvalidatedNetworks indicates if an additional pass over all networks should be
     //               performed to tear down unvalidated networks that have no chance (i.e. even if
     //               validated) of becoming the highest scoring network.
-    private void rematchNetworkAndRequests(NetworkAgentInfo newNetwork, NascentState nascent,
+    private void rematchNetworkAndRequests(NetworkAgentInfo newNetwork,
             ReapUnvalidatedNetworks reapUnvalidatedNetworks) {
         if (!newNetwork.created) return;
-        if (nascent == NascentState.JUST_VALIDATED && !newNetwork.everValidated) {
-            loge("ERROR: nascent network not validated.");
-        }
         boolean keep = newNetwork.isVPN();
         boolean isNewDefault = false;
         NetworkAgentInfo oldDefaultNetwork = null;
@@ -4285,9 +4210,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
         ArrayList<NetworkRequestInfo> addedRequests = new ArrayList<NetworkRequestInfo>();
         if (VDBG) log(" network has: " + newNetwork.networkCapabilities);
         for (NetworkRequestInfo nri : mNetworkRequests.values()) {
-            NetworkAgentInfo currentNetwork = mNetworkForRequestId.get(nri.request.requestId);
-            if (newNetwork == currentNetwork) {
-                if (DBG) {
+            final NetworkAgentInfo currentNetwork = mNetworkForRequestId.get(nri.request.requestId);
+            final boolean satisfies = newNetwork.satisfies(nri.request);
+            if (newNetwork == currentNetwork && satisfies) {
+                if (VDBG) {
                     log("Network " + newNetwork.name() + " was already satisfying" +
                             " request " + nri.request.requestId + ". No change.");
                 }
@@ -4297,7 +4223,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
             // check if it satisfies the NetworkCapabilities
             if (VDBG) log("  checking if request is satisfied: " + nri.request);
-            if (newNetwork.satisfies(nri.request)) {
+            if (satisfies) {
                 if (!nri.isRequest) {
                     // This is not a request, it's a callback listener.
                     // Add it to newNetwork regardless of score.
@@ -4340,52 +4266,90 @@ public class ConnectivityService extends IConnectivityManager.Stub
                         oldDefaultNetwork = currentNetwork;
                     }
                 }
+            } else if (newNetwork.networkRequests.get(nri.request.requestId) != null) {
+                // If "newNetwork" is listed as satisfying "nri" but no longer satisfies "nri",
+                // mark it as no longer satisfying "nri".  Because networks are processed by
+                // rematchAllNetworkAndRequests() in descending score order, "currentNetwork" will
+                // match "newNetwork" before this loop will encounter a "currentNetwork" with higher
+                // score than "newNetwork" and where "currentNetwork" no longer satisfies "nri".
+                // This means this code doesn't have to handle the case where "currentNetwork" no
+                // longer satisfies "nri" when "currentNetwork" does not equal "newNetwork".
+                if (DBG) {
+                    log("Network " + newNetwork.name() + " stopped satisfying" +
+                            " request " + nri.request.requestId);
+                }
+                newNetwork.networkRequests.remove(nri.request.requestId);
+                if (currentNetwork == newNetwork) {
+                    mNetworkForRequestId.remove(nri.request.requestId);
+                    sendUpdatedScoreToFactories(nri.request, 0);
+                } else {
+                    if (nri.isRequest == true) {
+                        Slog.wtf(TAG, "BUG: Removing request " + nri.request.requestId + " from " +
+                                newNetwork.name() +
+                                " without updating mNetworkForRequestId or factories!");
+                    }
+                }
+                // TODO: technically, sending CALLBACK_LOST here is
+                // incorrect if nri is a request (not a listen) and there
+                // is a replacement network currently connected that can
+                // satisfy it. However, the only capability that can both
+                // a) be requested and b) change is NET_CAPABILITY_TRUSTED,
+                // so this code is only incorrect for a network that loses
+                // the TRUSTED capability, which is a rare case.
+                callCallbackForRequest(nri, newNetwork, ConnectivityManager.CALLBACK_LOST);
             }
         }
         // Linger any networks that are no longer needed.
         for (NetworkAgentInfo nai : affectedNetworks) {
-            if (nai.everValidated && unneeded(nai)) {
-                nai.networkMonitor.sendMessage(NetworkMonitor.CMD_NETWORK_LINGER);
-                notifyNetworkCallbacks(nai, ConnectivityManager.CALLBACK_LOSING);
+            if (nai.lingering) {
+                // Already lingered.  Nothing to do.  This can only happen if "nai" is in
+                // "affectedNetworks" twice.  The reasoning being that to get added to
+                // "affectedNetworks", "nai" must have been satisfying a NetworkRequest
+                // (i.e. not lingered) so it could have only been lingered by this loop.
+                // unneeded(nai) will be false and we'll call unlinger() below which would
+                // be bad, so handle it here.
+            } else if (unneeded(nai)) {
+                linger(nai);
             } else {
+                // Clear nai.networkLingered we might have added above.
                 unlinger(nai);
             }
         }
+        if (isNewDefault) {
+            // Notify system services that this network is up.
+            makeDefault(newNetwork);
+            synchronized (ConnectivityService.this) {
+                // have a new default network, release the transition wakelock in
+                // a second if it's held.  The second pause is to allow apps
+                // to reconnect over the new network
+                if (mNetTransitionWakeLock.isHeld()) {
+                    mHandler.sendMessageDelayed(mHandler.obtainMessage(
+                            EVENT_CLEAR_NET_TRANSITION_WAKELOCK,
+                            mNetTransitionWakeLockSerialNumber, 0),
+                            1000);
+                }
+            }
+        }
+
+        // do this after the default net is switched, but
+        // before LegacyTypeTracker sends legacy broadcasts
+        for (NetworkRequestInfo nri : addedRequests) notifyNetworkCallback(newNetwork, nri);
+
+        if (isNewDefault) {
+            // Maintain the illusion: since the legacy API only
+            // understands one network at a time, we must pretend
+            // that the current default network disconnected before
+            // the new one connected.
+            if (oldDefaultNetwork != null) {
+                mLegacyTypeTracker.remove(oldDefaultNetwork.networkInfo.getType(),
+                                          oldDefaultNetwork, true);
+            }
+            mDefaultInetConditionPublished = newNetwork.lastValidated ? 100 : 0;
+            mLegacyTypeTracker.add(newNetwork.networkInfo.getType(), newNetwork);
+            notifyLockdownVpn(newNetwork);
+        }
+
         if (keep) {
-            if (isNewDefault) {
-                // Notify system services that this network is up.
-                makeDefault(newNetwork);
-                synchronized (ConnectivityService.this) {
-                    // have a new default network, release the transition wakelock in
-                    // a second if it's held.  The second pause is to allow apps
-                    // to reconnect over the new network
-                    if (mNetTransitionWakeLock.isHeld()) {
-                        mHandler.sendMessageDelayed(mHandler.obtainMessage(
-                                EVENT_CLEAR_NET_TRANSITION_WAKELOCK,
-                                mNetTransitionWakeLockSerialNumber, 0),
-                                1000);
-                    }
-                }
-            }
-
-            // do this after the default net is switched, but
-            // before LegacyTypeTracker sends legacy broadcasts
-            for (NetworkRequestInfo nri : addedRequests) notifyNetworkCallback(newNetwork, nri);
-
-            if (isNewDefault) {
-                // Maintain the illusion: since the legacy API only
-                // understands one network at a time, we must pretend
-                // that the current default network disconnected before
-                // the new one connected.
-                if (oldDefaultNetwork != null) {
-                    mLegacyTypeTracker.remove(oldDefaultNetwork.networkInfo.getType(),
-                                              oldDefaultNetwork, true);
-                }
-                mDefaultInetConditionPublished = newNetwork.everValidated ? 100 : 0;
-                mLegacyTypeTracker.add(newNetwork.networkInfo.getType(), newNetwork);
-                notifyLockdownVpn(newNetwork);
-            }
-
             // Notify battery stats service about this network, both the normal
             // interface and any stacked links.
             // TODO: Avoid redoing this; this must only be done once when a network comes online.
@@ -4432,19 +4396,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
             if (newNetwork.isVPN()) {
                 mLegacyTypeTracker.add(TYPE_VPN, newNetwork);
             }
-        } else if (nascent == NascentState.JUST_VALIDATED) {
-            // Only tear down newly validated networks here.  Leave unvalidated to either become
-            // validated (and get evaluated against peers, one losing here), or get reaped (see
-            // reapUnvalidatedNetworks) if they have no chance of becoming the highest scoring
-            // network.  Networks that have been up for a while and are validated should be torn
-            // down via the lingering process so communication on that network is given time to
-            // wrap up.
-            if (DBG) log("Validated network turns out to be unwanted.  Tear it down.");
-            teardownUnneededNetwork(newNetwork);
         }
         if (reapUnvalidatedNetworks == ReapUnvalidatedNetworks.REAP) {
             for (NetworkAgentInfo nai : mNetworkAgentInfos.values()) {
-                if (!nai.everValidated && unneeded(nai)) {
+                if (unneeded(nai)) {
                     if (DBG) log("Reaping " + nai.name());
                     teardownUnneededNetwork(nai);
                 }
@@ -4463,10 +4418,8 @@ public class ConnectivityService extends IConnectivityManager.Stub
      *         this argument, otherwise pass {@code changed.getCurrentScore()} or 0 if
      *         {@code changed} is {@code null}. This is because NetworkCapabilities influence a
      *         network's score.
-     * @param nascent indicates if {@code changed} has just been validated.
      */
-    private void rematchAllNetworksAndRequests(NetworkAgentInfo changed, int oldScore,
-            NascentState nascent) {
+    private void rematchAllNetworksAndRequests(NetworkAgentInfo changed, int oldScore) {
         // TODO: This may get slow.  The "changed" parameter is provided for future optimization
         // to avoid the slowness.  It is not simply enough to process just "changed", for
         // example in the case where "changed"'s score decreases and another network should begin
@@ -4475,17 +4428,21 @@ public class ConnectivityService extends IConnectivityManager.Stub
         // Optimization: Only reprocess "changed" if its score improved.  This is safe because it
         // can only add more NetworkRequests satisfied by "changed", and this is exactly what
         // rematchNetworkAndRequests() handles.
-        if (changed != null &&
-                (oldScore < changed.getCurrentScore() || nascent == NascentState.JUST_VALIDATED)) {
-            rematchNetworkAndRequests(changed, nascent, ReapUnvalidatedNetworks.REAP);
+        if (changed != null && oldScore < changed.getCurrentScore()) {
+            rematchNetworkAndRequests(changed, ReapUnvalidatedNetworks.REAP);
         } else {
-            for (Iterator i = mNetworkAgentInfos.values().iterator(); i.hasNext(); ) {
-                rematchNetworkAndRequests((NetworkAgentInfo)i.next(),
-                        NascentState.NOT_JUST_VALIDATED,
+            final NetworkAgentInfo[] nais = mNetworkAgentInfos.values().toArray(
+                    new NetworkAgentInfo[mNetworkAgentInfos.size()]);
+            // Rematch higher scoring networks first to prevent requests first matching a lower
+            // scoring network and then a higher scoring network, which could produce multiple
+            // callbacks and inadvertently unlinger networks.
+            Arrays.sort(nais);
+            for (NetworkAgentInfo nai : nais) {
+                rematchNetworkAndRequests(nai,
                         // Only reap the last time through the loop.  Reaping before all rematching
                         // is complete could incorrectly teardown a network that hasn't yet been
                         // rematched.
-                        i.hasNext() ? ReapUnvalidatedNetworks.DONT_REAP
+                        (nai != nais[nais.length-1]) ? ReapUnvalidatedNetworks.DONT_REAP
                                 : ReapUnvalidatedNetworks.REAP);
             }
         }
@@ -4545,7 +4502,10 @@ public class ConnectivityService extends IConnectivityManager.Stub
                             (networkAgent.networkMisc == null ||
                                 !networkAgent.networkMisc.allowBypass));
                 } else {
-                    mNetd.createPhysicalNetwork(networkAgent.network.netId);
+                    mNetd.createPhysicalNetwork(networkAgent.network.netId,
+                            networkAgent.networkCapabilities.hasCapability(
+                                    NET_CAPABILITY_NOT_RESTRICTED) ?
+                                    null : NetworkManagementService.PERMISSION_SYSTEM);
                 }
             } catch (Exception e) {
                 loge("Error creating network " + networkAgent.network.netId + ": "
@@ -4573,8 +4533,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
             }
 
             // Consider network even though it is not yet validated.
-            rematchNetworkAndRequests(networkAgent, NascentState.NOT_JUST_VALIDATED,
-                    ReapUnvalidatedNetworks.REAP);
+            rematchNetworkAndRequests(networkAgent, ReapUnvalidatedNetworks.REAP);
 
             // This has to happen after matching the requests, because callbacks are just requests.
             notifyNetworkCallbacks(networkAgent, ConnectivityManager.CALLBACK_PRECHECK);
@@ -4594,8 +4553,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
                 state == NetworkInfo.State.SUSPENDED) {
             // going into or coming out of SUSPEND: rescore and notify
             if (networkAgent.getCurrentScore() != oldScore) {
-                rematchAllNetworksAndRequests(networkAgent, oldScore,
-                        NascentState.NOT_JUST_VALIDATED);
+                rematchAllNetworksAndRequests(networkAgent, oldScore);
             }
             notifyNetworkCallbacks(networkAgent, (state == NetworkInfo.State.SUSPENDED ?
                     ConnectivityManager.CALLBACK_SUSPENDED :
@@ -4615,7 +4573,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
         final int oldScore = nai.getCurrentScore();
         nai.setCurrentScore(score);
 
-        rematchAllNetworksAndRequests(nai, oldScore, NascentState.NOT_JUST_VALIDATED);
+        rematchAllNetworksAndRequests(nai, oldScore);
 
         sendUpdatedScoreToFactories(nai);
     }
@@ -4665,7 +4623,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
             }
             NetworkAgentInfo newDefaultAgent = null;
             if (nai.networkRequests.get(mDefaultRequest.requestId) != null) {
-                newDefaultAgent = mNetworkForRequestId.get(mDefaultRequest.requestId);
+                newDefaultAgent = getDefaultNetwork();
                 if (newDefaultAgent != null) {
                     intent.putExtra(ConnectivityManager.EXTRA_OTHER_NETWORK_INFO,
                             newDefaultAgent.networkInfo);
@@ -4788,4 +4746,11 @@ public class ConnectivityService extends IConnectivityManager.Stub
             }
         }
     }
+
+    @VisibleForTesting
+    public NetworkMonitor createNetworkMonitor(Context context, Handler handler,
+            NetworkAgentInfo nai, NetworkRequest defaultRequest) {
+        return new NetworkMonitor(context, handler, nai, defaultRequest);
+    }
+
 }

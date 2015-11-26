@@ -16,6 +16,12 @@
 
 package android.widget;
 
+import java.text.BreakIterator;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+
 import android.R;
 import android.annotation.Nullable;
 import android.app.PendingIntent;
@@ -106,12 +112,6 @@ import com.android.internal.util.GrowingArrayUtils;
 import com.android.internal.util.Preconditions;
 import com.android.internal.widget.EditableInputConnection;
 
-import java.text.BreakIterator;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-
 
 /**
  * Helper class used by TextView to handle editable text views.
@@ -127,6 +127,7 @@ public class Editor {
     private static int DRAG_SHADOW_MAX_TEXT_LENGTH = 20;
     private static final float LINE_SLOP_MULTIPLIER_FOR_HANDLEVIEWS = 0.5f;
     private static final int UNSET_X_VALUE = -1;
+    private static final int UNSET_LINE = -1;
     // Tag used when the Editor maintains its own separate UndoManager.
     private static final String UNDO_OWNER_TAG = "Editor";
 
@@ -1003,7 +1004,8 @@ public class Editor {
         }
 
         if (!handled && mTextActionMode != null) {
-            if (touchPositionIsInSelection()) {
+            // TODO: Fix dragging in extracted mode.
+            if (touchPositionIsInSelection() && !mTextView.isInExtractedMode()) {
                 // Start a drag
                 final int start = mTextView.getSelectionStart();
                 final int end = mTextView.getSelectionEnd();
@@ -3224,7 +3226,8 @@ public class Editor {
         }
 
         private void updateReplaceItem(Menu menu) {
-            boolean canReplace = mTextView.isSuggestionsEnabled() && shouldOfferToShowSuggestions();
+            boolean canReplace = mTextView.isSuggestionsEnabled() && shouldOfferToShowSuggestions()
+                    && !(mTextView.isInExtractedMode() && mTextView.hasSelection());
             boolean replaceItemExists = menu.findItem(TextView.ID_REPLACE) != null;
             if (canReplace && !replaceItemExists) {
                 menu.add(Menu.NONE, TextView.ID_REPLACE, MENU_ITEM_ORDER_REPLACE,
@@ -3305,7 +3308,7 @@ public class Editor {
                 mSelectionBounds.set(
                         primaryHorizontal,
                         layout.getLineTop(line),
-                        primaryHorizontal + 1,
+                        primaryHorizontal,
                         layout.getLineTop(line + 1) + mHandleHeight);
             }
             // Take TextView's padding and scroll into account.
@@ -3510,7 +3513,11 @@ public class Editor {
         // Minimum touch target size for handles
         private int mMinSize;
         // Indicates the line of text that the handle is on.
-        protected int mPrevLine = -1;
+        protected int mPrevLine = UNSET_LINE;
+        // Indicates the line of text that the user was touching. This can differ from mPrevLine
+        // when selecting text when the handles jump to the end / start of words which may be on
+        // a different line.
+        protected int mPreviousLineTouched = UNSET_LINE;
 
         public HandleView(Drawable drawableLtr, Drawable drawableRtl) {
             super(mTextView.getContext());
@@ -3801,6 +3808,7 @@ public class Editor {
                     mLastParentX = positionListener.getPositionX();
                     mLastParentY = positionListener.getPositionY();
                     mIsDragging = true;
+                    mPreviousLineTouched = UNSET_LINE;
                     break;
                 }
 
@@ -4015,8 +4023,12 @@ public class Editor {
             Layout layout = mTextView.getLayout();
             int offset;
             if (layout != null) {
-                int currLine = getCurrentLineAdjustedForSlop(layout, mPrevLine, y);
+                if (mPreviousLineTouched == UNSET_LINE) {
+                    mPreviousLineTouched = mTextView.getLineAtCoordinate(y);
+                }
+                int currLine = getCurrentLineAdjustedForSlop(layout, mPreviousLineTouched, y);
                 offset = mTextView.getOffsetAtCoordinate(currLine, x);
+                mPreviousLineTouched = currLine;
             } else {
                 offset = mTextView.getOffsetForPosition(x, y);
             }
@@ -4048,9 +4060,17 @@ public class Editor {
         private float mPrevX;
         // Indicates if the handle has moved a boundary between LTR and RTL text.
         private boolean mLanguageDirectionChanged = false;
+        // Distance from edge of horizontally scrolling text view
+        // to use to switch to character mode.
+        private final float mTextViewEdgeSlop;
+        // Used to save text view location.
+        private final int[] mTextViewLocation = new int[2];
 
         public SelectionStartHandleView(Drawable drawableLtr, Drawable drawableRtl) {
             super(drawableLtr, drawableRtl);
+            ViewConfiguration viewConfiguration = ViewConfiguration.get(
+                    mTextView.getContext());
+            mTextViewEdgeSlop = viewConfiguration.getScaledTouchSlop() * 4;
         }
 
         @Override
@@ -4088,13 +4108,17 @@ public class Editor {
             if (layout == null) {
                 // HandleView will deal appropriately in positionAtCursorOffset when
                 // layout is null.
-                positionAtCursorOffset(mTextView.getOffsetForPosition(x, y), false);
+                positionAndAdjustForCrossingHandles(mTextView.getOffsetForPosition(x, y));
                 return;
+            }
+
+            if (mPreviousLineTouched == UNSET_LINE) {
+                mPreviousLineTouched = mTextView.getLineAtCoordinate(y);
             }
 
             boolean positionCursor = false;
             final int selectionEnd = mTextView.getSelectionEnd();
-            int currLine = getCurrentLineAdjustedForSlop(layout, mPrevLine, y);
+            int currLine = getCurrentLineAdjustedForSlop(layout, mPreviousLineTouched, y);
             int initialOffset = mTextView.getOffsetAtCoordinate(currLine, x);
 
             if (initialOffset >= selectionEnd) {
@@ -4126,21 +4150,36 @@ public class Editor {
                 // to the current position.
                 mLanguageDirectionChanged = true;
                 mTouchWordDelta = 0.0f;
-                positionAtCursorOffset(offset, false);
+                positionAndAdjustForCrossingHandles(offset);
                 return;
             } else if (mLanguageDirectionChanged && !isLvlBoundary) {
                 // We've just moved past the boundary so update the position. After this we can
                 // figure out if the user is expanding or shrinking to go by word or character.
-                positionAtCursorOffset(offset, false);
+                positionAndAdjustForCrossingHandles(offset);
                 mTouchWordDelta = 0.0f;
                 mLanguageDirectionChanged = false;
                 return;
             } else {
                 final float xDiff = x - mPrevX;
                 if (atRtl) {
-                    isExpanding = xDiff > 0 || currLine > mPrevLine;
+                    isExpanding = xDiff > 0 || currLine > mPreviousLineTouched;
                 } else {
-                    isExpanding = xDiff < 0 || currLine < mPrevLine;
+                    isExpanding = xDiff < 0 || currLine < mPreviousLineTouched;
+                }
+            }
+
+            if (mTextView.getHorizontallyScrolling()) {
+                if (positionNearEdgeOfScrollingView(x, atRtl)
+                        && (mTextView.getScrollX() != 0)
+                        && ((isExpanding && offset < selectionStart) || !isExpanding)) {
+                    // If we're expanding ensure that the offset is smaller than the
+                    // selection start, if the handle snapped to the word, the finger position
+                    // may be out of sync and we don't want the selection to jump back.
+                    mTouchWordDelta = 0.0f;
+                    final int nextOffset = atRtl ? layout.getOffsetToRightOf(mPreviousOffset)
+                            : layout.getOffsetToLeftOf(mPreviousOffset);
+                    positionAndAdjustForCrossingHandles(nextOffset);
+                    return;
                 }
             }
 
@@ -4199,14 +4238,20 @@ public class Editor {
             }
 
             if (positionCursor) {
-                // Handles can not cross and selection is at least one character.
-                if (offset >= selectionEnd) {
-                    offset = getNextCursorOffset(selectionEnd, false);
-                    mTouchWordDelta = 0.0f;
-                }
-                positionAtCursorOffset(offset, false);
+                mPreviousLineTouched = currLine;
+                positionAndAdjustForCrossingHandles(offset);
             }
             mPrevX = x;
+        }
+
+        private void positionAndAdjustForCrossingHandles(int offset) {
+            final int selectionEnd = mTextView.getSelectionEnd();
+            if (offset >= selectionEnd) {
+                // Handles can not cross and selection is at least one character.
+                offset = getNextCursorOffset(selectionEnd, false);
+                mTouchWordDelta = 0.0f;
+            }
+            positionAtCursorOffset(offset, false);
         }
 
         @Override
@@ -4218,12 +4263,27 @@ public class Editor {
         @Override
         public boolean onTouchEvent(MotionEvent event) {
             boolean superResult = super.onTouchEvent(event);
-            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                // Reset the touch word offset when the user has lifted their finger.
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                // Reset the touch word offset and x value when the user
+                // re-engages the handle.
                 mTouchWordDelta = 0.0f;
                 mPrevX = UNSET_X_VALUE;
             }
             return superResult;
+        }
+
+        private boolean positionNearEdgeOfScrollingView(float x, boolean atRtl) {
+            mTextView.getLocationOnScreen(mTextViewLocation);
+            boolean nearEdge;
+            if (atRtl) {
+                int rightEdge = mTextViewLocation[0] + mTextView.getWidth()
+                        - mTextView.getPaddingRight();
+                nearEdge = x > rightEdge - mTextViewEdgeSlop;
+            } else {
+                int leftEdge = mTextViewLocation[0] + mTextView.getPaddingLeft();
+                nearEdge = x < leftEdge + mTextViewEdgeSlop;
+            }
+            return nearEdge;
         }
     }
 
@@ -4236,9 +4296,17 @@ public class Editor {
         private float mPrevX;
         // Indicates if the handle has moved a boundary between LTR and RTL text.
         private boolean mLanguageDirectionChanged = false;
+        // Distance from edge of horizontally scrolling text view
+        // to use to switch to character mode.
+        private final float mTextViewEdgeSlop;
+        // Used to save the text view location.
+        private final int[] mTextViewLocation = new int[2];
 
         public SelectionEndHandleView(Drawable drawableLtr, Drawable drawableRtl) {
             super(drawableLtr, drawableRtl);
+            ViewConfiguration viewConfiguration = ViewConfiguration.get(
+                    mTextView.getContext());
+            mTextViewEdgeSlop = viewConfiguration.getScaledTouchSlop() * 4;
         }
 
         @Override
@@ -4276,13 +4344,17 @@ public class Editor {
             if (layout == null) {
                 // HandleView will deal appropriately in positionAtCursorOffset when
                 // layout is null.
-                positionAtCursorOffset(mTextView.getOffsetForPosition(x, y), false);
+                positionAndAdjustForCrossingHandles(mTextView.getOffsetForPosition(x, y));
                 return;
+            }
+
+            if (mPreviousLineTouched == UNSET_LINE) {
+                mPreviousLineTouched = mTextView.getLineAtCoordinate(y);
             }
 
             boolean positionCursor = false;
             final int selectionStart = mTextView.getSelectionStart();
-            int currLine = getCurrentLineAdjustedForSlop(layout, mPrevLine, y);
+            int currLine = getCurrentLineAdjustedForSlop(layout, mPreviousLineTouched, y);
             int initialOffset = mTextView.getOffsetAtCoordinate(currLine, x);
 
             if (initialOffset <= selectionStart) {
@@ -4314,21 +4386,36 @@ public class Editor {
                 // to the current position.
                 mLanguageDirectionChanged = true;
                 mTouchWordDelta = 0.0f;
-                positionAtCursorOffset(offset, false);
+                positionAndAdjustForCrossingHandles(offset);
                 return;
             } else if (mLanguageDirectionChanged && !isLvlBoundary) {
                 // We've just moved past the boundary so update the position. After this we can
                 // figure out if the user is expanding or shrinking to go by word or character.
-                positionAtCursorOffset(offset, false);
+                positionAndAdjustForCrossingHandles(offset);
                 mTouchWordDelta = 0.0f;
                 mLanguageDirectionChanged = false;
                 return;
             } else {
                 final float xDiff = x - mPrevX;
                 if (atRtl) {
-                    isExpanding = xDiff < 0 || currLine < mPrevLine;
+                    isExpanding = xDiff < 0 || currLine < mPreviousLineTouched;
                 } else {
-                    isExpanding = xDiff > 0 || currLine > mPrevLine;
+                    isExpanding = xDiff > 0 || currLine > mPreviousLineTouched;
+                }
+            }
+
+            if (mTextView.getHorizontallyScrolling()) {
+                if (positionNearEdgeOfScrollingView(x, atRtl)
+                        && mTextView.canScrollHorizontally(atRtl ? -1 : 1)
+                        && ((isExpanding && offset > selectionEnd) || !isExpanding)) {
+                    // If we're expanding ensure that the offset is actually greater than the
+                    // selection end, if the handle snapped to the word, the finger position
+                    // may be out of sync and we don't want the selection to jump back.
+                    mTouchWordDelta = 0.0f;
+                    final int nextOffset = atRtl ? layout.getOffsetToLeftOf(mPreviousOffset)
+                            : layout.getOffsetToRightOf(mPreviousOffset);
+                    positionAndAdjustForCrossingHandles(nextOffset);
+                    return;
                 }
             }
 
@@ -4387,14 +4474,20 @@ public class Editor {
             }
 
             if (positionCursor) {
-                // Handles can not cross and selection is at least one character.
-                if (offset <= selectionStart) {
-                    offset = getNextCursorOffset(selectionStart, true);
-                    mTouchWordDelta = 0.0f;
-                }
-                positionAtCursorOffset(offset, false);
+                mPreviousLineTouched = currLine;
+                positionAndAdjustForCrossingHandles(offset);
             }
             mPrevX = x;
+        }
+
+        private void positionAndAdjustForCrossingHandles(int offset) {
+            final int selectionStart = mTextView.getSelectionStart();
+            if (offset <= selectionStart) {
+                // Handles can not cross and selection is at least one character.
+                offset = getNextCursorOffset(selectionStart, true);
+                mTouchWordDelta = 0.0f;
+            }
+            positionAtCursorOffset(offset, false);
         }
 
         @Override
@@ -4406,20 +4499,41 @@ public class Editor {
         @Override
         public boolean onTouchEvent(MotionEvent event) {
             boolean superResult = super.onTouchEvent(event);
-            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                // Reset the touch word offset when the user has lifted their finger.
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                // Reset the touch word offset and x value when the user
+                // re-engages the handle.
                 mTouchWordDelta = 0.0f;
                 mPrevX = UNSET_X_VALUE;
             }
             return superResult;
         }
+
+        private boolean positionNearEdgeOfScrollingView(float x, boolean atRtl) {
+            mTextView.getLocationOnScreen(mTextViewLocation);
+            boolean nearEdge;
+            if (atRtl) {
+                int leftEdge = mTextViewLocation[0] + mTextView.getPaddingLeft();
+                nearEdge = x < leftEdge + mTextViewEdgeSlop;
+            } else {
+                int rightEdge = mTextViewLocation[0] + mTextView.getWidth()
+                        - mTextView.getPaddingRight();
+                nearEdge = x > rightEdge - mTextViewEdgeSlop;
+            }
+            return nearEdge;
+        }
     }
 
     private int getCurrentLineAdjustedForSlop(Layout layout, int prevLine, float y) {
+        final int trueLine = mTextView.getLineAtCoordinate(y);
         if (layout == null || prevLine > layout.getLineCount()
                 || layout.getLineCount() <= 0 || prevLine < 0) {
             // Invalid parameters, just return whatever line is at y.
-            return mTextView.getLineAtCoordinate(y);
+            return trueLine;
+        }
+
+        if (Math.abs(trueLine - prevLine) >= 2) {
+            // Only stick to lines if we're within a line of the previous selection.
+            return trueLine;
         }
 
         final float verticalOffset = mTextView.viewportToContentVerticalOffset();

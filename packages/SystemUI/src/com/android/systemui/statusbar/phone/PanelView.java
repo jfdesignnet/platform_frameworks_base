@@ -111,7 +111,7 @@ public abstract class PanelView extends FrameLayout {
      */
     private float mNextCollapseSpeedUpFactor = 1.0f;
 
-    private boolean mExpanding;
+    protected boolean mExpanding;
     private boolean mGestureWaitForTouchSlop;
     private boolean mIgnoreXTouchSlop;
     private Runnable mPeekRunnable = new Runnable() {
@@ -137,7 +137,7 @@ public abstract class PanelView extends FrameLayout {
         }
     }
 
-    private void notifyExpandingFinished() {
+    protected final void notifyExpandingFinished() {
         if (mExpanding) {
             mExpanding = false;
             onExpandingFinished();
@@ -658,11 +658,6 @@ public abstract class PanelView extends FrameLayout {
                         (animator.getDuration() * getCannedFlingDurationFactor()
                                 / collapseSpeedUpFactor));
             }
-            if (PhoneStatusBar.DEBUG_EMPTY_KEYGUARD
-                    && mStatusBar.getBarState() == StatusBarState.KEYGUARD) {
-                Log.i(PhoneStatusBar.TAG, "Panel collapsed! Stacktrace: "
-                        + Log.getStackTraceString(new Throwable()));
-            }
         }
         animator.addListener(new AnimatorListenerAdapter() {
             private boolean mCancelled;
@@ -777,15 +772,6 @@ public abstract class PanelView extends FrameLayout {
 
     public void setExpandedFraction(float frac) {
         setExpandedHeight(getMaxPanelHeight() * frac);
-        if (PhoneStatusBar.DEBUG_EMPTY_KEYGUARD
-                && mStatusBar.getBarState() == StatusBarState.KEYGUARD) {
-            if (frac == 0.0f) {
-                Log.i(PhoneStatusBar.TAG, "Panel collapsed! Stacktrace: "
-                        + Log.getStackTraceString(new Throwable()));
-            } else if (frac == 1.0f) {
-                mStatusBar.endWindowManagerLogging();
-            }
-        }
     }
 
     public float getExpandedHeight() {
@@ -817,11 +803,6 @@ public abstract class PanelView extends FrameLayout {
     }
 
     public void collapse(boolean delayed, float speedUpFactor) {
-        if (PhoneStatusBar.DEBUG_EMPTY_KEYGUARD
-                && mStatusBar.getBarState() == StatusBarState.KEYGUARD) {
-            Log.i(PhoneStatusBar.TAG, "Panel collapsed! Stacktrace: "
-                    + Log.getStackTraceString(new Throwable()));
-        }
         if (DEBUG) logf("collapse: " + this);
         if (mPeekPending || mPeekAnimator != null) {
             mCollapseAfterPeek = true;
@@ -1028,9 +1009,11 @@ public abstract class PanelView extends FrameLayout {
 
     protected void notifyBarPanelExpansionChanged() {
         mBar.panelExpansionChanged(this, mExpandedFraction, mExpandedFraction > 0f || mPeekPending
-                || mPeekAnimator != null || mInstantExpanding || mHeadsUpManager.hasPinnedHeadsUp()
+                || mPeekAnimator != null || mInstantExpanding || isPanelVisibleBecauseOfHeadsUp()
                 || mTracking || mHeightAnimator != null);
     }
+
+    protected abstract boolean isPanelVisibleBecauseOfHeadsUp();
 
     /**
      * Gets called when the user performs a click anywhere in the empty area of the panel.

@@ -98,9 +98,19 @@ public final class StreamConfigurationMap {
             HighSpeedVideoConfiguration[] highSpeedVideoConfigurations,
             ReprocessFormatsMap inputOutputFormatsMap,
             boolean listHighResolution) {
-        mConfigurations = checkArrayElementsNotNull(configurations, "configurations");
-        mMinFrameDurations = checkArrayElementsNotNull(minFrameDurations, "minFrameDurations");
-        mStallDurations = checkArrayElementsNotNull(stallDurations, "stallDurations");
+
+        if (configurations == null) {
+            // If no color configurations exist, ensure depth ones do
+            checkArrayElementsNotNull(depthConfigurations, "depthConfigurations");
+            mConfigurations = new StreamConfiguration[0];
+            mMinFrameDurations = new StreamConfigurationDuration[0];
+            mStallDurations = new StreamConfigurationDuration[0];
+        } else {
+            mConfigurations = checkArrayElementsNotNull(configurations, "configurations");
+            mMinFrameDurations = checkArrayElementsNotNull(minFrameDurations, "minFrameDurations");
+            mStallDurations = checkArrayElementsNotNull(stallDurations, "stallDurations");
+        }
+
         mListHighResolution = listHighResolution;
 
         if (depthConfigurations == null) {
@@ -124,7 +134,7 @@ public final class StreamConfigurationMap {
         }
 
         // For each format, track how many sizes there are available to configure
-        for (StreamConfiguration config : configurations) {
+        for (StreamConfiguration config : mConfigurations) {
             int fmt = config.getFormat();
             SparseIntArray map = null;
             if (config.isOutput()) {
@@ -159,7 +169,8 @@ public final class StreamConfigurationMap {
                     mDepthOutputFormats.get(config.getFormat()) + 1);
         }
 
-        if (mOutputFormats.indexOfKey(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) < 0) {
+        if (configurations != null &&
+                mOutputFormats.indexOfKey(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) < 0) {
             throw new AssertionError(
                     "At least one stream configuration for IMPLEMENTATION_DEFINED must exist");
         }
@@ -495,7 +506,8 @@ public final class StreamConfigurationMap {
      * <p>
      * To enable high speed video recording, application must create a constrained create high speed
      * capture session via {@link CameraDevice#createConstrainedHighSpeedCaptureSession}, and submit
-     * a CaptureRequest list created by {@link CameraDevice#createConstrainedHighSpeedRequestList}
+     * a CaptureRequest list created by
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}
      * to this session. The application must select the video size from this method and
      * {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE FPS range} from
      * {@link #getHighSpeedVideoFpsRangesFor} to configure the constrained high speed session and
@@ -506,14 +518,15 @@ public final class StreamConfigurationMap {
      * the same size). Otherwise, the high speed session creation will fail. Once the size is
      * selected, application can get the supported FPS ranges by
      * {@link #getHighSpeedVideoFpsRangesFor}, and use these FPS ranges to setup the recording
-     * request lists via {@link CameraDevice#createConstrainedHighSpeedRequestList}.
+     * request lists via
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}.
      * </p>
      *
      * @return an array of supported high speed video recording sizes
      * @see #getHighSpeedVideoFpsRangesFor(Size)
      * @see CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO
      * @see CameraDevice#createConstrainedHighSpeedCaptureSession
-     * @see CameraDevice#createConstrainedHighSpeedRequestList
+     * @see android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList
      */
     public Size[] getHighSpeedVideoSizes() {
         Set<Size> keySet = mHighSpeedVideoSizeMap.keySet();
@@ -571,7 +584,8 @@ public final class StreamConfigurationMap {
      * <p>
      * To enable high speed video recording, application must create a constrained create high speed
      * capture session via {@link CameraDevice#createConstrainedHighSpeedCaptureSession}, and submit
-     * a CaptureRequest list created by {@link CameraDevice#createConstrainedHighSpeedRequestList}
+     * a CaptureRequest list created by
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}
      * to this session. The application must select the video size from this method and
      * {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE FPS range} from
      * {@link #getHighSpeedVideoFpsRangesFor} to configure the constrained high speed session and
@@ -583,7 +597,7 @@ public final class StreamConfigurationMap {
      * recording streams must have the same size). Otherwise, the high speed session creation will
      * fail. Once the high speed capture session is created, the application can set the FPS range
      * in the recording request lists via
-     * {@link CameraDevice#createConstrainedHighSpeedRequestList}.
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}.
      * </p>
      * <p>
      * The FPS ranges reported by this method will have below characteristics:
@@ -601,7 +615,7 @@ public final class StreamConfigurationMap {
      * @see #getHighSpeedVideoSizesFor
      * @see CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO
      * @see CameraDevice#createConstrainedHighSpeedCaptureSession
-     * @see CameraDevice#createConstrainedHighSpeedRequestList
+     * @see CameraDevice#createHighSpeedRequestList
      */
     @SuppressWarnings("unchecked")
     public Range<Integer>[] getHighSpeedVideoFpsRanges() {
@@ -1276,7 +1290,7 @@ public final class StreamConfigurationMap {
         for (StreamConfiguration config : configurations) {
             int fmt = config.getFormat();
             if (fmt == format && config.isOutput() == output) {
-                if (output) {
+                if (output && mListHighResolution) {
                     // Filter slow high-res output formats; include for
                     // highRes, remove for !highRes
                     long duration = 0;

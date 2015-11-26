@@ -19,6 +19,9 @@ package android.provider;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
+import android.app.ActivityThread;
+import android.app.AppOpsManager;
+import android.app.Application;
 import android.app.SearchManager;
 import android.app.WallpaperManager;
 import android.content.ComponentName;
@@ -39,6 +42,7 @@ import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.DropBoxManager;
 import android.os.IBinder;
@@ -562,19 +566,37 @@ public final class Settings {
             "android.settings.MANAGE_ALL_APPLICATIONS_SETTINGS";
 
     /**
-     * Activity Action: Show settings to toggle permission to draw on top of
-     * other apps.
+     * Activity Action: Show screen for controlling which apps can draw on top of other apps.
      * <p>
      * In some cases, a matching Activity may not exist, so ensure you
      * safeguard against this.
      * <p>
-     * Input: Nothing.
+     * Input: Optionally, the Intent's data URI can specify the application package name to
+     * directly invoke the management GUI specific to the package name. For example
+     * "package:com.my.app".
      * <p>
      * Output: Nothing.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_MANAGE_OVERLAY_PERMISSION =
-            "android.settings.MANAGE_OVERLAY_PERMISSION";
+            "android.settings.action.MANAGE_OVERLAY_PERMISSION";
+
+    /**
+     * Activity Action: Show screen for controlling which apps are allowed to write/modify
+     * system settings.
+     * <p>
+     * In some cases, a matching Activity may not exist, so ensure you
+     * safeguard against this.
+     * <p>
+     * Input: Optionally, the Intent's data URI can specify the application package name to
+     * directly invoke the management GUI specific to the package name. For example
+     * "package:com.my.app".
+     * <p>
+     * Output: Nothing.
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_MANAGE_WRITE_SETTINGS =
+            "android.settings.action.MANAGE_WRITE_SETTINGS";
 
     /**
      * Activity Action: Show screen of details about a particular application.
@@ -594,7 +616,33 @@ public final class Settings {
     /**
      * Activity Action: Show screen for controlling which apps can ignore battery optimizations.
      * <p>
-     * Input: Optionally, the Intent's data URI specifies the application package name
+     * Input: Nothing.
+     * <p>
+     * Output: Nothing.
+     * <p>
+     * You can use {@link android.os.PowerManager#isIgnoringBatteryOptimizations
+     * PowerManager.isIgnoringBatteryOptimizations()} to determine if an application is
+     * already ignoring optimizations.  You can use
+     * {@link #ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS} to ask the user to put you
+     * on this list.
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS =
+            "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS";
+
+    /**
+     * Activity Action: Ask the user to allow an to ignore battery optimizations (that is,
+     * put them on the whitelist of apps shown by
+     * {@link #ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS}).  For an app to use this, it also
+     * must hold the {@link android.Manifest.permission#REQUEST_IGNORE_BATTERY_OPTIMIZATIONS}
+     * permission.
+     * <p><b>Note:</b> most applications should <em>not</em> use this; there are many facilities
+     * provided by the platform for applications to operate correctly in the various power
+     * saving mode.  This is only for unusual applications that need to deeply control their own
+     * execution, at the potential expense of the user's battery life.  Note that these applications
+     * greatly run the risk of showing to the user has how power consumers on their device.</p>
+     * <p>
+     * Input: The Intent's data URI must specify the application package name
      * to be shown, with the "package" scheme.  That is "package:com.my.app".
      * <p>
      * Output: Nothing.
@@ -604,8 +652,8 @@ public final class Settings {
      * already ignoring optimizations.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
-    public static final String ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS =
-            "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS";
+    public static final String ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS =
+            "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS";
 
     /**
      * @hide
@@ -1366,6 +1414,42 @@ public final class Settings {
                 if (c != null) c.close();
             }
         }
+    }
+
+    /**
+     * An app can use this method to check if it is currently allowed to draw on top of other
+     * apps. In order to be allowed to do so, an app must first declare the
+     * {@link android.Manifest.permission#SYSTEM_ALERT_WINDOW} permission in its manifest. If it
+     * is currently disallowed, it can prompt the user to grant it this capability through a
+     * management UI by sending an Intent with action
+     * {@link android.provider.Settings#ACTION_MANAGE_OVERLAY_PERMISSION}.
+     *
+     * @param context A context
+     * @return true if the calling app can draw on top of other apps, false otherwise.
+     */
+    public static boolean canDrawOverlays(Context context) {
+        int uid = Binder.getCallingUid();
+        return Settings.isCallingPackageAllowedToDrawOverlays(context, uid, Settings
+                .getPackageNameForUid(context, uid), false);
+    }
+
+    /**
+     * An app can use this method to check if it is currently allowed to change the network
+     * state. In order to be allowed to do so, an app must first declare either the
+     * {@link android.Manifest.permission#CHANGE_NETWORK_STATE} or
+     * {@link android.Manifest.permission#WRITE_SETTINGS} permission in its manifest. If it
+     * is currently disallowed, it can prompt the user to grant it this capability through a
+     * management UI by sending an Intent with action
+     * {@link android.provider.Settings#ACTION_MANAGE_WRITE_SETTINGS}.
+     *
+     * @param context A context
+     * @return true if the calling app can change the state of network, false otherwise.
+     * @hide
+     */
+    public static boolean canChangeNetworkState(Context context) {
+        int uid = Binder.getCallingUid();
+        return Settings.isCallingPackageAllowedToChangeNetworkState(context, uid, Settings
+                .getPackageNameForUid(context, uid), false);
     }
 
     /**
@@ -3641,6 +3725,23 @@ public final class Settings {
         @Deprecated
         public static final String WIFI_WATCHDOG_PING_TIMEOUT_MS =
             Secure.WIFI_WATCHDOG_PING_TIMEOUT_MS;
+
+        /**
+         * An app can use this method to check if it is currently allowed to write or modify system
+         * settings. In order to gain write access to the system settings, an app must declare the
+         * {@link android.Manifest.permission#WRITE_SETTINGS} permission in its manifest. If it is
+         * currently disallowed, it can prompt the user to grant it this capability through a
+         * management UI by sending an Intent with action
+         * {@link android.provider.Settings#ACTION_MANAGE_WRITE_SETTINGS}.
+         *
+         * @param context A context
+         * @return true if the calling app can write to system settings, false otherwise
+         */
+        public static boolean canWrite(Context context) {
+            int uid = Binder.getCallingUid();
+            return isCallingPackageAllowedToWriteSettings(context, uid, getPackageNameForUid(
+                    context, uid), false);
+        }
     }
 
     /**
@@ -3824,10 +3925,24 @@ public final class Settings {
                     }
                 }
                 if (sLockSettings != null && !sIsSystemProcess) {
-                    try {
-                        return sLockSettings.getString(name, "0", userHandle);
-                    } catch (RemoteException re) {
-                        // Fall through
+                    // No context; use the ActivityThread's context as an approximation for
+                    // determining the target API level.
+                    Application application = ActivityThread.currentApplication();
+
+                    boolean isPreMnc = application != null
+                            && application.getApplicationInfo() != null
+                            && application.getApplicationInfo().targetSdkVersion
+                            <= VERSION_CODES.LOLLIPOP_MR1;
+                    if (isPreMnc) {
+                        try {
+                            return sLockSettings.getString(name, "0", userHandle);
+                        } catch (RemoteException re) {
+                            // Fall through
+                        }
+                    } else {
+                        throw new SecurityException("Settings.Secure." + name
+                                + " is deprecated and no longer accessible."
+                                + " See API documentation for potential replacements.");
                     }
                 }
             }
@@ -4363,14 +4478,19 @@ public final class Settings {
          * Whether autolock is enabled (0 = false, 1 = true)
          *
          * @deprecated Use {@link android.app.KeyguardManager} to determine the state and security
-         *             level of the keyguard.
+         *             level of the keyguard. Accessing this setting from an app that is targeting
+         *             {@link VERSION_CODES#M} or later throws a {@code SecurityException}.
          */
         @Deprecated
         public static final String LOCK_PATTERN_ENABLED = "lock_pattern_autolock";
 
         /**
          * Whether lock pattern is visible as user enters (0 = false, 1 = true)
+         *
+         * @deprecated Accessing this setting from an app that is targeting
+         *             {@link VERSION_CODES#M} or later throws a {@code SecurityException}.
          */
+        @Deprecated
         public static final String LOCK_PATTERN_VISIBLE = "lock_pattern_visible_pattern";
 
         /**
@@ -4380,6 +4500,8 @@ public final class Settings {
          * @deprecated Starting in {@link VERSION_CODES#JELLY_BEAN_MR1} the
          *             lockscreen uses
          *             {@link Settings.System#HAPTIC_FEEDBACK_ENABLED}.
+         *             Accessing this setting from an app that is targeting
+         *             {@link VERSION_CODES#M} or later throws a {@code SecurityException}.
          */
         @Deprecated
         public static final String
@@ -5643,7 +5765,6 @@ public final class Settings {
             MOUNT_UMS_AUTOSTART,
             MOUNT_UMS_PROMPT,
             MOUNT_UMS_NOTIFY_ENABLED,
-            UI_NIGHT_MODE,
             SLEEP_TIMEOUT,
             DOUBLE_TAP_TO_WAKE,
         };
@@ -7478,6 +7599,13 @@ public final class Settings {
         }
 
         /**
+         * Value of the ringer before entering zen mode.
+         *
+         * @hide
+         */
+        public static final String ZEN_MODE_RINGER_LEVEL = "zen_mode_ringer_level";
+
+        /**
          * Opaque value, changes when persisted zen mode configuration changes.
          *
          * @hide
@@ -7561,14 +7689,6 @@ public final class Settings {
          * @hide
          */
         public static final String WFC_IMS_ROAMING_ENABLED = "wfc_ims_roaming_enabled";
-
-        /**
-         * Global override to disable VoLTE (independent of user setting)
-         * <p>
-         * Type: int (1 for disable VoLTE, 0 to use user configuration)
-         * @hide
-         */
-        public static final String VOLTE_FEATURE_DISABLED = "volte_feature_disabled";
 
         /**
          * Whether user can enable/disable LTE as a preferred network. A carrier might control
@@ -8175,5 +8295,188 @@ public final class Settings {
      */
     public static String getGTalkDeviceId(long androidId) {
         return "android-" + Long.toHexString(androidId);
+    }
+
+    private static final String[] PM_WRITE_SETTINGS = {
+        android.Manifest.permission.WRITE_SETTINGS
+    };
+    private static final String[] PM_CHANGE_NETWORK_STATE = {
+        android.Manifest.permission.CHANGE_NETWORK_STATE,
+        android.Manifest.permission.WRITE_SETTINGS
+    };
+    private static final String[] PM_SYSTEM_ALERT_WINDOW = {
+        android.Manifest.permission.SYSTEM_ALERT_WINDOW
+    };
+
+    /**
+     * Performs a strict and comprehensive check of whether a calling package is allowed to
+     * write/modify system settings, as the condition differs for pre-M, M+, and
+     * privileged/preinstalled apps. If the provided uid does not match the
+     * callingPackage, a negative result will be returned.
+     * @hide
+     */
+    public static boolean isCallingPackageAllowedToWriteSettings(Context context, int uid,
+            String callingPackage, boolean throwException) {
+        return isCallingPackageAllowedToPerformAppOpsProtectedOperation(context, uid,
+                callingPackage, throwException, AppOpsManager.OP_WRITE_SETTINGS,
+                PM_WRITE_SETTINGS, false);
+    }
+
+    /**
+     * Performs a strict and comprehensive check of whether a calling package is allowed to
+     * write/modify system settings, as the condition differs for pre-M, M+, and
+     * privileged/preinstalled apps. If the provided uid does not match the
+     * callingPackage, a negative result will be returned. The caller is expected to have
+     * either WRITE_SETTINGS or CHANGE_NETWORK_STATE permission declared.
+     *
+     * Note: if the check is successful, the operation of this app will be updated to the
+     * current time.
+     * @hide
+     */
+    public static boolean checkAndNoteWriteSettingsOperation(Context context, int uid,
+            String callingPackage, boolean throwException) {
+        return isCallingPackageAllowedToPerformAppOpsProtectedOperation(context, uid,
+                callingPackage, throwException, AppOpsManager.OP_WRITE_SETTINGS,
+                PM_WRITE_SETTINGS, true);
+    }
+
+    /**
+     * Performs a strict and comprehensive check of whether a calling package is allowed to
+     * change the state of network, as the condition differs for pre-M, M+, and
+     * privileged/preinstalled apps. If the provided uid does not match the
+     * callingPackage, a negative result will be returned. The caller is expected to have
+     * either of CHANGE_NETWORK_STATE or WRITE_SETTINGS permission declared.
+     * @hide
+     */
+    public static boolean isCallingPackageAllowedToChangeNetworkState(Context context, int uid,
+            String callingPackage, boolean throwException) {
+        return isCallingPackageAllowedToPerformAppOpsProtectedOperation(context, uid,
+                callingPackage, throwException, AppOpsManager.OP_WRITE_SETTINGS,
+                PM_CHANGE_NETWORK_STATE, false);
+    }
+
+    /**
+     * Performs a strict and comprehensive check of whether a calling package is allowed to
+     * change the state of network, as the condition differs for pre-M, M+, and
+     * privileged/preinstalled apps. If the provided uid does not match the
+     * callingPackage, a negative result will be returned. The caller is expected to have
+     * either CHANGE_NETWORK_STATE or WRITE_SETTINGS permission declared.
+     *
+     * Note: if the check is successful, the operation of this app will be updated to the
+     * current time.
+     * @hide
+     */
+    public static boolean checkAndNoteChangeNetworkStateOperation(Context context, int uid,
+            String callingPackage, boolean throwException) {
+        return isCallingPackageAllowedToPerformAppOpsProtectedOperation(context, uid,
+                callingPackage, throwException, AppOpsManager.OP_WRITE_SETTINGS,
+                PM_CHANGE_NETWORK_STATE, true);
+    }
+
+    /**
+     * Performs a strict and comprehensive check of whether a calling package is allowed to
+     * draw on top of other apps, as the conditions differs for pre-M, M+, and
+     * privileged/preinstalled apps. If the provided uid does not match the callingPackage,
+     * a negative result will be returned.
+     * @hide
+     */
+    public static boolean isCallingPackageAllowedToDrawOverlays(Context context, int uid,
+            String callingPackage, boolean throwException) {
+        return isCallingPackageAllowedToPerformAppOpsProtectedOperation(context, uid,
+                callingPackage, throwException, AppOpsManager.OP_SYSTEM_ALERT_WINDOW,
+                PM_SYSTEM_ALERT_WINDOW, false);
+    }
+
+    /**
+     * Performs a strict and comprehensive check of whether a calling package is allowed to
+     * draw on top of other apps, as the conditions differs for pre-M, M+, and
+     * privileged/preinstalled apps. If the provided uid does not match the callingPackage,
+     * a negative result will be returned.
+     *
+     * Note: if the check is successful, the operation of this app will be updated to the
+     * current time.
+     * @hide
+     */
+    public static boolean checkAndNoteDrawOverlaysOperation(Context context, int uid, String
+            callingPackage, boolean throwException) {
+        return isCallingPackageAllowedToPerformAppOpsProtectedOperation(context, uid,
+                callingPackage, throwException, AppOpsManager.OP_SYSTEM_ALERT_WINDOW,
+                PM_SYSTEM_ALERT_WINDOW, true);
+    }
+
+    /**
+     * Helper method to perform a general and comprehensive check of whether an operation that is
+     * protected by appops can be performed by a caller or not. e.g. OP_SYSTEM_ALERT_WINDOW and
+     * OP_WRITE_SETTINGS
+     * @hide
+     */
+    public static boolean isCallingPackageAllowedToPerformAppOpsProtectedOperation(Context context,
+            int uid, String callingPackage, boolean throwException, int appOpsOpCode, String[]
+            permissions, boolean makeNote) {
+        if (callingPackage == null) {
+            return false;
+        }
+
+        AppOpsManager appOpsMgr = (AppOpsManager)context.getSystemService(Context.APP_OPS_SERVICE);
+        int mode = AppOpsManager.MODE_DEFAULT;
+        if (makeNote) {
+            mode = appOpsMgr.noteOpNoThrow(appOpsOpCode, uid, callingPackage);
+        } else {
+            mode = appOpsMgr.checkOpNoThrow(appOpsOpCode, uid, callingPackage);
+        }
+
+        switch (mode) {
+            case AppOpsManager.MODE_ALLOWED:
+                return true;
+
+            case AppOpsManager.MODE_DEFAULT:
+                // this is the default operating mode after an app's installation
+                // In this case we will check all associated static permission to see
+                // if it is granted during install time.
+                for (String permission : permissions) {
+                    if (context.checkCallingOrSelfPermission(permission) == PackageManager
+                            .PERMISSION_GRANTED) {
+                        // if either of the permissions are granted, we will allow it
+                        return true;
+                    }
+                }
+
+            default:
+                // this is for all other cases trickled down here...
+                if (!throwException) {
+                    return false;
+                }
+        }
+
+        // prepare string to throw SecurityException
+        StringBuilder exceptionMessage = new StringBuilder();
+        exceptionMessage.append(callingPackage);
+        exceptionMessage.append(" was not granted ");
+        if (permissions.length > 1) {
+            exceptionMessage.append(" either of these permissions: ");
+        } else {
+            exceptionMessage.append(" this permission: ");
+        }
+        for (int i = 0; i < permissions.length; i++) {
+            exceptionMessage.append(permissions[i]);
+            exceptionMessage.append((i == permissions.length - 1) ? "." : ", ");
+        }
+
+        throw new SecurityException(exceptionMessage.toString());
+    }
+
+    /**
+     * Retrieves a correponding package name for a given uid. It will query all
+     * packages that are associated with the given uid, but it will return only
+     * the zeroth result.
+     * Note: If package could not be found, a null is returned.
+     * @hide
+     */
+    public static String getPackageNameForUid(Context context, int uid) {
+        String[] packages = context.getPackageManager().getPackagesForUid(uid);
+        if (packages == null) {
+            return null;
+        }
+        return packages[0];
     }
 }

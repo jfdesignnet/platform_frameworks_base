@@ -356,10 +356,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Umožňuje aplikaci ovládat baterku."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"přímé volání na telefonní čísla"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Umožňuje aplikaci volat na telefonní čísla bez vašeho přičinění. Může mít za následek neočekávané poplatky nebo hovory. Toto oprávnění neumožňuje aplikaci volat na tísňová čísla. Škodlivé aplikace vás mohou připravit o peníze uskutečňováním hovorů bez vašeho svolení."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"přístup ke službě zasílání rychlých zpráv pro účely hovorů"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Umožňuje aplikaci používat službu zasílání rychlých zpráv k uskutečňování hovorů bez vašeho zásahu."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"čtení stavu a identity telefonu"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Umožňuje aplikaci získat přístup k telefonním funkcím zařízení. Toto oprávnění umožňuje aplikaci zjistit telefonní číslo telefonu, identifikační čísla zařízení, zda zrovna probíhá hovor, a vzdálené číslo, ke kterému je hovor připojen."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"bránění přechodu tabletu do režimu spánku"</string>
@@ -438,6 +436,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Prst <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Ikona otisku prstů"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"čtení nastavení synchronizace"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Umožňuje aplikaci číst nastavení synchronizace v účtu. Může například určit, zda je s účtem synchronizována aplikace Lidé."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"vypnutí nebo zapnutí synchronizace"</string>
@@ -546,7 +545,7 @@
     <item msgid="2374913952870110618">"Vlastní"</item>
   </string-array>
   <string-array name="postalAddressTypes">
-    <item msgid="6880257626740047286">"Domů"</item>
+    <item msgid="6880257626740047286">"Domov"</item>
     <item msgid="5629153956045109251">"Práce"</item>
     <item msgid="4966604264500343469">"Ostatní"</item>
     <item msgid="4932682847595299369">"Vlastní"</item>
@@ -603,7 +602,7 @@
     <string name="emailTypeOther" msgid="2923008695272639549">"Jiné"</string>
     <string name="emailTypeMobile" msgid="119919005321166205">"Mobil"</string>
     <string name="postalTypeCustom" msgid="8903206903060479902">"Vlastní"</string>
-    <string name="postalTypeHome" msgid="8165756977184483097">"Domů"</string>
+    <string name="postalTypeHome" msgid="8165756977184483097">"Domov"</string>
     <string name="postalTypeWork" msgid="5268172772387694495">"Práce"</string>
     <string name="postalTypeOther" msgid="2726111966623584341">"Jiné"</string>
     <string name="imTypeCustom" msgid="2074028755527826046">"Vlastní"</string>
@@ -716,6 +715,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Buňka přidána"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Byla přidána buňka <xliff:g id="CELL_INDEX">%1$s</xliff:g>"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Bezpečnostní gesto dokončeno"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Oblast pro zadání bezpečnostního gesta."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Widget %2$d z %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Přidat widget"</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Prázdné"</string>
@@ -1055,7 +1055,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB na přenos souborů"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB na přenos fotek"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB v režimu MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Připojeno jako instalátor"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Připojeno k perifernímu zařízení USB"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Klepnutím zobrazíte další možnosti."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"Ladění přes USB připojeno"</string>
@@ -1167,19 +1166,8 @@
       <item quantity="one">1 shoda</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Hotovo"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Odpojování úložiště USB..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Odpojování karty SD..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Mazání úložiště USB..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Mazání karty SD..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Úložiště USB nelze smazat."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Kartu SD nelze smazat."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"Karta SD nebyla před odebráním odpojena."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"Probíhá kontrola úložiště USB."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"Probíhá kontrola karty SD."</string>
-    <string name="media_removed" msgid="7001526905057952097">"Karta SD byla odebrána."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"Úložiště USB je momentálně používáno počítačem."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"Karta SD je momentálně používána počítačem."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"Neznámý stav externího média."</string>
     <string name="share" msgid="1778686618230011964">"Sdílet"</string>
     <string name="find" msgid="4808270900322985960">"Najít"</string>
     <string name="websearch" msgid="4337157977400211589">"Vyhledat na webu"</string>

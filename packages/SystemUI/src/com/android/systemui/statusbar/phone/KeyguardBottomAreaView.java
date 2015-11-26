@@ -18,7 +18,6 @@ package com.android.systemui.statusbar.phone;
 
 import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
-import android.app.Application;
 import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -30,8 +29,7 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.InsetDrawable;
+import android.hardware.fingerprint.FingerprintManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -109,6 +107,7 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
     private PhoneStatusBar mPhoneStatusBar;
 
     private final Interpolator mLinearOutSlowInInterpolator;
+    private boolean mUserSetupComplete;
     private boolean mPrewarmBound;
     private Messenger mPrewarmMessenger;
     private final ServiceConnection mPrewarmConnection = new ServiceConnection() {
@@ -116,12 +115,10 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             mPrewarmMessenger = new Messenger(service);
-            mPrewarmBound = true;
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            mPrewarmBound = false;
             mPrewarmMessenger = null;
         }
     };
@@ -253,12 +250,18 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
         updateCameraVisibility(); // in case onFinishInflate() was called too early
     }
 
+    public void setUserSetupComplete(boolean userSetupComplete) {
+        mUserSetupComplete = userSetupComplete;
+        updateCameraVisibility();
+        updateLeftAffordanceIcon();
+    }
+
     private Intent getCameraIntent() {
         KeyguardUpdateMonitor updateMonitor = KeyguardUpdateMonitor.getInstance(mContext);
-        boolean currentUserHasTrust = updateMonitor.getUserHasTrust(
+        boolean canSkipBouncer = updateMonitor.getUserCanSkipBouncer(
                 KeyguardUpdateMonitor.getCurrentUser());
         boolean secure = mLockPatternUtils.isSecure(KeyguardUpdateMonitor.getCurrentUser());
-        return (secure && !currentUserHasTrust) ? SECURE_CAMERA_INTENT : INSECURE_CAMERA_INTENT;
+        return (secure && !canSkipBouncer) ? SECURE_CAMERA_INTENT : INSECURE_CAMERA_INTENT;
     }
 
     private void updateCameraVisibility() {
@@ -270,7 +273,8 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
                 PackageManager.MATCH_DEFAULT_ONLY,
                 KeyguardUpdateMonitor.getCurrentUser());
         boolean visible = !isCameraDisabledByDpm() && resolved != null
-                && getResources().getBoolean(R.bool.config_keyguardShowCameraAffordance);
+                && getResources().getBoolean(R.bool.config_keyguardShowCameraAffordance)
+                && mUserSetupComplete;
         mCameraImageView.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
@@ -278,16 +282,16 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
         mLeftIsVoiceAssist = canLaunchVoiceAssist();
         int drawableId;
         int contentDescription;
+        boolean visible = mUserSetupComplete;
         if (mLeftIsVoiceAssist) {
-            mLeftAffordanceView.setVisibility(View.VISIBLE);
             drawableId = R.drawable.ic_mic_26dp;
             contentDescription = R.string.accessibility_voice_assist_button;
         } else {
-            boolean visible = isPhoneVisible();
-            mLeftAffordanceView.setVisibility(visible ? View.VISIBLE : View.GONE);
+            visible &= isPhoneVisible();
             drawableId = R.drawable.ic_phone_24dp;
             contentDescription = R.string.accessibility_phone_button;
         }
+        mLeftAffordanceView.setVisibility(visible ? View.VISIBLE : View.GONE);
         mLeftAffordanceView.setImageDrawable(mContext.getDrawable(drawableId));
         mLeftAffordanceView.setContentDescription(mContext.getString(contentDescription));
     }
@@ -372,7 +376,7 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
         Intent intent = getCameraIntent();
         ActivityInfo targetInfo = PreviewInflater.getTargetActivityInfo(mContext, intent,
                 KeyguardUpdateMonitor.getCurrentUser());
-        if (targetInfo != null) {
+        if (targetInfo != null && targetInfo.metaData != null) {
             String clazz = targetInfo.metaData.getString(
                     MediaStore.META_DATA_STILL_IMAGE_CAMERA_PREWARM_SERVICE);
             if (clazz != null) {
@@ -380,8 +384,10 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
                 serviceIntent.setClassName(targetInfo.packageName, clazz);
                 serviceIntent.setAction(CameraPrewarmService.ACTION_PREWARM);
                 try {
-                    getContext().bindServiceAsUser(serviceIntent, mPrewarmConnection,
-                            Context.BIND_AUTO_CREATE, new UserHandle(UserHandle.USER_CURRENT));
+                    if (getContext().bindServiceAsUser(serviceIntent, mPrewarmConnection,
+                            Context.BIND_AUTO_CREATE, new UserHandle(UserHandle.USER_CURRENT))) {
+                        mPrewarmBound = true;
+                    }
                 } catch (SecurityException e) {
                     Log.w(TAG, "Unable to bind to prewarm service package=" + targetInfo.packageName
                             + " class=" + clazz, e);
@@ -392,7 +398,7 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
 
     public void unbindCameraPrewarmService(boolean launched) {
         if (mPrewarmBound) {
-            if (launched) {
+            if (mPrewarmMessenger != null && launched) {
                 try {
                     mPrewarmMessenger.send(Message.obtain(null /* handler */,
                             CameraPrewarmService.MSG_CAMERA_FIRED));
@@ -596,6 +602,7 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
     }
 
     private final BroadcastReceiver mDevicePolicyReceiver = new BroadcastReceiver() {
+        @Override
         public void onReceive(Context context, Intent intent) {
             post(new Runnable() {
                 @Override
@@ -629,13 +636,13 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
         }
 
         @Override
-        public void onScreenTurnedOn() {
-            mLockIcon.setScreenOn(true);
+        public void onStartedWakingUp() {
+            mLockIcon.setDeviceInteractive(true);
         }
 
         @Override
-        public void onScreenTurnedOff(int why) {
-            mLockIcon.setScreenOn(false);
+        public void onFinishedGoingToSleep(int why) {
+            mLockIcon.setDeviceInteractive(false);
         }
 
         @Override
@@ -644,7 +651,7 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
         }
 
         @Override
-        public void onFingerprintAuthenticated(int userId) {
+        public void onFingerprintAuthenticated(int userId, boolean wakeAndUnlocking) {
         }
 
         @Override
@@ -654,6 +661,9 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
 
         @Override
         public void onFingerprintHelp(int msgId, String helpString) {
+            if (!KeyguardUpdateMonitor.getInstance(mContext).isUnlockingWithFingerprintAllowed()) {
+                return;
+            }
             mLockIcon.setTransientFpError(true);
             mIndicationController.showTransientIndication(helpString,
                     getResources().getColor(R.color.system_warning_color, null));
@@ -663,6 +673,10 @@ public class KeyguardBottomAreaView extends FrameLayout implements View.OnClickL
 
         @Override
         public void onFingerprintError(int msgId, String errString) {
+            if (!KeyguardUpdateMonitor.getInstance(mContext).isUnlockingWithFingerprintAllowed()
+                    || msgId == FingerprintManager.FINGERPRINT_ERROR_CANCELED) {
+                return;
+            }
             // TODO: Go to bouncer if this is "too many attempts" (lockout) error.
             mIndicationController.showTransientIndication(errString,
                     getResources().getColor(R.color.system_warning_color, null));

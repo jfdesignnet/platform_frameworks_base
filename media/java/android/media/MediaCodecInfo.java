@@ -16,6 +16,8 @@
 
 package android.media;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Range;
@@ -523,6 +525,14 @@ public final class MediaCodecInfo {
 
         /**
          * Query whether codec supports a given {@link MediaFormat}.
+         *
+         * <p class=note>
+         * <strong>Note:</strong> On {@link android.os.Build.VERSION_CODES#LOLLIPOP},
+         * {@code format} must not contain a {@linkplain MediaFormat#KEY_FRAME_RATE
+         * frame rate}. Use
+         * <code class=prettyprint>format.setString(MediaFormat.KEY_FRAME_RATE, null)</code>
+         * to clear any existing frame rate setting in the format.
+         *
          * @param format media format with optional feature directives.
          * @throws IllegalArgumentException if format is not a valid media format.
          * @return whether the codec capabilities support the given format
@@ -1003,6 +1013,7 @@ public final class MediaCodecInfo {
         private Range<Rational> mAspectRatioRange;
         private Range<Rational> mBlockAspectRatioRange;
         private Range<Long> mBlocksPerSecondRange;
+        private Map<Size, Range<Long>> mMeasuredFrameRates;
         private Range<Integer> mFrameRateRange;
 
         private int mBlockWidth;
@@ -1195,25 +1206,72 @@ public final class MediaCodecInfo {
                             (double) mFrameRateRange.getUpper()));
         }
 
+        private int getBlockCount(int width, int height) {
+            return Utils.divUp(width, mBlockWidth) * Utils.divUp(height, mBlockHeight);
+        }
+
+        @NonNull
+        private Size findClosestSize(int width, int height) {
+            int targetBlockCount = getBlockCount(width, height);
+            Size closestSize = null;
+            int minDiff = Integer.MAX_VALUE;
+            for (Size size : mMeasuredFrameRates.keySet()) {
+                int diff = Math.abs(targetBlockCount -
+                        getBlockCount(size.getWidth(), size.getHeight()));
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestSize = size;
+                }
+            }
+            return closestSize;
+        }
+
+        private Range<Double> estimateFrameRatesFor(int width, int height) {
+            Size size = findClosestSize(width, height);
+            Range<Long> range = mMeasuredFrameRates.get(size);
+            Double ratio = (double)(size.getWidth() * size.getHeight()) / (width * height);
+            return Range.create(range.getLower() * ratio, range.getUpper() * ratio);
+        }
+
         /**
          * Returns the range of achievable video frame rates for a video size.
          * May return {@code null}, if the codec did not publish any measurement
          * data.
          * <p>
-         * This is a performance estimate, based on full-speed decoding
-         * and encoding measurements of common video sizes supported by the codec.
+         * This is a performance estimate provided by the device manufacturer
+         * based on full-speed decoding and encoding measurements in various configurations
+         * of common video sizes supported by the codec. As such it should only be used to
+         * compare individual codecs on the device. The value is not suitable for comparing
+         * different devices or even different android releases for the same device.
+         * <p>
+         * The returned range corresponds to the fastest frame rates achieved in the tested
+         * configurations. It is interpolated from the nearest frame size(s) tested. Codec
+         * performance is severely impacted by other activity on the device, and can vary
+         * significantly.
+         * <p class=note>
+         * Use this method in cases where only codec performance matters, e.g. to evaluate if
+         * a codec has any chance of meeting a performance target. Codecs are listed
+         * in {@link MediaCodecList} in the preferred order as defined by the device
+         * manufacturer. As such, applications should use the first suitable codec in the
+         * list to achieve the best balance between power use and performance.
          *
          * @param width the width of the video
          * @param height the height of the video
          *
          * @throws IllegalArgumentException if the video size is not supported.
          */
+        @Nullable
         public Range<Double> getAchievableFrameRatesFor(int width, int height) {
             if (!supports(width, height, null)) {
                 throw new IllegalArgumentException("unsupported size");
             }
-            // TODO: get this data from the codec
-            return null;
+
+            if (mMeasuredFrameRates == null || mMeasuredFrameRates.size() <= 0) {
+                Log.w(TAG, "Codec did not publish any measurement data.");
+                return null;
+            }
+
+            return estimateFrameRatesFor(width, height);
         }
 
         /**
@@ -1346,6 +1404,34 @@ public final class MediaCodecInfo {
             mSmallerDimensionUpperLimit = SIZE_RANGE.getUpper();
         }
 
+        private Map<Size, Range<Long>> getMeasuredFrameRates(Map<String, Object> map) {
+            Map<Size, Range<Long>> ret = new HashMap<Size, Range<Long>>();
+            final String prefix = "measured-frame-rate-";
+            Set<String> keys = map.keySet();
+            for (String key : keys) {
+                // looking for: measured-frame-rate-WIDTHxHEIGHT-range
+                if (!key.startsWith(prefix)) {
+                    continue;
+                }
+                String subKey = key.substring(prefix.length());
+                String[] temp = key.split("-");
+                if (temp.length != 5) {
+                    continue;
+                }
+                String sizeStr = temp[3];
+                Size size = Utils.parseSize(sizeStr, null);
+                if (size == null || size.getWidth() * size.getHeight() <= 0) {
+                    continue;
+                }
+                Range<Long> range = Utils.parseLongRange(map.get(key), null);
+                if (range == null || range.getLower() < 0 || range.getUpper() < 0) {
+                    continue;
+                }
+                ret.put(size, range);
+            }
+            return ret;
+        }
+
         private void parseFromInfo(MediaFormat info) {
             final Map<String, Object> map = info.getMap();
             Size blockSize = new Size(mBlockWidth, mBlockHeight);
@@ -1360,6 +1446,7 @@ public final class MediaCodecInfo {
             counts = Utils.parseIntRange(map.get("block-count-range"), null);
             blockRates =
                 Utils.parseLongRange(map.get("blocks-per-second-range"), null);
+            mMeasuredFrameRates = getMeasuredFrameRates(map);
             {
                 Object o = map.get("size-range");
                 Pair<Size, Size> sizeRange = Utils.parseSizeRange(o);

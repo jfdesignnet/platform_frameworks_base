@@ -1221,6 +1221,9 @@
     <string-array name="fingerprint_error_vendor">
     </string-array>
 
+    <!-- Content description which should be used for the fingerprint icon. -->
+    <string name="fingerprint_icon_content_description">Fingerprint icon</string>
+
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_readSyncSettings">read sync settings</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
@@ -1916,6 +1919,8 @@
             Cell <xliff:g id="cell_index" example="3">%1$s</xliff:g> added</string>
     <!-- Accessibility description sent when user completes drawing a pattern. [CHAR LIMIT=NONE] -->
     <string name="lockscreen_access_pattern_detected">Pattern completed</string>
+    <!-- Accessibility description of the unlock pattern area. [CHAR_LIMIT=none] -->
+    <string name="lockscreen_access_pattern_area" msgid="">Pattern area.</string>
 
     <!-- Accessibility description sent when user changes the current lock screen widget. [CHAR_LIMIT=none] -->
     <string name="keyguard_accessibility_widget_changed">%1$s. Widget %2$d of %3$d.</string>
@@ -2884,8 +2889,6 @@
     <string name="usb_ptp_notification_title">USB for photo transfer</string>
     <!-- USB_PREFERENCES: Notification for when the user connects the phone to a computer via USB in MIDI mode.  This is the title -->
     <string name="usb_midi_notification_title">USB for MIDI</string>
-    <!-- USB_PREFERENCES: Notification for when the user connects the phone to a computer via USB in mass storage mode (for installer CD image).  This is the title -->
-    <string name="usb_cd_installer_notification_title">Connected as an installer</string>
     <!-- USB_PREFERENCES: Notification for when a USB accessory is attached.  This is the title -->
     <string name="usb_accessory_notification_title">Connected to a USB accessory</string>
     <!-- See USB_PREFERENCES. This is the message. -->
@@ -3170,33 +3173,11 @@
     <!-- Label for the "Done" button on the far left of action mode toolbars. -->
     <string name="action_mode_done">Done</string>
 
-    <!-- Strings for ExternalStorageFormatter service. -->
-    <!-- Text for progress dialog while unmounting USB storage volume [CHAR LIMIT=NONE] -->
-    <string name="progress_unmounting" product="nosdcard">Unmounting USB storage\u2026</string>
-    <!-- Text for progress dialog while unmounting SD card [CHAR LIMIT=NONE] -->
-    <string name="progress_unmounting" product="default">Unmounting SD card\u2026</string>
+    <!-- Strings for MasterClearReceiver. -->
     <!-- Text for progress dialog while erasing USB storage volume [CHAR LIMIT=NONE] -->
     <string name="progress_erasing" product="nosdcard">Erasing USB storage\u2026</string>
     <!-- Text for progress dialog while erasing SD card [CHAR LIMIT=NONE] -->
     <string name="progress_erasing" product="default">Erasing SD card\u2026</string>
-    <!-- Text for message to user that an error happened when formatting USB storage [CHAR LIMIT=NONE] -->
-    <string name="format_error" product="nosdcard">Couldn\'t erase USB storage.</string>
-    <!-- Text for message to user that an error happened when formatting SD card [CHAR LIMIT=NONE] -->
-    <string name="format_error" product="default">Couldn\'t erase SD card.</string>
-    <!-- Text for message to user that SD card has been removed while in use [CHAR LIMIT=NONE] -->
-    <string name="media_bad_removal">SD card was removed before being unmounted.</string>
-    <!-- Text for message to user USB storage is currently being checked [CHAR LIMIT=NONE] -->
-    <string name="media_checking" product="nosdcard">USB storage is currently being checked.</string>
-    <!-- Text for message to user SD card is currently being checked [CHAR LIMIT=NONE] -->
-    <string name="media_checking" product="default">SD card is currently being checked.</string>
-    <!-- Text for message to user SD card has been removed [CHAR LIMIT=NONE] -->
-    <string name="media_removed">SD card has been removed.</string>
-    <!-- Text for message to user USB storage is currently mounted on a computer [CHAR LIMIT=NONE] -->
-    <string name="media_shared" product="nosdcard">USB storage is currently in use by a computer.</string>
-    <!-- Text for message to user SD card is currently mounted on a computer [CHAR LIMIT=NONE] -->
-    <string name="media_shared" product="default">SD card is currently in use by a computer.</string>
-    <!-- Text for message for an unknown external media state [CHAR LIMIT=NONE] -->
-    <string name="media_unknown_state">External media in unknown state.</string>
 
     <!-- Text for WebView's text selection Action Mode -->
     <!-- ActionBar action to share the current selection [CHAR LIMIT=10] -->

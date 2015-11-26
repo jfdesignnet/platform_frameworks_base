@@ -786,12 +786,16 @@ public class RippleDrawable extends LayerDrawable {
             mMaskColorFilter = new PorterDuffColorFilter(0, PorterDuff.Mode.SRC_IN);
         }
 
-        // Draw the appropriate mask.
+        // Draw the appropriate mask anchored to (0,0).
+        final int left = bounds.left;
+        final int top = bounds.top;
+        mMaskCanvas.translate(-left, -top);
         if (maskType == MASK_EXPLICIT) {
             drawMask(mMaskCanvas);
         } else if (maskType == MASK_CONTENT) {
             drawContent(mMaskCanvas);
         }
+        mMaskCanvas.translate(left, top);
     }
 
     private int getMaskType() {
@@ -851,7 +855,8 @@ public class RippleDrawable extends LayerDrawable {
 
         // Position the shader to account for canvas translation.
         if (mMaskShader != null) {
-            mMaskMatrix.setTranslate(-x, -y);
+            final Rect bounds = getBounds();
+            mMaskMatrix.setTranslate(bounds.left - x, bounds.top - y);
             mMaskShader.setLocalMatrix(mMaskMatrix);
         }
 

@@ -40,7 +40,6 @@ import android.graphics.RectF;
 import android.graphics.Region;
 import android.os.Debug;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.util.Slog;
 import android.view.Display;
 import android.view.DisplayInfo;
@@ -788,11 +787,7 @@ class WindowStateAnimator {
             int flags = SurfaceControl.HIDDEN;
             final WindowManager.LayoutParams attrs = w.mAttrs;
 
-            if ((attrs.flags&WindowManager.LayoutParams.FLAG_SECURE) != 0) {
-                flags |= SurfaceControl.SECURE;
-            }
-
-            if (mService.isScreenCaptureDisabledLocked(UserHandle.getUserId(mWin.mOwnerUid))) {
+            if (mService.isSecureLocked(w)) {
                 flags |= SurfaceControl.SECURE;
             }
 
@@ -841,6 +836,8 @@ class WindowStateAnimator {
             mSurfaceX = 0;
             mSurfaceY = 0;
             w.mLastSystemDecorRect.set(0, 0, 0, 0);
+            mHasClipRect = false;
+            mClipRect.set(0, 0, 0, 0);
             mLastClipRect.set(0, 0, 0, 0);
 
             // Set up surface control with initial size.
@@ -1277,6 +1274,7 @@ class WindowStateAnimator {
         if (displayContent == null) {
             return;
         }
+        final DisplayInfo displayInfo = displayContent.getDisplayInfo();
 
         // Need to recompute a new system decor rect each time.
         if ((w.mAttrs.flags & LayoutParams.FLAG_SCALED) != 0) {
@@ -1286,7 +1284,6 @@ class WindowStateAnimator {
         } else if (!w.isDefaultDisplay()) {
             // On a different display there is no system decor.  Crop the window
             // by the screen boundaries.
-            final DisplayInfo displayInfo = displayContent.getDisplayInfo();
             w.mSystemDecorRect.set(0, 0, w.mCompatFrame.width(), w.mCompatFrame.height());
             w.mSystemDecorRect.intersect(-w.mCompatFrame.left, -w.mCompatFrame.top,
                     displayInfo.logicalWidth - w.mCompatFrame.left,
@@ -1308,9 +1305,11 @@ class WindowStateAnimator {
             applyDecorRect(w.mDecorFrame);
         }
 
-        // By default, the clip rect is the system decor if the transformation doesn't specify one.
+        final boolean fullscreen = w.isFullscreen(displayInfo.appWidth, displayInfo.appHeight);
         final Rect clipRect = mTmpClipRect;
-        clipRect.set((mHasClipRect) ? mClipRect : w.mSystemDecorRect);
+        // We use the clip rect as provided by the tranformation for non-fullscreen windows to
+        // avoid premature clipping with the system decor rect.
+        clipRect.set((mHasClipRect && !fullscreen) ? mClipRect : w.mSystemDecorRect);
 
         // Expand the clip rect for surface insets.
         final WindowManager.LayoutParams attrs = w.mAttrs;
@@ -1318,6 +1317,13 @@ class WindowStateAnimator {
         clipRect.top -= attrs.surfaceInsets.top;
         clipRect.right += attrs.surfaceInsets.right;
         clipRect.bottom += attrs.surfaceInsets.bottom;
+
+        if (mHasClipRect && fullscreen) {
+            // We intersect the clip rect specified by the transformation with the expanded system
+            // decor rect to prevent artifacts from drawing during animation if the transformation
+            // clip rect extends outside the system decor rect.
+            clipRect.intersect(mClipRect);
+        }
 
         // The clip rect was generated assuming (0,0) as the window origin,
         // so we need to translate to match the actual surface coordinates.
@@ -1583,8 +1589,6 @@ class WindowStateAnimator {
         final int left = ((int) shownFrame.left) - attrs.surfaceInsets.left;
         final int top = ((int) shownFrame.top) - attrs.surfaceInsets.top;
         if (mSurfaceX != left || mSurfaceY != top) {
-            mSurfaceX = left;
-            mSurfaceY = top;
             if (mAnimating) {
                 // If this window (or its app token) is animating, then the position
                 // of the surface will be re-computed on the next animation frame.
@@ -1592,6 +1596,8 @@ class WindowStateAnimator {
                 // transformation is being applied by the animation.
                 return;
             }
+            mSurfaceX = left;
+            mSurfaceY = top;
             if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setWallpaperOffset");
             SurfaceControl.openTransaction();
             try {
@@ -1667,6 +1673,8 @@ class WindowStateAnimator {
     // This must be called while inside a transaction.
     boolean performShowLocked() {
         if (mWin.isHiddenFromUserLocked()) {
+            if (DEBUG_VISIBILITY) Slog.w(TAG, "hiding " + mWin + ", belonging to " + mWin.mOwnerUid);
+            mWin.hideLw(false);
             return false;
         }
         if (DEBUG_VISIBILITY || (DEBUG_STARTING_WINDOW &&

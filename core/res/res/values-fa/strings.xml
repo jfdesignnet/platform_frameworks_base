@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"‏به برنامه اجازه می‎دهد تا چراغ قوه را کنترل کند."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"تماس مستقیم با شماره تلفن‌ها"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"به برنامه اجازه می‌دهد بدون دخالت شما با شماره‌های تلفن تماس بگیرد. این ممکن است باعث ایجاد هزینه یا تماس‌های پیش‌بینی نشده شود. توجه داشته باشید که این به برنامه اجازه نمی‌دهد به برقراری تماس‌های اضطراری بپردازد. برنامه‌های مخرب ممکن است با برقراری تماس بدون تأیید شما هزینه‌هایی را برای شما ایجاد کنند."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"‏دسترسی به سرویس تماس IMS"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"‏به برنامه اجازه می‌دهد از سرویس IMS برای برقراری تماس‌ها بدون دخالت شما استفاده کند."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"خواندن وضعیت تلفن و شناسه"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"به برنامه اجازه می‌دهد به ویژگی‌های تلفن دستگاه شما دسترسی پیدا کند. این مجوز به برنامه اجازه می‌دهد شماره تلفن و شناسه‌های دستگاه، فعال بودن یک تماس و شماره راه دوری که با یک تماس متصل شده است را مشخص کند."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"ممانعت از به خواب رفتن رایانهٔ لوحی"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"انگشت <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"نماد اثر انگشت"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"خواندن تنظیمات همگام‌سازی"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"به برنامه اجازه می‌دهد تنظیمات را برای یک حساب بخواند. به‌عنوان مثال، این ویژگی می‌تواند تعیین کند آیا حساب «افراد» شما با یک حساب همگام‌سازی شده است."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"تغییر وضعیت همگام‌سازی بین فعال و غیرفعال"</string>
@@ -466,8 +465,8 @@
     <string name="permdesc_control_incall_experience" msgid="915159066039828124">"به برنامه امکان می‌دهد تجربه کاربر در حال تماس را ارائه دهد."</string>
     <string name="permlab_readNetworkUsageHistory" msgid="7862593283611493232">"خواندن سابقه استفاده از شبکه"</string>
     <string name="permdesc_readNetworkUsageHistory" msgid="7689060749819126472">"‏به برنامه اجازه می‎دهد تا کاربرد شبکه را در طول زمان برای برنامه‎ها و شبکه‎های خاص بخواند."</string>
-    <string name="permlab_manageNetworkPolicy" msgid="2562053592339859990">"مدیریت خط مشی شبکه"</string>
-    <string name="permdesc_manageNetworkPolicy" msgid="7537586771559370668">"‏به برنامه اجازه می‎دهد تا خط مشی‎های شبکه را مدیریت کند و قوانین خاص برنامه را تعیین کند."</string>
+    <string name="permlab_manageNetworkPolicy" msgid="2562053592339859990">"مدیریت خط‌مشی شبکه"</string>
+    <string name="permdesc_manageNetworkPolicy" msgid="7537586771559370668">"‏به برنامه اجازه می‎دهد تا خط‌مشی‎های شبکه را مدیریت کند و قوانین خاص برنامه را تعیین کند."</string>
     <string name="permlab_modifyNetworkAccounting" msgid="5088217309088729650">"اصلاح محاسبه استفاده از شبکه"</string>
     <string name="permdesc_modifyNetworkAccounting" msgid="5443412866746198123">"‏به برنامه اجازه می‎دهد تا نحوه محاسبه کاربرد شبکه در برنامه را تغییر دهد. برای استفاده برنامه‎های عادی نیست."</string>
     <string name="permlab_accessNotifications" msgid="7673416487873432268">"اعلان‌های دسترسی"</string>
@@ -669,7 +668,7 @@
     <string name="lockscreen_missing_sim_instructions" msgid="5372787138023272615">"سیم کارت را وارد کنید."</string>
     <string name="lockscreen_missing_sim_instructions_long" msgid="3526573099019319472">"سیم کارت موجود نیست یا قابل خواندن نیست. یک سیم کارت وارد کنید."</string>
     <string name="lockscreen_permanent_disabled_sim_message_short" msgid="5096149665138916184">"سیم کارت غیرقابل استفاده است."</string>
-    <string name="lockscreen_permanent_disabled_sim_instructions" msgid="910904643433151371">"‏سیم کارت شما به طور دائم غیر فعال شده است. \nبرای داشتن سیم کارت دیگر با ارائه‎دهنده سرویس بی‎سیم خود تماس بگیرید."</string>
+    <string name="lockscreen_permanent_disabled_sim_instructions" msgid="910904643433151371">"‏سیم کارت شما به‌طور دائم غیر فعال شده است. \nبرای داشتن سیم کارت دیگر با ارائه‎دهنده سرویس بی‎سیم خود تماس بگیرید."</string>
     <string name="lockscreen_transport_prev_description" msgid="6300840251218161534">"آهنگ قبلی"</string>
     <string name="lockscreen_transport_next_description" msgid="573285210424377338">"آهنگ بعدی"</string>
     <string name="lockscreen_transport_pause_description" msgid="3980308465056173363">"توقف موقت"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"سلول اضافه شد"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"سلول <xliff:g id="CELL_INDEX">%1$s</xliff:g> اضافه شد"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"الگو تکمیل شد"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"ناحیه الگو"</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"‏%1$s. ابزارک %2$d از %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"ابزارک اضافه کنید."</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"خالی"</string>
@@ -842,9 +842,9 @@
       <item quantity="one"><xliff:g id="COUNT">%d</xliff:g> ساعت</item>
       <item quantity="other"><xliff:g id="COUNT">%d</xliff:g> ساعت</item>
     </plurals>
-    <string name="VideoView_error_title" msgid="3534509135438353077">"مشکل در ویدئو"</string>
-    <string name="VideoView_error_text_invalid_progressive_playback" msgid="3186670335938670444">"متأسفیم، این ویدئو برای پخش جریانی با این دستگاه معتبر نیست."</string>
-    <string name="VideoView_error_text_unknown" msgid="3450439155187810085">"پخش این ویدئو ممکن نیست."</string>
+    <string name="VideoView_error_title" msgid="3534509135438353077">"مشکل در ویدیو"</string>
+    <string name="VideoView_error_text_invalid_progressive_playback" msgid="3186670335938670444">"متأسفیم، این ویدیو برای پخش جریانی با این دستگاه معتبر نیست."</string>
+    <string name="VideoView_error_text_unknown" msgid="3450439155187810085">"پخش این ویدیو ممکن نیست."</string>
     <string name="VideoView_error_button" msgid="2822238215100679592">"تأیید"</string>
     <string name="relative_time" msgid="1818557177829411417">"<xliff:g id="DATE">%1$s</xliff:g>، <xliff:g id="TIME">%2$s</xliff:g>"</string>
     <string name="noon" msgid="7245353528818587908">"ظهر"</string>
@@ -866,7 +866,7 @@
     <string name="deleteText" msgid="6979668428458199034">"حذف"</string>
     <string name="inputMethod" msgid="1653630062304567879">"روش ورودی"</string>
     <string name="editTextMenuTitle" msgid="4909135564941815494">"عملکردهای متنی"</string>
-    <string name="low_internal_storage_view_title" msgid="5576272496365684834">"فضای ذخیره‌سازی رو به اتمام است"</string>
+    <string name="low_internal_storage_view_title" msgid="5576272496365684834">"حافظه درحال پر شدن است"</string>
     <string name="low_internal_storage_view_text" msgid="6640505817617414371">"برخی از عملکردهای سیستم ممکن است کار نکنند"</string>
     <string name="low_internal_storage_view_text_no_boot" msgid="6935190099204693424">"فضای ذخیره‌سازی سیستم کافی نیست. اطمینان حاصل کنید که دارای ۲۵۰ مگابایت فضای خالی هستید و سیستم را راه‌اندازی مجدد کنید."</string>
     <string name="app_running_notification_title" msgid="8718335121060787914">"<xliff:g id="APP_NAME">%1$s</xliff:g> در حال اجرا است"</string>
@@ -913,8 +913,8 @@
     <string name="screen_compat_mode_scale" msgid="3202955667675944499">"مقیاس"</string>
     <string name="screen_compat_mode_show" msgid="4013878876486655892">"همیشه نشان داده شود"</string>
     <string name="screen_compat_mode_hint" msgid="1064524084543304459">"‏در تنظیمات سیستم &gt;برنامه‎ها &gt; مورد دانلود شده آن را دوباره فعال کنید."</string>
-    <string name="smv_application" msgid="3307209192155442829">"‏برنامه <xliff:g id="APPLICATION">%1$s</xliff:g> (پردازش <xliff:g id="PROCESS">%2$s</xliff:g>) خط مشی StrictMode اجرایی خود را نقض کرده است."</string>
-    <string name="smv_process" msgid="5120397012047462446">"‏فرآیند <xliff:g id="PROCESS">%1$s</xliff:g> خط مشی StrictMode اجرای خودکار خود را نقض کرده است."</string>
+    <string name="smv_application" msgid="3307209192155442829">"‏برنامه <xliff:g id="APPLICATION">%1$s</xliff:g> (پردازش <xliff:g id="PROCESS">%2$s</xliff:g>) خط‌مشی StrictMode اجرایی خود را نقض کرده است."</string>
+    <string name="smv_process" msgid="5120397012047462446">"‏فرآیند <xliff:g id="PROCESS">%1$s</xliff:g> خط‌مشی StrictMode اجرای خودکار خود را نقض کرده است."</string>
     <string name="android_upgrading_title" msgid="1584192285441405746">"‏Android در حال ارتقا است..."</string>
     <string name="android_start_title" msgid="8418054686415318207">"‏Android در حال راه‌اندازی است..."</string>
     <string name="android_upgrading_fstrim" msgid="8036718871534640010">"بهینه‌سازی فضای ذخیره‌سازی."</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"‏USB برای انتقال فایل"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"‏USB برای انتقال عکس"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"‏USB برای MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"متصل شده به‌عنوان نصب کننده"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"‏به یک وسیله جانبی USB وصل شده است"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"برای گزینه‌های بیشتر لمس کنید."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"‏اشکال‌زدایی USB متصل شد"</string>
@@ -1063,7 +1062,7 @@
     <string name="ext_media_unmountable_notification_message" msgid="1586311304430052169">"<xliff:g id="NAME">%s</xliff:g> خراب است. برای اصلاح لمس کنید."</string>
     <string name="ext_media_unsupported_notification_title" msgid="3797642322958803257">"<xliff:g id="NAME">%s</xliff:g> پشتیبانی نشده"</string>
     <string name="ext_media_unsupported_notification_message" msgid="8789610369456474891">"این دستگاه از این <xliff:g id="NAME">%s</xliff:g> پشتیبانی نمی‌کند. برای نصب آن در یک قالب پشتیبانی شده، لمس کنید."</string>
-    <string name="ext_media_badremoval_notification_title" msgid="3206248947375505416">"<xliff:g id="NAME">%s</xliff:g> به طور غیرمنتظره جدا شد"</string>
+    <string name="ext_media_badremoval_notification_title" msgid="3206248947375505416">"<xliff:g id="NAME">%s</xliff:g> به‌طور غیرمنتظره جدا شد"</string>
     <string name="ext_media_badremoval_notification_message" msgid="380176703346946313">"قبل از جدا کردن، برای جلوگیری از از دست رفتن اطلاعات، ارتباط <xliff:g id="NAME">%s</xliff:g> را قطع کنید."</string>
     <string name="ext_media_nomedia_notification_title" msgid="1704840188641749091">"<xliff:g id="NAME">%s</xliff:g> جدا شده است"</string>
     <string name="ext_media_nomedia_notification_message" msgid="6471542972147056586">"<xliff:g id="NAME">%s</xliff:g> جدا شد؛ رسانه جدیدی وارد کنید"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="other"><xliff:g id="INDEX">%d</xliff:g> از <xliff:g id="TOTAL">%d</xliff:g></item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"انجام شد"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"‏در حال لغو نصب حافظهٔ USB..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"‏در حال لغو نصب کارت SD..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"‏در حال پاک کردن حافظهٔ USB..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"‏در حال پاک کردن کارت SD..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"‏پاک کردن محل ذخیره  USB ممکن نیست."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"‏پاک کردن کارت SD ممکن نیست."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"‏کارت SD قبل از قطع اتصال از دستگاه خارج شد."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"‏حافظهٔ USB اکنون در حال بررسی شدن است."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"‏کارت SD در حال حاضر در حال بررسی است."</string>
-    <string name="media_removed" msgid="7001526905057952097">"‏کارت SD حذف شده است."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"حافظه در حال حاضر توسط رایانه دیگری استفاده می‌شود."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"‏کارت SD در حال حاضر توسط یک رایانه در حال استفاده است."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"رسانه خارجی در حالت ناشناس است."</string>
     <string name="share" msgid="1778686618230011964">"اشتراک‌گذاری"</string>
     <string name="find" msgid="4808270900322985960">"یافتن"</string>
     <string name="websearch" msgid="4337157977400211589">"جستجوی وب"</string>

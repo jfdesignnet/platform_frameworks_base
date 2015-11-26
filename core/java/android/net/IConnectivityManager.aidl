@@ -96,8 +96,6 @@ interface IConnectivityManager
 
     void reportNetworkConnectivity(in Network network, boolean hasConnectivity);
 
-    void captivePortalAppResponse(in Network network, int response, String actionToken);
-
     ProxyInfo getGlobalProxy();
 
     void setGlobalProxy(in ProxyInfo p);
@@ -114,7 +112,7 @@ interface IConnectivityManager
 
     void startLegacyVpn(in VpnProfile profile);
 
-    LegacyVpnInfo getLegacyVpnInfo();
+    LegacyVpnInfo getLegacyVpnInfo(int userId);
 
     VpnInfo[] getAllVpnInfo();
 

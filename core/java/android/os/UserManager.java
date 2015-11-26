@@ -45,7 +45,9 @@ public class UserManager {
     private final Context mContext;
 
     /**
-     * Specifies if a user is disallowed from adding and removing accounts.
+     * Specifies if a user is disallowed from adding and removing accounts, unless they are
+     * {@link android.accounts.AccountManager#addAccountExplicitly programmatically} added by
+     * Authenticator.
      * The default value is <code>false</code>.
      *
      * <p/>Key for user restrictions.
@@ -178,7 +180,7 @@ public class UserManager {
      * Specifies if a user is disallowed from configuring VPN.
      * The default value is <code>false</code>.
      * This restriction has an effect in a managed profile only from
-     * {@link android.os.Build.VERSION_CODES#MNC}
+     * {@link android.os.Build.VERSION_CODES#M}
      *
      * <p/>Key for user restrictions.
      * <p/>Type: Boolean
@@ -1063,6 +1065,22 @@ public class UserManager {
             profiles.add(userHandle);
         }
         return profiles;
+    }
+
+    /**
+     * Returns the device credential owner id of the profile from
+     * which this method is called, or userHandle if called from a user that
+     * is not a profile.
+     *
+     * @hide
+     */
+    public int getCredentialOwnerProfile(int userHandle) {
+        try {
+            return mService.getCredentialOwnerProfile(userHandle);
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not get credential owner", re);
+            return -1;
+        }
     }
 
     /**

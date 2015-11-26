@@ -17,6 +17,7 @@ package com.android.keyguard;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Rect;
@@ -27,6 +28,7 @@ import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.RenderNodeAnimator;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AnimationUtils;
@@ -80,6 +82,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
      * Useful for clearing out the wrong pattern after a delay
      */
     private Runnable mCancelPatternRunnable = new Runnable() {
+        @Override
         public void run() {
             mLockPatternView.clearPattern();
         }
@@ -115,10 +118,12 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
                 R.dimen.disappear_y_translation);
     }
 
+    @Override
     public void setKeyguardCallback(KeyguardSecurityCallback callback) {
         mCallback = callback;
     }
 
+    @Override
     public void setLockPatternUtils(LockPatternUtils utils) {
         mLockPatternUtils = utils;
     }
@@ -151,6 +156,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         }
     }
 
+    @Override
     public void onEmergencyButtonClickedWhenInCall() {
         mCallback.reset();
     }
@@ -172,6 +178,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         return result;
     }
 
+    @Override
     public void reset() {
         // reset lock pattern
         mLockPatternView.enableInput();
@@ -205,18 +212,22 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
 
     private class UnlockPatternListener implements LockPatternView.OnPatternListener {
 
+        @Override
         public void onPatternStart() {
             mLockPatternView.removeCallbacks(mCancelPatternRunnable);
             mSecurityMessageDisplay.setMessage("", false);
         }
 
+        @Override
         public void onPatternCleared() {
         }
 
+        @Override
         public void onPatternCellAdded(List<LockPatternView.Cell> pattern) {
             mCallback.userActivity();
         }
 
+        @Override
         public void onPatternDetected(final List<LockPatternView.Cell> pattern) {
             mLockPatternView.disableInput();
             if (mPendingLockCheck != null) {
@@ -225,7 +236,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
 
             if (pattern.size() < LockPatternUtils.MIN_PATTERN_REGISTER_FAIL) {
                 mLockPatternView.enableInput();
-                onPatternChecked(pattern, false, 0);
+                onPatternChecked(false, 0, false /* not valid - too short */);
                 return;
             }
 
@@ -238,29 +249,30 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
                         public void onChecked(boolean matched, int timeoutMs) {
                             mLockPatternView.enableInput();
                             mPendingLockCheck = null;
-                            onPatternChecked(pattern, matched, timeoutMs);
+                            onPatternChecked(matched, timeoutMs, true);
                         }
                     });
+            if (pattern.size() > MIN_PATTERN_BEFORE_POKE_WAKELOCK) {
+                mCallback.userActivity();
+            }
         }
 
-        private void onPatternChecked(List<LockPatternView.Cell> pattern, boolean matched,
-                int timeoutMs) {
+        private void onPatternChecked(boolean matched, int timeoutMs, boolean isValidPattern) {
             if (matched) {
                 mCallback.reportUnlockAttempt(true, 0);
                 mLockPatternView.setDisplayMode(LockPatternView.DisplayMode.Correct);
                 mCallback.dismiss(true);
             } else {
-                if (pattern.size() > MIN_PATTERN_BEFORE_POKE_WAKELOCK) {
-                    mCallback.userActivity();
-                }
                 mLockPatternView.setDisplayMode(LockPatternView.DisplayMode.Wrong);
-                mCallback.reportUnlockAttempt(false, timeoutMs);
-                int attempts = mKeyguardUpdateMonitor.getFailedUnlockAttempts();
-                if (timeoutMs > 0) {
-                    long deadline = mLockPatternUtils.setLockoutAttemptDeadline(
-                            KeyguardUpdateMonitor.getCurrentUser(), timeoutMs);
-                    handleAttemptLockout(deadline);
-                } else {
+                if (isValidPattern) {
+                    mCallback.reportUnlockAttempt(false, timeoutMs);
+                    if (timeoutMs > 0) {
+                        long deadline = mLockPatternUtils.setLockoutAttemptDeadline(
+                                KeyguardUpdateMonitor.getCurrentUser(), timeoutMs);
+                        handleAttemptLockout(deadline);
+                    }
+                }
+                if (timeoutMs == 0) {
                     mSecurityMessageDisplay.setMessage(R.string.kg_wrong_pattern, true);
                     mLockPatternView.postDelayed(mCancelPatternRunnable, PATTERN_CLEAR_TIMEOUT_MS);
                 }
@@ -334,10 +346,8 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         enableClipping(false);
         setAlpha(1f);
         setTranslationY(mAppearAnimationUtils.getStartTranslation());
-        animate()
-                .setDuration(500)
-                .setInterpolator(mAppearAnimationUtils.getInterpolator())
-                .translationY(0);
+        AppearAnimationUtils.startTranslationYAnimation(this, 0 /* delay */, 500 /* duration */,
+                0, mAppearAnimationUtils.getInterpolator());
         mAppearAnimationUtils.startAnimation2d(
                 mLockPatternView.getCellStates(),
                 new Runnable() {
@@ -362,10 +372,9 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         mLockPatternView.clearPattern();
         enableClipping(false);
         setTranslationY(0);
-        animate()
-                .setDuration(300)
-                .setInterpolator(mDisappearAnimationUtils.getInterpolator())
-                .translationY(-mDisappearAnimationUtils.getStartTranslation());
+        AppearAnimationUtils.startTranslationYAnimation(this, 0 /* delay */, 300 /* duration */,
+                -mDisappearAnimationUtils.getStartTranslation(),
+                mDisappearAnimationUtils.getInterpolator());
         mDisappearAnimationUtils.startAnimation2d(mLockPatternView.getCellStates(),
                 new Runnable() {
                     @Override
@@ -398,43 +407,16 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
             long duration, float translationY, final boolean appearing,
             Interpolator interpolator,
             final Runnable finishListener) {
-        if (appearing) {
-            animatedCell.scale = 0.0f;
-            animatedCell.alpha = 1.0f;
-        }
-        animatedCell.translateY = appearing ? translationY : 0;
-        ValueAnimator animator = ValueAnimator.ofFloat(animatedCell.translateY,
-                appearing ? 0 : translationY);
-        animator.setInterpolator(interpolator);
-        animator.setDuration(duration);
-        animator.setStartDelay(delay);
-        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                float animatedFraction = animation.getAnimatedFraction();
-                if (appearing) {
-                    animatedCell.scale = animatedFraction;
-                } else {
-                    animatedCell.alpha = 1 - animatedFraction;
-                }
-                animatedCell.translateY = (float) animation.getAnimatedValue();
-                mLockPatternView.invalidate();
-            }
-        });
+        mLockPatternView.startCellStateAnimation(animatedCell,
+                1f, appearing ? 1f : 0f, /* alpha */
+                appearing ? translationY : 0f, appearing ? 0f : translationY, /* translation */
+                appearing ? 0f : 1f, 1f /* scale */,
+                delay, duration, interpolator, finishListener);
         if (finishListener != null) {
-            animator.addListener(new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    finishListener.run();
-                }
-            });
-
             // Also animate the Emergency call
             mAppearAnimationUtils.createAnimation(mEcaView, delay, duration, translationY,
                     appearing, interpolator, null);
         }
-        animator.start();
-        mLockPatternView.invalidate();
     }
 
     @Override

@@ -20,6 +20,7 @@ import static android.net.TrafficStats.MB_IN_BYTES;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.ActivityThread;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.IPackageMoveObserver;
@@ -84,6 +85,9 @@ public class StorageManager {
 
     /** {@hide} */
     public static final int DEBUG_FORCE_ADOPTABLE = 1 << 0;
+
+    /** {@hide} */
+    public static final int FLAG_FOR_WRITE = 1 << 0;
 
     private final Context mContext;
     private final ContentResolver mResolver;
@@ -811,22 +815,24 @@ public class StorageManager {
 
     /** {@hide} */
     public static @Nullable StorageVolume getStorageVolume(File file, int userId) {
-        return getStorageVolume(getVolumeList(userId), file);
+        return getStorageVolume(getVolumeList(userId, 0), file);
     }
 
     /** {@hide} */
     private static @Nullable StorageVolume getStorageVolume(StorageVolume[] volumes, File file) {
-        File canonicalFile = null;
         try {
-            canonicalFile = file.getCanonicalFile();
+            file = file.getCanonicalFile();
         } catch (IOException ignored) {
-            canonicalFile = null;
+            return null;
         }
         for (StorageVolume volume : volumes) {
-            if (volume.getPathFile().equals(file)) {
-                return volume;
+            File volumeFile = volume.getPathFile();
+            try {
+                volumeFile = volumeFile.getCanonicalFile();
+            } catch (IOException ignored) {
+                continue;
             }
-            if (FileUtils.contains(volume.getPathFile(), canonicalFile)) {
+            if (FileUtils.contains(volumeFile, file)) {
                 return volume;
             }
         }
@@ -849,15 +855,32 @@ public class StorageManager {
 
     /** {@hide} */
     public @NonNull StorageVolume[] getVolumeList() {
-        return getVolumeList(mContext.getUserId());
+        return getVolumeList(mContext.getUserId(), 0);
     }
 
     /** {@hide} */
-    public static @NonNull StorageVolume[] getVolumeList(int userId) {
+    public static @NonNull StorageVolume[] getVolumeList(int userId, int flags) {
         final IMountService mountService = IMountService.Stub.asInterface(
                 ServiceManager.getService("mount"));
         try {
-            return mountService.getVolumeList(userId);
+            String packageName = ActivityThread.currentOpPackageName();
+            if (packageName == null) {
+                // Package name can be null if the activity thread is running but the app
+                // hasn't bound yet. In this case we fall back to the first package in the
+                // current UID. This works for runtime permissions as permission state is
+                // per UID and permission realted app ops are updated for all UID packages.
+                String[] packageNames = ActivityThread.getPackageManager().getPackagesForUid(
+                        android.os.Process.myUid());
+                if (packageNames == null || packageNames.length <= 0) {
+                    return new StorageVolume[0];
+                }
+                packageName = packageNames[0];
+            }
+            final int uid = ActivityThread.getPackageManager().getPackageUid(packageName, userId);
+            if (uid <= 0) {
+                return new StorageVolume[0];
+            }
+            return mountService.getVolumeList(uid, packageName, flags);
         } catch (RemoteException e) {
             throw e.rethrowAsRuntimeException();
         }
@@ -891,15 +914,6 @@ public class StorageManager {
             }
         }
         throw new IllegalStateException("Missing primary storage");
-    }
-
-    /** {@hide} */
-    public void remountUid(int uid) {
-        try {
-            mMountService.remountUid(uid);
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
     }
 
     /** {@hide} */
@@ -956,7 +970,7 @@ public class StorageManager {
                         || vol.getType() == VolumeInfo.TYPE_PUBLIC) && vol.isMountedReadable()) {
                     final File internalPath = FileUtils.rewriteAfterRename(vol.getPath(),
                             vol.getInternalPath(), path);
-                    if (internalPath != null) {
+                    if (internalPath != null && internalPath.exists()) {
                         return internalPath;
                     }
                 }

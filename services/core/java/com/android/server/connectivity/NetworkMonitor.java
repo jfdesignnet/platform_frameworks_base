@@ -16,6 +16,10 @@
 
 package com.android.server.connectivity;
 
+import static android.net.CaptivePortal.APP_RETURN_DISMISSED;
+import static android.net.CaptivePortal.APP_RETURN_UNWANTED;
+import static android.net.CaptivePortal.APP_RETURN_WANTED_AS_IS;
+
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -23,7 +27,9 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.CaptivePortal;
 import android.net.ConnectivityManager;
+import android.net.ICaptivePortal;
 import android.net.NetworkRequest;
 import android.net.ProxyInfo;
 import android.net.TrafficStats;
@@ -71,7 +77,7 @@ import java.util.Random;
 public class NetworkMonitor extends StateMachine {
     private static final boolean DBG = true;
     private static final String TAG = "NetworkMonitor";
-    private static final String DEFAULT_SERVER = "connectivitycheck.android.com";
+    private static final String DEFAULT_SERVER = "connectivitycheck.gstatic.com";
     private static final int SOCKET_TIMEOUT_MS = 10000;
     public static final String ACTION_NETWORK_CONDITIONS_MEASURED =
             "android.net.conn.NETWORK_CONDITIONS_MEASURED";
@@ -160,12 +166,12 @@ public class NetworkMonitor extends StateMachine {
 
     /**
      * Message to self indicating captive portal app finished.
-     * arg1 = one of: CAPTIVE_PORTAL_APP_RETURN_DISMISSED,
-     *                CAPTIVE_PORTAL_APP_RETURN_UNWANTED,
-     *                CAPTIVE_PORTAL_APP_RETURN_WANTED_AS_IS
+     * arg1 = one of: APP_RETURN_DISMISSED,
+     *                APP_RETURN_UNWANTED,
+     *                APP_RETURN_WANTED_AS_IS
      * obj = mCaptivePortalLoggedInResponseToken as String
      */
-    public static final int CMD_CAPTIVE_PORTAL_APP_FINISHED = BASE + 9;
+    private static final int CMD_CAPTIVE_PORTAL_APP_FINISHED = BASE + 9;
 
     /**
      * Request ConnectivityService display provisioning notification.
@@ -234,7 +240,6 @@ public class NetworkMonitor extends StateMachine {
     private final State mLingeringState = new LingeringState();
 
     private CustomIntentReceiver mLaunchCaptivePortalAppBroadcastReceiver = null;
-    private String mCaptivePortalLoggedInResponseToken = null;
 
     private final LocalLog validationLogs = new LocalLog(20); // 20 lines
 
@@ -267,8 +272,6 @@ public class NetworkMonitor extends StateMachine {
 
         mIsCaptivePortalCheckEnabled = Settings.Global.getInt(mContext.getContentResolver(),
                 Settings.Global.CAPTIVE_PORTAL_DETECTION_ENABLED, 1) == 1;
-
-        mCaptivePortalLoggedInResponseToken = String.valueOf(new Random().nextLong());
 
         start();
     }
@@ -314,22 +317,18 @@ public class NetworkMonitor extends StateMachine {
                     transitionTo(mEvaluatingState);
                     return HANDLED;
                 case CMD_CAPTIVE_PORTAL_APP_FINISHED:
-                    if (!mCaptivePortalLoggedInResponseToken.equals((String)message.obj))
-                        return HANDLED;
                     log("CaptivePortal App responded with " + message.arg1);
-                    // Previous token was sent out, come up with a new one.
-                    mCaptivePortalLoggedInResponseToken = String.valueOf(new Random().nextLong());
                     switch (message.arg1) {
-                        case ConnectivityManager.CAPTIVE_PORTAL_APP_RETURN_DISMISSED:
+                        case APP_RETURN_DISMISSED:
                             sendMessage(CMD_FORCE_REEVALUATION, 0 /* no UID */, 0);
                             break;
-                        case ConnectivityManager.CAPTIVE_PORTAL_APP_RETURN_WANTED_AS_IS:
+                        case APP_RETURN_WANTED_AS_IS:
                             mDontDisplaySigninNotification = true;
                             // TODO: Distinguish this from a network that actually validates.
                             // Displaying the "!" on the system UI icon may still be a good idea.
                             transitionTo(mValidatedState);
                             break;
-                        case ConnectivityManager.CAPTIVE_PORTAL_APP_RETURN_UNWANTED:
+                        case APP_RETURN_UNWANTED:
                             mDontDisplaySigninNotification = true;
                             mUserDoesNotWant = true;
                             mConnectivityServiceHandler.sendMessage(obtainMessage(
@@ -350,7 +349,7 @@ public class NetworkMonitor extends StateMachine {
     // Being in the ValidatedState State indicates a Network is:
     // - Successfully validated, or
     // - Wanted "as is" by the user, or
-    // - Does not satsify the default NetworkRequest and so validation has been skipped.
+    // - Does not satisfy the default NetworkRequest and so validation has been skipped.
     private class ValidatedState extends State {
         @Override
         public void enter() {
@@ -380,8 +379,18 @@ public class NetworkMonitor extends StateMachine {
                     final Intent intent = new Intent(
                             ConnectivityManager.ACTION_CAPTIVE_PORTAL_SIGN_IN);
                     intent.putExtra(ConnectivityManager.EXTRA_NETWORK, mNetworkAgentInfo.network);
-                    intent.putExtra(ConnectivityManager.EXTRA_CAPTIVE_PORTAL_TOKEN,
-                            mCaptivePortalLoggedInResponseToken);
+                    intent.putExtra(ConnectivityManager.EXTRA_CAPTIVE_PORTAL,
+                            new CaptivePortal(new ICaptivePortal.Stub() {
+                                @Override
+                                public void appResponse(int response) {
+                                    if (response == APP_RETURN_WANTED_AS_IS) {
+                                        mContext.enforceCallingPermission(
+                                                android.Manifest.permission.CONNECTIVITY_INTERNAL,
+                                                "CaptivePortal");
+                                    }
+                                    sendMessage(CMD_CAPTIVE_PORTAL_APP_FINISHED, response);
+                                }
+                            }));
                     intent.setFlags(
                             Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT | Intent.FLAG_ACTIVITY_NEW_TASK);
                     mContext.startActivityAsUser(intent, UserHandle.CURRENT);
@@ -549,7 +558,7 @@ public class NetworkMonitor extends StateMachine {
 
     // Being in the LingeringState State indicates a Network's validated bit is true and it once
     // was the highest scoring Network satisfying a particular NetworkRequest, but since then
-    // another Network satsified the NetworkRequest with a higher score and hence this Network
+    // another Network satisfied the NetworkRequest with a higher score and hence this Network
     // is "lingered" for a fixed period of time before it is disconnected.  This period of time
     // allows apps to wrap up communication and allows for seamless reactivation if the other
     // higher scoring Network happens to disconnect.
@@ -576,9 +585,12 @@ public class NetworkMonitor extends StateMachine {
             switch (message.what) {
                 case CMD_NETWORK_CONNECTED:
                     log("Unlingered");
-                    // Go straight to active as we've already evaluated.
-                    transitionTo(mValidatedState);
-                    return HANDLED;
+                    // If already validated, go straight to validated state.
+                    if (mNetworkAgentInfo.lastValidated) {
+                        transitionTo(mValidatedState);
+                        return HANDLED;
+                    }
+                    return NOT_HANDLED;
                 case CMD_LINGER_EXPIRED:
                     if (message.arg1 != mLingerToken)
                         return HANDLED;
@@ -621,7 +633,8 @@ public class NetworkMonitor extends StateMachine {
      * Do a URL fetch on a known server to see if we get the data we expect.
      * Returns HTTP response code.
      */
-    private int isCaptivePortal() {
+    @VisibleForTesting
+    protected int isCaptivePortal() {
         if (!mIsCaptivePortalCheckEnabled) return 204;
 
         HttpURLConnection urlConnection = null;

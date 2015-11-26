@@ -206,6 +206,16 @@ public class WifiManager {
      * @hide
      */
     public static final String EXTRA_WIFI_AP_STATE = "wifi_state";
+
+    /**
+     * The look up key for an int that indicates why softAP started failed
+     * currently support general and no_channel
+     * @see #SAP_START_FAILURE_GENERAL
+     * @see #SAP_START_FAILURE_NO_CHANNEL
+     *
+     * @hide
+     */
+    public static final String EXTRA_WIFI_AP_FAILURE_REASON = "wifi_ap_error_code";
     /**
      * The previous Wi-Fi state.
      *
@@ -263,6 +273,20 @@ public class WifiManager {
      */
     public static final int WIFI_AP_STATE_FAILED = 14;
 
+    /**
+     *  If WIFI AP start failed, this reason code means there is no legal channel exists on
+     *  user selected band by regulatory
+     *
+     *  @hide
+     */
+    public static final int SAP_START_FAILURE_GENERAL= 0;
+
+    /**
+     *  All other reason for AP start failed besides SAP_START_FAILURE_GENERAL
+     *
+     *  @hide
+     */
+    public static final int SAP_START_FAILURE_NO_CHANNEL = 1;
     /**
      * Broadcast intent action indicating that a connection to the supplicant has
      * been established (and it is now possible
@@ -645,6 +669,7 @@ public class WifiManager {
         try {
             return mService.getConfiguredNetworks();
         } catch (RemoteException e) {
+            Log.w(TAG, "Caught RemoteException trying to get configured networks: " + e);
             return null;
         }
     }
@@ -1278,7 +1303,7 @@ public class WifiManager {
      * Return the results of the latest access point scan.
      * @return the list of access points found in the most recent scan. An app must hold
      * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION ACCESS_COARSE_LOCATION} or
-     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION ACCESS_FINE_LOCATION} permission
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION ACCESS_FINE_LOCATION} permission
      * in order to get valid results.
      */
     public List<ScanResult> getScanResults() {
@@ -1565,6 +1590,7 @@ public class WifiManager {
         try {
             return mService.buildWifiConfig(uriString, mimeType, data);
         } catch (RemoteException e) {
+            Log.w(TAG, "Caught RemoteException trying to build wifi config: " + e);
             return null;
         }
     }
@@ -2783,30 +2809,6 @@ public class WifiManager {
     }
 
     /**
-     * Set setting for allowing Scans when infrastructure is associated
-     * @hide
-     */
-    public void setAllowScansWhileAssociated(int enabled) {
-        try {
-            mService.setAllowScansWhileAssociated(enabled);
-        } catch (RemoteException e) {
-
-        }
-    }
-
-    /**
-     * Get setting for allowing Scans when infrastructure is associated
-     * @hide
-     */
-    public int getAllowScansWhileAssociated() {
-        try {
-            return mService.getAllowScansWhileAssociated();
-        } catch (RemoteException e) {
-        }
-        return 0;
-    }
-
-    /**
      * Resets all wifi manager settings back to factory defaults.
      *
      * @hide
@@ -2832,6 +2834,31 @@ public class WifiManager {
     }
 
     /**
+     * Framework layer autojoin enable/disable when device is associated
+     * this will enable/disable autojoin scan and switch network when connected
+     * @return true -- if set successful false -- if set failed
+     * @hide
+     */
+    public boolean enableAutoJoinWhenAssociated(boolean enabled) {
+        try {
+            return mService.enableAutoJoinWhenAssociated(enabled);
+        } catch (RemoteException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get setting for Framework layer autojoin enable status
+     * @hide
+     */
+    public boolean getEnableAutoJoinWhenAssociated() {
+        try {
+            return mService.getEnableAutoJoinWhenAssociated();
+        } catch (RemoteException e) {
+            return false;
+        }
+    }
+    /**
      * Set setting for enabling autojoin Offload thru Wifi HAL layer
      * @hide
      */
@@ -2850,30 +2877,6 @@ public class WifiManager {
     public int getHalBasedAutojoinOffload() {
         try {
             return mService.getHalBasedAutojoinOffload();
-        } catch (RemoteException e) {
-        }
-        return 0;
-    }
-
-    /**
-     * Set setting for enabling network switching while wifi is associated
-     * @hide
-     */
-    public void setAllowNetworkSwitchingWhileAssociated(int enabled) {
-        try {
-            mService.setAllowNetworkSwitchingWhileAssociated(enabled);
-        } catch (RemoteException e) {
-
-        }
-    }
-
-    /**
-     * Get setting for enabling network switching while wifi is associated
-     * @hide
-     */
-    public int getAllowNetworkSwitchingWhileAssociated() {
-        try {
-            return mService.getAllowNetworkSwitchingWhileAssociated();
         } catch (RemoteException e) {
         }
         return 0;

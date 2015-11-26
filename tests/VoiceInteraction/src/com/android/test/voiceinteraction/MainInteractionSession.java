@@ -29,6 +29,7 @@ import android.service.voice.VoiceInteractionSession;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -45,6 +46,11 @@ public class MainInteractionSession extends VoiceInteractionSession
     Button mTreeButton;
     Button mTextButton;
     Button mStartButton;
+    CheckBox mOptionsCheck;
+    View mOptionsContainer;
+    CheckBox mDisallowAssist;
+    CheckBox mDisallowScreenshot;
+    TextView mOptionsText;
     ImageView mScreenshot;
     ImageView mFullScreenshot;
     Button mConfirmButton;
@@ -66,6 +72,7 @@ public class MainInteractionSession extends VoiceInteractionSession
     VoiceInteractor.PickOptionRequest.Option[] mPendingOptions;
     CharSequence mPendingPrompt;
     Request mPendingRequest;
+    int mCurrentTask = -1;
 
     MainInteractionSession(Context context) {
         super(context);
@@ -81,8 +88,9 @@ public class MainInteractionSession extends VoiceInteractionSession
     @Override
     public void onShow(Bundle args, int showFlags) {
         super.onShow(args, showFlags);
+        Log.i(TAG, "onShow: flags=0x" + Integer.toHexString(showFlags) + " args=" + args);
         mState = STATE_IDLE;
-        mStartIntent = args.getParcelable("intent");
+        mStartIntent = args != null ? (Intent)args.getParcelable("intent") : null;
         if (mStartIntent == null) {
             mStartIntent = new Intent(getContext(), TestInteractionActivity.class);
         }
@@ -91,6 +99,7 @@ public class MainInteractionSession extends VoiceInteractionSession
         }
         onHandleScreenshot(null);
         updateState();
+        refreshOptions();
     }
 
     @Override
@@ -122,13 +131,37 @@ public class MainInteractionSession extends VoiceInteractionSession
         mScreenshot = (ImageView)mContentView.findViewById(R.id.screenshot);
         mScreenshot.setOnClickListener(this);
         mFullScreenshot = (ImageView)mContentView.findViewById(R.id.full_screenshot);
+        mOptionsCheck = (CheckBox)mContentView.findViewById(R.id.show_options);
+        mOptionsCheck.setOnClickListener(this);
+        mOptionsContainer = mContentView.findViewById(R.id.options);
+        mDisallowAssist = (CheckBox)mContentView.findViewById(R.id.disallow_structure);
+        mDisallowAssist.setOnClickListener(this);
+        mDisallowScreenshot = (CheckBox)mContentView.findViewById(R.id.disallow_screenshot);
+        mDisallowScreenshot.setOnClickListener(this);
+        mOptionsText = (TextView)mContentView.findViewById(R.id.options_text);
         mConfirmButton = (Button)mContentView.findViewById(R.id.confirm);
         mConfirmButton.setOnClickListener(this);
         mCompleteButton = (Button)mContentView.findViewById(R.id.complete);
         mCompleteButton.setOnClickListener(this);
         mAbortButton = (Button)mContentView.findViewById(R.id.abort);
         mAbortButton.setOnClickListener(this);
+        refreshOptions();
         return mContentView;
+    }
+
+    void refreshOptions() {
+        if (mOptionsContainer != null) {
+            if (mOptionsCheck.isChecked()) {
+                mOptionsContainer.setVisibility(View.VISIBLE);
+                int flags = getDisabledShowContext();
+                mDisallowAssist.setChecked((flags & SHOW_WITH_ASSIST) != 0);
+                mDisallowScreenshot.setChecked((flags & SHOW_WITH_SCREENSHOT) != 0);
+                int disabled = getUserDisabledShowContext();
+                mOptionsText.setText("Disabled: 0x" + Integer.toHexString(disabled));
+            } else {
+                mOptionsContainer.setVisibility(View.GONE);
+            }
+        }
     }
 
     public void onHandleAssist(Bundle assistBundle) {
@@ -202,6 +235,24 @@ public class MainInteractionSession extends VoiceInteractionSession
             if (mAssistVisualizer != null) {
                 mAssistVisualizer.logText();
             }
+        } else if (v == mOptionsCheck) {
+            refreshOptions();
+        } else if (v == mDisallowAssist) {
+            int flags = getDisabledShowContext();
+            if (mDisallowAssist.isChecked()) {
+                flags |= SHOW_WITH_ASSIST;
+            } else {
+                flags &= ~SHOW_WITH_ASSIST;
+            }
+            setDisabledShowContext(flags);
+        } else if (v == mDisallowScreenshot) {
+            int flags = getDisabledShowContext();
+            if (mDisallowScreenshot.isChecked()) {
+                flags |= SHOW_WITH_SCREENSHOT;
+            } else {
+                flags &= ~SHOW_WITH_SCREENSHOT;
+            }
+            setDisabledShowContext(flags);
         } else if (v == mStartButton) {
             mState = STATE_LAUNCHING;
             updateState();
@@ -260,6 +311,27 @@ public class MainInteractionSession extends VoiceInteractionSession
         if (mState != STATE_IDLE) {
             outInsets.contentInsets.top = mBottomContent.getTop();
             outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_CONTENT;
+        }
+    }
+
+    @Override
+    public void onTaskStarted(Intent intent, int taskId) {
+        super.onTaskStarted(intent, taskId);
+        mCurrentTask = taskId;
+    }
+
+    @Override
+    public void onTaskFinished(Intent intent, int taskId) {
+        super.onTaskFinished(intent, taskId);
+        if (mCurrentTask == taskId) {
+            mCurrentTask = -1;
+        }
+    }
+
+    @Override
+    public void onLockscreenShown() {
+        if (mCurrentTask < 0) {
+            hide();
         }
     }
 

@@ -112,7 +112,7 @@ public class DevicePolicyManager {
      *
      * In version {@link android.os.Build.VERSION_CODES#LOLLIPOP}, this intent must contain the
      * extra {@link #EXTRA_PROVISIONING_DEVICE_ADMIN_PACKAGE_NAME}.
-     * As of {@link android.os.Build.VERSION_CODES#MNC}, it should contain the extra
+     * As of {@link android.os.Build.VERSION_CODES#M}, it should contain the extra
      * {@link #EXTRA_PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME} instead, although specifying only
      * {@link #EXTRA_PROVISIONING_DEVICE_ADMIN_PACKAGE_NAME} is still supported.
      *
@@ -124,6 +124,12 @@ public class DevicePolicyManager {
      *
      * <p> If provisioning fails, the managedProfile is removed so the device returns to its
      * previous state.
+     *
+     * <p>If launched with {@link android.app.Activity#startActivityForResult(Intent, int)} a
+     * result code of {@link android.app.Activity#RESULT_OK} implies that the synchronous part of
+     * the provisioning flow was successful, although this doesn't guarantee the full flow will
+     * succeed. Conversely a result code of {@link android.app.Activity#RESULT_CANCELED} implies
+     * that the user backed-out of provisioning, or some precondition for provisioning wasn't met.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_PROVISION_MANAGED_PROFILE
@@ -158,6 +164,10 @@ public class DevicePolicyManager {
      *
      * <p> If provisioning fails, the device is factory reset.
      *
+     * <p>A result code of {@link android.app.Activity#RESULT_OK} implies that the synchronous part
+     * of the provisioning flow was successful, although this doesn't guarantee the full flow will
+     * succeed. Conversely a result code of {@link android.app.Activity#RESULT_CANCELED} implies
+     * that the user backed-out of provisioning, or some precondition for provisioning wasn't met.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_PROVISION_MANAGED_DEVICE
@@ -165,13 +175,19 @@ public class DevicePolicyManager {
 
     /**
      * A {@link android.os.Parcelable} extra of type {@link android.os.PersistableBundle} that
-     * allows a mobile device management application which starts managed provisioning to pass data
-     * to itself.
+     * allows a mobile device management application or NFC programmer application which starts
+     * managed provisioning to pass data to the management application instance after provisioning.
      * <p>
      * If used with {@link #ACTION_PROVISION_MANAGED_PROFILE} it can be used by the application that
      * sends the intent to pass data to itself on the newly created profile.
      * If used with {@link #ACTION_PROVISION_MANAGED_DEVICE} it allows passing data to the same
      * instance of the app on the primary user.
+     * Starting from {@link android.os.Build.VERSION_CODES#M}, if used with
+     * {@link #MIME_TYPE_PROVISIONING_NFC} as part of NFC managed device provisioning, the NFC
+     * message should contain a stringified {@link java.util.Properties} instance, whose string
+     * properties will be converted into a {@link android.os.PersistableBundle} and passed to the
+     * management application after provisioning.
+     *
      * <p>
      * In both cases the application receives the data in
      * {@link DeviceAdminReceiver#onProfileProvisioningComplete} via an intent with the action
@@ -417,7 +433,7 @@ public class DevicePolicyManager {
      *
      * <p><strong>Note:</strong> for devices running {@link android.os.Build.VERSION_CODES#LOLLIPOP}
      * and {@link android.os.Build.VERSION_CODES#LOLLIPOP_MR1} only SHA-1 hash is supported.
-     * Starting from {@link android.os.Build.VERSION_CODES#MNC}, this parameter accepts SHA-256 in
+     * Starting from {@link android.os.Build.VERSION_CODES#M}, this parameter accepts SHA-256 in
      * addition to SHA-1. Support for SHA-1 is likely to be removed in future OS releases.
      */
     public static final String EXTRA_PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM
@@ -587,10 +603,12 @@ public class DevicePolicyManager {
      * <li>{@link #EXTRA_PROVISIONING_WIFI_PROXY_HOST}, optional</li>
      * <li>{@link #EXTRA_PROVISIONING_WIFI_PROXY_PORT} (convert to String), optional</li>
      * <li>{@link #EXTRA_PROVISIONING_WIFI_PROXY_BYPASS}, optional</li>
-     * <li>{@link #EXTRA_PROVISIONING_WIFI_PAC_URL}, optional</li></ul>
+     * <li>{@link #EXTRA_PROVISIONING_WIFI_PAC_URL}, optional</li>
+     * <li>{@link #EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE}, optional, supported from
+     * {@link android.os.Build.VERSION_CODES#M} </li></ul>
      *
      * <p>
-     * As of {@link android.os.Build.VERSION_CODES#MNC}, the properties should contain
+     * As of {@link android.os.Build.VERSION_CODES#M}, the properties should contain
      * {@link #EXTRA_PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME} instead of
      * {@link #EXTRA_PROVISIONING_DEVICE_ADMIN_PACKAGE_NAME}, (although specifying only
      * {@link #EXTRA_PROVISIONING_DEVICE_ADMIN_PACKAGE_NAME} is still supported).
@@ -603,7 +621,7 @@ public class DevicePolicyManager {
      * @hide
      * This MIME type is used for starting the Device Owner provisioning that requires
      * new provisioning features introduced in API version
-     * {@link android.os.Build.VERSION_CODES#MNC} in addition to those supported in earlier
+     * {@link android.os.Build.VERSION_CODES#M} in addition to those supported in earlier
      * versions.
      *
      * <p>During device owner provisioning a device admin app is set as the owner of the device.
@@ -690,13 +708,23 @@ public class DevicePolicyManager {
             = "android.app.extra.PROFILE_OWNER_NAME";
 
     /**
-     * Activity action: send when any policy admin changes a policy.
+     * Broadcast action: send when any policy admin changes a policy.
      * This is generally used to find out when a new policy is in effect.
      *
      * @hide
      */
     public static final String ACTION_DEVICE_POLICY_MANAGER_STATE_CHANGED
             = "android.app.action.DEVICE_POLICY_MANAGER_STATE_CHANGED";
+
+    /**
+     * Broadcast action: sent when the device owner is set or changed.
+     *
+     * This broadcast is sent only to the primary user.
+     * @see #ACTION_PROVISION_MANAGED_DEVICE
+     */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_DEVICE_OWNER_CHANGED
+            = "android.app.action.DEVICE_OWNER_CHANGED";
 
     /**
      * The ComponentName of the administrator component.
@@ -2405,7 +2433,7 @@ public class DevicePolicyManager {
      * <p>The calling device admin must be a device or profile owner. If it is not, a
      * security exception will be thrown.
      *
-     * <p>From version {@link android.os.Build.VERSION_CODES#MNC} disabling screen capture also
+     * <p>From version {@link android.os.Build.VERSION_CODES#M} disabling screen capture also
      * blocks assist requests for all activities of the relevant user.
      *
      * @param admin Which {@link DeviceAdminReceiver} this request is associated with.
@@ -2489,9 +2517,9 @@ public class DevicePolicyManager {
      * this method; if it has not, a security exception will be thrown.
      *
      * <p>Calling this from a managed profile before version
-     * {@link android.os.Build.VERSION_CODES#MNC} will throw a security exception.
+     * {@link android.os.Build.VERSION_CODES#M} will throw a security exception.
      *
-     * <p>From version {@link android.os.Build.VERSION_CODES#MNC} a profile owner can set:
+     * <p>From version {@link android.os.Build.VERSION_CODES#M} a profile owner can set:
      * <ul>
      * <li>{@link #KEYGUARD_DISABLE_TRUST_AGENTS}, {@link #KEYGUARD_DISABLE_FINGERPRINT}
      *      these will affect the profile's parent user.
@@ -3176,8 +3204,13 @@ public class DevicePolicyManager {
      * Called by a profile or device owner to set the application restrictions for a given target
      * application running in the profile.
      *
-     * <p>The provided {@link Bundle} consists of key-value pairs, where the types of values may be
-     * boolean, int, String, or String[].
+     * <p>The provided {@link Bundle} consists of key-value pairs, where the types of values may be:
+     * <ul>
+     * <li>{@code boolean}
+     * <li>{@code int}
+     * <li>{@code String} or {@code String[]}
+     * <li>From {@link android.os.Build.VERSION_CODES#M}, {@code Bundle} or {@code Bundle[]}
+     * </ul>
      *
      * <p>The application restrictions are only made visible to the target application and the
      * profile or device owner.
@@ -3613,7 +3646,7 @@ public class DevicePolicyManager {
      * @return the {@link android.os.UserHandle} object for the created user, or {@code null} if the
      *         user could not be created.
      *
-     * @deprecated From {@link android.os.Build.VERSION_CODES#MNC}
+     * @deprecated From {@link android.os.Build.VERSION_CODES#M}
      */
     @Deprecated
     public UserHandle createUser(@NonNull ComponentName admin, String name) {
@@ -3650,7 +3683,7 @@ public class DevicePolicyManager {
      * @return the {@link android.os.UserHandle} object for the created user, or {@code null} if the
      *         user could not be created.
      *
-     * @deprecated From {@link android.os.Build.VERSION_CODES#MNC}
+     * @deprecated From {@link android.os.Build.VERSION_CODES#M}
      */
     @Deprecated
     public UserHandle createAndInitializeUser(@NonNull ComponentName admin, String name,
@@ -3904,7 +3937,7 @@ public class DevicePolicyManager {
      * <p>Any packages that shares uid with an allowed package will also be allowed
      * to activate lock task.
      *
-     * From {@link android.os.Build.VERSION_CODES#MNC} removing packages from the lock task
+     * From {@link android.os.Build.VERSION_CODES#M} removing packages from the lock task
      * package list results in locked tasks belonging to those packages to be finished.
      *
      * This function can only be called by the device owner.
@@ -3972,14 +4005,14 @@ public class DevicePolicyManager {
      * <li>{@link Settings.Global#USB_MASS_STORAGE_ENABLED}</li>
      * <li>{@link Settings.Global#WIFI_SLEEP_POLICY}</li>
      * <li>{@link Settings.Global#STAY_ON_WHILE_PLUGGED_IN}
-     *   This setting is only available from {@link android.os.Build.VERSION_CODES#MNC} onwards
+     *   This setting is only available from {@link android.os.Build.VERSION_CODES#M} onwards
      *   and can only be set if {@link #setMaximumTimeToLock} is not used to set a timeout.</li>
      * <li>{@link Settings.Global#WIFI_DEVICE_OWNER_CONFIGS_LOCKDOWN}</li>
-     *   This setting is only available from {@link android.os.Build.VERSION_CODES#MNC} onwards.
+     *   This setting is only available from {@link android.os.Build.VERSION_CODES#M} onwards.
      *   </li>
      * </ul>
      * <p>Changing the following settings has no effect as of
-     * {@link android.os.Build.VERSION_CODES#MNC}:
+     * {@link android.os.Build.VERSION_CODES#M}:
      * <ul>
      * <li>{@link Settings.Global#BLUETOOTH_ON}.
      *   Use {@link android.bluetooth.BluetoothAdapter#enable()} and
@@ -4334,7 +4367,7 @@ public class DevicePolicyManager {
      * the permission grant state via {@link #setPermissionGrantState}.
      *
      * <p/>As this policy only acts on runtime permission requests, it only applies to applications
-     * built with a {@code targetSdkVersion} of {@link android.os.Build.VERSION_CODES#MNC} or later.
+     * built with a {@code targetSdkVersion} of {@link android.os.Build.VERSION_CODES#M} or later.
      *
      * @param admin Which profile or device owner this request is associated with.
      * @param policy One of the policy constants {@link #PERMISSION_POLICY_PROMPT},
@@ -4378,7 +4411,7 @@ public class DevicePolicyManager {
      * revoke the permission. It retains the previous grant, if any.
      *
      * <p/>Permissions can be granted or revoked only for applications built with a
-     * {@code targetSdkVersion} of {@link android.os.Build.VERSION_CODES#MNC} or later.
+     * {@code targetSdkVersion} of {@link android.os.Build.VERSION_CODES#M} or later.
      *
      * @param admin Which profile or device owner this request is associated with.
      * @param packageName The application to grant or revoke a permission to.

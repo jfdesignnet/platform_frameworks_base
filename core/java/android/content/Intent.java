@@ -1021,9 +1021,9 @@ public class Intent implements Parcelable, Cloneable {
      * numbers.  Applications can <strong>dial</strong> emergency numbers using
      * {@link #ACTION_DIAL}, however.
      *
-     * <p>Note: if you app targets {@link android.os.Build.VERSION_CODES#MNC MNC}
+     * <p>Note: if you app targets {@link android.os.Build.VERSION_CODES#M M}
      * and above and declares as using the {@link android.Manifest.permission#CALL_PHONE}
-     * permission which is not granted, then atempting to use this action will
+     * permission which is not granted, then attempting to use this action will
      * result in a {@link java.lang.SecurityException}.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
@@ -1781,14 +1781,6 @@ public class Intent implements Parcelable, Cloneable {
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_ALARM_CHANGED = "android.intent.action.ALARM_CHANGED";
-    /**
-     * Sync State Changed Action: This is broadcast when the sync starts or stops or when one has
-     * been failing for a long time.  It is used by the SyncManager and the StatusBar service.
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_SYNC_STATE_CHANGED
-            = "android.intent.action.SYNC_STATE_CHANGED";
     /**
      * Broadcast Action: This is broadcast once, after the system has finished
      * booting.  It can be used to perform application-specific initialization,
@@ -3093,6 +3085,13 @@ public class Intent implements Parcelable, Cloneable {
      */
     @SdkConstant(SdkConstantType.INTENT_CATEGORY)
     public static final String CATEGORY_HOME = "android.intent.category.HOME";
+    /**
+     * This is the setup wizard activity, that is the first activity that is displayed
+     * when the user sets up the device for the first time.
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.INTENT_CATEGORY)
+    public static final String CATEGORY_SETUP_WIZARD = "android.intent.category.SETUP_WIZARD";
     /**
      * This activity is a preference panel.
      */
@@ -7534,14 +7533,19 @@ public class Intent implements Parcelable, Cloneable {
             if (!first) {
                 b.append(' ');
             }
-            first = false;
+            b.append("clip={");
             if (clip) {
-                b.append("clip={");
                 mClipData.toShortString(b);
-                b.append('}');
             } else {
-                b.append("(has clip)");
+                if (mClipData.getDescription() != null) {
+                    first = !mClipData.getDescription().toShortStringTypesOnly(b);
+                } else {
+                    first = true;
+                }
+                mClipData.toShortStringShortItems(b, first);
             }
+            first = false;
+            b.append('}');
         }
         if (extras && mExtras != null) {
             if (!first) {

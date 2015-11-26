@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Allows the app to control the flashlight."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"directly call phone numbers"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Allows the app to call phone numbers without your intervention. This may result in unexpected charges or calls. Note that this doesn\'t allow the app to call emergency numbers. Malicious apps may cost you money by making calls without your confirmation."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"access IMS call service"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Allows the app to use the IMS service to make calls without your intervention."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"read phone status and identity"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Allows the app to access the phone features of the device. This permission allows the app to determine the phone number and device IDs, whether a call is active and the remote number connected by a call."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"prevent tablet from sleeping"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Finger <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Fingerprint icon"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"read sync settings"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Allows the app to read the sync settings for an account. For example, this can determine whether the People app is synced with an account."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"toggle sync on and off"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Cell added"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Cell <xliff:g id="CELL_INDEX">%1$s</xliff:g> added"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Pattern completed"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Pattern area."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Widget %2$d of %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Add widget"</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Empty"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB for file transfer"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB for photo transfer"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB for MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Connected as an installer"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Connected to a USB accessory"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Touch for more options."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"USB debugging connected"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="one">1 match</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Done"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Unmounting USB storage…"</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Unmounting SD card…"</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Erasing USB storage..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Erasing SD card…"</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Couldn\'t erase USB storage."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Couldn\'t erase SD card."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"SD card was removed before being unmounted."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"USB storage is currently being checked."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"SD card is currently being checked."</string>
-    <string name="media_removed" msgid="7001526905057952097">"SD card has been removed."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"USB storage is currently in use by a computer."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"SD card is currently in use by a computer."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"External media in unknown state."</string>
     <string name="share" msgid="1778686618230011964">"Share"</string>
     <string name="find" msgid="4808270900322985960">"Find"</string>
     <string name="websearch" msgid="4337157977400211589">"Web Search"</string>

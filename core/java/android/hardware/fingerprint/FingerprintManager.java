@@ -321,6 +321,14 @@ public class FingerprintManager {
          * Called when a fingerprint is valid but not recognized.
          */
         public void onAuthenticationFailed() { }
+
+        /**
+         * Called when a fingerprint image has been acquired, but wasn't processed yet.
+         *
+         * @param acquireInfo one of FINGERPRINT_ACQUIRED_* constants
+         * @hide
+         */
+        public void onAuthenticationAcquired(int acquireInfo) {}
     };
 
     /**
@@ -387,7 +395,7 @@ public class FingerprintManager {
      * Request authentication of a crypto object. This call warms up the fingerprint hardware
      * and starts scanning for a fingerprint. It terminates when
      * {@link AuthenticationCallback#onAuthenticationError(int, CharSequence)} or
-     * {@link AuthenticationCallback#onAuthenticationSucceeded(AuthenticationResult) is called, at
+     * {@link AuthenticationCallback#onAuthenticationSucceeded(AuthenticationResult)} is called, at
      * which point the object is no longer valid. The operation can be canceled by using the
      * provided cancel object.
      *
@@ -737,9 +745,13 @@ public class FingerprintManager {
         }
 
         private void sendAcquiredResult(long deviceId, int acquireInfo) {
+            if (mAuthenticationCallback != null) {
+                mAuthenticationCallback.onAuthenticationAcquired(acquireInfo);
+            }
             final String msg = getAcquiredString(acquireInfo);
-            if (msg == null) return;
-
+            if (msg == null) {
+                return;
+            }
             if (mEnrollmentCallback != null) {
                 mEnrollmentCallback.onEnrollmentHelp(acquireInfo, msg);
             } else if (mAuthenticationCallback != null) {

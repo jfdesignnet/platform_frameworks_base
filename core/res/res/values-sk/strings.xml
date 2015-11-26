@@ -356,10 +356,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Umožňuje aplikácii ovládať svetlo."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"priamo volať na telefónne čísla"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Umožňuje aplikácii volať telefónne čísla bez vášho zásahu. V dôsledku toho sa môžu účtovať neočakávané poplatky alebo sa môžu uskutočniť neočakávané hovory. Toto povolenie neumožňuje aplikácii volať na čísla tiesňového volania."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"prístup k službe volania IMS"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Umožňuje aplikácii používať službu okamžitých správ (IMS) na volanie bez intervencie používateľa."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"čítať stav a identitu telefónu"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Umožňuje aplikácii pristupovať k telefónnym funkciám zariadenia. Aplikácia s týmto povolením môže určiť telefónne číslo a ID zariadenia, či práve prebieha hovor, a vzdialené číslo, s ktorým je prostredníctvom hovoru nadviazané spojenie."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"zabránenie prechodu tabletu do režimu spánku"</string>
@@ -438,6 +436,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Prst: <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Ikona odtlačku prsta"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"čítať nastavenia synchronizácie"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Umožňuje aplikácii čítať nastavenia synchronizácie v účte. Môže napríklad určiť, či je s účtom synchronizovaná aplikácia Ľudia."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"zapnúť alebo vypnúť synchronizáciu"</string>
@@ -716,6 +715,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Bunka bola pridaná"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Bola pridaná bunka <xliff:g id="CELL_INDEX">%1$s</xliff:g>"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Bezpečnostný vzor bol dokončený"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Oblasť na zadanie bezpečnostného vzoru."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Miniaplikácia %2$d z %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Pridať miniaplikáciu."</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Prázdne"</string>
@@ -1055,7 +1055,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB na prenos súborov"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB na prenos fotiek"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB na pripojenie zariadenia MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Pripojené ako inštalátor"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Pripojené k periférnemu zariadeniu USB"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Ďalšie možnosti zobrazíte klepnutím."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"Ladenie cez USB pripojené"</string>
@@ -1167,19 +1166,8 @@
       <item quantity="one">1 zápas</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Hotovo"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Prebieha odpájanie úložiska USB..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Prebieha odpájanie SD karty..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Prebieha vymazávanie ukladacieho priestoru USB..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Prebieha vymazávanie SD karty..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Nepodarilo sa vymazať ukladací priestor USB"</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Nepodarilo sa vymazať SD kartu"</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"SD karta nebola pred odstránením odpojená."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"Prebieha kontrola ukladacieho priestoru USB."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"Prebieha kontrola SD karty."</string>
-    <string name="media_removed" msgid="7001526905057952097">"SD karta bola odstránená."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"Ukladací priestor USB je momentálne používaný počítačom."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"SD karta sa momentálne používa počítačom."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"Neznámy stav externého média."</string>
     <string name="share" msgid="1778686618230011964">"Zdieľať"</string>
     <string name="find" msgid="4808270900322985960">"Nájsť"</string>
     <string name="websearch" msgid="4337157977400211589">"Hľadať na webe"</string>

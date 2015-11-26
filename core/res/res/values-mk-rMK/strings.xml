@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Дозволува апликацијата да ја контролира батериската ламба."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"директно избирај телефонски броеви"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Овозможува апликацијата да повикува телефонски броеви без ваша интервенција. Ова може да предизвика неочекувани трошоци или повици. Имајте на ум дека ова не дозволува апликацијата да повикува броеви на служби за итна помош. Злонамерните апликации може да ве чинат пари поради повици без ваша потврда."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"пристапи до услугата за повици IMS"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Дозволува апликацијата да ја користи услугата IMS за повици без ваша интервенција."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"прочитај ги статусот и идентитетот  на телефонот"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Овозможува апликацијата да пристапи кон карактеристиките на телефонот на уредот. Оваа дозвола овозможува апликацијата да ги утврди телефонскиот број и ИД на уредот, дали повикот е активен и далечинскиот број поврзан со повикот."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"спречи режим на штедење кај таблет"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Прст <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Икона за отпечатоци"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"прочитај синхронизирани подесувања"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Овозможува апликацијата да ги чита подесувањата за синхронизирање на сметка. На пример, така може да се утврди дали апликацијата „Луѓе“ е синхронизирана со сметка."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"вклучи и исклучи синхронизација"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Додадена е ќелија"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Додадена е ќелија <xliff:g id="CELL_INDEX">%1$s</xliff:g>"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Шемата е целосна"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Место за шема."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Виџет %2$d од %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Додај виџет."</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Празно"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"УСБ за пренос на датотеки"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"УСБ за пренос на фотографии"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"УСБ за МИДИ"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Поврзан како инсталатор"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Поврзан со УСБ додаток"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Допри за повеќе опции."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"Поврзано е отстранување грешки преку УСБ"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="other"><xliff:g id="INDEX">%d</xliff:g> од <xliff:g id="TOTAL">%d</xliff:g></item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Готово"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Одмонтирање УСБ меморија..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Одмонтирање СД картичка..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Бришење УСБ меморија..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Бришење СД картичка..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"УСБ меморијата не можеше да се избрише."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"СД картичката не можеше да се избрише."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"СД картичката беше отстранета пред да биде одмонтирана."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"УСБ меморијата се проверува во моментов."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"СД картичката се проверува во моментов."</string>
-    <string name="media_removed" msgid="7001526905057952097">"СД картичката беше отстранета."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"Во моментов УСБ меморијата се користи на компјутер."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"Во моментов СД картичката се користи на компјутер."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"Надворешен медиум во непозната состојба."</string>
     <string name="share" msgid="1778686618230011964">"Сподели"</string>
     <string name="find" msgid="4808270900322985960">"Пронајди"</string>
     <string name="websearch" msgid="4337157977400211589">"Пребарај веб"</string>

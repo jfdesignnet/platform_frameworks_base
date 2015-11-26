@@ -1172,6 +1172,16 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
+     * Called when an {@link #onResume} is coming up, prior to other pre-resume callbacks
+     * such as {@link #onNewIntent} and {@link #onActivityResult}.  This is primarily intended
+     * to give the activity a hint that its state is no longer saved -- it will generally
+     * be called after {@link #onSaveInstanceState} and prior to the activity being
+     * resumed/started again.
+     */
+    public void onStateNotSaved() {
+    }
+
+    /**
      * Called after {@link #onRestoreInstanceState}, {@link #onRestart}, or
      * {@link #onPause}, for your activity to start interacting with the user.
      * This is a good place to begin animations, open exclusive-access devices
@@ -1226,6 +1236,22 @@ public class Activity extends ContextThemeWrapper
      */
     public boolean isVoiceInteraction() {
         return mVoiceInteractor != null;
+    }
+
+    /**
+     * Like {@link #isVoiceInteraction}, but only returns true if this is also the root
+     * of a voice interaction.  That is, returns true if this activity was directly
+     * started by the voice interaction service as the initiation of a voice interaction.
+     * Otherwise, for example if it was started by another activity while under voice
+     * interaction, returns false.
+     */
+    public boolean isVoiceInteractionRoot() {
+        try {
+            return mVoiceInteractor != null
+                    && ActivityManagerNative.getDefault().isRootVoiceInteraction(mToken);
+        } catch (RemoteException e) {
+        }
+        return false;
     }
 
     /**
@@ -1545,6 +1571,24 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
+     * Ask to have the current assistant shown to the user.  This only works if the calling
+     * activity is the current foreground activity.  It is the same as calling
+     * {@link android.service.voice.VoiceInteractionService#showSession
+     * VoiceInteractionService.showSession} and requesting all of the possible context.
+     * The receiver will always see
+     * {@link android.service.voice.VoiceInteractionSession#SHOW_SOURCE_APPLICATION} set.
+     * @return Returns true if the assistant was successfully invoked, else false.  For example
+     * false will be returned if the caller is not the current top activity.
+     */
+    public boolean showAssist(Bundle args) {
+        try {
+            return ActivityManagerNative.getDefault().showAssistFromActivity(mToken, args);
+        } catch (RemoteException e) {
+        }
+        return false;
+    }
+
+    /**
      * Called when you are no longer visible to the user.  You will next
      * receive either {@link #onRestart}, {@link #onDestroy}, or nothing,
      * depending on later user activity.
@@ -1846,7 +1890,10 @@ public class Activity extends ContextThemeWrapper
         nci.children = children;
         nci.fragments = fragments;
         nci.loaders = loaders;
-        nci.voiceInteractor = mVoiceInteractor;
+        if (mVoiceInteractor != null) {
+            mVoiceInteractor.retainInstance();
+            nci.voiceInteractor = mVoiceInteractor;
+        }
         return nci;
     }
 
@@ -2469,7 +2516,9 @@ public class Activity extends ContextThemeWrapper
      * @return True if the key shortcut was handled.
      */
     public boolean onKeyShortcut(int keyCode, KeyEvent event) {
-        return false;
+        // Let the Action Bar have a chance at handling the shortcut.
+        ActionBar actionBar = getActionBar();
+        return (actionBar != null && actionBar.onKeyShortcut(keyCode, event));
     }
 
     /**
@@ -3769,6 +3818,11 @@ public class Activity extends ContextThemeWrapper
     /**
      * Callback for the result from requesting permissions. This method
      * is invoked for every call on {@link #requestPermissions(String[], int)}.
+     * <p>
+     * <strong>Note:</strong> It is possible that the permissions request interaction
+     * with the user is interrupted. In this case you will receive empty permissions
+     * and results arrays which should be treated as a cancellation.
+     * </p>
      *
      * @param requestCode The request code passed in {@link #requestPermissions(String[], int)}.
      * @param permissions The requested permissions. Never null.
@@ -3975,16 +4029,24 @@ public class Activity extends ContextThemeWrapper
      * as intermediaries that dispatch their intent to the target the user selects -- to
      * do this, they must perform all security checks including permission grants as if
      * their launch had come from the original activity.
+     * @param intent The Intent to start.
+     * @param options ActivityOptions or null.
+     * @param ignoreTargetSecurity If true, the activity manager will not check whether the
+     * caller it is doing the start is, is actually allowed to start the target activity.
+     * If you set this to true, you must set an explicit component in the Intent and do any
+     * appropriate security checks yourself.
+     * @param userId The user the new activity should run as.
      * @hide
      */
-    public void startActivityAsCaller(Intent intent, @Nullable Bundle options, int userId) {
+    public void startActivityAsCaller(Intent intent, @Nullable Bundle options,
+            boolean ignoreTargetSecurity, int userId) {
         if (mParent != null) {
             throw new RuntimeException("Can't be called from a child");
         }
         Instrumentation.ActivityResult ar =
                 mInstrumentation.execStartActivityAsCaller(
                         this, mMainThread.getApplicationThread(), mToken, this,
-                        intent, -1, options, userId);
+                        intent, -1, options, ignoreTargetSecurity, userId);
         if (ar != null) {
             mMainThread.sendActivityResult(
                 mToken, mEmbeddedID, -1, ar.getResultCode(),
@@ -5514,6 +5576,9 @@ public class Activity extends ContextThemeWrapper
 
         mFragments.dumpLoaders(innerPrefix, fd, writer, args);
         mFragments.getFragmentManager().dump(innerPrefix, fd, writer, args);
+        if (mVoiceInteractor != null) {
+            mVoiceInteractor.dump(innerPrefix, fd, writer, args);
+        }
 
         if (getWindow() != null &&
                 getWindow().peekDecorView() != null &&

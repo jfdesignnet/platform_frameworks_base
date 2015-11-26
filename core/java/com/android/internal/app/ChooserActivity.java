@@ -471,6 +471,36 @@ public class ChooserActivity extends ResolverActivity {
         return false;
     }
 
+    void filterServiceTargets(String packageName, List<ChooserTarget> targets) {
+        if (targets == null) {
+            return;
+        }
+
+        final PackageManager pm = getPackageManager();
+        for (int i = targets.size() - 1; i >= 0; i--) {
+            final ChooserTarget target = targets.get(i);
+            final ComponentName targetName = target.getComponentName();
+            if (packageName != null && packageName.equals(targetName.getPackageName())) {
+                // Anything from the original target's package is fine.
+                continue;
+            }
+
+            boolean remove;
+            try {
+                final ActivityInfo ai = pm.getActivityInfo(targetName, 0);
+                remove = !ai.exported || ai.permission != null;
+            } catch (NameNotFoundException e) {
+                Log.e(TAG, "Target " + target + " returned by " + packageName
+                        + " component not found");
+                remove = true;
+            }
+
+            if (remove) {
+                targets.remove(i);
+            }
+        }
+    }
+
     @Override
     ResolveListAdapter createAdapter(Context context, List<Intent> payloadIntents,
             Intent[] initialIntents, List<ResolveInfo> rList, int launchedFromUid,
@@ -487,6 +517,7 @@ public class ChooserActivity extends ResolverActivity {
         private final ResolveInfo mBackupResolveInfo;
         private final ChooserTarget mChooserTarget;
         private Drawable mBadgeIcon = null;
+        private CharSequence mBadgeContentDescription;
         private Drawable mDisplayIcon;
         private final Intent mFillInIntent;
         private final int mFillInFlags;
@@ -502,7 +533,9 @@ public class ChooserActivity extends ResolverActivity {
                 if (ri != null) {
                     final ActivityInfo ai = ri.activityInfo;
                     if (ai != null && ai.applicationInfo != null) {
-                        mBadgeIcon = getPackageManager().getApplicationIcon(ai.applicationInfo);
+                        final PackageManager pm = getPackageManager();
+                        mBadgeIcon = pm.getApplicationIcon(ai.applicationInfo);
+                        mBadgeContentDescription = pm.getApplicationLabel(ai.applicationInfo);
                     }
                 }
             }
@@ -525,6 +558,7 @@ public class ChooserActivity extends ResolverActivity {
             mBackupResolveInfo = other.mBackupResolveInfo;
             mChooserTarget = other.mChooserTarget;
             mBadgeIcon = other.mBadgeIcon;
+            mBadgeContentDescription = other.mBadgeContentDescription;
             mDisplayIcon = other.mDisplayIcon;
             mFillInIntent = fillInIntent;
             mFillInFlags = flags;
@@ -554,11 +588,11 @@ public class ChooserActivity extends ResolverActivity {
             return null;
         }
 
-        private Intent getFillInIntent() {
+        private Intent getBaseIntentToSend() {
             Intent result = mSourceInfo != null
                     ? mSourceInfo.getResolvedIntent() : getTargetIntent();
             if (result == null) {
-                Log.e(TAG, "ChooserTargetInfo#getFillInIntent: no fillIn intent available");
+                Log.e(TAG, "ChooserTargetInfo: no base intent available to send");
             } else {
                 result = new Intent(result);
                 if (mFillInIntent != null) {
@@ -571,31 +605,24 @@ public class ChooserActivity extends ResolverActivity {
 
         @Override
         public boolean start(Activity activity, Bundle options) {
-            final Intent intent = getFillInIntent();
-            if (intent == null) {
-                return false;
-            }
-            return mChooserTarget.sendIntent(activity, intent);
+            throw new RuntimeException("ChooserTargets should be started as caller.");
         }
 
         @Override
         public boolean startAsCaller(Activity activity, Bundle options, int userId) {
-            final Intent intent = getFillInIntent();
+            final Intent intent = getBaseIntentToSend();
             if (intent == null) {
                 return false;
             }
-            // ChooserTargets will launch with their IntentSender's identity
-            return mChooserTarget.sendIntent(activity, intent);
+            intent.setComponent(mChooserTarget.getComponentName());
+            intent.putExtras(mChooserTarget.getIntentExtras());
+            activity.startActivityAsCaller(intent, options, true, userId);
+            return true;
         }
 
         @Override
         public boolean startAsUser(Activity activity, Bundle options, UserHandle user) {
-            final Intent intent = getFillInIntent();
-            if (intent == null) {
-                return false;
-            }
-            // ChooserTargets will launch with their IntentSender's identity
-            return mChooserTarget.sendIntent(activity, intent);
+            throw new RuntimeException("ChooserTargets should be started as caller.");
         }
 
         @Override
@@ -621,6 +648,11 @@ public class ChooserActivity extends ResolverActivity {
         @Override
         public Drawable getBadgeIcon() {
             return mBadgeIcon;
+        }
+
+        @Override
+        public CharSequence getBadgeContentDescription() {
+            return mBadgeContentDescription;
         }
 
         @Override
@@ -998,6 +1030,8 @@ public class ChooserActivity extends ResolverActivity {
         private final IChooserTargetResult mChooserTargetResult = new IChooserTargetResult.Stub() {
             @Override
             public void sendResult(List<ChooserTarget> targets) throws RemoteException {
+                filterServiceTargets(mOriginalTarget.getResolveInfo().activityInfo.packageName,
+                        targets);
                 final Message msg = Message.obtain();
                 msg.what = CHOOSER_TARGET_SERVICE_RESULT;
                 msg.obj = new ServiceResultInfo(mOriginalTarget, targets,

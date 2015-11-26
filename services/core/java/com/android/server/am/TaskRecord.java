@@ -786,7 +786,8 @@ final class TaskRecord {
     }
 
     boolean isLockTaskWhitelistedLocked() {
-        if (mCallingPackage == null) {
+        String pkg = (realActivity != null) ? realActivity.getPackageName() : null;
+        if (pkg == null) {
             return false;
         }
         String[] packages = mService.mLockTaskPackages.get(userId);
@@ -794,7 +795,7 @@ final class TaskRecord {
             return false;
         }
         for (int i = packages.length - 1; i >= 0; --i) {
-            if (mCallingPackage.equals(packages[i])) {
+            if (pkg.equals(packages[i])) {
                 return true;
             }
         }
@@ -1222,6 +1223,9 @@ final class TaskRecord {
                 pw.print(" lastThumbnailFile="); pw.println(mLastThumbnailFile);
         if (lastDescription != null) {
             pw.print(prefix); pw.print("lastDescription="); pw.println(lastDescription);
+        }
+        if (stack != null) {
+            pw.print(prefix); pw.print("stackId="); pw.println(stack.mStackId);
         }
         pw.print(prefix); pw.print("hasBeenVisible="); pw.print(hasBeenVisible);
                 pw.print(" mResizeable="); pw.print(mResizeable);

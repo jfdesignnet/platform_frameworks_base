@@ -186,6 +186,7 @@
     <protected-broadcast android:name="android.hardware.display.action.WIFI_DISPLAY_STATUS_CHANGED" />
 
     <protected-broadcast android:name="android.hardware.usb.action.USB_STATE" />
+    <protected-broadcast android:name="android.hardware.usb.action.USB_PORT_CHANGED" />
     <protected-broadcast android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
     <protected-broadcast android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
     <protected-broadcast android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
@@ -318,6 +319,7 @@
 
     <protected-broadcast android:name="android.internal.policy.action.BURN_IN_PROTECTION" />
     <protected-broadcast android:name="android.app.action.SYSTEM_UPDATE_POLICY_CHANGED" />
+    <protected-broadcast android:name="android.app.action.DEVICE_OWNER_CHANGED" />
     <!-- ====================================================================== -->
     <!--                          RUNTIME PERMISSIONS                           -->
     <!-- ====================================================================== -->
@@ -330,7 +332,7 @@
 
     <!-- Used for runtime permissions related to user's contacts and profile. -->
     <permission-group android:name="android.permission-group.CONTACTS"
-        android:icon="@drawable/perm_group_social_info"
+        android:icon="@drawable/perm_group_contacts"
         android:label="@string/permgrouplab_contacts"
         android:description="@string/permgroupdesc_contacts"
         android:priority="100" />
@@ -390,7 +392,7 @@
 
     <!-- Used for runtime permissions related to user's SMS messages. -->
     <permission-group android:name="android.permission-group.SMS"
-        android:icon="@drawable/perm_group_messages"
+        android:icon="@drawable/perm_group_sms"
         android:label="@string/permgrouplab_sms"
         android:description="@string/permgroupdesc_sms"
         android:priority="300" />
@@ -597,7 +599,6 @@
     -->
     <permission android:name="android.permission.ACCESS_IMS_CALL_SERVICE"
         android:permissionGroup="android.permission-group.PHONE"
-        android:permissionFlags="hide"
         android:label="@string/permlab_accessImsCallService"
         android:description="@string/permdesc_accessImsCallService"
         android:protectionLevel="signature|system" />
@@ -728,6 +729,7 @@
     <!-- Used for permissions that are associated with accessing
          camera or capturing images/video from the device. -->
     <permission-group android:name="android.permission-group.SENSORS"
+        android:icon="@drawable/perm_group_sensors"
         android:label="@string/permgrouplab_sensors"
         android:description="@string/permgroupdesc_sensors"
         android:priority="800" />
@@ -757,32 +759,72 @@
     <!-- @hide We need to keep this around for backwards compatibility -->
     <permission android:name="android.permission.READ_PROFILE"
         android:protectionLevel="normal"
-        android:permissionFlags="hide"/>
+        android:permissionFlags="hidden"/>
 
     <!-- @hide We need to keep this around for backwards compatibility -->
     <permission android:name="android.permission.WRITE_PROFILE"
         android:protectionLevel="normal"
-        android:permissionFlags="hide"/>
+        android:permissionFlags="hidden"/>
 
     <!-- @hide We need to keep this around for backwards compatibility -->
     <permission android:name="android.permission.READ_SOCIAL_STREAM"
         android:protectionLevel="normal"
-        android:permissionFlags="hide"/>
+        android:permissionFlags="hidden"/>
 
     <!-- @hide We need to keep this around for backwards compatibility -->
     <permission android:name="android.permission.WRITE_SOCIAL_STREAM"
         android:protectionLevel="normal"
-        android:permissionFlags="hide"/>
+        android:permissionFlags="hidden"/>
 
     <!-- @hide We need to keep this around for backwards compatibility -->
     <permission android:name="android.permission.READ_USER_DICTIONARY"
         android:protectionLevel="normal"
-        android:permissionFlags="hide"/>
+        android:permissionFlags="hidden"/>
 
     <!-- @hide We need to keep this around for backwards compatibility -->
     <permission android:name="android.permission.WRITE_USER_DICTIONARY"
         android:protectionLevel="normal"
-        android:permissionFlags="hide"/>
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="android.permission.WRITE_SMS"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="com.android.browser.permission.READ_HISTORY_BOOKMARKS"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="com.android.browser.permission.WRITE_HISTORY_BOOKMARKS"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="android.permission.AUTHENTICATE_ACCOUNTS"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="android.permission.MANAGE_ACCOUNTS"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="android.permission.USE_CREDENTIALS"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="android.permission.SUBSCRIBED_FEEDS_READ"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
+
+    <!-- @hide We need to keep this around for backwards compatibility -->
+    <permission android:name="android.permission.SUBSCRIBED_FEEDS_WRITE"
+        android:protectionLevel="normal"
+        android:permissionFlags="hidden"/>
 
     <!-- ====================================================================== -->
     <!-- INSTALL PERMISSIONS                                                    -->
@@ -958,9 +1000,7 @@
         android:label="@string/permlab_changeWimaxState"
         android:protectionLevel="normal" />
 
-    <!--@SystemApi Allows applications to the the local WiFi and Bluetooth MAC address.
-        @hide
-    -->
+    <!-- Allows applications to act as network scorers. @hide @SystemApi-->
     <permission android:name="android.permission.SCORE_NETWORKS"
         android:protectionLevel="signature|privileged" />
 
@@ -1041,7 +1081,7 @@
     -->
     <permission android:name="android.permission.GET_ACCOUNTS"
         android:permissionGroup="android.permission-group.CONTACTS"
-        android:protectionLevel="normal"
+        android:protectionLevel="dangerous"
         android:description="@string/permdesc_getAccounts"
         android:label="@string/permlab_getAccounts" />
 
@@ -1534,11 +1574,13 @@
     <permission android:name="android.permission.CHANGE_CONFIGURATION"
         android:protectionLevel="signature|privileged|development" />
 
-    <!-- Allows an application to read or write the system settings. -->
+    <!-- Allows an application to read or write the system settings.
+         <p>Protection level: signature
+    -->
     <permission android:name="android.permission.WRITE_SETTINGS"
         android:label="@string/permlab_writeSettings"
         android:description="@string/permdesc_writeSettings"
-        android:protectionLevel="dangerous" />
+        android:protectionLevel="signature|preinstalled|appop|pre23" />
 
     <!-- @SystemApi Allows an application to modify the Google service map.
     <p>Not for use by third-party applications. -->
@@ -1657,7 +1699,7 @@
     <permission android:name="android.permission.CHANGE_NETWORK_STATE"
         android:description="@string/permdesc_changeNetworkState"
         android:label="@string/permlab_changeNetworkState"
-        android:protectionLevel="normal" />
+        android:protectionLevel="signature|preinstalled|appop|pre23" />
 
     <!-- Allows an application to clear the caches of all installed
          applications on the device.
@@ -1744,6 +1786,10 @@
     <!-- Private permissions                  -->
     <!-- ==================================== -->
     <eat-comment />
+
+    <!-- @SystemApi Allows access to the list of accounts in the Accounts Service. -->
+    <permission android:name="android.permission.GET_ACCOUNTS_PRIVILEGED"
+        android:protectionLevel="signature|privileged" />
 
     <!-- @SystemApi Allows applications to RW to diagnostic resources.
     <p>Not for use by third-party applications. -->
@@ -2051,9 +2097,23 @@
     <permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE"
         android:protectionLevel="signature|privileged" />
 
-    <!-- @hide Allows an application to grant or revoke specific permissions. -->
-    <permission android:name="android.permission.GRANT_REVOKE_PERMISSIONS"
+    <!-- Allows an application to grant specific permissions.
+         @hide -->
+    <permission android:name="android.permission.GRANT_RUNTIME_PERMISSIONS"
         android:protectionLevel="signature|installer" />
+
+    <!-- Allows an app that has this permission and the permissions to install packages
+         to request certain runtime permissions to be granted at installation.
+         @hide
+         @SystemApi -->
+    <permission android:name="android.permission.INSTALL_GRANT_RUNTIME_PERMISSIONS"
+        android:protectionLevel="signature|installer|verifier" />
+
+    <!-- Allows an application to revoke specific permissions.
+        @hide
+        @SystemApi -->
+    <permission android:name="android.permission.REVOKE_RUNTIME_PERMISSIONS"
+         android:protectionLevel="signature|installer|verifier" />
 
     <!-- @hide Allows an application to observe permission changes. -->
     <permission android:name="android.permission.OBSERVE_GRANT_REVOKE_PERMISSIONS"
@@ -2236,6 +2296,13 @@
          <p>Not for use by third-party applications. -->
     <permission android:name="android.permission.CHANGE_DEVICE_IDLE_TEMP_WHITELIST"
         android:protectionLevel="system|signature" />
+
+    <!-- Permission an application must hold in order to use
+         {@link android.provider.Settings#ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS}.
+         This is a normal permission: an app requesting it will always be granted the
+         permission, without the user needing to approve or see it. -->
+    <permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        android:protectionLevel="normal" />
 
     <!-- @SystemApi Allows an application to collect battery statistics -->
     <permission android:name="android.permission.BATTERY_STATS"
@@ -2436,7 +2503,7 @@
 
     <!-- Allows managing (adding, removing) fingerprint templates. Reserved for the system. @hide -->
     <permission android:name="android.permission.MANAGE_FINGERPRINT"
-        android:protectionLevel="signature" />
+        android:protectionLevel="system|signature" />
 
     <!-- Allows an application to control keyguard.  Only allowed for system processes.
         @hide -->
@@ -2538,12 +2605,6 @@
     <permission android:name="android.permission.ACCESS_VOICE_INTERACTION_SERVICE"
         android:protectionLevel="signature" />
 
-    <!-- Allows an app that has this permission and a permissions to install packages
-         to request all runtime permissions to be granted at installation.
-     @hide -->
-    <permission android:name="android.permission.INSTALL_GRANT_RUNTIME_PERMISSIONS"
-        android:protectionLevel="signature" />
-
     <!-- The system process that is allowed to bind to services in carrier apps will
          have this permission. Carrier apps should use this permission to protect
          their services that only the system is allowed to bind to.
@@ -2560,15 +2621,21 @@
     <permission android:name="android.permission.QUERY_DO_NOT_ASK_CREDENTIALS_ON_BOOT"
                 android:protectionLevel="signature" />
 
-    <!-- @SystemApi Allows applications to kill UIDs.
+    <!-- Allows applications to kill UIDs.
         <p>Not for use by third-party applications.
          @hide -->
     <permission android:name="android.permission.KILL_UID"
                 android:protectionLevel="signature|installer" />
 
-    <!-- Allows applications to act as network scorers. @hide @SystemApi-->
+    <!-- @SystemApi Allows applications to read the local WiFi and Bluetooth MAC address.
+        @hide -->
     <permission android:name="android.permission.LOCAL_MAC_ADDRESS"
                 android:protectionLevel="signature|privileged" />
+
+    <!-- @SystemApi Allows access to MAC addresses of WiFi and Bluetooth peer devices.
+        @hide -->
+    <permission android:name="android.permission.PEERS_MAC_ADDRESS"
+                android:protectionLevel="signature" />
 
     <!-- Allows the Nfc stack to dispatch Nfc messages to applications. Applications
         can use this permission to ensure incoming Nfc messages are from the Nfc stack
@@ -2783,10 +2850,6 @@
                 <category android:name="android.intent.category.MASTER_CLEAR" />
             </intent-filter>
         </receiver>
-
-        <service android:name="com.android.internal.os.storage.ExternalStorageFormatter"
-            android:permission="android.permission.MASTER_CLEAR"
-            android:exported="true" />
 
         <service android:name="android.hardware.location.GeofenceHardwareService"
             android:permission="android.permission.LOCATION_HARDWARE"

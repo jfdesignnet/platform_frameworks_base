@@ -1339,7 +1339,21 @@ public class TelephonyManager {
      * @return the NETWORK_TYPE_xxxx for current data connection.
      */
     public int getNetworkType() {
-        return getDataNetworkType();
+       try {
+           ITelephony telephony = getITelephony();
+           if (telephony != null) {
+               return telephony.getNetworkType();
+            } else {
+                // This can happen when the ITelephony interface is not up yet.
+                return NETWORK_TYPE_UNKNOWN;
+            }
+        } catch(RemoteException ex) {
+            // This shouldn't happen in the normal case
+            return NETWORK_TYPE_UNKNOWN;
+        } catch (NullPointerException ex) {
+            // This could happen before phone restarts due to crashing
+            return NETWORK_TYPE_UNKNOWN;
+        }
     }
 
     /**
@@ -1365,6 +1379,10 @@ public class TelephonyManager {
      * @see #NETWORK_TYPE_LTE
      * @see #NETWORK_TYPE_EHRPD
      * @see #NETWORK_TYPE_HSPAP
+     *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      */
     /** {@hide} */
    public int getNetworkType(int subId) {
@@ -1407,6 +1425,9 @@ public class TelephonyManager {
      * @see #NETWORK_TYPE_EHRPD
      * @see #NETWORK_TYPE_HSPAP
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      * @hide
      */
     public int getDataNetworkType() {
@@ -1419,6 +1440,10 @@ public class TelephonyManager {
      * @return the network type
      *
      * @param subId for which network type is returned
+     *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      */
     /** {@hide} */
     public int getDataNetworkType(int subId) {
@@ -1442,6 +1467,9 @@ public class TelephonyManager {
     /**
      * Returns the NETWORK_TYPE_xxxx for voice
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      * @hide
      */
     public int getVoiceNetworkType() {
@@ -1451,13 +1479,16 @@ public class TelephonyManager {
     /**
      * Returns the NETWORK_TYPE_xxxx for voice for a subId
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      */
     /** {@hide} */
     public int getVoiceNetworkType(int subId) {
         try{
             ITelephony telephony = getITelephony();
             if (telephony != null) {
-                return telephony.getVoiceNetworkTypeForSubscriber(subId);
+                return telephony.getVoiceNetworkTypeForSubscriber(subId, getOpPackageName());
             } else {
                 // This can happen when the ITelephony interface is not up yet.
                 return NETWORK_TYPE_UNKNOWN;
@@ -1897,6 +1928,10 @@ public class TelephonyManager {
      * @return {@link PhoneConstants#LTE_ON_CDMA_UNKNOWN}, {@link PhoneConstants#LTE_ON_CDMA_FALSE}
      * or {@link PhoneConstants#LTE_ON_CDMA_TRUE}
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
+     *
      * @hide
      */
     public int getLteOnCdmaMode() {
@@ -1912,6 +1947,9 @@ public class TelephonyManager {
      * @return {@link PhoneConstants#LTE_ON_CDMA_UNKNOWN}, {@link PhoneConstants#LTE_ON_CDMA_FALSE}
      * or {@link PhoneConstants#LTE_ON_CDMA_TRUE}
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      */
     /** {@hide} */
     public int getLteOnCdmaMode(int subId) {
@@ -2022,6 +2060,8 @@ public class TelephonyManager {
      * <p>
      * Requires Permission:
      *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
+     *   OR
+     *   {@link android.Manifest.permission#READ_SMS}
      * <p>
      * The default SMS app can also use this.
      */
@@ -2035,6 +2075,8 @@ public class TelephonyManager {
      * <p>
      * Requires Permission:
      *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
+     *   OR
+     *   {@link android.Manifest.permission#READ_SMS}
      * <p>
      * The default SMS app can also use this.
      *
@@ -2642,6 +2684,9 @@ public class TelephonyManager {
     /**
      * Returns the CDMA ERI icon index to display
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      * @hide
      */
     public int getCdmaEriIconIndex() {
@@ -2650,6 +2695,9 @@ public class TelephonyManager {
 
     /**
      * Returns the CDMA ERI icon index to display for a subscription
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      */
     /** {@hide} */
     public int getCdmaEriIconIndex(int subId) {
@@ -2671,6 +2719,9 @@ public class TelephonyManager {
      * 0 - ON
      * 1 - FLASHING
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      * @hide
      */
     public int getCdmaEriIconMode() {
@@ -2681,6 +2732,10 @@ public class TelephonyManager {
      * Returns the CDMA ERI icon mode for a subscription.
      * 0 - ON
      * 1 - FLASHING
+     *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      */
     /** {@hide} */
     public int getCdmaEriIconMode(int subId) {
@@ -2700,6 +2755,9 @@ public class TelephonyManager {
     /**
      * Returns the CDMA ERI text,
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      * @hide
      */
     public String getCdmaEriText() {
@@ -2709,6 +2767,9 @@ public class TelephonyManager {
     /**
      * Returns the CDMA ERI text, of a subscription
      *
+     * <p>
+     * Requires Permission:
+     *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
      */
     /** {@hide} */
     public String getCdmaEriText(int subId) {
@@ -4173,7 +4234,7 @@ public class TelephonyManager {
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelephony#canChangeDtmfToneLength", e);
         } catch (SecurityException e) {
-            Log.w(TAG, "Permission error calling ITelephony#canChangeDtmfToneLength", e);
+            Log.e(TAG, "Permission error calling ITelephony#canChangeDtmfToneLength", e);
         }
         return false;
     }
@@ -4191,6 +4252,8 @@ public class TelephonyManager {
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelephony#isWorldPhone", e);
+        } catch (SecurityException e) {
+            Log.e(TAG, "Permission error calling ITelephony#isWorldPhone", e);
         }
         return false;
     }
@@ -4208,6 +4271,8 @@ public class TelephonyManager {
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelephony#isTtyModeSupported", e);
+        } catch (SecurityException e) {
+            Log.e(TAG, "Permission error calling ITelephony#isTtyModeSupported", e);
         }
         return false;
     }
@@ -4226,6 +4291,8 @@ public class TelephonyManager {
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelephony#isHearingAidCompatibilitySupported", e);
+        } catch (SecurityException e) {
+            Log.e(TAG, "Permission error calling ITelephony#isHearingAidCompatibilitySupported", e);
         }
         return false;
     }

@@ -25,6 +25,7 @@ import android.telephony.SignalStrength;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
 
@@ -50,7 +51,7 @@ public class MobileSignalController extends SignalController<
     @VisibleForTesting
     final PhoneStateListener mPhoneStateListener;
     // Save entire info for logging, we only use the id.
-    private final SubscriptionInfo mSubscriptionInfo;
+    final SubscriptionInfo mSubscriptionInfo;
 
     // @VisibleForDemoMode
     final SparseArray<MobileIconGroup> mNetworkToIconLookup;
@@ -87,8 +88,10 @@ public class MobileSignalController extends SignalController<
 
         mapIconSets();
 
-        mLastState.networkName = mCurrentState.networkName = mNetworkNameDefault;
-        mLastState.networkNameData = mCurrentState.networkNameData = mNetworkNameDefault;
+        String networkName = info.getCarrierName() != null ? info.getCarrierName().toString()
+                : mNetworkNameDefault;
+        mLastState.networkName = mCurrentState.networkName = networkName;
+        mLastState.networkNameData = mCurrentState.networkNameData = networkName;
         mLastState.enabled = mCurrentState.enabled = hasMobileData;
         mLastState.iconGroup = mCurrentState.iconGroup = mDefaultIcons;
         // Get initial data sim state.
@@ -191,7 +194,7 @@ public class MobileSignalController extends SignalController<
         } else {
             mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_LTE, TelephonyIcons.LTE);
         }
-        mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_IWLAN, TelephonyIcons.FOUR_G);
+        mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_IWLAN, TelephonyIcons.WFC);
     }
 
     @Override
@@ -223,7 +226,8 @@ public class MobileSignalController extends SignalController<
         boolean activityOut = mCurrentState.dataConnected
                         && !mCurrentState.carrierNetworkChangeMode
                         && mCurrentState.activityOut;
-        showDataIcon &= mCurrentState.isDefault;
+        showDataIcon &= mCurrentState.isDefault
+                || mCurrentState.iconGroup == TelephonyIcons.ROAMING;
         int typeIcon = showDataIcon ? icons.mDataType : 0;
         mCallbackHandler.setMobileDataIndicators(statusIcon, qsIcon, typeIcon, qsTypeIcon,
                 activityIn, activityOut, dataContentDescription, description, icons.mIsWide,
@@ -388,7 +392,7 @@ public class MobileSignalController extends SignalController<
         }
         // Fill in the network name if we think we have it.
         if (mCurrentState.networkName == mNetworkNameDefault && mServiceState != null
-                && mServiceState.getOperatorAlphaShort() != null) {
+                && !TextUtils.isEmpty(mServiceState.getOperatorAlphaShort())) {
             mCurrentState.networkName = mServiceState.getOperatorAlphaShort();
         }
 

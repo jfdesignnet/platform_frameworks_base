@@ -297,7 +297,6 @@
   <java-symbol type="bool" name="config_hasRecents" />
   <java-symbol type="bool" name="config_windowShowCircularMask" />
   <java-symbol type="bool" name="config_windowEnableCircularEmulatorDisplayOverlay" />
-  <java-symbol type="bool" name="config_wifi_framework_enable_associated_autojoin_scan" />
   <java-symbol type="bool" name="config_wifi_framework_enable_associated_network_selection" />
   <java-symbol type="bool" name="config_wifi_only_link_same_credential_configurations" />
   <java-symbol type="bool" name="config_wifi_enable_disconnection_debounce" />
@@ -338,6 +337,7 @@
   <java-symbol type="integer"  name="config_wifi_active_rx_cur_ma" />
   <java-symbol type="integer"  name="config_wifi_tx_cur_ma" />
   <java-symbol type="integer"  name="config_wifi_operating_voltage_mv" />
+  <java-symbol type="string"  name="config_wifi_framework_sap_2G_channel_list" />
 
   <java-symbol type="bool" name="editable_voicemailnumber" />
 
@@ -627,7 +627,6 @@
   <java-symbol type="string" name="eventTypeOther" />
   <java-symbol type="string" name="fileSizeSuffix" />
   <java-symbol type="string" name="force_close" />
-  <java-symbol type="string" name="format_error" />
   <java-symbol type="string" name="gadget_host_error_inflating" />
   <java-symbol type="string" name="gigabyteShort" />
   <java-symbol type="string" name="gpsNotifMessage" />
@@ -711,11 +710,6 @@
   <java-symbol type="string" name="lockscreen_emergency_call" />
   <java-symbol type="string" name="lockscreen_return_to_call" />
   <java-symbol type="string" name="low_memory" />
-  <java-symbol type="string" name="media_bad_removal" />
-  <java-symbol type="string" name="media_checking" />
-  <java-symbol type="string" name="media_removed" />
-  <java-symbol type="string" name="media_shared" />
-  <java-symbol type="string" name="media_unknown_state" />
   <java-symbol type="string" name="megabyteShort" />
   <java-symbol type="string" name="midnight" />
   <java-symbol type="string" name="mismatchPin" />
@@ -814,7 +808,6 @@
   <java-symbol type="string" name="print_service_installed_title" />
   <java-symbol type="string" name="print_service_installed_message" />
   <java-symbol type="string" name="progress_erasing" />
-  <java-symbol type="string" name="progress_unmounting" />
   <java-symbol type="string" name="mobile_provisioning_apn" />
   <java-symbol type="string" name="mobile_provisioning_url" />
   <java-symbol type="string" name="quick_contacts_not_available" />
@@ -1367,6 +1360,7 @@
   <java-symbol type="layout" name="restrictions_pin_setup" />
   <java-symbol type="layout" name="immersive_mode_cling" />
   <java-symbol type="layout" name="user_switching_dialog" />
+  <java-symbol type="layout" name="common_tab_settings" />
 
   <java-symbol type="anim" name="slide_in_child_bottom" />
   <java-symbol type="anim" name="slide_in_right" />
@@ -1799,7 +1793,6 @@
   <java-symbol type="string" name="tethered_notification_message" />
   <java-symbol type="string" name="tethered_notification_title" />
   <java-symbol type="string" name="usb_accessory_notification_title" />
-  <java-symbol type="string" name="usb_cd_installer_notification_title" />
   <java-symbol type="string" name="usb_mtp_notification_title" />
   <java-symbol type="string" name="usb_charging_notification_title" />
   <java-symbol type="string" name="usb_notification_message" />
@@ -2317,6 +2310,14 @@
   <java-symbol type="plurals" name="selected_count" />
   <java-symbol type="drawable" name="ic_dialog_alert_material" />
 
+  <java-symbol type="string" name="lockscreen_access_pattern_area" />
+
   <java-symbol type="bool" name="allow_stacked_button_bar" />
   <java-symbol type="bool" name="config_eap_sim_based_auth_supported" />
+
+  <java-symbol type="array" name="config_cell_retries_per_error_code" />
+  <java-symbol type="drawable" name="ic_more_items" />
+
+  <java-symbol type="drawable" name="platlogo_m" />
+
 </resources>

@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Linterna kontrolatzea baimentzen die aplikazioei."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"deitu zuzenean telefono-zenbakietara"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Telefono-zenbakietara zuk esku hartu gabe deitzeko baimena ematen die aplikazioei. Horrela, ustekabeko gastuak edo deiak eragin daitezke. Aplikazio gaiztoek erabil dezakete zuk berretsi gabeko deiak eginda gastuak eragiteko."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"Atzitu IMS dei-zerbitzua"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Zuk ezer egin beharrik gabe deiak egiteko IMS zerbitzua erabiltzea baimentzen die aplikazioei."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"telefonoaren egoera eta identitatea irakurtzea"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Gailuaren telefono-eginbideak atzitzeko baimena ematen die aplikazioei. Baimen horrek aplikazioari telefono-zenbakia eta gailu IDak zein diren, deirik aktibo dagoen eta deia zer zenbakirekin konektatuta dagoen zehazteko baimena ematen die aplikazioei."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"eragotzi tableta inaktibo ezartzea"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"<xliff:g id="FINGERID">%d</xliff:g> hatza"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Hatz-markaren ikonoa"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"Irakurri sinkronizazio-ezarpenak"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Kontu baten sinkronizazio-ezarpenak irakurtzeko baimena ematen die aplikazioei. Adibidez, Jendea aplikazioa konturen batekin sinkronizatuta dagoen zehatz dezake."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"sinkronizazioa aktibatzea eta desaktibatzea"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Gelaxka gehitu da"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Gehitu da <xliff:g id="CELL_INDEX">%1$s</xliff:g> puntua"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Eredua osatu da"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Eredua marrazteko eremua."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. %2$d/%3$d widgeta."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Gehitu widgeta."</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Hutsik"</string>
@@ -885,7 +885,7 @@
     <string name="whichViewApplicationNamed" msgid="2286418824011249620">"Irekin %1$s aplikazioarekin"</string>
     <string name="whichEditApplication" msgid="144727838241402655">"Editatu honekin:"</string>
     <string name="whichEditApplicationNamed" msgid="1775815530156447790">"Editatu %1$s aplikazioarekin"</string>
-    <string name="whichSendApplication" msgid="6902512414057341668">"Partekatu honekin:"</string>
+    <string name="whichSendApplication" msgid="6902512414057341668">"Partekatu hauen bidez:"</string>
     <string name="whichSendApplicationNamed" msgid="2799370240005424391">"Partekatu %1$s aplikazioarekin"</string>
     <string name="whichHomeApplication" msgid="4307587691506919691">"Hautatu hasierako aplikazioa"</string>
     <string name="whichHomeApplicationNamed" msgid="4493438593214760979">"Erabili %1$s hasierako aplikazio gisa"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"Fitxategiak transferitzeko USBa"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"Argazkiak transferitzeko USBa"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"MIDI modurako USBa"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Instalatzaile gisa konektatua"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"USB osagarri batera konektatuta"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Ukitu aukera gehiago ikusteko."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"USB arazketa konektatuta"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="one">Emaitza bat</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Eginda"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"USB memoria desmuntatzen…"</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"SD txartela desmuntatzen…"</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"USB memoria ezabatzen…"</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"SD txartela ezabatzen…"</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Ezin izan da USB memoriako edukia ezabatu."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Ezin izan da SD txarteleko edukia ezabatu."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"SD txartela desmuntatu aurretik kendu da."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"USB memoria egiaztatzen ari da."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"SD txartela egiaztatzen ari da."</string>
-    <string name="media_removed" msgid="7001526905057952097">"SD txartela kendu egin da."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"Une honetan, ordenagailu bat ari da USB memoria erabiltzen."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"Une honetan, ordenagailu bat ari da SD txartela erabiltzen."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"Kanpoko euskarria egoera ezezagunean."</string>
     <string name="share" msgid="1778686618230011964">"Partekatu"</string>
     <string name="find" msgid="4808270900322985960">"Aurkitu"</string>
     <string name="websearch" msgid="4337157977400211589">"Web-bilaketa"</string>

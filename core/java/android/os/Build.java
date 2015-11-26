@@ -157,6 +157,17 @@ public class Build {
         public static final String RELEASE = getString("ro.build.version.release");
 
         /**
+         * The base OS build the product is based on.
+         */
+        public static final String BASE_OS = SystemProperties.get("ro.build.version.base_os", "");
+
+        /**
+         * The user-visible security patch level.
+         */
+        public static final String SECURITY_PATCH = SystemProperties.get(
+                "ro.build.version.security_patch", "");
+
+        /**
          * The user-visible SDK version of the framework in its raw String
          * representation; use {@link #SDK_INT} instead.
          *
@@ -622,7 +633,7 @@ public class Build {
         /**
          * M comes after L.
          */
-        public static final int MNC = 23;
+        public static final int M = 23;
     }
 
     /** The type of build, like "user" or "eng". */

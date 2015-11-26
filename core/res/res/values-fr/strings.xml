@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Permet à l\'application de contrôler la lampe de poche."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"appeler directement les numéros de téléphone"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Permet à l\'application d\'appeler des numéros de téléphone sans votre intervention. Cette autorisation peut entraîner des frais ou des appels imprévus et ne permet pas à l\'application d\'appeler des numéros d\'urgence. Les applications malveillantes peuvent générer des frais en passant des appels sans votre consentement."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"accéder au service d\'appel IMS"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Permet à l\'application d\'utiliser le service IMS pour passer des appels sans votre intervention."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"Voir l\'état et l\'identité du téléphone"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Permet à l\'application d\'accéder aux fonctionnalités téléphoniques de l\'appareil. Cette autorisation permet à l\'application de déterminer le numéro de téléphone et les identifiants de l\'appareil, si un appel est actif et le numéro distant connecté par un appel."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"empêcher la tablette de passer en mode veille"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Doigt <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Icône d\'empreinte digitale"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"lire les paramètres de synchronisation"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Permet à l\'application d\'accéder aux paramètres de synchronisation d\'un compte. Par exemple, cette autorisation peut permettre de déterminer si l\'application Contacts est synchronisée avec un compte ou non."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"activer/désactiver la synchronisation"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Cellule ajoutée."</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Le point <xliff:g id="CELL_INDEX">%1$s</xliff:g> a bien été ajouté."</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Schéma terminé."</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Zone du schéma"</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Widget %2$d sur %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Ajouter un widget"</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Vide"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB pour le transfert de fichiers"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB pour le transfert de photos"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB en mode MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Connecté en tant que programme d\'installation"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Connecté à un accessoire USB"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Appuyez pour afficher plus d\'options"</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"Débogage USB activé"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="other"><xliff:g id="INDEX">%d</xliff:g> sur <xliff:g id="TOTAL">%d</xliff:g></item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"OK"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Désinstallation de la mémoire de stockage USB en cours…"</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Désinstallation de la carte SD en cours…"</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Effacement de la mémoire de stockage USB en cours…"</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Effacement de la carte SD en cours…"</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Impossible d\'effacer la mémoire de stockage USB."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Impossible d\'effacer la carte SD."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"La carte SD a été retirée sans avoir été désinstallée."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"Vérification de la mémoire de stockage USB..."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"Vérification de la carte SD en cours."</string>
-    <string name="media_removed" msgid="7001526905057952097">"La carte SD a été retirée."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"La mémoire de stockage USB est en cours d\'utilisation par l\'ordinateur."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"La carte SD est en cours d\'utilisation par l\'ordinateur."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"État du support externe inconnu"</string>
     <string name="share" msgid="1778686618230011964">"Partager"</string>
     <string name="find" msgid="4808270900322985960">"Rechercher"</string>
     <string name="websearch" msgid="4337157977400211589">"Recherche Web"</string>

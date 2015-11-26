@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"অ্যাপ্লিকেশানকে টর্চলাইট নিয়ন্ত্রণ করতে দেয়৷"</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"সরাসরি ফোন নম্বরগুলিতে কল করে"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"অ্যাপ্লিকেশানটিকে আপনার হস্তক্ষেপ ছাড়াই ফোন নম্বরগুলিতে কল করতে মঞ্জুর করে৷ এটি অপ্রত্যাশিত পরিমাণ খরচা বা কলের কারণ হতে পারে৷ মনে রাখবেন, এটি অ্যাপ্লিকেশানটির দ্বারা জরুরি নম্বরগুলিতে কল করাকে অনুমতি দেয় না৷ ক্ষতিকারক অ্যাপ্লিকেশানগুলি আপনার সম্মতি ছাড়াই কল করার ফলে আপনাকে অহেতুক অর্থ প্রদান করতে হতে পারে৷"</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"IMS পরিষেবাতে অ্যাক্সেস"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"আপনার হস্তক্ষেপ ছাড়াই কল করতে অ্যাপ্লিকেশানটিকে IMS পরিষেবা ব্যবহারের অনুমতি দিন৷"</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"ফোনের স্থিতি এবং পরিচয় পড়ুন"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"অ্যাপ্লিকেশানটিকে ডিভাইসের ফোন বৈশিষ্ট্যগুলিকে অ্যাক্সেস করার অনুমতি দেয়৷ এই অনুমতিটি অ্যাপ্লিকেশানটিকে একটি কল সক্রিয় থাকা অবস্থায় এবং দূরবর্তী নম্বর একটি কল দ্বারা সংযুক্ত থাকাকালীনও ফোন নম্বর এবং ডিভাইসের IDগুলি নির্ধারণ করার অনুমতি দেয়৷"</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"ঘুমানো থেকে ট্যাবলেটকে প্রতিরোধ করে"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"আঙ্গুল <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"আঙ্গুলের ছাপ আইকন"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"সিঙ্ক সেটিংস পড়ে"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"অ্যাপ্লিকেশানটিকে একটি অ্যাকাউন্টের জন্য সিঙ্ক সেটিংস পড়ার অনুমতি দেয়৷ উদাহরণস্বরূপ, \'পিপল\' অ্যাপ্লিকেশানটি কোনো অ্যাকাউন্টের সাথে সিঙ্ক করা আছে কিনা তা নির্ধারণ করতে পারে৷"</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"সমন্বয় চালু এবং বন্ধ করা টগল করুন"</string>
@@ -629,7 +628,7 @@
     <string name="relationTypeFather" msgid="5228034687082050725">"পিতা"</string>
     <string name="relationTypeFriend" msgid="7313106762483391262">"বন্ধু"</string>
     <string name="relationTypeManager" msgid="6365677861610137895">"ম্যানেজার"</string>
-    <string name="relationTypeMother" msgid="4578571352962758304">"মাতা"</string>
+    <string name="relationTypeMother" msgid="4578571352962758304">"মা"</string>
     <string name="relationTypeParent" msgid="4755635567562925226">"পিতা ও মাতা"</string>
     <string name="relationTypePartner" msgid="7266490285120262781">"অংশীদার"</string>
     <string name="relationTypeReferredBy" msgid="101573059844135524">"এর দ্বারা নির্দেশ করা"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"কক্ষ যোগ করা হযেছে"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"<xliff:g id="CELL_INDEX">%1$s</xliff:g> কক্ষ যোগ করা হয়েছে"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"প্যাটার্ন সম্পন্ন হয়েছে"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"প্যাটার্ন এলাকা৷"</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s৷ %3$d এর %2$d উইজেট৷"</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"উইজেট যোগ করুন"</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"খালি"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"ফাইল স্থানান্তরের জন্য USB"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"ফটো স্থানান্তরের জন্য USB"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"MIDI এর জন্য USB"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"একটি ইনস্টলার হিসাবে সংযুক্ত হয়েছে"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"একটি USB যন্ত্রাংশতে সংযুক্ত হয়েছে"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"আরো বিকল্পের জন্য স্পর্শ করুন৷"</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"USB ডিবাগিং সংযুক্ত হয়েছে"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="other"><xliff:g id="TOTAL">%d</xliff:g>টির <xliff:g id="INDEX">%d</xliff:g></item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"সম্পন্ন হয়েছে"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"USB সংগ্রহস্থল আনমাউন্ট করা হচ্ছে…"</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"SD কার্ড আনমাউন্ট করা হচ্ছে…"</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"USB সংগ্রহস্থল মোছা হচ্ছে…"</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"SD কার্ড মোছা হচ্ছে…"</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"USB সঞ্চয়স্থান মুছে ফেলা যায়নি৷"</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"SD কার্ড মুছে ফেলা যায়নি৷"</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"আনমাউন্ট হওয়ার আগেই SD কার্ডটি সরানো হয়েছে৷"</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"USB সঞ্চয়স্থান বর্তমানে পরীক্ষা করা হচ্ছে৷"</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"SD কার্ড বর্তমানে পরীক্ষা করা হচ্ছে৷"</string>
-    <string name="media_removed" msgid="7001526905057952097">"SD কার্ড সরানো হয়েছে৷"</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"একটি কম্পিউটারে USB সঞ্চয়স্থান বর্তমানে ব্যবহারে রয়েছে৷"</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"একটি কম্পিউটারে SD কার্ড বর্তমানে ব্যবহারে রয়েছে৷"</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"অজানা স্থিতিতে থাকা বাহ্যিক মিডিয়া"</string>
     <string name="share" msgid="1778686618230011964">"ভাগ করুন"</string>
     <string name="find" msgid="4808270900322985960">"খুঁজুন"</string>
     <string name="websearch" msgid="4337157977400211589">"ওয়েব অনুসন্ধান"</string>

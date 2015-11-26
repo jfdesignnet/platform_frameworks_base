@@ -115,12 +115,6 @@
     <string name="accessibility_data_two_bars" msgid="6166018492360432091">"Dati: divas joslas."</string>
     <string name="accessibility_data_three_bars" msgid="9167670452395038520">"Dati: trīs joslas."</string>
     <string name="accessibility_data_signal_full" msgid="2708384608124519369">"Pilna piekļuve datu signālam."</string>
-    <string name="accessibility_wifi_off" msgid="3177380296697933627">"Wi-Fi izslēgts"</string>
-    <string name="accessibility_no_wifi" msgid="1425476551827924474">"Wi-Fi savienojums ir pārtraukts."</string>
-    <string name="accessibility_wifi_one_bar" msgid="7735893178010724377">"Wi-Fi: viena josla"</string>
-    <string name="accessibility_wifi_two_bars" msgid="4994274250497262434">"Wi-Fi: divas joslas"</string>
-    <string name="accessibility_wifi_three_bars" msgid="3495755044276588384">"Wi-Fi: trīs joslas"</string>
-    <string name="accessibility_wifi_signal_full" msgid="6853561303586480376">"Pilna piekļuve Wi-Fi signālam"</string>
     <string name="accessibility_wifi_name" msgid="7202151365171148501">"Ir izveidots savienojums ar <xliff:g id="WIFI">%s</xliff:g>."</string>
     <string name="accessibility_bluetooth_name" msgid="8441517146585531676">"Ir izveidots savienojum ar <xliff:g id="BLUETOOTH">%s</xliff:g>."</string>
     <string name="accessibility_no_wimax" msgid="4329180129727630368">"Bez WiMAX."</string>
@@ -405,7 +399,7 @@
     <string name="volumeui_notification_title" msgid="4906770126345910955">"<xliff:g id="APP_NAME">%1$s</xliff:g> ir skaļuma dialoglodziņš"</string>
     <string name="volumeui_notification_text" msgid="1826889705095768656">"Pieskarieties, lai atjaunotu sākotnējo."</string>
     <string name="managed_profile_foreground_toast" msgid="5421487114739245972">"Jūs izmantojat darba profilu."</string>
-    <string name="system_ui_tuner" msgid="3442596010150119600">"Sistēmas saskarnes regulators"</string>
+    <string name="system_ui_tuner" msgid="708224127392452018">"Sistēmas saskarnes regulators"</string>
     <string name="show_battery_percentage" msgid="5444136600512968798">"Rādīt akumulatora uzlādes līmeni procentos"</string>
     <string name="show_battery_percentage_summary" msgid="3215025775576786037">"Rādīt akumulatora uzlādes līmeni procentos statusa joslas ikonā, kad netiek veikta uzlāde"</string>
     <string name="quick_settings" msgid="10042998191725428">"Ātrie iestatījumi"</string>
@@ -426,4 +420,11 @@
     <string name="accessibility_quick_settings_detail" msgid="2579369091672902101">"Ātrie iestatījumi: <xliff:g id="TITLE">%s</xliff:g>."</string>
     <string name="accessibility_status_bar_hotspot" msgid="4099381329956402865">"Tīklājs"</string>
     <string name="accessibility_managed_profile" msgid="6613641363112584120">"Darba profils"</string>
+    <string name="tuner_warning_title" msgid="7094689930793031682">"Jautri dažiem, bet ne visiem"</string>
+    <string name="tuner_warning" msgid="8730648121973575701">"Sistēmas saskarnes regulators sniedz papildu veidus, kā mainīt un pielāgot Android lietotāja saskarni. Nākamajās versijās šīs eksperimentālās funkcijas var tikt mainītas, bojātas vai to darbība var tikt pārtraukta. Turpinot esiet uzmanīgs."</string>
+    <string name="tuner_persistent_warning" msgid="8597333795565621795">"Nākamajās versijās šīs eksperimentālās funkcijas var tikt mainītas, bojātas vai to darbība var tikt pārtraukta. Turpinot esiet uzmanīgs."</string>
+    <string name="got_it" msgid="2239653834387972602">"Labi"</string>
+    <string name="tuner_toast" msgid="603429811084428439">"Apsveicam! Sistēmas saskarnes regulators ir pievienots iestatījumiem."</string>
+    <string name="remove_from_settings" msgid="8389591916603406378">"Noņemt no iestatījumiem"</string>
+    <string name="remove_from_settings_prompt" msgid="6069085993355887748">"Vai noņemt sistēmas saskarnes regulatoru no iestatījumiem un pārtraukt izmantot visas tā funkcijas?"</string>
 </resources>

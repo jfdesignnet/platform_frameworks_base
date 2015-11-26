@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"සැණෙළිය පාලනයට යෙදුමට අවසර දෙන්න."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"දුරකථන අංක වෙත ඍජුවම අමතන්න"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"ඔබගේ මැදිහත් වීමක් නොමැතිව දුරකථන අංක ඇමතීමට යෙදුමට අවසර දෙන්න. මෙහි ප්‍රතිඑලය වන්නේ අනපේක්ෂිත අයකිරීම් හෝ ඇමතුම් ඇතිවීමයි. මෙයන් හදිසි අංක වලට ඇමතුම් ගැනීමට යෙදුමට අවසර නොදෙන බවට සටහන් කරගන්න. ඔබගේ අනුදැනුමක් නොමැතිව ඇමතුම් ගැනීමෙන් අනිෂ්ට යෙදුම් ඔබගේ මුදල් නිකරුණේ වැය කරයි."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"IMS ඇමතුම් සේවාවට පිවිසෙන්න"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"ඔබේ මැදිහත්වීමකින් තොරව ඇමතුම් සිදු කිරීමට  IMS සේවාව භාවිතයට යෙදුමට ඉඩ දෙන්න."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"දුරකථනයේ තත්වය සහ අනන්‍යතාවය කියවීම"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"උපාංගයේ දුරකථන විශේෂාංග වෙත පිවිසීමට යෙදුමට අවසර දෙන්න. ඇමතුම සක්‍රිය වුවත් සහ ඇමතුමකින් දුරස්ථ අංකය සම්බන්ධ වුවත් දුරකථන අංකය සහ උපාංග ID හඳුනා ගැනීමට මෙම අවසරය යෙදුමට අවසර දෙයි."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"ටැබ්ලටය නින්දෙන් වැළක්වීම"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"ඇඟිලි <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"ඇඟිලි සලකුණු නිරූපකය"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"සමමුහුර්ත සැකසීම් කියවන්න"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"ගිණුම සඳහා සමමුහුර්ත සැකසීම් කියවීමට යෙදුමට අවසර දෙන්න. උදාහරණයක් ලෙස, ගිණුමක් සමඟ පුද්ගල යෙදුම සමමුහුර්ත දැයි මෙයට හඳුනා ගත හැක."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"සමමුහුර්ත කිරීම සක්‍රිය කරන්න සහ අක්‍රිය කරන්න"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"කොටුවක් එකතු කරන ලදි"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"<xliff:g id="CELL_INDEX">%1$s</xliff:g> කොටුව එකතු කරන ලදි"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"රටාව සම්පූර්ණයි"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"රටා ප්‍රදේශය."</string>
     <!-- String.format failed for translation -->
     <!-- no translation found for keyguard_accessibility_widget_changed (5678624624681400191) -->
     <skip />
@@ -1043,7 +1043,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"ගොනු හුවමාරුව සඳහා USB"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"ඡායාරූප හුවමාරුව සඳහා USB"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"MIDI සඳහා USB"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"ස්ථාපිතයක් ලෙස සම්බන්ධයි"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"USB මෙවලමකට සම්බන්ධිතයි"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"වඩා වැඩි විකල්ප සඳහා ස්පර්ශ කරන්න."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"USB නිදොස්කරණය සම්බන්ධිතයි"</string>
@@ -1153,19 +1152,8 @@
       <item quantity="other"><xliff:g id="TOTAL">%d</xliff:g> න් <xliff:g id="INDEX">%d</xliff:g> යි</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"හරි"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"USB ආචයනය ගැලවීම..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"SD පත ගලවමින්..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"USB ආචයනය මකමින්..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"SD පත මකමින්..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"USB ආචයනය මැකිය නොහැක."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"SD පත මැකීමට නොහැකි විය."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"ගැලවීමට පෙර SD පත ඉවත්කර ඇත."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"USB ආචයනය මේ වනවිට පරීක්ෂා කරමින් පවතී."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"SD පත දැන් පරීක්ෂා කරමින් පවතී."</string>
-    <string name="media_removed" msgid="7001526905057952097">"SD පත ඉවත් කර ඇත."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"පරිගණකයක් විසින් දැන් USB ආචයනය භාවිතා කරයි."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"SD පත දැනට පරිගණකයකින් පාවිච්චි කරයි."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"බාහිර මාධ්‍යය නොදන්නා අවස්ථාවේ පවතියි."</string>
     <string name="share" msgid="1778686618230011964">"බෙදාගන්න"</string>
     <string name="find" msgid="4808270900322985960">"සොයන්න"</string>
     <string name="websearch" msgid="4337157977400211589">"වෙබ් සෙවුම"</string>

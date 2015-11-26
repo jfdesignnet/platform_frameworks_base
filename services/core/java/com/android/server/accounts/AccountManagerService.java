@@ -32,6 +32,7 @@ import android.accounts.IAccountManagerResponse;
 import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.app.AppGlobals;
+import android.app.AppOpsManager;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -122,6 +123,7 @@ public class AccountManagerService
     private final Context mContext;
 
     private final PackageManager mPackageManager;
+    private final AppOpsManager mAppOpsManager;
     private UserManager mUserManager;
 
     private final MessageHandler mMessageHandler;
@@ -266,6 +268,7 @@ public class AccountManagerService
             IAccountAuthenticatorCache authenticatorCache) {
         mContext = context;
         mPackageManager = packageManager;
+        mAppOpsManager = mContext.getSystemService(AppOpsManager.class);
 
         mMessageHandler = new MessageHandler(FgThread.get().getLooper());
 
@@ -283,7 +286,22 @@ public class AccountManagerService
                 // Don't delete accounts when updating a authenticator's
                 // package.
                 if (!intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
-                    purgeOldGrantsAll();
+                    /* Purging data requires file io, don't block the main thread. This is probably
+                     * less than ideal because we are introducing a race condition where old grants
+                     * could be exercised until they are purged. But that race condition existed
+                     * anyway with the broadcast receiver.
+                     *
+                     * Ideally, we would completely clear the cache, purge data from the database,
+                     * and then rebuild the cache. All under the cache lock. But that change is too
+                     * large at this point.
+                     */
+                    Runnable r = new Runnable() {
+                        @Override
+                        public void run() {
+                            purgeOldGrantsAll();
+                        }
+                    };
+                    new Thread(r).start();
                 }
             }
         }, intentFilter);
@@ -327,52 +345,6 @@ public class AccountManagerService
             mUserManager = UserManager.get(mContext);
         }
         return mUserManager;
-    }
-
-    /* Caller should lock mUsers */
-    private UserAccounts initUserLocked(int userId) {
-        UserAccounts accounts = mUsers.get(userId);
-        if (accounts == null) {
-            accounts = new UserAccounts(mContext, userId);
-            initializeDebugDbSizeAndCompileSqlStatementForLogging(
-                    accounts.openHelper.getWritableDatabase(), accounts);
-            mUsers.append(userId, accounts);
-            purgeOldGrants(accounts);
-            validateAccountsInternal(accounts, true /* invalidateAuthenticatorCache */);
-        }
-        return accounts;
-    }
-
-    private void purgeOldGrantsAll() {
-        synchronized (mUsers) {
-            for (int i = 0; i < mUsers.size(); i++) {
-                purgeOldGrants(mUsers.valueAt(i));
-            }
-        }
-    }
-
-    private void purgeOldGrants(UserAccounts accounts) {
-        synchronized (accounts.cacheLock) {
-            final SQLiteDatabase db = accounts.openHelper.getWritableDatabase();
-            final Cursor cursor = db.query(TABLE_GRANTS,
-                    new String[]{GRANTS_GRANTEE_UID},
-                    null, null, GRANTS_GRANTEE_UID, null, null);
-            try {
-                while (cursor.moveToNext()) {
-                    final int uid = cursor.getInt(0);
-                    final boolean packageExists = mPackageManager.getPackagesForUid(uid) != null;
-                    if (packageExists) {
-                        continue;
-                    }
-                    Log.d(TAG, "deleting grants for UID " + uid
-                            + " because its package is no longer installed");
-                    db.delete(TABLE_GRANTS, GRANTS_GRANTEE_UID + "=?",
-                            new String[]{Integer.toString(uid)});
-                }
-            } finally {
-                cursor.close();
-            }
-        }
     }
 
     /**
@@ -469,10 +441,46 @@ public class AccountManagerService
         synchronized (mUsers) {
             UserAccounts accounts = mUsers.get(userId);
             if (accounts == null) {
-                accounts = initUserLocked(userId);
+                accounts = new UserAccounts(mContext, userId);
+                initializeDebugDbSizeAndCompileSqlStatementForLogging(
+                        accounts.openHelper.getWritableDatabase(), accounts);
                 mUsers.append(userId, accounts);
+                purgeOldGrants(accounts);
+                validateAccountsInternal(accounts, true /* invalidateAuthenticatorCache */);
             }
             return accounts;
+        }
+    }
+
+    private void purgeOldGrantsAll() {
+        synchronized (mUsers) {
+            for (int i = 0; i < mUsers.size(); i++) {
+                purgeOldGrants(mUsers.valueAt(i));
+            }
+        }
+    }
+
+    private void purgeOldGrants(UserAccounts accounts) {
+        synchronized (accounts.cacheLock) {
+            final SQLiteDatabase db = accounts.openHelper.getWritableDatabase();
+            final Cursor cursor = db.query(TABLE_GRANTS,
+                    new String[]{GRANTS_GRANTEE_UID},
+                    null, null, GRANTS_GRANTEE_UID, null, null);
+            try {
+                while (cursor.moveToNext()) {
+                    final int uid = cursor.getInt(0);
+                    final boolean packageExists = mPackageManager.getPackagesForUid(uid) != null;
+                    if (packageExists) {
+                        continue;
+                    }
+                    Log.d(TAG, "deleting grants for UID " + uid
+                            + " because its package is no longer installed");
+                    db.delete(TABLE_GRANTS, GRANTS_GRANTEE_UID + "=?",
+                            new String[]{Integer.toString(uid)});
+                }
+            } finally {
+                cursor.close();
+            }
         }
     }
 
@@ -505,7 +513,7 @@ public class AccountManagerService
         // Check if there's a shared account that needs to be created as an account
         Account[] sharedAccounts = getSharedAccountsAsUser(userId);
         if (sharedAccounts == null || sharedAccounts.length == 0) return;
-        Account[] accounts = getAccountsAsUser(null, userId);
+        Account[] accounts = getAccountsAsUser(null, userId, mContext.getOpPackageName());
         for (Account sa : sharedAccounts) {
             if (ArrayUtils.contains(accounts, sa)) continue;
             // Account doesn't exist. Copy it now.
@@ -527,16 +535,17 @@ public class AccountManagerService
                     + ", pid " + Binder.getCallingPid());
         }
         if (account == null) throw new IllegalArgumentException("account is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot get secrets for accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             return readPasswordInternal(accounts, account);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -572,9 +581,10 @@ public class AccountManagerService
                     + ", pid " + Binder.getCallingPid());
         }
         if (account == null) throw new IllegalArgumentException("account is null");
-        UserAccounts accounts = getUserAccountsForCaller();
+        int userId = UserHandle.getCallingUserId();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             return readPreviousNameInternal(accounts, account);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -625,16 +635,17 @@ public class AccountManagerService
         }
         if (account == null) throw new IllegalArgumentException("account is null");
         if (key == null) throw new IllegalArgumentException("key is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot get user data for accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             return readUserDataInternal(accounts, account, key);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -661,21 +672,31 @@ public class AccountManagerService
 
         final long identityToken = clearCallingIdentity();
         try {
-            Collection<AccountAuthenticatorCache.ServiceInfo<AuthenticatorDescription>>
-                    authenticatorCollection = mAuthenticatorCache.getAllServices(userId);
-            AuthenticatorDescription[] types =
-                    new AuthenticatorDescription[authenticatorCollection.size()];
-            int i = 0;
-            for (AccountAuthenticatorCache.ServiceInfo<AuthenticatorDescription> authenticator
-                    : authenticatorCollection) {
-                types[i] = authenticator.type;
-                i++;
-            }
-            return types;
+            return getAuthenticatorTypesInternal(userId);
+
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
+
+    /**
+     * Should only be called inside of a clearCallingIdentity block.
+     */
+    private AuthenticatorDescription[] getAuthenticatorTypesInternal(int userId) {
+        Collection<AccountAuthenticatorCache.ServiceInfo<AuthenticatorDescription>>
+                authenticatorCollection = mAuthenticatorCache.getAllServices(userId);
+        AuthenticatorDescription[] types =
+                new AuthenticatorDescription[authenticatorCollection.size()];
+        int i = 0;
+        for (AccountAuthenticatorCache.ServiceInfo<AuthenticatorDescription> authenticator
+                : authenticatorCollection) {
+            types[i] = authenticator.type;
+            i++;
+        }
+        return types;
+    }
+
+
 
     private boolean isCrossUser(int callingUid, int userId) {
         return (userId != UserHandle.getCallingUserId()
@@ -694,7 +715,8 @@ public class AccountManagerService
                     + ", pid " + Binder.getCallingPid());
         }
         if (account == null) throw new IllegalArgumentException("account is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot explicitly add accounts of type: %s",
                     callingUid,
@@ -709,12 +731,11 @@ public class AccountManagerService
          *     a limited user.
          */
 
-        UserAccounts accounts = getUserAccountsForCaller();
         // fails if the account already exists
-        int uid = getCallingUid();
         long identityToken = clearCallingIdentity();
         try {
-            return addAccountInternal(accounts, account, password, extras, false, uid);
+            UserAccounts accounts = getUserAccounts(userId);
+            return addAccountInternal(accounts, account, password, extras, false, callingUid);
         } finally {
             restoreCallingIdentity(identityToken);
         }
@@ -790,18 +811,26 @@ public class AccountManagerService
         if (account == null) {
             throw new IllegalArgumentException("account is null");
         }
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot notify authentication for accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        int userId = Binder.getCallingUserHandle().getIdentifier();
+
         if (!canUserModifyAccounts(userId) || !canUserModifyAccountsForType(userId, account.type)) {
             return false;
         }
-        return updateLastAuthenticatedTime(account);
+
+        long identityToken = clearCallingIdentity();
+        try {
+            UserAccounts accounts = getUserAccounts(userId);
+            return updateLastAuthenticatedTime(account);
+        } finally {
+            restoreCallingIdentity(identityToken);
+        }
     }
 
     private boolean updateLastAuthenticatedTime(Account account) {
@@ -842,7 +871,8 @@ public class AccountManagerService
                     // Confirm that the owner's account still exists before this step.
                     UserAccounts owner = getUserAccounts(UserHandle.USER_OWNER);
                     synchronized (owner.cacheLock) {
-                        for (Account acc : getAccounts(UserHandle.USER_OWNER)) {
+                        for (Account acc : getAccounts(UserHandle.USER_OWNER,
+                                mContext.getOpPackageName())) {
                             if (acc.equals(account)) {
                                 mAuthenticator.addAccountFromCredentials(
                                         this, account, accountCredentials);
@@ -962,7 +992,7 @@ public class AccountManagerService
 
     @Override
     public void hasFeatures(IAccountManagerResponse response,
-            Account account, String[] features) {
+            Account account, String[] features, String opPackageName) {
         int callingUid = Binder.getCallingUid();
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
             Log.v(TAG, "hasFeatures: " + account
@@ -974,10 +1004,13 @@ public class AccountManagerService
         if (response == null) throw new IllegalArgumentException("response is null");
         if (account == null) throw new IllegalArgumentException("account is null");
         if (features == null) throw new IllegalArgumentException("features is null");
-        checkReadAccountsPermitted(callingUid, account.type);
-        UserAccounts accounts = getUserAccountsForCaller();
+        int userId = UserHandle.getCallingUserId();
+        checkReadAccountsPermitted(callingUid, account.type, userId,
+                opPackageName);
+
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             new TestFeaturesSession(accounts, response, account, features).bind();
         } finally {
             restoreCallingIdentity(identityToken);
@@ -1050,16 +1083,17 @@ public class AccountManagerService
                 + ", pid " + Binder.getCallingPid());
         }
         if (accountToRename == null) throw new IllegalArgumentException("account is null");
-        if (!isAccountManagedByCaller(accountToRename.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(accountToRename.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot rename accounts of type: %s",
                     callingUid,
                     accountToRename.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             Account resultingAccount = renameAccountInternal(accounts, accountToRename, newName);
             Bundle result = new Bundle();
             result.putString(AccountManager.KEY_ACCOUNT_NAME, resultingAccount.name);
@@ -1198,15 +1232,15 @@ public class AccountManagerService
          * authenticator.  This will let users remove accounts (via Settings in the system) but not
          * arbitrary applications (like competing authenticators).
          */
-        if (!isAccountManagedByCaller(account.type, callingUid) && !isSystemUid(callingUid)) {
+        UserHandle user = new UserHandle(userId);
+        if (!isAccountManagedByCaller(account.type, callingUid, user.getIdentifier())
+                && !isSystemUid(callingUid)) {
             String msg = String.format(
                     "uid %s cannot remove accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-
-        UserAccounts accounts = getUserAccounts(userId);
         if (!canUserModifyAccounts(userId)) {
             try {
                 response.onError(AccountManager.ERROR_CODE_USER_RESTRICTED,
@@ -1223,10 +1257,8 @@ public class AccountManagerService
             }
             return;
         }
-
-        UserHandle user = new UserHandle(userId);
         long identityToken = clearCallingIdentity();
-
+        UserAccounts accounts = getUserAccounts(userId);
         cancelNotification(getSigninRequiredNotificationId(accounts, account), user);
         synchronized(accounts.credentialsPermissionNotificationIds) {
             for (Pair<Pair<Account, String>, Integer> pair:
@@ -1255,6 +1287,7 @@ public class AccountManagerService
                     + ", caller's uid " + callingUid
                     + ", pid " + Binder.getCallingPid());
         }
+        int userId = Binder.getCallingUserHandle().getIdentifier();
         if (account == null) {
             /*
              * Null accounts should result in returning false, as per
@@ -1262,22 +1295,18 @@ public class AccountManagerService
              */
             Log.e(TAG, "account is null");
             return false;
-        } else if (!isAccountManagedByCaller(account.type, callingUid)) {
+        } else if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot explicitly add accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-
         UserAccounts accounts = getUserAccountsForCaller();
-        int userId = Binder.getCallingUserHandle().getIdentifier();
         if (!canUserModifyAccounts(userId) || !canUserModifyAccountsForType(userId, account.type)) {
             return false;
         }
-
         logRecord(accounts, DebugDbHelper.ACTION_CALLED_ACCOUNT_REMOVE, TABLE_ACCOUNTS);
-
         long identityToken = clearCallingIdentity();
         try {
             return removeAccountInternal(accounts, account);
@@ -1381,9 +1410,10 @@ public class AccountManagerService
         }
         if (accountType == null) throw new IllegalArgumentException("accountType is null");
         if (authToken == null) throw new IllegalArgumentException("authToken is null");
-        UserAccounts accounts = getUserAccountsForCaller();
+        int userId = UserHandle.getCallingUserId();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             synchronized (accounts.cacheLock) {
                 final SQLiteDatabase db = accounts.openHelper.getWritableDatabase();
                 db.beginTransaction();
@@ -1510,16 +1540,17 @@ public class AccountManagerService
         }
         if (account == null) throw new IllegalArgumentException("account is null");
         if (authTokenType == null) throw new IllegalArgumentException("authTokenType is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot peek the authtokens associated with accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             return readAuthTokenInternal(accounts, account, authTokenType);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -1537,16 +1568,17 @@ public class AccountManagerService
         }
         if (account == null) throw new IllegalArgumentException("account is null");
         if (authTokenType == null) throw new IllegalArgumentException("authTokenType is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot set auth tokens associated with accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             saveAuthTokenToDatabase(accounts, account, authTokenType, authToken);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -1562,16 +1594,17 @@ public class AccountManagerService
                     + ", pid " + Binder.getCallingPid());
         }
         if (account == null) throw new IllegalArgumentException("account is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot set secrets for accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             setPasswordInternal(accounts, account, password, callingUid);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -1625,16 +1658,17 @@ public class AccountManagerService
                     + ", pid " + Binder.getCallingPid());
         }
         if (account == null) throw new IllegalArgumentException("account is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot clear passwords for accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             setPasswordInternal(accounts, account, null, callingUid);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -1652,16 +1686,17 @@ public class AccountManagerService
         }
         if (key == null) throw new IllegalArgumentException("key is null");
         if (account == null) throw new IllegalArgumentException("account is null");
-        if (!isAccountManagedByCaller(account.type, callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(account.type, callingUid, userId)) {
             String msg = String.format(
                     "uid %s cannot set user data for accounts of type: %s",
                     callingUid,
                     account.type);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             setUserdataInternal(accounts, account, key, value);
         } finally {
             restoreCallingIdentity(identityToken);
@@ -1734,9 +1769,10 @@ public class AccountManagerService
         if (callingUid != Process.SYSTEM_UID) {
             throw new SecurityException("can only call from system");
         }
-        UserAccounts accounts = getUserAccounts(UserHandle.getUserId(callingUid));
+        int userId = UserHandle.getUserId(callingUid);
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             new Session(accounts, response, accountType, false /* expectActivityLaunch */,
                     false /* stripAuthTokenFromResult */,  null /* accountName */,
                     false /* authDetailsRequired */) {
@@ -1803,24 +1839,30 @@ public class AccountManagerService
             Slog.w(TAG, "Failed to report error back to the client." + e);
             return;
         }
-
-        final UserAccounts accounts = getUserAccountsForCaller();
+        int userId = UserHandle.getCallingUserId();
+        long ident = Binder.clearCallingIdentity();
+        final UserAccounts accounts;
         final RegisteredServicesCache.ServiceInfo<AuthenticatorDescription> authenticatorInfo;
-        authenticatorInfo = mAuthenticatorCache.getServiceInfo(
-                AuthenticatorDescription.newKey(account.type), accounts.userId);
+        try {
+            accounts = getUserAccounts(userId);
+            authenticatorInfo = mAuthenticatorCache.getServiceInfo(
+                    AuthenticatorDescription.newKey(account.type), accounts.userId);
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
 
         final boolean customTokens =
                 authenticatorInfo != null && authenticatorInfo.type.customTokens;
 
         // skip the check if customTokens
         final int callerUid = Binder.getCallingUid();
-        final boolean permissionGranted = customTokens ||
-            permissionIsGranted(account, authTokenType, callerUid);
+        final boolean permissionGranted =
+                customTokens || permissionIsGranted(account, authTokenType, callerUid, userId);
 
         // Get the calling package. We will use it for the purpose of caching.
         final String callerPkg = loginOptions.getString(AccountManager.KEY_ANDROID_PACKAGE_NAME);
         List<String> callerOwnedPackageNames;
-        long ident = Binder.clearCallingIdentity();
+        ident = Binder.clearCallingIdentity();
         try {
             callerOwnedPackageNames = Arrays.asList(mPackageManager.getPackagesForUid(callerUid));
         } finally {
@@ -2108,17 +2150,18 @@ public class AccountManagerService
             return;
         }
 
-        UserAccounts accounts = getUserAccountsForCaller();
         final int pid = Binder.getCallingPid();
         final int uid = Binder.getCallingUid();
         final Bundle options = (optionsIn == null) ? new Bundle() : optionsIn;
         options.putInt(AccountManager.KEY_CALLER_UID, uid);
         options.putInt(AccountManager.KEY_CALLER_PID, pid);
 
-        logRecord(accounts, DebugDbHelper.ACTION_CALLED_ACCOUNT_ADD, TABLE_ACCOUNTS);
-
+        int usrId = UserHandle.getCallingUserId();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(usrId);
+            logRecordWithUid(
+                    accounts, DebugDbHelper.ACTION_CALLED_ACCOUNT_ADD, TABLE_ACCOUNTS, uid);
             new Session(accounts, response, accountType, expectActivityLaunch,
                     true /* stripAuthTokenFromResult */, null /* accountName */,
                     false /* authDetailsRequired */, true /* updateLastAuthenticationTime */) {
@@ -2190,17 +2233,17 @@ public class AccountManagerService
             return;
         }
 
-        UserAccounts accounts = getUserAccounts(userId);
         final int pid = Binder.getCallingPid();
         final int uid = Binder.getCallingUid();
         final Bundle options = (optionsIn == null) ? new Bundle() : optionsIn;
         options.putInt(AccountManager.KEY_CALLER_UID, uid);
         options.putInt(AccountManager.KEY_CALLER_PID, pid);
 
-        logRecord(accounts, DebugDbHelper.ACTION_CALLED_ACCOUNT_ADD, TABLE_ACCOUNTS);
-
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
+            logRecordWithUid(
+                    accounts, DebugDbHelper.ACTION_CALLED_ACCOUNT_ADD, TABLE_ACCOUNTS, userId);
             new Session(accounts, response, accountType, expectActivityLaunch,
                     true /* stripAuthTokenFromResult */, null /* accountName */,
                     false /* authDetailsRequired */, true /* updateLastAuthenticationTime */) {
@@ -2262,9 +2305,9 @@ public class AccountManagerService
         }
         if (response == null) throw new IllegalArgumentException("response is null");
         if (account == null) throw new IllegalArgumentException("account is null");
-        UserAccounts accounts = getUserAccounts(userId);
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             new Session(accounts, response, account.type, expectActivityLaunch,
                     true /* stripAuthTokenFromResult */, account.name,
                     true /* authDetailsRequired */, true /* updateLastAuthenticatedTime */) {
@@ -2298,9 +2341,10 @@ public class AccountManagerService
         if (response == null) throw new IllegalArgumentException("response is null");
         if (account == null) throw new IllegalArgumentException("account is null");
         if (authTokenType == null) throw new IllegalArgumentException("authTokenType is null");
-        UserAccounts accounts = getUserAccountsForCaller();
+        int userId = UserHandle.getCallingUserId();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             new Session(accounts, response, account.type, expectActivityLaunch,
                     true /* stripAuthTokenFromResult */, account.name,
                     false /* authDetailsRequired */, true /* updateLastCredentialTime */) {
@@ -2335,16 +2379,17 @@ public class AccountManagerService
         }
         if (response == null) throw new IllegalArgumentException("response is null");
         if (accountType == null) throw new IllegalArgumentException("accountType is null");
-        if (!isAccountManagedByCaller(accountType, callingUid) && !isSystemUid(callingUid)) {
+        int userId = UserHandle.getCallingUserId();
+        if (!isAccountManagedByCaller(accountType, callingUid, userId) && !isSystemUid(callingUid)) {
             String msg = String.format(
                     "uid %s cannot edit authenticator properites for account type: %s",
                     callingUid,
                     accountType);
             throw new SecurityException(msg);
         }
-        UserAccounts accounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts accounts = getUserAccounts(userId);
             new Session(accounts, response, accountType, expectActivityLaunch,
                     true /* stripAuthTokenFromResult */, null /* accountName */,
                     false /* authDetailsRequired */) {
@@ -2464,20 +2509,24 @@ public class AccountManagerService
     }
 
     /**
-     * Returns the accounts for a specific user
+     * Returns the accounts visible to the client within the context of a specific user
      * @hide
      */
-    public Account[] getAccounts(int userId) {
-        UserAccounts accounts = getUserAccounts(userId);
+    public Account[] getAccounts(int userId, String opPackageName) {
         int callingUid = Binder.getCallingUid();
-        if (!isReadAccountsPermitted(callingUid, null)) {
+        List<String> visibleAccountTypes = getTypesVisibleToCaller(callingUid, userId,
+                opPackageName);
+        if (visibleAccountTypes.isEmpty()) {
             return new Account[0];
         }
         long identityToken = clearCallingIdentity();
         try {
-            synchronized (accounts.cacheLock) {
-                return getAccountsFromCacheLocked(accounts, null, callingUid, null);
-            }
+            UserAccounts accounts = getUserAccounts(userId);
+            return getAccountsInternal(
+                    accounts,
+                    callingUid,
+                    null,  // packageName
+                    visibleAccountTypes);
         } finally {
             restoreCallingIdentity(identityToken);
         }
@@ -2528,15 +2577,16 @@ public class AccountManagerService
     }
 
     @Override
-    public Account[] getAccountsAsUser(String type, int userId) {
-        return getAccountsAsUser(type, userId, null, -1);
+    public Account[] getAccountsAsUser(String type, int userId, String opPackageName) {
+        return getAccountsAsUser(type, userId, null, -1, opPackageName);
     }
 
     private Account[] getAccountsAsUser(
             String type,
             int userId,
             String callingPackage,
-            int packageUid) {
+            int packageUid,
+            String opPackageName) {
         int callingUid = Binder.getCallingUid();
         // Only allow the system process to read accounts of other users
         if (userId != UserHandle.getCallingUserId()
@@ -2557,21 +2607,53 @@ public class AccountManagerService
         // be passed in the original caller's uid here, which is what should be used for filtering.
         if (packageUid != -1 && UserHandle.isSameApp(callingUid, Process.myUid())) {
             callingUid = packageUid;
+            opPackageName = callingPackage;
         }
 
-        // Authenticators should be able to see their own accounts regardless of permissions.
-        if (TextUtils.isEmpty(type) && !isReadAccountsPermitted(callingUid, type)) {
+        List<String> visibleAccountTypes = getTypesVisibleToCaller(callingUid, userId,
+                opPackageName);
+        if (visibleAccountTypes.isEmpty()
+                || (type != null && !visibleAccountTypes.contains(type))) {
             return new Account[0];
-        }
+        } else if (visibleAccountTypes.contains(type)) {
+            // Prune the list down to just the requested type.
+            visibleAccountTypes = new ArrayList<>();
+            visibleAccountTypes.add(type);
+        } // else aggregate all the visible accounts (it won't matter if the
+          // list is empty).
 
         long identityToken = clearCallingIdentity();
         try {
             UserAccounts accounts = getUserAccounts(userId);
-            synchronized (accounts.cacheLock) {
-                return getAccountsFromCacheLocked(accounts, type, callingUid, callingPackage);
-            }
+            return getAccountsInternal(
+                    accounts,
+                    callingUid,
+                    callingPackage,
+                    visibleAccountTypes);
         } finally {
             restoreCallingIdentity(identityToken);
+        }
+    }
+
+    private Account[] getAccountsInternal(
+            UserAccounts userAccounts,
+            int callingUid,
+            String callingPackage,
+            List<String> visibleAccountTypes) {
+        synchronized (userAccounts.cacheLock) {
+            ArrayList<Account> visibleAccounts = new ArrayList<>();
+            for (String visibleType : visibleAccountTypes) {
+                Account[] accountsForType = getAccountsFromCacheLocked(
+                        userAccounts, visibleType, callingUid, callingPackage);
+                if (accountsForType != null) {
+                    visibleAccounts.addAll(Arrays.asList(accountsForType));
+                }
+            }
+            Account[] result = new Account[visibleAccounts.size()];
+            for (int i = 0; i < visibleAccounts.size(); i++) {
+                result[i] = visibleAccounts.get(i);
+            }
+            return result;
         }
     }
 
@@ -2668,22 +2750,24 @@ public class AccountManagerService
     }
 
     @Override
-    public Account[] getAccounts(String type) {
-        return getAccountsAsUser(type, UserHandle.getCallingUserId());
+    public Account[] getAccounts(String type, String opPackageName) {
+        return getAccountsAsUser(type, UserHandle.getCallingUserId(), opPackageName);
     }
 
     @Override
-    public Account[] getAccountsForPackage(String packageName, int uid) {
+    public Account[] getAccountsForPackage(String packageName, int uid, String opPackageName) {
         int callingUid = Binder.getCallingUid();
         if (!UserHandle.isSameApp(callingUid, Process.myUid())) {
             throw new SecurityException("getAccountsForPackage() called from unauthorized uid "
                     + callingUid + " with uid=" + uid);
         }
-        return getAccountsAsUser(null, UserHandle.getCallingUserId(), packageName, uid);
+        return getAccountsAsUser(null, UserHandle.getCallingUserId(), packageName, uid,
+                opPackageName);
     }
 
     @Override
-    public Account[] getAccountsByTypeForPackage(String type, String packageName) {
+    public Account[] getAccountsByTypeForPackage(String type, String packageName,
+            String opPackageName) {
         int packageUid = -1;
         try {
             packageUid = AppGlobals.getPackageManager().getPackageUid(
@@ -2692,14 +2776,16 @@ public class AccountManagerService
             Slog.e(TAG, "Couldn't determine the packageUid for " + packageName + re);
             return new Account[0];
         }
-        return getAccountsAsUser(type, UserHandle.getCallingUserId(), packageName, packageUid);
+        return getAccountsAsUser(type, UserHandle.getCallingUserId(), packageName,
+                packageUid, opPackageName);
     }
 
     @Override
     public void getAccountsByFeatures(
             IAccountManagerResponse response,
             String type,
-            String[] features) {
+            String[] features,
+            String opPackageName) {
         int callingUid = Binder.getCallingUid();
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
             Log.v(TAG, "getAccounts: accountType " + type
@@ -2710,8 +2796,13 @@ public class AccountManagerService
         }
         if (response == null) throw new IllegalArgumentException("response is null");
         if (type == null) throw new IllegalArgumentException("accountType is null");
-        if (!isReadAccountsPermitted(callingUid, type)) {
+        int userId = UserHandle.getCallingUserId();
+
+        List<String> visibleAccountTypes = getTypesVisibleToCaller(callingUid, userId,
+                opPackageName);
+        if (!visibleAccountTypes.contains(type)) {
             Bundle result = new Bundle();
+            // Need to return just the accounts that are from matching signatures.
             result.putParcelableArray(AccountManager.KEY_ACCOUNTS, new Account[0]);
             try {
                 response.onResult(result);
@@ -2720,9 +2811,9 @@ public class AccountManagerService
             }
             return;
         }
-        UserAccounts userAccounts = getUserAccountsForCaller();
         long identityToken = clearCallingIdentity();
         try {
+            UserAccounts userAccounts = getUserAccounts(userId);
             if (features == null || features.length == 0) {
                 Account[] accounts;
                 synchronized (userAccounts.cacheLock) {
@@ -2733,7 +2824,11 @@ public class AccountManagerService
                 onResult(response, result);
                 return;
             }
-            new GetAccountsByTypeAndFeatureSession(userAccounts, response, type, features,
+            new GetAccountsByTypeAndFeatureSession(
+                    userAccounts,
+                    response,
+                    type,
+                    features,
                     callingUid).bind();
         } finally {
             restoreCallingIdentity(identityToken);
@@ -3227,6 +3322,11 @@ public class AccountManagerService
         logRecord(db, action, tableName, -1, accounts);
     }
 
+    private void logRecordWithUid(UserAccounts accounts, String action, String tableName, int uid) {
+        SQLiteDatabase db = accounts.openHelper.getWritableDatabase();
+        logRecord(db, action, tableName, -1, accounts, uid);
+    }
+
     /*
      * This function receives an opened writable database.
      */
@@ -3599,29 +3699,20 @@ public class AccountManagerService
         }
     }
 
-    private boolean isPermitted(int callingUid, String... permissions) {
+    private boolean isPermitted(String opPackageName, int callingUid, String... permissions) {
         for (String perm : permissions) {
             if (mContext.checkCallingOrSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) {
                 if (Log.isLoggable(TAG, Log.VERBOSE)) {
                     Log.v(TAG, "  caller uid " + callingUid + " has " + perm);
                 }
-                return true;
+                final int opCode = AppOpsManager.permissionToOpCode(perm);
+                if (opCode == AppOpsManager.OP_NONE || mAppOpsManager.noteOp(
+                        opCode, callingUid, opPackageName) == AppOpsManager.MODE_ALLOWED) {
+                    return true;
+                }
             }
         }
         return false;
-    }
-
-    /** Succeeds if any of the specified permissions are granted. */
-    private void checkBinderPermission(String... permissions) {
-        final int callingUid = Binder.getCallingUid();
-        if (isPermitted(callingUid, permissions)) {
-            String msg = String.format(
-                    "caller uid %s  lacks any of %s",
-                    callingUid,
-                    TextUtils.join(",", permissions));
-            Log.w(TAG, "  " + msg);
-            throw new SecurityException(msg);
-        }
     }
 
     private int handleIncomingUser(int userId) {
@@ -3661,10 +3752,11 @@ public class AccountManagerService
         return false;
     }
 
-    private boolean permissionIsGranted(Account account, String authTokenType, int callerUid) {
+    private boolean permissionIsGranted(
+            Account account, String authTokenType, int callerUid, int userId) {
         final boolean isPrivileged = isPrivileged(callerUid);
         final boolean fromAuthenticator = account != null
-                && isAccountManagedByCaller(account.type, callerUid);
+                && isAccountManagedByCaller(account.type, callerUid, userId);
         final boolean hasExplicitGrants = account != null
                 && hasExplicitlyGrantedPermission(account, authTokenType, callerUid);
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
@@ -3676,23 +3768,55 @@ public class AccountManagerService
         return fromAuthenticator || hasExplicitGrants || isPrivileged;
     }
 
-    private boolean isAccountManagedByCaller(String accountType, int callingUid) {
+    private boolean isAccountVisibleToCaller(String accountType, int callingUid, int userId,
+            String opPackageName) {
         if (accountType == null) {
             return false;
+        } else {
+            return getTypesVisibleToCaller(callingUid, userId,
+                    opPackageName).contains(accountType);
         }
-        final int callingUserId = UserHandle.getUserId(callingUid);
+    }
+
+    private boolean isAccountManagedByCaller(String accountType, int callingUid, int userId) {
+        if (accountType == null) {
+            return false;
+        } else {
+            return getTypesManagedByCaller(callingUid, userId).contains(accountType);
+        }
+    }
+
+    private List<String> getTypesVisibleToCaller(int callingUid, int userId,
+            String opPackageName) {
+        boolean isPermitted =
+                isPermitted(opPackageName, callingUid, Manifest.permission.GET_ACCOUNTS,
+                        Manifest.permission.GET_ACCOUNTS_PRIVILEGED);
+        Log.i(TAG, String.format("getTypesVisibleToCaller: isPermitted? %s", isPermitted));
+        return getTypesForCaller(callingUid, userId, isPermitted);
+    }
+
+    private List<String> getTypesManagedByCaller(int callingUid, int userId) {
+        return getTypesForCaller(callingUid, userId, false);
+    }
+
+    private List<String> getTypesForCaller(
+            int callingUid, int userId, boolean isOtherwisePermitted) {
+        List<String> managedAccountTypes = new ArrayList<>();
+        long identityToken = Binder.clearCallingIdentity();
+        Collection<RegisteredServicesCache.ServiceInfo<AuthenticatorDescription>> serviceInfos;
+        try {
+            serviceInfos = mAuthenticatorCache.getAllServices(userId);
+        } finally {
+            Binder.restoreCallingIdentity(identityToken);
+        }
         for (RegisteredServicesCache.ServiceInfo<AuthenticatorDescription> serviceInfo :
-                mAuthenticatorCache.getAllServices(callingUserId)) {
-            if (serviceInfo.type.type.equals(accountType)) {
-                /*
-                 * We can't simply compare uids because uids can be recycled before the
-                 * authenticator cache is updated.
-                 */
-                final int sigChk = mPackageManager.checkSignatures(serviceInfo.uid, callingUid);
-                return sigChk == PackageManager.SIGNATURE_MATCH;
+                serviceInfos) {
+            final int sigChk = mPackageManager.checkSignatures(serviceInfo.uid, callingUid);
+            if (isOtherwisePermitted || sigChk == PackageManager.SIGNATURE_MATCH) {
+                managedAccountTypes.add(serviceInfo.type.type);
             }
         }
-        return false;
+        return managedAccountTypes;
     }
 
     private boolean isAccountPresentForCaller(String accountName, String accountType) {
@@ -3757,27 +3881,13 @@ public class AccountManagerService
         return false;
     }
 
-    private boolean isReadAccountsPermitted(int callingUid, String accountType) {
-        /*
-         * Settings app (which is in the same uid as AcocuntManagerService), apps with the
-         * GET_ACCOUNTS permission or authenticators that own the account type should be able to
-         * access accounts of the specified account.
-         */
-        boolean isPermitted =
-                isPermitted(callingUid, Manifest.permission.GET_ACCOUNTS);
-        boolean isAccountManagedByCaller = isAccountManagedByCaller(accountType, callingUid);
-        Log.w(TAG, String.format(
-                "isReadAccountPermitted: isPermitted: %s, isAM: %s",
-                isPermitted,
-                isAccountManagedByCaller));
-        return isPermitted || isAccountManagedByCaller;
-    }
-
     /** Succeeds if any of the specified permissions are granted. */
     private void checkReadAccountsPermitted(
             int callingUid,
-            String accountType) {
-        if (!isReadAccountsPermitted(callingUid, accountType)) {
+            String accountType,
+            int userId,
+            String opPackageName) {
+        if (!isAccountVisibleToCaller(accountType, callingUid, userId, opPackageName)) {
             String msg = String.format(
                     "caller uid %s cannot access %s accounts",
                     callingUid,

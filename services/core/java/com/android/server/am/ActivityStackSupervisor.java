@@ -911,7 +911,8 @@ public final class ActivityStackSupervisor implements DisplayListener {
                 null /* voiceSession */, null /* voiceInteractor */, null /* resultTo */,
                 null /* resultWho */, 0 /* requestCode */, 0 /* callingPid */, 0 /* callingUid */,
                 null /* callingPackage */, 0 /* realCallingPid */, 0 /* realCallingUid */,
-                0 /* startFlags */, null /* options */, false /* componentSpecified */,
+                0 /* startFlags */, null /* options */, false /* ignoreTargetSecurity */,
+                false /* componentSpecified */,
                 null /* outActivity */, null /* container */,  null /* inTask */);
         if (inResumeTopActivity) {
             // If we are in resume section already, home activity will be initialized, but not
@@ -926,7 +927,8 @@ public final class ActivityStackSupervisor implements DisplayListener {
             IVoiceInteractionSession voiceSession, IVoiceInteractor voiceInteractor,
             IBinder resultTo, String resultWho, int requestCode, int startFlags,
             ProfilerInfo profilerInfo, WaitResult outResult, Configuration config,
-            Bundle options, int userId, IActivityContainer iContainer, TaskRecord inTask) {
+            Bundle options, boolean ignoreTargetSecurity, int userId,
+            IActivityContainer iContainer, TaskRecord inTask) {
         // Refuse possible leaked file descriptors
         if (intent != null && intent.hasFileDescriptors()) {
             throw new IllegalArgumentException("File descriptors passed in Intent");
@@ -1043,7 +1045,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
             int res = startActivityLocked(caller, intent, resolvedType, aInfo,
                     voiceSession, voiceInteractor, resultTo, resultWho,
                     requestCode, callingPid, callingUid, callingPackage,
-                    realCallingPid, realCallingUid, startFlags, options,
+                    realCallingPid, realCallingUid, startFlags, options, ignoreTargetSecurity,
                     componentSpecified, null, container, inTask);
 
             Binder.restoreCallingIdentity(origId);
@@ -1159,7 +1161,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
                     int res = startActivityLocked(caller, intent, resolvedTypes[i],
                             aInfo, null, null, resultTo, null, -1, callingPid, callingUid,
                             callingPackage, callingPid, callingUid,
-                            0, theseOptions, componentSpecified, outActivity, null, null);
+                            0, theseOptions, false, componentSpecified, outActivity, null, null);
                     if (res < 0) {
                         return res;
                     }
@@ -1400,8 +1402,8 @@ public final class ActivityStackSupervisor implements DisplayListener {
             IBinder resultTo, String resultWho, int requestCode,
             int callingPid, int callingUid, String callingPackage,
             int realCallingPid, int realCallingUid, int startFlags, Bundle options,
-            boolean componentSpecified, ActivityRecord[] outActivity, ActivityContainer container,
-            TaskRecord inTask) {
+            boolean ignoreTargetSecurity, boolean componentSpecified, ActivityRecord[] outActivity,
+            ActivityContainer container, TaskRecord inTask) {
         int err = ActivityManager.START_SUCCESS;
 
         ProcessRecord callerApp = null;
@@ -1504,11 +1506,16 @@ public final class ActivityStackSupervisor implements DisplayListener {
             if ((launchFlags & Intent.FLAG_ACTIVITY_NEW_TASK) == 0
                     && sourceRecord.info.applicationInfo.uid != aInfo.applicationInfo.uid) {
                 try {
+                    intent.addCategory(Intent.CATEGORY_VOICE);
                     if (!AppGlobals.getPackageManager().activitySupportsIntent(
                             intent.getComponent(), intent, resolvedType)) {
+                        Slog.w(TAG,
+                                "Activity being started in current voice task does not support voice: "
+                                + intent);
                         err = ActivityManager.START_NOT_VOICE_COMPATIBLE;
                     }
                 } catch (RemoteException e) {
+                    Slog.w(TAG, "Failure checking voice capabilities", e);
                     err = ActivityManager.START_NOT_VOICE_COMPATIBLE;
                 }
             }
@@ -1520,9 +1527,13 @@ public final class ActivityStackSupervisor implements DisplayListener {
             try {
                 if (!AppGlobals.getPackageManager().activitySupportsIntent(intent.getComponent(),
                         intent, resolvedType)) {
+                    Slog.w(TAG,
+                            "Activity being started in new voice task does not support: "
+                            + intent);
                     err = ActivityManager.START_NOT_VOICE_COMPATIBLE;
                 }
             } catch (RemoteException e) {
+                Slog.w(TAG, "Failure checking voice capabilities", e);
                 err = ActivityManager.START_NOT_VOICE_COMPATIBLE;
             }
         }
@@ -1546,7 +1557,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
 
         if (startAnyPerm != PERMISSION_GRANTED) {
             final int componentRestriction = getComponentRestrictionForCallingPackage(
-                    aInfo, callingPackage, callingPid, callingUid);
+                    aInfo, callingPackage, callingPid, callingUid, ignoreTargetSecurity);
             final int actionRestriction = getActionRestrictionForCallingPackage(
                     intent.getAction(), callingPackage, callingPid, callingUid);
 
@@ -1624,7 +1635,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
 
         ActivityRecord r = new ActivityRecord(mService, callerApp, callingUid, callingPackage,
                 intent, resolvedType, aInfo, mService.mConfiguration, resultRecord, resultWho,
-                requestCode, componentSpecified, this, container, options);
+                requestCode, componentSpecified, voiceSession != null, this, container, options);
         if (outActivity != null) {
             outActivity[0] = r;
         }
@@ -1675,15 +1686,15 @@ public final class ActivityStackSupervisor implements DisplayListener {
     }
 
     private int getComponentRestrictionForCallingPackage(ActivityInfo activityInfo,
-            String callingPackage, int callingPid, int callingUid) {
-        if (activityInfo.permission == null) {
-            return ACTIVITY_RESTRICTION_NONE;
-        }
-
-        if (mService.checkComponentPermission(activityInfo.permission, callingPid, callingUid,
-                activityInfo.applicationInfo.uid, activityInfo.exported)
+            String callingPackage, int callingPid, int callingUid, boolean ignoreTargetSecurity) {
+        if (!ignoreTargetSecurity && mService.checkComponentPermission(activityInfo.permission,
+                callingPid, callingUid, activityInfo.applicationInfo.uid, activityInfo.exported)
                 == PackageManager.PERMISSION_DENIED) {
             return ACTIVITY_RESTRICTION_PERMISSION;
+        }
+
+        if (activityInfo.permission == null) {
+            return ACTIVITY_RESTRICTION_NONE;
         }
 
         final int opCode = AppOpsManager.permissionToOpCode(activityInfo.permission);
@@ -1693,7 +1704,9 @@ public final class ActivityStackSupervisor implements DisplayListener {
 
         if (mService.mAppOpsService.noteOperation(opCode, callingUid,
                 callingPackage) != AppOpsManager.MODE_ALLOWED) {
-            return ACTIVITY_RESTRICTION_APPOP;
+            if (!ignoreTargetSecurity) {
+                return ACTIVITY_RESTRICTION_APPOP;
+            }
         }
 
         return ACTIVITY_RESTRICTION_NONE;
@@ -3201,10 +3214,10 @@ public final class ActivityStackSupervisor implements DisplayListener {
     void handleAppCrashLocked(ProcessRecord app) {
         for (int displayNdx = mActivityDisplays.size() - 1; displayNdx >= 0; --displayNdx) {
             final ArrayList<ActivityStack> stacks = mActivityDisplays.valueAt(displayNdx).mStacks;
-            final int numStacks = stacks.size();
-            for (int stackNdx = 0; stackNdx < numStacks; ++stackNdx) {
-                final ActivityStack stack = stacks.get(stackNdx);
-                stack.handleAppCrashLocked(app);
+            int stackNdx = stacks.size() - 1;
+            while (stackNdx >= 0) {
+                stacks.get(stackNdx).handleAppCrashLocked(app);
+                stackNdx--;
             }
         }
     }
@@ -3717,19 +3730,19 @@ public final class ActivityStackSupervisor implements DisplayListener {
 
     @Override
     public void onDisplayAdded(int displayId) {
-        Slog.v(TAG, "Display added displayId=" + displayId);
+        if (DEBUG_STACK) Slog.v(TAG, "Display added displayId=" + displayId);
         mHandler.sendMessage(mHandler.obtainMessage(HANDLE_DISPLAY_ADDED, displayId, 0));
     }
 
     @Override
     public void onDisplayRemoved(int displayId) {
-        Slog.v(TAG, "Display removed displayId=" + displayId);
+        if (DEBUG_STACK) Slog.v(TAG, "Display removed displayId=" + displayId);
         mHandler.sendMessage(mHandler.obtainMessage(HANDLE_DISPLAY_REMOVED, displayId, 0));
     }
 
     @Override
     public void onDisplayChanged(int displayId) {
-        Slog.v(TAG, "Display changed displayId=" + displayId);
+        if (DEBUG_STACK) Slog.v(TAG, "Display changed displayId=" + displayId);
         mHandler.sendMessage(mHandler.obtainMessage(HANDLE_DISPLAY_CHANGED, displayId, 0));
     }
 
@@ -4296,7 +4309,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
 
             intent.addFlags(FORCE_NEW_TASK_FLAGS);
             return startActivityMayWait(null, -1, null, intent, mimeType, null, null, null, null,
-                    0, 0, null, null, null, null, userId, this, null);
+                    0, 0, null, null, null, null, false, userId, this, null);
         }
 
         @Override

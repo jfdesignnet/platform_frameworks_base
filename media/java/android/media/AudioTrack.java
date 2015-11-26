@@ -27,7 +27,6 @@ import java.util.Collection;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.SystemApi;
 import android.app.ActivityThread;
 import android.app.AppOpsManager;
 import android.content.Context;
@@ -159,6 +158,18 @@ public class AudioTrack
      * Denotes a failure due to the improper use of a method.
      */
     public  static final int ERROR_INVALID_OPERATION               = AudioSystem.INVALID_OPERATION;
+    /**
+     * An error code indicating that the object reporting it is no longer valid and needs to
+     * be recreated.
+     * @hide
+     */
+    public  static final int ERROR_DEAD_OBJECT                     = AudioSystem.DEAD_OBJECT;
+    /**
+     * {@link #getTimestampWithStatus(AudioTimestamp)} is called in STOPPED or FLUSHED state,
+     * or immediately after start/ACTIVE.
+     * @hide
+     */
+    public  static final int ERROR_WOULD_BLOCK                     = AudioSystem.WOULD_BLOCK;
 
     // Error codes:
     // to keep in sync with frameworks/base/core/jni/android_media_AudioTrack.cpp
@@ -1174,9 +1185,12 @@ public class AudioTrack
     * Poll for a timestamp on demand.
     * <p>
     * If you need to track timestamps during initial warmup or after a routing or mode change,
-    * you should request a new timestamp once per second until the reported timestamps
-    * show that the audio clock is stable.
-    * Thereafter, query for a new timestamp approximately once every 10 seconds to once per minute.
+    * you should request a new timestamp periodically until the reported timestamps
+    * show that the frame position is advancing, or until it becomes clear that
+    * timestamps are unavailable for this route.
+    * <p>
+    * After the clock is advancing at a stable rate,
+    * query for a new timestamp approximately once every 10 seconds to once per minute.
     * Calling this method more often is inefficient.
     * It is also counter-productive to call this method more often than recommended,
     * because the short-term differences between successive timestamp reports are not meaningful.
@@ -1199,6 +1213,11 @@ public class AudioTrack
     *         In the case that no timestamp is available, any supplied instance is left unaltered.
     *         A timestamp may be temporarily unavailable while the audio clock is stabilizing,
     *         or during and immediately after a route change.
+    *         A timestamp is permanently unavailable for a given route if the route does not support
+    *         timestamps.  In this case, the approximate frame position can be obtained
+    *         using {@link #getPlaybackHeadPosition}.
+    *         However, it may be useful to continue to query for
+    *         timestamps occasionally, to recover after a route change.
     */
     // Add this text when the "on new timestamp" API is added:
     //   Use if you need to get the most recent timestamp outside of the event callback handler.
@@ -1218,6 +1237,44 @@ public class AudioTrack
         return true;
     }
 
+    /**
+     * Poll for a timestamp on demand.
+     * <p>
+     * Same as {@link #getTimestamp(AudioTimestamp)} but with a more useful return code.
+     *
+     * @param timestamp a reference to a non-null AudioTimestamp instance allocated
+     *        and owned by caller.
+     * @return {@link #SUCCESS} if a timestamp is available
+     *         {@link #ERROR_WOULD_BLOCK} if called in STOPPED or FLUSHED state, or if called
+     *         immediately after start/ACTIVE, when the number of frames consumed is less than the
+     *         overall hardware latency to physical output. In WOULD_BLOCK cases, one might poll
+     *         again, or use {@link #getPlaybackHeadPosition}, or use 0 position and current time
+     *         for the timestamp.
+     *         {@link #ERROR_DEAD_OBJECT} if the AudioTrack is not valid anymore and
+     *         needs to be recreated.
+     *         {@link #ERROR_INVALID_OPERATION} if current route does not support
+     *         timestamps. In this case, the approximate frame position can be obtained
+     *         using {@link #getPlaybackHeadPosition}.
+     *
+     *         The AudioTimestamp instance is filled in with a position in frame units, together
+     *         with the estimated time when that frame was presented or is committed to
+     *         be presented.
+     * @hide
+     */
+     // Add this text when the "on new timestamp" API is added:
+     //   Use if you need to get the most recent timestamp outside of the event callback handler.
+     public int getTimestampWithStatus(AudioTimestamp timestamp)
+     {
+         if (timestamp == null) {
+             throw new IllegalArgumentException();
+         }
+         // It's unfortunate, but we have to either create garbage every time or use synchronized
+         long[] longArray = new long[2];
+         int ret = native_get_timestamp(longArray);
+         timestamp.framePosition = longArray[0];
+         timestamp.nanoTime = longArray[1];
+         return ret;
+     }
 
     //--------------------------------------------------------------------------
     // Initialization / configuration
@@ -1409,7 +1466,7 @@ public class AudioTrack
      * <br>
      * If looping is currently enabled and the new position is greater than or equal to the
      * loop end marker, the behavior varies by API level:
-     * as of {@link android.os.Build.VERSION_CODES#MNC},
+     * as of {@link android.os.Build.VERSION_CODES#M},
      * the looping is first disabled and then the position is set.
      * For earlier API levels, the behavior is unspecified.
      * @return error code or success, see {@link #SUCCESS}, {@link #ERROR_BAD_VALUE},
@@ -1446,7 +1503,7 @@ public class AudioTrack
      * {@link #ERROR_BAD_VALUE} is returned.
      * The loop range is the interval [startInFrames, endInFrames).
      * <br>
-     * As of {@link android.os.Build.VERSION_CODES#MNC}, the position is left unchanged,
+     * As of {@link android.os.Build.VERSION_CODES#M}, the position is left unchanged,
      * unless it is greater than or equal to the loop end marker, in which case
      * it is forced to the loop start marker.
      * For earlier API levels, the effect on position is unspecified.
@@ -2077,7 +2134,7 @@ public class AudioTrack
      * The track must be stopped or paused, and
      * the track's creation mode must be {@link #MODE_STATIC}.
      * <p>
-     * As of {@link android.os.Build.VERSION_CODES#MNC}, also resets the value returned by
+     * As of {@link android.os.Build.VERSION_CODES#M}, also resets the value returned by
      * {@link #getPlaybackHeadPosition()} to zero.
      * For earlier API levels, the reset behavior is unspecified.
      * <p>

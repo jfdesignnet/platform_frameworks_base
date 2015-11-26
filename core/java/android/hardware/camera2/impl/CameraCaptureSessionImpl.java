@@ -36,7 +36,8 @@ import java.util.List;
 import static android.hardware.camera2.impl.CameraDeviceImpl.checkHandler;
 import static com.android.internal.util.Preconditions.*;
 
-public class CameraCaptureSessionImpl extends CameraCaptureSession {
+public class CameraCaptureSessionImpl extends CameraCaptureSession
+        implements CameraCaptureSessionCore {
     private static final String TAG = "CameraCaptureSession";
     private static final boolean DEBUG = false;
 
@@ -60,7 +61,6 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
     private final android.hardware.camera2.impl.CameraDeviceImpl mDeviceImpl;
     /** Internal handler; used for all incoming events to preserve total order */
     private final Handler mDeviceHandler;
-    private final boolean mIsConstrainedHighSpeedSession;
 
     /** Drain Sequence IDs which have been queued but not yet finished with aborted/completed */
     private final TaskDrainer<Integer> mSequenceDrainer;
@@ -89,14 +89,13 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
     CameraCaptureSessionImpl(int id, Surface input, List<Surface> outputs,
             CameraCaptureSession.StateCallback callback, Handler stateHandler,
             android.hardware.camera2.impl.CameraDeviceImpl deviceImpl,
-            Handler deviceStateHandler, boolean configureSuccess, boolean isConstrainedHighSpeed) {
+            Handler deviceStateHandler, boolean configureSuccess) {
         if (outputs == null || outputs.isEmpty()) {
             throw new IllegalArgumentException("outputs must be a non-null, non-empty list");
         } else if (callback == null) {
             throw new IllegalArgumentException("callback must not be null");
         }
 
-        mIsConstrainedHighSpeedSession = isConstrainedHighSpeed;
         mId = id;
         mIdString = String.format("Session %d: ", mId);
 
@@ -136,30 +135,6 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
         }
     }
 
-
-    private boolean isConstrainedHighSpeedRequestList(List<CaptureRequest> requestList) {
-        checkCollectionNotEmpty(requestList, "High speed request list");
-        for (CaptureRequest request : requestList) {
-            if (!request.isPartOfCRequestList()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * If the session is constrained high speed session, it only accept constrained high speed
-     * request list.
-     */
-    private void checkConstrainedHighSpeedRequestSanity(List<CaptureRequest> requestList) {
-        if (mIsConstrainedHighSpeedSession) {
-            if (!isConstrainedHighSpeedRequestList(requestList)) {
-                throw new IllegalArgumentException("It is only allowed to submit a constrained "
-                        + "high speed request list to a constrained high speed session!!!");
-            }
-        }
-    }
-
     @Override
     public CameraDevice getDevice() {
         return mDeviceImpl;
@@ -168,6 +143,11 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
     @Override
     public void prepare(Surface surface) throws CameraAccessException {
         mDeviceImpl.prepare(surface);
+    }
+
+    @Override
+    public void tearDown(Surface surface) throws CameraAccessException {
+        mDeviceImpl.tearDown(surface);
     }
 
     @Override
@@ -180,10 +160,6 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
                     "requests");
         } else if (request.isReprocess() && request.getReprocessableSessionId() != mId) {
             throw new IllegalArgumentException("capture request was created for another session");
-        }
-        if (mIsConstrainedHighSpeedSession) {
-            throw new UnsupportedOperationException("Constrained high speed session doesn't support"
-                    + " this method");
         }
 
         checkNotClosed();
@@ -207,8 +183,6 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
         } else if (requests.isEmpty()) {
             throw new IllegalArgumentException("Requests must have at least one element");
         }
-
-        checkConstrainedHighSpeedRequestSanity(requests);
 
         for (CaptureRequest request : requests) {
             if (request.isReprocess()) {
@@ -244,10 +218,6 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
         } else if (request.isReprocess()) {
             throw new IllegalArgumentException("repeating reprocess requests are not supported");
         }
-        if (mIsConstrainedHighSpeedSession) {
-            throw new UnsupportedOperationException("Constrained high speed session doesn't support"
-                    + " this method");
-        }
 
         checkNotClosed();
 
@@ -270,8 +240,6 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
         } else if (requests.isEmpty()) {
             throw new IllegalArgumentException("requests must have at least one element");
         }
-
-        checkConstrainedHighSpeedRequestSanity(requests);
 
         for (CaptureRequest r : requests) {
             if (r.isReprocess()) {
@@ -349,7 +317,8 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
      *
      * @see CameraCaptureSession#close
      */
-    synchronized void replaceSessionClose() {
+    @Override
+    public synchronized void replaceSessionClose() {
         /*
          * In order for creating new sessions to be fast, the new session should be created
          * before the old session is closed.
@@ -431,9 +400,9 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
      * Unsynchronized to avoid deadlocks between simultaneous session->device,
      * device->session calls.</p>
      *
-     * <p>Package-private.</p>
      */
-    boolean isAborting() {
+    @Override
+    public boolean isAborting() {
         return mAborting;
     }
 
@@ -521,7 +490,8 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
      * </ul>
      * </p>
      * */
-    CameraDeviceImpl.StateCallbackKK getDeviceStateCallback() {
+    @Override
+    public CameraDeviceImpl.StateCallbackKK getDeviceStateCallback() {
         final CameraCaptureSession session = this;
 
         return new CameraDeviceImpl.StateCallbackKK() {
@@ -757,11 +727,6 @@ public class CameraCaptureSessionImpl extends CameraCaptureSession {
                 }
             }
         }
-    }
-
-    @Override
-    public boolean isConstrainedHighSpeed() {
-        return mIsConstrainedHighSpeedSession;
     }
 
 }

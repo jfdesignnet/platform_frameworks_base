@@ -2,9 +2,11 @@ package com.android.systemui.statusbar.policy;
 
 import android.os.Looper;
 import android.telephony.TelephonyManager;
+import android.test.suitebuilder.annotation.SmallTest;
 
 import org.mockito.Mockito;
 
+@SmallTest
 public class NetworkControllerDataTest extends NetworkControllerBaseTest {
 
     public void test3gDataIcon() {
@@ -69,6 +71,14 @@ public class NetworkControllerDataTest extends NetworkControllerBaseTest {
 
         verifyDataIndicators(TelephonyIcons.DATA_H[1][0 /* No direction */],
                 TelephonyIcons.QS_DATA_H);
+    }
+
+    public void testWfcNoDataIcon() {
+        setupDefaultSignal();
+        updateDataConnectionState(TelephonyManager.DATA_CONNECTED,
+                TelephonyManager.NETWORK_TYPE_IWLAN);
+
+        verifyDataIndicators(0, 0);
     }
 
     public void test4gDataIcon() {

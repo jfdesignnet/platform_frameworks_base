@@ -252,6 +252,29 @@ public abstract class Connection extends Conferenceable {
     // Next CAPABILITY value: 0x00400000
     //**********************************************************************************************
 
+    /**
+     * Connection extra key used to store the last forwarded number associated with the current
+     * connection.  Used to communicate to the user interface that the connection was forwarded via
+     * the specified number.
+     */
+    public static final String EXTRA_LAST_FORWARDED_NUMBER =
+            "android.telecom.extra.LAST_FORWARDED_NUMBER";
+
+    /**
+     * Connection extra key used to store a child number associated with the current connection.
+     * Used to communicate to the user interface that the connection was received via
+     * a child address (i.e. phone number) associated with the {@link PhoneAccount}'s primary
+     * address.
+     */
+    public static final String EXTRA_CHILD_ADDRESS = "android.telecom.extra.CHILD_ADDRESS";
+
+    /**
+     * Connection extra key used to store the subject for an incoming call.  The user interface can
+     * query this extra and display its contents for incoming calls.  Will only be used if the
+     * {@link PhoneAccount} supports the capability {@link PhoneAccount#CAPABILITY_CALL_SUBJECT}.
+     */
+    public static final String EXTRA_CALL_SUBJECT = "android.telecom.extra.CALL_SUBJECT";
+
     // Flag controlling whether PII is emitted into the logs
     private static final boolean PII_DEBUG = Log.isLoggable(android.util.Log.DEBUG);
 
@@ -1050,6 +1073,7 @@ public abstract class Connection extends Conferenceable {
     private int mConnectionCapabilities;
     private VideoProvider mVideoProvider;
     private boolean mAudioModeIsVoip;
+    private long mConnectTimeMillis = Conference.CONNECT_TIME_NOT_SPECIFIED;
     private StatusHints mStatusHints;
     private int mVideoState;
     private DisconnectCause mDisconnectCause;
@@ -1162,6 +1186,19 @@ public abstract class Connection extends Conferenceable {
     }
 
     /**
+     * Retrieves the connection start time of the {@code Connnection}, if specified.  A value of
+     * {@link Conference#CONNECT_TIME_NOT_SPECIFIED} indicates that Telecom should determine the
+     * start time of the conference.
+     *
+     * @return The time at which the {@code Connnection} was connected.
+     *
+     * @hide
+     */
+    public final long getConnectTimeMillis() {
+        return mConnectTimeMillis;
+    }
+
+    /**
      * @return The status hints for this connection.
      */
     public final StatusHints getStatusHints() {
@@ -1231,17 +1268,17 @@ public abstract class Connection extends Conferenceable {
     public static String stateToString(int state) {
         switch (state) {
             case STATE_INITIALIZING:
-                return "STATE_INITIALIZING";
+                return "INITIALIZING";
             case STATE_NEW:
-                return "STATE_NEW";
+                return "NEW";
             case STATE_RINGING:
-                return "STATE_RINGING";
+                return "RINGING";
             case STATE_DIALING:
-                return "STATE_DIALING";
+                return "DIALING";
             case STATE_ACTIVE:
-                return "STATE_ACTIVE";
+                return "ACTIVE";
             case STATE_HOLDING:
-                return "STATE_HOLDING";
+                return "HOLDING";
             case STATE_DISCONNECTED:
                 return "DISCONNECTED";
             default:
@@ -1476,6 +1513,18 @@ public abstract class Connection extends Conferenceable {
     }
 
     /**
+     * Sets the time at which a call became active on this Connection. This is set only
+     * when a conference call becomes active on this connection.
+     *
+     * @param connectionTimeMillis The connection time, in milliseconds.
+     *
+     * @hide
+     */
+    public final void setConnectTimeMillis(long connectTimeMillis) {
+        mConnectTimeMillis = connectTimeMillis;
+    }
+
+    /**
      * Sets the label and icon status to display in the in-call UI.
      *
      * @param statusHints The status label and icon to set.
@@ -1539,7 +1588,7 @@ public abstract class Connection extends Conferenceable {
         return mUnmodifiableConferenceables;
     }
 
-    /*
+    /**
      * @hide
      */
     public final void setConnectionService(ConnectionService connectionService) {

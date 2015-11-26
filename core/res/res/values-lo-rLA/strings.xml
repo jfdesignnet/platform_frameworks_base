@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"ອະນຸຍາດໃຫ້ແອັບຯ ຄວບຄຸມໄຟແຟລດ."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"ໂທຫາເບີໂທລະສັບໂດຍກົງ"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"ອະນຸຍາດໃຫ້ແອັບຯໂທຫາເບີໂທລະສັບໄດ້ ໂດຍບໍ່ຕ້ອງຖ້າການດຳເນີນການໃດໆຈາກທ່ານ. ຄຸນສົມບັດນີ້ອາດກໍ່ໃຫ້ເກີດຄ່າໃຊ້ຈ່າຍໃນການໂທທີ່ບໍ່ຄາດຄິດໄດ້. ໝາຍເຫດ: ຄຸນສົມບັດນີ້ບໍ່ໄດ້ເປັນການອະນຸຍາດໃຫ້ແອັບຯ ສາມາດໂທຫາເບີສຸກເສີນ. ແອັບຯທີ່ເປັນອັນຕະລາຍອາດເຮັດໃຫ້ທ່ານ ຕ້ອງເສຍຄ່າໂທໂດຍທີ່ບໍ່ໄດ້ຄາດຄິດ."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"ເຂົ້າ​ຫາ​ການ​ບໍ​ລິ​ການ​ໂທ IMS"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"ອະ​ນຸ​ຍາດ​ໃຫ້​ແອັບ​ໃຊ້​ການ​ບໍ​ລິ​ການ IMS ເພື່ອ​ໂທ​ໂດຍ​ບໍ່​ມີ​ການ​ຊ່ວຍ​ເຫຼືອ​ຂອງ​ທ່ານ."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"ອ່ານສະຖານະ ແລະຂໍ້ມູນລະບຸໂຕຕົນຂອງໂທລະສັບ"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"ອະນຸຍາດໃຫ້ແອັບຯ ເຂົ້າເຖິງຄວາມສາມາດການໂທລະສັບຂອງອຸປະກອນ. ການກຳນົດສິດນີ້ເຮັດໃຫ້ແອັບຯສາມາດກວດສອບເບີໂທລະສັບ ແລະ ID ຂອງອຸປະກອນ, ບໍ່ວ່າການໂທຈະຍັງດຳເນີນຢູ່ ແລະເບີປາຍທາງເຊື່ອມຕໍ່ຢູ່ຫຼືບໍ່ກໍຕາມ."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"ຂັດຂວາງບໍ່ໃຫ້ປິດໜ້າຈໍແທັບເລັດ"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"ນີ້ວ​ມື <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"ໄອຄອນລາຍນິ້ວມື"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"ອ່ານການຕັ້ງຄ່າຊິ້ງຂໍ້ມູນ"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"ອະນຸຍາດໃຫ້ແອັບຯ ອ່ານການຕັ້ງຄ່າການຊິ້ງຂໍ້ມູນຂອງບັນຊີໄດ້. ຕົວຢ່າງເຊັ່ນ: ມັນຈະສາມາດກວດສອບໄດ້ແອັບຯ People ຖືກຊິ້ງຂໍ້ມູນກັບບັນຊີໃດນຶ່ງແລ້ວຫຼືຍັງ."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"ສະລັບການເປີດ ແລະປິດການຊິ້ງຂໍ້ມູນ"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"ຕາລາງຖືກເພີ່ມແລ້ວ"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"ເພີ່ມ <xliff:g id="CELL_INDEX">%1$s</xliff:g> ເຊ​ລ​ເຂົ້າ​ແລ້ວ"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"ຮູບແບບສຳເລັດແລ້ວ"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"ພື້ນທີ່ຮູບແບບ."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. ວິດເຈັດ %2$d ຈາກທັງໝົດ %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"ເພີ່ມວິດເຈັດ"</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"ຫວ່າງເປົ່າ"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB ສຳ​ລັບ​ການ​ໂອ​ນ​ໄຟ​ລ໌"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB ສຳ​ລັບ​ການ​ໂອນ​ໄຟ​ລ໌"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB ສຳ​ລັບ MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"ເຊື່ອມຕໍ່ໃນນາມຕົວຕິດຕັ້ງ"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"ເຊື່ອມຕໍ່ກັບອຸປະກອນເສີມ USB ແລ້ວ"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"ສຳ​ພັດ​ສຳ​ລັບ​ທາງ​ເລືອກ​ເພີ່ມ​ເຕີມ."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"ເຊື່ອມຕໍ່ການດີບັ໊ກຜ່ານ USB ແລ້ວ"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="one">1 ກົງກັນ</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"ແລ້ວໆ"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"ກຳລັງຖອນການເຊື່ອມຕໍ່ບ່ອນຈັດເກັບຂໍ້ມູນ USB …"</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"ຖອນການເຊື່ອມຕໍ່ SD card..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"ກຳລັງລຶບ ບ່ອນຈັດເກັບຂໍ້ມູນ USB …"</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"ກຳລັງລຶບ​ SD card..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"ບໍ່ສາມາດລຶບບ່ອນຈັດເກັບຂໍ້ມູນ USB ໄດ້."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"ບໍ່ສາມາດລຶບ SD card ໄດ້."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"SD card ຖືກຖອດອອກກ່ອນການຖອນການເຊື່ອມຕໍ່."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"ບ່ອນຈັດເກັບຂໍ້ມູນກຳລັງຢູ່ໃນລະຫວ່າງການກວດສອບ."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"ກຳລັງກວດສອບ SD card ຢູ່ໃນຂະນະນີ້."</string>
-    <string name="media_removed" msgid="7001526905057952097">"SD card ຖືກຖອດອອກແລ້ວ."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"ບ່ອນຈັດເກັບຂໍ້ມູນ USB ກຳລັງຖືກນຳໃຊ້ໂດຍຄອມພິວເຕີ."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"SD card ກຳລັງຖືກນຳໃຊ້ໂດຍຄອມພິວເຕີຢູ່."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"ຂໍ້ມູນພາຍນອກຢູ່ໃນສະຖານະທີ່ບໍ່ຮູ້ຈັກ."</string>
     <string name="share" msgid="1778686618230011964">"ແບ່ງປັນ"</string>
     <string name="find" msgid="4808270900322985960">"ຊອກຫາ"</string>
     <string name="websearch" msgid="4337157977400211589">"ຊອກຫາເວັບ"</string>

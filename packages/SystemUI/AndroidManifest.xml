@@ -49,9 +49,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
@@ -60,7 +60,7 @@
     <uses-permission android:name="android.permission.CONNECTIVITY_INTERNAL" />
     <uses-permission android:name="android.permission.READ_NETWORK_USAGE_HISTORY" />
     <uses-permission android:name="android.permission.CONTROL_VPN" />
-
+    <uses-permission android:name="android.permission.PEERS_MAC_ADDRESS"/>
     <!-- Physical hardware -->
     <uses-permission android:name="android.permission.MANAGE_USB" />
     <uses-permission android:name="android.permission.DEVICE_POWER" />
@@ -125,6 +125,11 @@
 
     <!-- Assist -->
     <uses-permission android:name="android.permission.ACCESS_VOICE_INTERACTION_SERVICE" />
+
+    <!-- Self permission for internal broadcasts. -->
+    <permission android:name="com.android.systemui.permission.SELF"
+            android:protectionLevel="signature" />
+    <uses-permission android:name="com.android.systemui.permission.SELF" />
 
     <application
         android:name=".SystemUIApplication"
@@ -317,24 +322,12 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".egg.LLandActivity"
-                  android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        <activity android:name=".egg.MLandActivity"
+                  android:theme="@android:style/Theme.Material.NoActionBar"
                   android:exported="true"
-                  android:label="@string/lland"
+                  android:icon="@drawable/icon"
+                  android:label="@string/mland"
                   android:hardwareAccelerated="true"
-                  android:launchMode="singleInstance"
-                  android:screenOrientation="locked"
-                  android:process=":sweetsweetdesserts"
-                  android:excludeFromRecents="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-
-        <activity android:name=".egg.ShruggyActivity"
-                  android:theme="@android:style/Theme.NoDisplay"
-                  android:exported="true"
                   android:launchMode="singleInstance"
                   android:screenOrientation="locked"
                   android:process=":sweetsweetdesserts"
@@ -406,5 +399,13 @@
             android:exported="true"
             android:singleUser="true"
             android:permission="android.permission.BIND_DREAM_SERVICE" />
+
+        <receiver
+            android:name=".tuner.TunerService$ClearReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.android.systemui.action.CLEAR_TUNER" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

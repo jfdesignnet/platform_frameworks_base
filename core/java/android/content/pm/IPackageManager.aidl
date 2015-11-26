@@ -203,7 +203,7 @@ interface IPackageManager {
     void querySyncProviders(inout List<String> outNames,
             inout List<ProviderInfo> outInfo);
 
-    List<ProviderInfo> queryContentProviders(
+    ParceledListSlice queryContentProviders(
             String processName, int uid, int flags);
 
     InstrumentationInfo getInstrumentationInfo(
@@ -253,7 +253,7 @@ interface IPackageManager {
 
     List<PackageInfo> getPreferredPackages(int flags);
 
-    void resetPreferredActivities(int userId);
+    void resetApplicationPreferences(int userId);
 
     ResolveInfo getLastChosenActivity(in Intent intent,
             String resolvedType, int flags);
@@ -502,8 +502,9 @@ interface IPackageManager {
 
     void addOnPermissionsChangeListener(in IOnPermissionsChangeListener listener);
     void removeOnPermissionsChangeListener(in IOnPermissionsChangeListener listener);
-
-    int getMountExternalMode(int uid);
-
     void grantDefaultPermissionsToEnabledCarrierApps(in String[] packageNames, int userId);
+
+    boolean isPermissionRevokedByPolicy(String permission, String packageName, int userId);
+
+    String getPermissionControllerPackageName();
 }

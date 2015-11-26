@@ -43,6 +43,7 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Pools.SynchronizedPool;
 import android.util.SparseArray;
+import android.util.SparseBooleanArray;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.Animation;
@@ -2902,13 +2903,58 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                 final int childrenCount = getChildCount();
                 if (childrenCount > 0) {
                     structure.setChildCount(childrenCount);
-                    final ArrayList<View> preorderedList = buildOrderedChildList();
-                    final boolean customOrder = preorderedList == null
+                    ArrayList<View> preorderedList = buildOrderedChildList();
+                    boolean customOrder = preorderedList == null
                             && isChildrenDrawingOrderEnabled();
                     final View[] children = mChildren;
                     for (int i=0; i<childrenCount; i++) {
-                        final int childIndex = customOrder
-                                ? getChildDrawingOrder(childrenCount, i) : i;
+                        int childIndex;
+                        try {
+                            childIndex = customOrder ? getChildDrawingOrder(childrenCount, i) : i;
+                        } catch (IndexOutOfBoundsException e) {
+                            childIndex = i;
+                            if (mContext.getApplicationInfo().targetSdkVersion
+                                    < Build.VERSION_CODES.M) {
+                                Log.w(TAG, "Bad getChildDrawingOrder while collecting assist @ "
+                                        + i + " of " + childrenCount, e);
+                                // At least one app is failing when we call getChildDrawingOrder
+                                // at this point, so deal semi-gracefully with it by falling back
+                                // on the basic order.
+                                customOrder = false;
+                                if (i > 0) {
+                                    // If we failed at the first index, there really isn't
+                                    // anything to do -- we will just proceed with the simple
+                                    // sequence order.
+                                    // Otherwise, we failed in the middle, so need to come up
+                                    // with an order for the remaining indices and use that.
+                                    // Failed at the first one, easy peasy.
+                                    int[] permutation = new int[childrenCount];
+                                    SparseBooleanArray usedIndices = new SparseBooleanArray();
+                                    // Go back and collected the indices we have done so far.
+                                    for (int j=0; j<i; j++) {
+                                        permutation[j] = getChildDrawingOrder(childrenCount, j);
+                                        usedIndices.put(permutation[j], true);
+                                    }
+                                    // Fill in the remaining indices with indices that have not
+                                    // yet been used.
+                                    int nextIndex = 0;
+                                    for (int j=i; j<childrenCount; j++) {
+                                        while (usedIndices.get(nextIndex, false)) {
+                                            nextIndex++;
+                                        }
+                                        permutation[j] = nextIndex;
+                                        nextIndex++;
+                                    }
+                                    // Build the final view list.
+                                    preorderedList = new ArrayList<>(childrenCount);
+                                    for (int j=0; j<childrenCount; j++) {
+                                        preorderedList.add(children[permutation[j]]);
+                                    }
+                                }
+                            } else {
+                                throw e;
+                            }
+                        }
                         final View child = (preorderedList == null)
                                 ? children[childIndex] : preorderedList.get(childIndex);
                         ViewStructure cstructure = structure.newChild(i);
@@ -5467,7 +5513,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @see #setAnimationCacheEnabled(boolean)
      * @see View#setDrawingCacheEnabled(boolean)
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#MNC}, this property is ignored.
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#M}, this property is ignored.
      * Caching behavior of children may be controlled through {@link View#setLayerType(int, Paint)}.
      */
     public boolean isAnimationCacheEnabled() {
@@ -5485,7 +5531,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @see #isAnimationCacheEnabled()
      * @see View#setDrawingCacheEnabled(boolean)
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#MNC}, this property is ignored.
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#M}, this property is ignored.
      * Caching behavior of children may be controlled through {@link View#setLayerType(int, Paint)}.
      */
     public void setAnimationCacheEnabled(boolean enabled) {
@@ -5502,7 +5548,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @see #setChildrenDrawnWithCacheEnabled(boolean)
      * @see View#setDrawingCacheEnabled(boolean)
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#MNC}, this property is ignored.
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#M}, this property is ignored.
      * Child views may no longer have their caching behavior disabled by parents.
      */
     public boolean isAlwaysDrawnWithCacheEnabled() {
@@ -5526,7 +5572,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @see View#setDrawingCacheEnabled(boolean)
      * @see View#setDrawingCacheQuality(int)
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#MNC}, this property is ignored.
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#M}, this property is ignored.
      * Child views may no longer have their caching behavior disabled by parents.
      */
     public void setAlwaysDrawnWithCacheEnabled(boolean always) {
@@ -5542,7 +5588,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @see #setAlwaysDrawnWithCacheEnabled(boolean)
      * @see #setChildrenDrawnWithCacheEnabled(boolean)
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#MNC}, this property is ignored.
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#M}, this property is ignored.
      * Child views may no longer be forced to cache their rendering state by their parents.
      * Use {@link View#setLayerType(int, Paint)} on individual Views instead.
      */
@@ -5563,7 +5609,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @see #setAlwaysDrawnWithCacheEnabled(boolean)
      * @see #isChildrenDrawnWithCacheEnabled()
      *
-     * @deprecated As of {@link android.os.Build.VERSION_CODES#MNC}, this property is ignored.
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#M}, this property is ignored.
      * Child views may no longer be forced to cache their rendering state by their parents.
      * Use {@link View#setLayerType(int, Paint)} on individual Views instead.
      */

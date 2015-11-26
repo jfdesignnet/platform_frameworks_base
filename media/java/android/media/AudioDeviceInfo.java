@@ -19,6 +19,8 @@ package android.media;
 import android.annotation.NonNull;
 import android.util.SparseIntArray;
 
+import java.util.TreeSet;
+
 /**
  * Class to provide information about the audio devices.
  */
@@ -156,6 +158,8 @@ public final class AudioDeviceInfo {
 
     /**
      * @return An array of sample rates supported by the audio device.
+     *
+     * Note: an empty array indicates that the device supports arbitrary rates.
      */
     public @NonNull int[] getSampleRates() {
         return mPort.samplingRates();
@@ -166,6 +170,8 @@ public final class AudioDeviceInfo {
      * {@link AudioFormat#CHANNEL_OUT_7POINT1}) for which this audio device can be configured.
      *
      * @see AudioFormat
+     *
+     * Note: an empty array indicates that the device supports arbitrary channel masks.
      */
     public @NonNull int[] getChannelMasks() {
         return mPort.channelMasks();
@@ -175,6 +181,8 @@ public final class AudioDeviceInfo {
      * @return An array of channel index masks for which this audio device can be configured.
      *
      * @see AudioFormat
+     *
+     * Note: an empty array indicates that the device supports arbitrary channel index masks.
      */
     public @NonNull int[] getChannelIndexMasks() {
         return mPort.channelIndexMasks();
@@ -183,15 +191,28 @@ public final class AudioDeviceInfo {
     /**
      * @return An array of channel counts (1, 2, 4, ...) for which this audio device
      * can be configured.
+     *
+     * Note: an empty array indicates that the device supports arbitrary channel counts.
      */
     public @NonNull int[] getChannelCounts() {
-        int[] masks = getChannelMasks();
-        int[] counts = new int[masks.length];
-        // TODO: consider channel index masks
-        for (int mask_index = 0; mask_index < masks.length; mask_index++) {
-            counts[mask_index] = isSink()
-                    ? AudioFormat.channelCountFromOutChannelMask(masks[mask_index])
-                    : AudioFormat.channelCountFromInChannelMask(masks[mask_index]);
+        TreeSet<Integer> countSet = new TreeSet<Integer>();
+
+        // Channel Masks
+        for (int mask : getChannelMasks()) {
+            countSet.add(isSink() ?
+                    AudioFormat.channelCountFromOutChannelMask(mask)
+                    : AudioFormat.channelCountFromInChannelMask(mask));
+        }
+
+        // Index Masks
+        for (int index_mask : getChannelIndexMasks()) {
+            countSet.add(Integer.bitCount(index_mask));
+        }
+
+        int[] counts = new int[countSet.size()];
+        int index = 0;
+        for (int count : countSet) {
+            counts[index++] = count; 
         }
         return counts;
     }
@@ -205,6 +226,8 @@ public final class AudioDeviceInfo {
      * integer precision to that device.
      *
      * @see AudioFormat
+     *
+     * Note: an empty array indicates that the device supports arbitrary encodings.
      */
     public @NonNull int[] getEncodings() {
         return AudioFormat.filterPublicFormats(mPort.formats());

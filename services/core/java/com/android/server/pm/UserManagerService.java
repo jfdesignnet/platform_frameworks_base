@@ -135,6 +135,11 @@ public class UserManagerService extends IUserManager.Stub {
     // without first making sure that the rest of the framework is prepared for it.
     private static final int MAX_MANAGED_PROFILES = 1;
 
+    /**
+     * Flag indicating whether device credentials are shared among same-user profiles.
+     */
+    private static final boolean CONFIG_PROFILES_SHARE_CREDENTIAL = true;
+
     // Set of user restrictions, which can only be enforced by the system
     private static final Set<String> SYSTEM_CONTROLLED_RESTRICTIONS = Sets.newArraySet(
             UserManager.DISALLOW_RECORD_AUDIO);
@@ -241,7 +246,7 @@ public class UserManagerService extends IUserManager.Stub {
                 }
                 for (int i = 0; i < partials.size(); i++) {
                     UserInfo ui = partials.get(i);
-                    Slog.w(LOG_TAG, "Removing partially created user #" + i
+                    Slog.w(LOG_TAG, "Removing partially created user " + ui.id
                             + " (name=" + ui.name + ")");
                     removeUserStateLocked(ui.id);
                 }
@@ -317,6 +322,21 @@ public class UserManagerService extends IUserManager.Stub {
     }
 
     @Override
+    public int getCredentialOwnerProfile(int userHandle) {
+        checkManageUsersPermission("get the credential owner");
+        if (CONFIG_PROFILES_SHARE_CREDENTIAL) {
+            synchronized (mPackagesLock) {
+                UserInfo profileParent = getProfileParentLocked(userHandle);
+                if (profileParent != null) {
+                    return profileParent.id;
+                }
+            }
+        }
+
+        return userHandle;
+    }
+
+    @Override
     public UserInfo getProfileParent(int userHandle) {
         checkManageUsersPermission("get the profile parent");
         synchronized (mPackagesLock) {
@@ -383,9 +403,10 @@ public class UserManagerService extends IUserManager.Stub {
         return ui;
     }
 
+    /** Called by PackageManagerService */
     public boolean exists(int userId) {
         synchronized (mPackagesLock) {
-            return ArrayUtils.contains(mUserIds, userId);
+            return mUsers.get(userId) != null;
         }
     }
 
@@ -529,6 +550,7 @@ public class UserManagerService extends IUserManager.Stub {
 
     @Override
     public void setUserRestriction(String key, boolean value, int userId) {
+        checkManageUsersPermission("setUserRestriction");
         synchronized (mPackagesLock) {
             if (!SYSTEM_CONTROLLED_RESTRICTIONS.contains(key)) {
                 Bundle restrictions = getUserRestrictions(userId);
@@ -942,7 +964,7 @@ public class UserManagerService extends IUserManager.Stub {
         }
     }
 
-    private void writeRestrictionsLocked(XmlSerializer serializer, Bundle restrictions) 
+    private void writeRestrictionsLocked(XmlSerializer serializer, Bundle restrictions)
             throws IOException {
         serializer.startTag(null, TAG_RESTRICTIONS);
         writeBoolean(serializer, restrictions, UserManager.DISALLOW_CONFIG_WIFI);
@@ -1220,6 +1242,7 @@ public class UserManagerService extends IUserManager.Stub {
         final boolean isManagedProfile = (flags & UserInfo.FLAG_MANAGED_PROFILE) != 0;
         final long ident = Binder.clearCallingIdentity();
         UserInfo userInfo = null;
+        final int userId;
         try {
             synchronized (mInstallLock) {
                 synchronized (mPackagesLock) {
@@ -1240,7 +1263,7 @@ public class UserManagerService extends IUserManager.Stub {
                     if (isGuest && findCurrentGuestUserLocked() != null) {
                         return null;
                     }
-                    int userId = getNextAvailableIdLocked();
+                    userId = getNextAvailableIdLocked();
                     userInfo = new UserInfo(userId, name, null, flags);
                     userInfo.serialNumber = mNextSerialNumber++;
                     long now = System.currentTimeMillis();
@@ -1274,9 +1297,9 @@ public class UserManagerService extends IUserManager.Stub {
                     updateUserIdsLocked();
                     Bundle restrictions = new Bundle();
                     mUserRestrictions.append(userId, restrictions);
-                    mPm.newUserCreatedLILPw(userId);
                 }
             }
+            mPm.newUserCreated(userId);
             if (userInfo != null) {
                 Intent addedIntent = new Intent(Intent.ACTION_USER_ADDED);
                 addedIntent.putExtra(Intent.EXTRA_USER_HANDLE, userInfo.id);
@@ -2014,5 +2037,13 @@ public class UserManagerService extends IUserManager.Stub {
                     }
             }
         }
+    }
+
+    /**
+     * @param userId
+     * @return whether the user has been initialized yet
+     */
+    boolean isInitialized(int userId) {
+        return (getUserInfo(userId).flags & UserInfo.FLAG_INITIALIZED) != 0;
     }
 }

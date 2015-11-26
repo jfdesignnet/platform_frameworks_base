@@ -50,7 +50,7 @@ Studio features.</p>
 
 <p>For specific Android Studio how-to documentation, see the pages in the <a href=
 "{@docRoot}tools/workflow/index.html">Workflow</a> section, such as <a href=
-"{@docRoot}tools/projects/projects-studio.html">Managing Projects from Android Studio</a> and
+"{@docRoot}sdk/installing/create-project.html">Managing Projects from Android Studio</a> and
 <a href="{@docRoot}tools/building/building-studio.html">Building and Running from Android
 Studio</a>. For a summary of the latest changes to Android Studio, see the
 <a href="{@docRoot}tools/revisions/studio.html">Android Studio Release Notes</a>.</p>
@@ -205,6 +205,49 @@ runtime window to launch the Android runtime window. Click the <strong>Memory</s
 
 <img src="{@docRoot}images/tools/studio-memory-monitor.png" srcset="{@docRoot}images/tools/studio-memory-monitor_2x.png 2x" width"635" height="171" alt="" />
     <p class="img-caption"><strong>Figure 4.</strong> Monitor memory and CPU usage.</p>
+
+<h4 id="heap-dump">Heap dump </h4>
+<p>When you're monitoring memory usage in Android Studio you can, at the same time, initiate
+garbage collection and dump the Java heap to a heap snapshot in an Android-specific HPROF binary
+format file. The HPROF viewer displays classes, instances of each class, and a reference tree to
+help you track memory usage and find memory leaks. </p>
+
+<img src="{@docRoot}images/tools/studio-hprof-viewer.png" alt="" />
+    <p class="img-caption"><strong>Figure 5.</strong> HPROF viewer with heap dump.</p>
+
+<p>To create a snapshot of the Android app heap memory, click the
+Dump Java Heap icon (<img src="{@docRoot}images/tools/studio-dump-heap-icon.png" style="vertical-align:bottom;margin:0;height:17px"/>)
+in the Memory Monitor. Android Studio creates the heap snapshot file with the filename
+<code>Snapshot-yyyy.mm.dd-hh.mm.ss.hprof</code>
+in the <em>Captures</em> tab. Double-click the heap snapshot file to open the HPROF viewer.</p>
+
+<p>To convert a heap dump to standard HPROF format in Android Studio, right-click a heap
+snapshot in the <em>Captures</em> view and select <strong>Export to standard .hprof</strong>. </p>
+
+
+
+<h4 id="alloc-tracker">Allocation tracker </h4>
+<p>Android Studio allows you to track memory allocation as it monitors memory use. Tracking memory
+allocation allows you to monitor where objects are being allocated when you perform certain actions.
+Knowing these allocations enables you to  adjust the method
+calls related to those actions to optimize your app's performance and memory use. </p>
+
+<img src="{@docRoot}images/tools/studio-allocation-tracker.png" alt="" />
+    <p class="img-caption"><strong>Figure 6.</strong> Allocation tracker.</p>
+
+<p>Perform the following steps to track and analyze allocations: </p>
+<ol>
+  <li>Click the Start/Stop Allocation Tracking icon
+    (<img src="{@docRoot}images/tools/studio-allocation-tracker-icon.png" style="vertical-align:bottom;margin:0;height:17px"/>) in the
+    <a href="#mem-cpu">Memory Monitor</a>. Android Studio starts tracking memory allocations.</li>
+  <li>Perform the tasks whose mallocs you want to track. </li> 
+  <li>Click the Start/Stop Allocation Tracking icon again. Android Studio stops tracking mallocs
+    and saves the data to a file named <code>Allocation-yyyy.mm.dd-hh.mm.ss.alloc</code>. The
+    resulting file appears in the <em>Captures</em> tab. </li>
+  <li>Double-click the file to open it in the allocation viewer.
+   <p>The allocation viewer allows you to view and analyze the allocations your app made while
+   running. </p> </li>
+</ol>
 
 
 <h3>Data file access</h3>

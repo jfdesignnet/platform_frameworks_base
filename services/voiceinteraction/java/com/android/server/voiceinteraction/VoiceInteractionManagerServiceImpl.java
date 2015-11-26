@@ -65,13 +65,14 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
     IVoiceInteractionService mService;
 
     VoiceInteractionSessionConnection mActiveSession;
+    int mDisabledShowContext;
 
     final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(intent.getAction())) {
                 String reason = intent.getStringExtra("reason");
-                if (!CLOSE_REASON_VOICE_INTERACTION.equals(reason)) {
+                if (!CLOSE_REASON_VOICE_INTERACTION.equals(reason) && !"dream".equals(reason)) {
                     synchronized (mLock) {
                         if (mActiveSession != null && mActiveSession.mSession != null) {
                             try {
@@ -141,12 +142,13 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
     }
 
     public boolean showSessionLocked(Bundle args, int flags,
-            IVoiceInteractionSessionShowCallback showCallback) {
+            IVoiceInteractionSessionShowCallback showCallback, IBinder activityToken) {
         if (mActiveSession == null) {
             mActiveSession = new VoiceInteractionSessionConnection(mLock, mSessionComponentName,
                     mUser, mContext, this, mInfo.getServiceInfo().applicationInfo.uid, mHandler);
         }
-        return mActiveSession.showLocked(args, flags, showCallback);
+        return mActiveSession.showLocked(args, flags, mDisabledShowContext, showCallback,
+                activityToken);
     }
 
     public boolean hideSessionLocked() {
@@ -156,7 +158,7 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
         return false;
     }
 
-    public boolean deliverNewSessionLocked(int callingPid, int callingUid, IBinder token,
+    public boolean deliverNewSessionLocked(IBinder token,
             IVoiceInteractionSession session, IVoiceInteractor interactor) {
         if (mActiveSession == null || token != mActiveSession.mToken) {
             Slog.w(TAG, "deliverNewSession does not match active session");
@@ -188,8 +190,7 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
         }
     }
 
-    public void setKeepAwakeLocked(int callingPid, int callingUid, IBinder token,
-            boolean keepAwake) {
+    public void setKeepAwakeLocked(IBinder token, boolean keepAwake) {
         try {
             if (mActiveSession == null || token != mActiveSession.mToken) {
                 Slog.w(TAG, "setKeepAwake does not match active session");
@@ -201,7 +202,7 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
         }
     }
 
-    public void closeSystemDialogsLocked(int callingPid, int callingUid, IBinder token) {
+    public void closeSystemDialogsLocked(IBinder token) {
         try {
             if (mActiveSession == null || token != mActiveSession.mToken) {
                 Slog.w(TAG, "closeSystemDialogs does not match active session");
@@ -222,6 +223,33 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
         mActiveSession = null;
     }
 
+    public void setDisabledShowContextLocked(int callingUid, int flags) {
+        int activeUid = mInfo.getServiceInfo().applicationInfo.uid;
+        if (callingUid != activeUid) {
+            throw new SecurityException("Calling uid " + callingUid
+                    + " does not match active uid " + activeUid);
+        }
+        mDisabledShowContext = flags;
+    }
+
+    public int getDisabledShowContextLocked(int callingUid) {
+        int activeUid = mInfo.getServiceInfo().applicationInfo.uid;
+        if (callingUid != activeUid) {
+            throw new SecurityException("Calling uid " + callingUid
+                    + " does not match active uid " + activeUid);
+        }
+        return mDisabledShowContext;
+    }
+
+    public int getUserDisabledShowContextLocked(int callingUid) {
+        int activeUid = mInfo.getServiceInfo().applicationInfo.uid;
+        if (callingUid != activeUid) {
+            throw new SecurityException("Calling uid " + callingUid
+                    + " does not match active uid " + activeUid);
+        }
+        return mActiveSession != null ? mActiveSession.getUserDisabledShowContextLocked() : 0;
+    }
+
     public void dumpLocked(FileDescriptor fd, PrintWriter pw, String[] args) {
         if (!mValid) {
             pw.print("  NOT VALID: ");
@@ -235,6 +263,10 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
         pw.print("  mComponent="); pw.println(mComponent.flattenToShortString());
         pw.print("  Session service="); pw.println(mInfo.getSessionService());
         pw.print("  Settings activity="); pw.println(mInfo.getSettingsActivity());
+        if (mDisabledShowContext != 0) {
+            pw.print("  mDisabledShowContext=");
+            pw.println(Integer.toHexString(mDisabledShowContext));
+        }
         pw.print("  mBound="); pw.print(mBound);  pw.print(" mService="); pw.println(mService);
         if (mActiveSession != null) {
             pw.println("  Active session:");

@@ -48,10 +48,13 @@ import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.MutableBoolean;
@@ -62,6 +65,8 @@ import android.view.DisplayInfo;
 import android.view.SurfaceControl;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
+
+import com.android.internal.app.AssistUtils;
 import com.android.systemui.Prefs;
 import com.android.systemui.R;
 import com.android.systemui.recents.Constants;
@@ -82,6 +87,15 @@ public class SystemServicesProxy {
     final static String TAG = "SystemServicesProxy";
 
     final static BitmapFactory.Options sBitmapOptions;
+    final static HandlerThread sBgThread;
+
+    static {
+        sBgThread = new HandlerThread("Recents-SystemServicesProxy",
+                android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        sBgThread.start();
+        sBitmapOptions = new BitmapFactory.Options();
+        sBitmapOptions.inMutable = true;
+    }
 
     AccessibilityManager mAccm;
     ActivityManager mAm;
@@ -89,22 +103,19 @@ public class SystemServicesProxy {
     AppWidgetManager mAwm;
     PackageManager mPm;
     IPackageManager mIpm;
-    SearchManager mSm;
+    AssistUtils mAssistUtils;
     WindowManager mWm;
     Display mDisplay;
     String mRecentsPackage;
     ComponentName mAssistComponent;
+
+    Handler mBgThreadHandler;
 
     Bitmap mDummyIcon;
     int mDummyThumbnailWidth;
     int mDummyThumbnailHeight;
     Paint mBgProtectionPaint;
     Canvas mBgProtectionCanvas;
-
-    static {
-        sBitmapOptions = new BitmapFactory.Options();
-        sBitmapOptions.inMutable = true;
-    }
 
     /** Private constructor */
     public SystemServicesProxy(Context context) {
@@ -114,10 +125,11 @@ public class SystemServicesProxy {
         mAwm = AppWidgetManager.getInstance(context);
         mPm = context.getPackageManager();
         mIpm = AppGlobals.getPackageManager();
-        mSm = (SearchManager) context.getSystemService(Context.SEARCH_SERVICE);
+        mAssistUtils = new AssistUtils(context);
         mWm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         mDisplay = mWm.getDefaultDisplay();
         mRecentsPackage = context.getPackageName();
+        mBgThreadHandler = new Handler(sBgThread.getLooper());
 
         // Get the dummy thumbnail width/heights
         Resources res = context.getResources();
@@ -133,10 +145,7 @@ public class SystemServicesProxy {
         mBgProtectionCanvas = new Canvas();
 
         // Resolve the assist intent
-        Intent assist = mSm.getAssistIntent(context, false);
-        if (assist != null) {
-            mAssistComponent = assist.getComponent();
-        }
+        mAssistComponent = mAssistUtils.getAssistComponentForUser(UserHandle.myUserId());
 
         if (Constants.DebugFlags.App.EnableSystemServicesProxy) {
             // Create a dummy icon
@@ -383,12 +392,17 @@ public class SystemServicesProxy {
     }
 
     /** Removes the task */
-    public void removeTask(int taskId) {
+    public void removeTask(final int taskId) {
         if (mAm == null) return;
         if (Constants.DebugFlags.App.EnableSystemServicesProxy) return;
 
         // Remove the task.
-        mAm.removeTask(taskId);
+        mBgThreadHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                mAm.removeTask(taskId);
+            }
+        });
     }
 
     /**
@@ -580,6 +594,7 @@ public class SystemServicesProxy {
      * Returns the first Recents widget from the same package as the global assist activity.
      */
     private AppWidgetProviderInfo resolveSearchAppWidget() {
+        if (mAssistComponent == null) return null;
         List<AppWidgetProviderInfo> widgets = mAwm.getInstalledProviders(
                 AppWidgetProviderInfo.WIDGET_CATEGORY_SEARCHBOX);
         for (AppWidgetProviderInfo info : widgets) {
@@ -653,22 +668,6 @@ public class SystemServicesProxy {
         mWm.getDefaultDisplay().getRealSize(p);
         windowRect.set(0, 0, p.x, p.y);
         return windowRect;
-    }
-
-    /**
-     * Takes a screenshot of the current surface.
-     */
-    public Bitmap takeScreenshot() {
-        DisplayInfo di = new DisplayInfo();
-        mDisplay.getDisplayInfo(di);
-        return SurfaceControl.screenshot(di.getNaturalWidth(), di.getNaturalHeight());
-    }
-
-    /**
-     * Takes a screenshot of the current app.
-     */
-    public Bitmap takeAppScreenshot() {
-        return takeScreenshot();
     }
 
     /** Starts an activity from recents. */

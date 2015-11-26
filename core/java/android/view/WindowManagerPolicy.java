@@ -342,6 +342,14 @@ public interface WindowManagerPolicy {
         boolean isGoneForLayoutLw();
 
         /**
+         * Returns true if the window has a surface that it has drawn a
+         * complete UI in to. Note that this is different from {@link #hasDrawnLw()}
+         * in that it also returns true if the window is READY_TO_SHOW, but was not yet
+         * promoted to HAS_DRAWN.
+         */
+        boolean isDrawnLw();
+
+        /**
          * Returns true if this window has been shown on screen at some time in 
          * the past.  Must be called with the window manager lock held.
          */
@@ -985,6 +993,12 @@ public interface WindowManagerPolicy {
      * is ready for the screen to go on (i.e. the lock screen is shown).
      */
     public void screenTurningOn(ScreenOnListener screenOnListener);
+
+    /**
+     * Called when the device has actually turned on the screen, i.e. the display power state has
+     * been set to ON and the screen is unblocked.
+     */
+    public void screenTurnedOn();
 
     /**
      * Called when the device has turned the screen off.

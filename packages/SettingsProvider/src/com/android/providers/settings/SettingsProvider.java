@@ -42,6 +42,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.DropBoxManager;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.SystemProperties;
@@ -204,9 +207,6 @@ public class SettingsProvider extends ContentProvider {
     // We have to call in the user manager with no lock held,
     private volatile UserManager mUserManager;
 
-    // We have to call in the app ops manager with no lock held,
-    private volatile AppOpsManager mAppOpsManager;
-
     // We have to call in the package manager with no lock held,
     private volatile PackageManager mPackageManager;
 
@@ -214,7 +214,6 @@ public class SettingsProvider extends ContentProvider {
     public boolean onCreate() {
         synchronized (mLock) {
             mUserManager = (UserManager) getContext().getSystemService(Context.USER_SERVICE);
-            mAppOpsManager = (AppOpsManager) getContext().getSystemService(Context.APP_OPS_SERVICE);
             mPackageManager = getContext().getPackageManager();
             mSettingsRegistry = new SettingsRegistry();
         }
@@ -532,7 +531,7 @@ public class SettingsProvider extends ContentProvider {
         } while (cursor.moveToNext());
     }
 
-    private static final String toDumpString(String s) {
+    private static String toDumpString(String s) {
         if (s != null) {
             return s;
         }
@@ -642,11 +641,6 @@ public class SettingsProvider extends ContentProvider {
             int operation) {
         // Make sure the caller can change the settings - treated as secure.
         enforceWritePermission(Manifest.permission.WRITE_SECURE_SETTINGS);
-
-        // Verify whether this operation is allowed for the calling package.
-        if (!isAppOpWriteSettingsAllowedForCallingPackage()) {
-            return false;
-        }
 
         // Resolve the userId on whose behalf the call is made.
         final int callingUserId = resolveCallingUserIdEnforcingPermissionsLocked(requestingUserId);
@@ -772,11 +766,6 @@ public class SettingsProvider extends ContentProvider {
             int operation) {
         // Make sure the caller can change the settings.
         enforceWritePermission(Manifest.permission.WRITE_SECURE_SETTINGS);
-
-        // Verify whether this operation is allowed for the calling package.
-        if (!isAppOpWriteSettingsAllowedForCallingPackage()) {
-            return false;
-        }
 
         // Resolve the userId on whose behalf the call is made.
         final int callingUserId = resolveCallingUserIdEnforcingPermissionsLocked(requestingUserId);
@@ -904,14 +893,13 @@ public class SettingsProvider extends ContentProvider {
 
     private boolean mutateSystemSetting(String name, String value, int runAsUserId,
             int operation) {
-        // Check for permissions first.
-        if (!hasPermissionsToMutateSystemSettings()) {
-            return false;
-        }
-
-        // Verify whether this operation is allowed for the calling package.
-        if (!isAppOpWriteSettingsAllowedForCallingPackage()) {
-            return false;
+        if (!hasWriteSecureSettingsPermission()) {
+            // If the caller doesn't hold WRITE_SECURE_SETTINGS, we verify whether this
+            // operation is allowed for the calling package through appops.
+            if (!Settings.checkAndNoteWriteSettingsOperation(getContext(),
+                    Binder.getCallingUid(), getCallingPackage(), true)) {
+                return false;
+            }
         }
 
         // Enforce what the calling package can mutate the system settings.
@@ -956,22 +944,10 @@ public class SettingsProvider extends ContentProvider {
         }
     }
 
-    private boolean hasPermissionsToMutateSystemSettings() {
+    private boolean hasWriteSecureSettingsPermission() {
         // Write secure settings is a more protected permission. If caller has it we are good.
         if (getContext().checkCallingOrSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
                 == PackageManager.PERMISSION_GRANTED) {
-            return true;
-        }
-
-        // The write settings permission gates mutation of system settings.
-        if (getContext().checkCallingOrSelfPermission(Manifest.permission.WRITE_SETTINGS)
-                == PackageManager.PERMISSION_GRANTED) {
-            return true;
-        }
-
-        // Excpet we let system apps change system settings without the permission.
-        PackageInfo packageInfo = getCallingPackageInfoOrThrow();
-        if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
             return true;
         }
 
@@ -1102,15 +1078,6 @@ public class SettingsProvider extends ContentProvider {
         }
     }
 
-    private boolean isAppOpWriteSettingsAllowedForCallingPackage() {
-        final int callingUid = Binder.getCallingUid();
-
-        mAppOpsManager.checkPackage(Binder.getCallingUid(), getCallingPackage());
-
-        return mAppOpsManager.noteOp(AppOpsManager.OP_WRITE_SETTINGS, callingUid,
-                getCallingPackage()) == AppOpsManager.MODE_ALLOWED;
-    }
-
     private void enforceWritePermission(String permission) {
         if (getContext().checkCallingOrSelfPermission(permission)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -1188,18 +1155,6 @@ public class SettingsProvider extends ContentProvider {
         return mSettingsRegistry.insertSettingLocked(SettingsRegistry.SETTINGS_TYPE_SECURE,
                 owningUserId, Settings.Secure.LOCATION_PROVIDERS_ALLOWED, newProviders,
                 getCallingPackage());
-    }
-
-    private void sendNotify(Uri uri, int userId) {
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            getContext().getContentResolver().notifyChange(uri, null, true, userId);
-            if (DEBUG) {
-                Slog.v(LOG_TAG, "Notifying for " + userId + ": " + uri);
-            }
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
     }
 
     private static void warnOrThrowForUndesiredSecureSettingsMutationForTargetSdk(
@@ -1422,8 +1377,11 @@ public class SettingsProvider extends ContentProvider {
 
         private final BackupManager mBackupManager;
 
+        private final Handler mHandler;
+
         public SettingsRegistry() {
             mBackupManager = new BackupManager(getContext());
+            mHandler = new MyHandler(getContext().getMainLooper());
             migrateAllLegacySettingsIfNeeded();
         }
 
@@ -1765,7 +1723,7 @@ public class SettingsProvider extends ContentProvider {
 
             // Inform the backup manager about a data change
             if (backedUpDataChanged) {
-                mBackupManager.dataChanged();
+                mHandler.obtainMessage(MyHandler.MSG_NOTIFY_DATA_CHANGED).sendToTarget();
             }
 
             // Now send the notification through the content framework.
@@ -1773,7 +1731,9 @@ public class SettingsProvider extends ContentProvider {
             final int userId = getUserIdFromKey(key);
             Uri uri = getNotificationUriFor(key, name);
 
-            sendNotify(uri, userId);
+            mHandler.obtainMessage(MyHandler.MSG_NOTIFY_URI_CHANGED,
+                    userId, 0, uri).sendToTarget();
+
             if (isSecureSettingsKey(key)) {
                 maybeNotifyProfiles(userId, uri, name, sSecureCloneToManagedSettings);
             } else if (isSystemSettingsKey(key)) {
@@ -1790,7 +1750,8 @@ public class SettingsProvider extends ContentProvider {
                     UserInfo profile = profiles.get(i);
                     // the notification for userId has already been sent.
                     if (profile.id != userId) {
-                        sendNotify(uri, profile.id);
+                        mHandler.obtainMessage(MyHandler.MSG_NOTIFY_URI_CHANGED,
+                                profile.id, 0, uri).sendToTarget();
                     }
                 }
             }
@@ -1866,8 +1827,35 @@ public class SettingsProvider extends ContentProvider {
             }
         }
 
+        private final class MyHandler extends Handler {
+            private static final int MSG_NOTIFY_URI_CHANGED = 1;
+            private static final int MSG_NOTIFY_DATA_CHANGED = 2;
+
+            public MyHandler(Looper looper) {
+                super(looper);
+            }
+
+            @Override
+            public void handleMessage(Message msg) {
+                switch (msg.what) {
+                    case MSG_NOTIFY_URI_CHANGED: {
+                        final int userId = msg.arg1;
+                        Uri uri = (Uri) msg.obj;
+                        getContext().getContentResolver().notifyChange(uri, null, true, userId);
+                        if (DEBUG) {
+                            Slog.v(LOG_TAG, "Notifying for " + userId + ": " + uri);
+                        }
+                    } break;
+
+                    case MSG_NOTIFY_DATA_CHANGED: {
+                        mBackupManager.dataChanged();
+                    } break;
+                }
+            }
+        }
+
         private final class UpgradeController {
-            private static final int SETTINGS_VERSION = 121;
+            private static final int SETTINGS_VERSION = 122;
 
             private final int mUserId;
 
@@ -1995,10 +1983,30 @@ public class SettingsProvider extends ContentProvider {
                     currentVersion = 120;
                 }
 
-                // Before 121, we used a different string encoding logic.  We just bump the version
-                // here; SettingsState knows how to handle pre-version 120 files.
-                currentVersion = 121;
+                if (currentVersion == 120) {
+                    // Before 121, we used a different string encoding logic.  We just bump the
+                    // version here; SettingsState knows how to handle pre-version 120 files.
+                    currentVersion = 121;
+                }
 
+                if (currentVersion == 121) {
+                    // Version 122: allow OEMs to set a default payment component in resources.
+                    // Note that we only write the default if no default has been set;
+                    // if there is, we just leave the default at whatever it currently is.
+                    final SettingsState secureSettings = getSecureSettingsLocked(userId);
+                    String defaultComponent = (getContext().getResources().getString(
+                            R.string.def_nfc_payment_component));
+                    Setting currentSetting = secureSettings.getSettingLocked(
+                            Settings.Secure.NFC_PAYMENT_DEFAULT_COMPONENT);
+                    if (defaultComponent != null && !defaultComponent.isEmpty() &&
+                        currentSetting == null) {
+                        secureSettings.insertSettingLocked(
+                                Settings.Secure.NFC_PAYMENT_DEFAULT_COMPONENT,
+                                defaultComponent,
+                                SettingsState.SYSTEM_PACKAGE_NAME);
+                    }
+                    currentVersion = 122;
+                }
                 // vXXX: Add new settings above this point.
 
                 // Return the current version.

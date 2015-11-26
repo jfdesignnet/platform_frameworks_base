@@ -55,8 +55,9 @@ import android.view.WindowManagerGlobal;
 import android.view.WindowManagerPolicy;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
+
+import com.android.internal.policy.IKeyguardDrawnCallback;
 import com.android.internal.policy.IKeyguardExitCallback;
-import com.android.internal.policy.IKeyguardShowCallback;
 import com.android.internal.policy.IKeyguardStateCallback;
 import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.widget.LockPatternUtils;
@@ -76,7 +77,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static android.provider.Settings.System.SCREEN_OFF_TIMEOUT;
-
 
 /**
  * Mediates requests related to the keyguard.  This includes queries about the
@@ -137,8 +137,8 @@ public class KeyguardViewMediator extends SystemUI {
     private static final int HIDE = 3;
     private static final int RESET = 4;
     private static final int VERIFY_UNLOCK = 5;
-    private static final int NOTIFY_SCREEN_OFF = 6;
-    private static final int NOTIFY_SCREEN_ON = 7;
+    private static final int NOTIFY_FINISHED_GOING_TO_SLEEP = 6;
+    private static final int NOTIFY_SCREEN_TURNING_ON = 7;
     private static final int KEYGUARD_DONE = 9;
     private static final int KEYGUARD_DONE_DRAWING = 10;
     private static final int KEYGUARD_DONE_AUTHENTICATING = 11;
@@ -148,6 +148,9 @@ public class KeyguardViewMediator extends SystemUI {
     private static final int START_KEYGUARD_EXIT_ANIM = 18;
     private static final int ON_ACTIVITY_DRAWN = 19;
     private static final int KEYGUARD_DONE_PENDING_TIMEOUT = 20;
+    private static final int NOTIFY_STARTED_WAKING_UP = 21;
+    private static final int NOTIFY_SCREEN_TURNED_ON = 22;
+    private static final int NOTIFY_SCREEN_TURNED_OFF = 23;
 
     /**
      * The default amount of time we stay awake (used for all key input)
@@ -253,6 +256,7 @@ public class KeyguardViewMediator extends SystemUI {
     private KeyguardUpdateMonitor mUpdateMonitor;
 
     private boolean mDeviceInteractive;
+    private boolean mGoingToSleep;
 
     // last known state of the cellular connection
     private String mPhoneState = TelephonyManager.EXTRA_STATE_IDLE;
@@ -310,10 +314,13 @@ public class KeyguardViewMediator extends SystemUI {
     private boolean mPendingReset;
 
     /**
-     * When starting goign to sleep, we figured out that we need to lock Keyguard and this should be
+     * When starting going to sleep, we figured out that we need to lock Keyguard and this should be
      * committed when finished going to sleep.
      */
     private boolean mPendingLock;
+
+    private boolean mWakeAndUnlocking;
+    private IKeyguardDrawnCallback mDrawnCallback;
 
     KeyguardUpdateMonitorCallback mUpdateCallback = new KeyguardUpdateMonitorCallback() {
 
@@ -453,12 +460,25 @@ public class KeyguardViewMediator extends SystemUI {
         }
 
         @Override
-        public void onFingerprintAuthenticated(int userId) {
+        public void onFingerprintAuthenticated(int userId, boolean wakeAndUnlocking) {
+            boolean unlockingWithFingerprintAllowed =
+                    mUpdateMonitor.isUnlockingWithFingerprintAllowed();
             if (mStatusBarKeyguardViewManager.isBouncerShowing()) {
-                mStatusBarKeyguardViewManager.notifyKeyguardAuthenticated();
+                if (unlockingWithFingerprintAllowed) {
+                    mStatusBarKeyguardViewManager.notifyKeyguardAuthenticated();
+                }
             } else {
-                mStatusBarKeyguardViewManager.animateCollapsePanels(
-                        FINGERPRINT_COLLAPSE_SPEEDUP_FACTOR);
+                if (wakeAndUnlocking && mShowing && unlockingWithFingerprintAllowed) {
+                    mWakeAndUnlocking = true;
+                    mStatusBarKeyguardViewManager.setWakeAndUnlocking();
+                    keyguardDone(true, true);
+                } else if (mShowing && mDeviceInteractive) {
+                    if (wakeAndUnlocking) {
+                        mStatusBarKeyguardViewManager.notifyDeviceWakeUpRequested();
+                    }
+                    mStatusBarKeyguardViewManager.animateCollapsePanels(
+                            FINGERPRINT_COLLAPSE_SPEEDUP_FACTOR);
+                }
             }
         };
 
@@ -639,6 +659,7 @@ public class KeyguardViewMediator extends SystemUI {
         if (DEBUG) Log.d(TAG, "onStartedGoingToSleep(" + why + ")");
         synchronized (this) {
             mDeviceInteractive = false;
+            mGoingToSleep = true;
 
             // Lock immediately based on setting if secure (user has a pin/pattern/password).
             // This also "locks" the device when not secure to provide easy access to the
@@ -678,11 +699,12 @@ public class KeyguardViewMediator extends SystemUI {
         if (DEBUG) Log.d(TAG, "onFinishedGoingToSleep(" + why + ")");
         synchronized (this) {
             mDeviceInteractive = false;
+            mGoingToSleep = false;
 
             resetKeyguardDonePendingLocked();
             mHideAnimationRun = false;
 
-            notifyScreenOffLocked();
+            notifyFinishedGoingToSleep();
 
             if (mPendingReset) {
                 resetStateLocked();
@@ -693,7 +715,7 @@ public class KeyguardViewMediator extends SystemUI {
                 mPendingLock = false;
             }
         }
-        KeyguardUpdateMonitor.getInstance(mContext).dispatchScreenTurnedOff(why);
+        KeyguardUpdateMonitor.getInstance(mContext).dispatchFinishedGoingToSleep(why);
     }
 
     private void doKeyguardLaterLocked() {
@@ -749,19 +771,31 @@ public class KeyguardViewMediator extends SystemUI {
     /**
      * Let's us know when the device is waking up.
      */
-    public void onStartedWakingUp(IKeyguardShowCallback callback) {
+    public void onStartedWakingUp() {
 
         // TODO: Rename all screen off/on references to interactive/sleeping
         synchronized (this) {
             mDeviceInteractive = true;
             cancelDoKeyguardLaterLocked();
             if (DEBUG) Log.d(TAG, "onStartedWakingUp, seq = " + mDelayedShowingSequence);
-            if (callback != null) {
-                notifyScreenOnLocked(callback);
-            }
+            notifyStartedWakingUp();
         }
-        KeyguardUpdateMonitor.getInstance(mContext).dispatchScreenTurnedOn();
+        KeyguardUpdateMonitor.getInstance(mContext).dispatchStartedWakingUp();
         maybeSendUserPresentBroadcast();
+    }
+
+    public void onScreenTurningOn(IKeyguardDrawnCallback callback) {
+        notifyScreenOn(callback);
+    }
+
+    public void onScreenTurnedOn() {
+        notifyScreenTurnedOn();
+        mUpdateMonitor.dispatchScreenTurnedOn();
+    }
+
+    public void onScreenTurnedOff() {
+        notifyScreenTurnedOff();
+        mUpdateMonitor.dispatchScreenTurnedOff();
     }
 
     private void maybeSendUserPresentBroadcast() {
@@ -806,11 +840,6 @@ public class KeyguardViewMediator extends SystemUI {
     public void setKeyguardEnabled(boolean enabled) {
         synchronized (this) {
             if (DEBUG) Log.d(TAG, "setKeyguardEnabled(" + enabled + ")");
-
-            if (isSecure()) {
-                Log.d(TAG, "current mode is SecurityMode, ignore hide keyguard");
-                return;
-            }
 
             mExternallyEnabled = enabled;
 
@@ -1079,25 +1108,31 @@ public class KeyguardViewMediator extends SystemUI {
         mHandler.sendEmptyMessage(VERIFY_UNLOCK);
     }
 
-
-    /**
-     * Send a message to keyguard telling it the screen just turned on.
-     * @see #onScreenTurnedOff(int)
-     * @see #handleNotifyScreenOff
-     */
-    private void notifyScreenOffLocked() {
-        if (DEBUG) Log.d(TAG, "notifyScreenOffLocked");
-        mHandler.sendEmptyMessage(NOTIFY_SCREEN_OFF);
+    private void notifyFinishedGoingToSleep() {
+        if (DEBUG) Log.d(TAG, "notifyFinishedGoingToSleep");
+        mHandler.sendEmptyMessage(NOTIFY_FINISHED_GOING_TO_SLEEP);
     }
 
-    /**
-     * Send a message to keyguard telling it the screen just turned on.
-     * @see #onScreenTurnedOn
-     * @see #handleNotifyScreenOn
-     */
-    private void notifyScreenOnLocked(IKeyguardShowCallback result) {
-        if (DEBUG) Log.d(TAG, "notifyScreenOnLocked");
-        Message msg = mHandler.obtainMessage(NOTIFY_SCREEN_ON, result);
+    private void notifyStartedWakingUp() {
+        if (DEBUG) Log.d(TAG, "notifyStartedWakingUp");
+        mHandler.sendEmptyMessage(NOTIFY_STARTED_WAKING_UP);
+    }
+
+    private void notifyScreenOn(IKeyguardDrawnCallback callback) {
+        if (DEBUG) Log.d(TAG, "notifyScreenOn");
+        Message msg = mHandler.obtainMessage(NOTIFY_SCREEN_TURNING_ON, callback);
+        mHandler.sendMessage(msg);
+    }
+
+    private void notifyScreenTurnedOn() {
+        if (DEBUG) Log.d(TAG, "notifyScreenTurnedOn");
+        Message msg = mHandler.obtainMessage(NOTIFY_SCREEN_TURNED_ON);
+        mHandler.sendMessage(msg);
+    }
+
+    private void notifyScreenTurnedOff() {
+        if (DEBUG) Log.d(TAG, "notifyScreenTurnedOff");
+        Message msg = mHandler.obtainMessage(NOTIFY_SCREEN_TURNED_OFF);
         mHandler.sendMessage(msg);
     }
 
@@ -1184,11 +1219,20 @@ public class KeyguardViewMediator extends SystemUI {
                 case VERIFY_UNLOCK:
                     handleVerifyUnlock();
                     break;
-                case NOTIFY_SCREEN_OFF:
-                    handleNotifyScreenOff();
+                case NOTIFY_FINISHED_GOING_TO_SLEEP:
+                    handleNotifyFinishedGoingToSleep();
                     break;
-                case NOTIFY_SCREEN_ON:
-                    handleNotifyScreenOn((IKeyguardShowCallback) msg.obj);
+                case NOTIFY_SCREEN_TURNING_ON:
+                    handleNotifyScreenTurningOn((IKeyguardDrawnCallback) msg.obj);
+                    break;
+                case NOTIFY_SCREEN_TURNED_ON:
+                    handleNotifyScreenTurnedOn();
+                    break;
+                case NOTIFY_SCREEN_TURNED_OFF:
+                    handleNotifyScreenTurnedOff();
+                    break;
+                case NOTIFY_STARTED_WAKING_UP:
+                    handleNotifyStartedWakingUp();
                     break;
                 case KEYGUARD_DONE:
                     handleKeyguardDone(msg.arg1 != 0, msg.arg2 != 0);
@@ -1239,6 +1283,10 @@ public class KeyguardViewMediator extends SystemUI {
         }
         mUpdateMonitor.clearFingerprintRecognized();
 
+        if (mGoingToSleep) {
+            Log.i(TAG, "Device is going to sleep, aborting keyguardDone");
+            return;
+        }
         if (mExitSecureCallback != null) {
             try {
                 mExitSecureCallback.onKeyguardExitResult(authenticated);
@@ -1347,6 +1395,7 @@ public class KeyguardViewMediator extends SystemUI {
             setShowingLocked(true);
             mStatusBarKeyguardViewManager.show(options);
             mHiding = false;
+            mWakeAndUnlocking = false;
             resetKeyguardDonePendingLocked();
             mHideAnimationRun = false;
             updateActivityLockScreenState();
@@ -1368,7 +1417,8 @@ public class KeyguardViewMediator extends SystemUI {
                 // manager until it tells us it's safe to do so with
                 // startKeyguardExitAnimation.
                 ActivityManagerNative.getDefault().keyguardGoingAway(
-                        mStatusBarKeyguardViewManager.shouldDisableWindowAnimationsForUnlock(),
+                        mStatusBarKeyguardViewManager.shouldDisableWindowAnimationsForUnlock()
+                                || mWakeAndUnlocking,
                         mStatusBarKeyguardViewManager.isGoingToNotificationShade());
             } catch (RemoteException e) {
                 Log.e(TAG, "Error while calling WindowManager", e);
@@ -1430,6 +1480,9 @@ public class KeyguardViewMediator extends SystemUI {
             updateActivityLockScreenState();
             adjustStatusBarLocked();
             sendUserPresentBroadcast();
+            if (mWakeAndUnlocking && mDrawnCallback != null) {
+                notifyDrawn(mDrawnCallback);
+            }
         }
     }
 
@@ -1491,24 +1544,56 @@ public class KeyguardViewMediator extends SystemUI {
     }
 
     /**
-     * Handle message sent by {@link #notifyScreenOffLocked()}
-     * @see #NOTIFY_SCREEN_OFF
+     * Handle message sent by {@link #notifyFinishedGoingToSleep()}
+     * @see #NOTIFY_FINISHED_GOING_TO_SLEEP
      */
-    private void handleNotifyScreenOff() {
+    private void handleNotifyFinishedGoingToSleep() {
         synchronized (KeyguardViewMediator.this) {
-            if (DEBUG) Log.d(TAG, "handleNotifyScreenOff");
+            if (DEBUG) Log.d(TAG, "handleNotifyFinishedGoingToSleep");
+            mStatusBarKeyguardViewManager.onFinishedGoingToSleep();
+        }
+    }
+
+    private void handleNotifyStartedWakingUp() {
+        synchronized (KeyguardViewMediator.this) {
+            if (DEBUG) Log.d(TAG, "handleNotifyWakingUp");
+            mStatusBarKeyguardViewManager.onStartedWakingUp();
+        }
+    }
+
+    private void handleNotifyScreenTurningOn(IKeyguardDrawnCallback callback) {
+        synchronized (KeyguardViewMediator.this) {
+            if (DEBUG) Log.d(TAG, "handleNotifyScreenTurningOn");
+            mStatusBarKeyguardViewManager.onScreenTurningOn();
+            if (callback != null) {
+                if (mWakeAndUnlocking) {
+                    mDrawnCallback = callback;
+                } else {
+                    notifyDrawn(callback);
+                }
+            }
+        }
+    }
+
+    private void handleNotifyScreenTurnedOn() {
+        synchronized (this) {
+            if (DEBUG) Log.d(TAG, "handleNotifyScreenTurnedOn");
+            mStatusBarKeyguardViewManager.onScreenTurnedOn();
+        }
+    }
+
+    private void handleNotifyScreenTurnedOff() {
+        synchronized (this) {
+            if (DEBUG) Log.d(TAG, "handleNotifyScreenTurnedOff");
             mStatusBarKeyguardViewManager.onScreenTurnedOff();
         }
     }
 
-    /**
-     * Handle message sent by {@link #notifyScreenOnLocked}
-     * @see #NOTIFY_SCREEN_ON
-     */
-    private void handleNotifyScreenOn(IKeyguardShowCallback callback) {
-        synchronized (KeyguardViewMediator.this) {
-            if (DEBUG) Log.d(TAG, "handleNotifyScreenOn");
-            mStatusBarKeyguardViewManager.onScreenTurnedOn(callback);
+    private void notifyDrawn(final IKeyguardDrawnCallback callback) {
+        try {
+            callback.onDrawn();
+        } catch (RemoteException e) {
+            Slog.w(TAG, "Exception calling onDrawn():", e);
         }
     }
 

@@ -91,6 +91,7 @@ public class ImageView extends View {
     private boolean mColorMod = false;
 
     private Drawable mDrawable = null;
+    private ImageViewBitmapDrawable mRecycleableBitmapDrawable = null;
     private ColorStateList mDrawableTintList = null;
     private PorterDuff.Mode mDrawableTintMode = null;
     private boolean mHasDrawableTint = false;
@@ -383,6 +384,10 @@ public class ImageView extends View {
         assigned.
     */
     public Drawable getDrawable() {
+        if (mDrawable == mRecycleableBitmapDrawable) {
+            // Consider our cached version dirty since app code now has a reference to it
+            mRecycleableBitmapDrawable = null;
+        }
         return mDrawable;
     }
 
@@ -570,6 +575,17 @@ public class ImageView extends View {
         }
     }
 
+    private static class ImageViewBitmapDrawable extends BitmapDrawable {
+        public ImageViewBitmapDrawable(Resources res, Bitmap bitmap) {
+            super(res, bitmap);
+        }
+
+        @Override
+        public void setBitmap(Bitmap bitmap) {
+            super.setBitmap(bitmap);
+        }
+    };
+
     /**
      * Sets a Bitmap as the content of this ImageView.
      * 
@@ -577,9 +593,16 @@ public class ImageView extends View {
      */
     @android.view.RemotableViewMethod
     public void setImageBitmap(Bitmap bm) {
-        // if this is used frequently, may handle bitmaps explicitly
-        // to reduce the intermediate drawable object
-        setImageDrawable(new BitmapDrawable(mContext.getResources(), bm));
+        // Hacky fix to force setImageDrawable to do a full setImageDrawable
+        // instead of doing an object reference comparison
+        mDrawable = null;
+        if (mRecycleableBitmapDrawable == null) {
+            mRecycleableBitmapDrawable = new ImageViewBitmapDrawable(
+                    mContext.getResources(), bm);
+        } else {
+            mRecycleableBitmapDrawable.setBitmap(bm);
+        }
+        setImageDrawable(mRecycleableBitmapDrawable);
     }
 
     public void setImageState(int[] state, boolean merge) {
@@ -848,6 +871,10 @@ public class ImageView extends View {
     }
 
     private void updateDrawable(Drawable d) {
+        if (d != mRecycleableBitmapDrawable && mRecycleableBitmapDrawable != null) {
+            mRecycleableBitmapDrawable.setBitmap(null);
+        }
+
         if (mDrawable != null) {
             mDrawable.setCallback(null);
             unscheduleDrawable(mDrawable);

@@ -48,6 +48,7 @@ import android.view.WindowManager;
 import com.android.internal.app.IAssistScreenshotReceiver;
 import com.android.internal.app.IVoiceInteractionSessionShowCallback;
 import com.android.internal.app.IVoiceInteractor;
+import com.android.internal.logging.MetricsLogger;
 import com.android.internal.os.IResultReceiver;
 import com.android.server.LocalServices;
 import com.android.server.statusbar.StatusBarManagerInternal;
@@ -183,8 +184,21 @@ final class VoiceInteractionSessionConnection implements ServiceConnection {
         }
     }
 
-    public boolean showLocked(Bundle args, int flags,
-            IVoiceInteractionSessionShowCallback showCallback) {
+    public int getUserDisabledShowContextLocked() {
+        int flags = 0;
+        if (Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                Settings.Secure.ASSIST_STRUCTURE_ENABLED, 1, mUser) == 0) {
+            flags |= VoiceInteractionSession.SHOW_WITH_ASSIST;
+        }
+        if (Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                Settings.Secure.ASSIST_SCREENSHOT_ENABLED, 1, mUser) == 0) {
+            flags |= VoiceInteractionSession.SHOW_WITH_SCREENSHOT;
+        }
+        return flags;
+    }
+
+    public boolean showLocked(Bundle args, int flags, int disabledContext,
+            IVoiceInteractionSessionShowCallback showCallback, IBinder activityToken) {
         if (mBound) {
             if (!mFullyBound) {
                 mFullyBound = mContext.bindServiceAsUser(mBindIntent, mFullConnection,
@@ -193,29 +207,35 @@ final class VoiceInteractionSessionConnection implements ServiceConnection {
                         new UserHandle(mUser));
             }
             mShown = true;
-            boolean isScreenCaptureAllowed = true;
+            boolean isAssistDataAllowed = true;
             try {
-                isScreenCaptureAllowed = mAm.isScreenCaptureAllowedOnCurrentActivity();
+                isAssistDataAllowed = mAm.isAssistDataAllowedOnCurrentActivity();
             } catch (RemoteException e) {
             }
-            boolean structureEnabled = Settings.Secure.getIntForUser(mContext.getContentResolver(),
-                    Settings.Secure.ASSIST_STRUCTURE_ENABLED, 1, mUser) != 0
-                    && isScreenCaptureAllowed;
-            boolean screenshotEnabled = Settings.Secure.getIntForUser(mContext.getContentResolver(),
-                    Settings.Secure.ASSIST_SCREENSHOT_ENABLED, 1, mUser) != 0
-                    && isScreenCaptureAllowed;
+            disabledContext |= getUserDisabledShowContextLocked();
+            boolean structureEnabled = isAssistDataAllowed
+                    && (disabledContext&VoiceInteractionSession.SHOW_WITH_ASSIST) == 0;
+            boolean screenshotEnabled = isAssistDataAllowed && structureEnabled
+                    && (disabledContext&VoiceInteractionSession.SHOW_WITH_SCREENSHOT) == 0;
             mShowArgs = args;
             mShowFlags = flags;
             mHaveAssistData = false;
             boolean needDisclosure = false;
-            if ((flags& VoiceInteractionSession.SHOW_WITH_ASSIST) != 0) {
+            if ((flags&VoiceInteractionSession.SHOW_WITH_ASSIST) != 0) {
                 if (mAppOps.noteOpNoThrow(AppOpsManager.OP_ASSIST_STRUCTURE, mCallingUid,
                         mSessionComponentName.getPackageName()) == AppOpsManager.MODE_ALLOWED
                         && structureEnabled) {
                     try {
-                        needDisclosure = true;
-                        mAm.requestAssistContextExtras(ActivityManager.ASSIST_CONTEXT_FULL,
-                                mAssistReceiver);
+                        MetricsLogger.count(mContext, "assist_with_context", 1);
+                        if (mAm.requestAssistContextExtras(ActivityManager.ASSIST_CONTEXT_FULL,
+                                mAssistReceiver, activityToken)) {
+                            needDisclosure = true;
+                        } else {
+                            // Wasn't allowed...  given that, let's not do the screenshot either.
+                            mHaveAssistData = true;
+                            mAssistData = null;
+                            screenshotEnabled = false;
+                        }
                     } catch (RemoteException e) {
                     }
                 } else {
@@ -226,11 +246,12 @@ final class VoiceInteractionSessionConnection implements ServiceConnection {
                 mAssistData = null;
             }
             mHaveScreenshot = false;
-            if ((flags& VoiceInteractionSession.SHOW_WITH_SCREENSHOT) != 0) {
+            if ((flags&VoiceInteractionSession.SHOW_WITH_SCREENSHOT) != 0) {
                 if (mAppOps.noteOpNoThrow(AppOpsManager.OP_ASSIST_SCREENSHOT, mCallingUid,
                         mSessionComponentName.getPackageName()) == AppOpsManager.MODE_ALLOWED
                         && screenshotEnabled) {
                     try {
+                        MetricsLogger.count(mContext, "assist_with_screen", 1);
                         needDisclosure = true;
                         mIWindowManager.requestAssistScreenshot(mScreenshotReceiver);
                     } catch (RemoteException e) {

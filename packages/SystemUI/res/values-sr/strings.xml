@@ -115,12 +115,6 @@
     <string name="accessibility_data_two_bars" msgid="6166018492360432091">"Сигнал за податке од две црте."</string>
     <string name="accessibility_data_three_bars" msgid="9167670452395038520">"Сигнал за податке од три црте."</string>
     <string name="accessibility_data_signal_full" msgid="2708384608124519369">"Сигнал за податке је најјачи."</string>
-    <string name="accessibility_wifi_off" msgid="3177380296697933627">"Wi-Fi је искључен."</string>
-    <string name="accessibility_no_wifi" msgid="1425476551827924474">"Wi-Fi веза је прекинута."</string>
-    <string name="accessibility_wifi_one_bar" msgid="7735893178010724377">"Wi-Fi сигнал од једне црте."</string>
-    <string name="accessibility_wifi_two_bars" msgid="4994274250497262434">"Wi-Fi сигнал од две црте."</string>
-    <string name="accessibility_wifi_three_bars" msgid="3495755044276588384">"Wi-Fi сигнал од три црте."</string>
-    <string name="accessibility_wifi_signal_full" msgid="6853561303586480376">"Wi-Fi сигнал је најјачи."</string>
     <string name="accessibility_wifi_name" msgid="7202151365171148501">"Повезани сте са <xliff:g id="WIFI">%s</xliff:g>."</string>
     <string name="accessibility_bluetooth_name" msgid="8441517146585531676">"Повезани сте са <xliff:g id="BLUETOOTH">%s</xliff:g>."</string>
     <string name="accessibility_no_wimax" msgid="4329180129727630368">"Нема WiMAX сигнала."</string>
@@ -405,7 +399,7 @@
     <string name="volumeui_notification_title" msgid="4906770126345910955">"<xliff:g id="APP_NAME">%1$s</xliff:g> је дијалог за јачину звука"</string>
     <string name="volumeui_notification_text" msgid="1826889705095768656">"Додирните да бисте вратили оригинал."</string>
     <string name="managed_profile_foreground_toast" msgid="5421487114739245972">"Користите профил за Work"</string>
-    <string name="system_ui_tuner" msgid="3442596010150119600">"Тјунер за кориснички интерфејс система"</string>
+    <string name="system_ui_tuner" msgid="708224127392452018">"Тјунер за кориснички интерфејс система"</string>
     <string name="show_battery_percentage" msgid="5444136600512968798">"Приказуј уграђени проценат батерије"</string>
     <string name="show_battery_percentage_summary" msgid="3215025775576786037">"Приказивање нивоа напуњености батерије у процентима унутар иконе на статусној траци када се батерија не пуни"</string>
     <string name="quick_settings" msgid="10042998191725428">"Брза подешавања"</string>
@@ -426,4 +420,11 @@
     <string name="accessibility_quick_settings_detail" msgid="2579369091672902101">"Брза подешавања, <xliff:g id="TITLE">%s</xliff:g>."</string>
     <string name="accessibility_status_bar_hotspot" msgid="4099381329956402865">"Хотспот"</string>
     <string name="accessibility_managed_profile" msgid="6613641363112584120">"Профил за Work"</string>
+    <string name="tuner_warning_title" msgid="7094689930793031682">"Забава за неке, али не за све"</string>
+    <string name="tuner_warning" msgid="8730648121973575701">"Тјунер за кориснички интерфејс система вам пружа додатне начине за подешавање и прилагођавање Android корисничког интерфејса. Ове експерименталне функције могу да се промене, откажу или нестану у будућим издањима. Будите опрезни."</string>
+    <string name="tuner_persistent_warning" msgid="8597333795565621795">"Ове експерименталне функције могу да се промене, откажу или нестану у будућим издањима. Будите опрезни."</string>
+    <string name="got_it" msgid="2239653834387972602">"Важи"</string>
+    <string name="tuner_toast" msgid="603429811084428439">"Честитамо! Тјунер за кориснички интерфејс система је додат у Подешавања"</string>
+    <string name="remove_from_settings" msgid="8389591916603406378">"Уклони из Подешавања"</string>
+    <string name="remove_from_settings_prompt" msgid="6069085993355887748">"Желите ли да уклоните Тјунер за кориснички интерфејс система из Подешавања и да престанете да користите све његове функције?"</string>
 </resources>

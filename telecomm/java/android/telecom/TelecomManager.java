@@ -177,6 +177,13 @@ public class TelecomManager {
             "android.telecom.extra.PHONE_ACCOUNT_HANDLE";
 
     /**
+     * Optional extra for {@link android.content.Intent#ACTION_CALL} containing a string call
+     * subject which will be associated with an outgoing call.  Should only be specified if the
+     * {@link PhoneAccount} supports the capability {@link PhoneAccount#CAPABILITY_CALL_SUBJECT}.
+     */
+    public static final String EXTRA_CALL_SUBJECT = "android.telecom.extra.CALL_SUBJECT";
+
+    /**
      * The extra used by a {@link ConnectionService} to provide the handle of the caller that
      * has initiated a new incoming call.
      */
@@ -488,6 +495,26 @@ public class TelecomManager {
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelecomService#getSimCallManager");
+        }
+        return null;
+    }
+
+    /**
+     * Returns the current SIM call manager for the specified user. Apps must be prepared for this
+     * method to return {@code null}, indicating that there currently exists no user-chosen default
+     * {@code PhoneAccount}.
+     *
+     * @return The phone account handle of the current sim call manager.
+     *
+     * @hide
+     */
+    public PhoneAccountHandle getSimCallManager(int userId) {
+        try {
+            if (isServiceConnected()) {
+                return getTelecomService().getSimCallManagerForUser(userId);
+            }
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error calling ITelecomService#getSimCallManagerForUser");
         }
         return null;
     }

@@ -318,6 +318,12 @@ public class MockContext extends Context {
     }
 
     /** @hide */
+    @Override
+    public void sendBroadcastMultiplePermissions(Intent intent, String[] receiverPermissions) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
     @SystemApi
     @Override
     public void sendBroadcast(Intent intent, String receiverPermission, Bundle options) {
@@ -389,13 +395,19 @@ public class MockContext extends Context {
     @Override
     public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
             String receiverPermission, int appOp, BroadcastReceiver resultReceiver,
-            Handler scheduler,
-            int initialCode, String initialData, Bundle initialExtras) {
+            Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
+            String receiverPermission, int appOp, Bundle options, BroadcastReceiver resultReceiver,
+            Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-
     public void sendStickyBroadcast(Intent intent) {
         throw new UnsupportedOperationException();
     }

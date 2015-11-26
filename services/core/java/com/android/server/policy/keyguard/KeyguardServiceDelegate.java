@@ -8,6 +8,7 @@ import android.content.pm.ActivityInfo;
 import android.content.res.Resources;
 import android.graphics.PixelFormat;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.UserHandle;
@@ -18,9 +19,9 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.WindowManagerPolicy.OnKeyguardExitResult;
 
+import com.android.internal.policy.IKeyguardDrawnCallback;
 import com.android.internal.policy.IKeyguardExitCallback;
 import com.android.internal.policy.IKeyguardService;
-import com.android.internal.policy.IKeyguardShowCallback;
 
 /**
  * A local class that keeps a cache of keyguard state that can be restored in the event
@@ -34,10 +35,11 @@ public class KeyguardServiceDelegate {
     protected KeyguardServiceWrapper mKeyguardService;
     private final Context mContext;
     private final View mScrim; // shown if keyguard crashes
+    private final Handler mScrimHandler;
     private final KeyguardState mKeyguardState = new KeyguardState();
-    private ShowListener mShowListenerWhenConnect;
+    private DrawnListener mDrawnListenerWhenConnect;
 
-    /* package */ static final class KeyguardState {
+    private static final class KeyguardState {
         KeyguardState() {
             // Assume keyguard is showing and secure until we know for sure. This is here in
             // the event something checks before the service is actually started.
@@ -61,23 +63,23 @@ public class KeyguardServiceDelegate {
         public boolean bootCompleted;
     };
 
-    public interface ShowListener {
-        public void onShown(IBinder windowToken);
+    public interface DrawnListener {
+        void onDrawn();
     }
 
     // A delegate class to map a particular invocation with a ShowListener object.
-    private final class KeyguardShowDelegate extends IKeyguardShowCallback.Stub {
-        private ShowListener mShowListener;
+    private final class KeyguardShowDelegate extends IKeyguardDrawnCallback.Stub {
+        private DrawnListener mDrawnListener;
 
-        KeyguardShowDelegate(ShowListener showListener) {
-            mShowListener = showListener;
+        KeyguardShowDelegate(DrawnListener drawnListener) {
+            mDrawnListener = drawnListener;
         }
 
         @Override
-        public void onShown(IBinder windowToken) throws RemoteException {
+        public void onDrawn() throws RemoteException {
             if (DEBUG) Log.v(TAG, "**** SHOWN CALLED ****");
-            if (mShowListener != null) {
-                mShowListener.onShown(windowToken);
+            if (mDrawnListener != null) {
+                mDrawnListener.onDrawn();
             }
             hideScrim();
         }
@@ -103,6 +105,7 @@ public class KeyguardServiceDelegate {
     public KeyguardServiceDelegate(Context context) {
         mContext = context;
         mScrim = createScrim(context);
+        mScrimHandler = new Handler();
     }
 
     public void bindService(Context context) {
@@ -119,8 +122,13 @@ public class KeyguardServiceDelegate {
             mKeyguardState.showing = false;
             mKeyguardState.showingAndNotOccluded = false;
             mKeyguardState.secure = false;
-            mKeyguardState.deviceHasKeyguard = false;
-            hideScrim();
+            synchronized (mKeyguardState) {
+                // TODO: Fix synchronisation model in this class. The other state in this class
+                // is at least self-healing but a race condition here can lead to the scrim being
+                // stuck on keyguard-less devices.
+                mKeyguardState.deviceHasKeyguard = false;
+                hideScrim();
+            }
         } else {
             if (DEBUG) Log.v(TAG, "*** Keyguard started");
         }
@@ -136,9 +144,11 @@ public class KeyguardServiceDelegate {
                 // If the system is ready, it means keyguard crashed and restarted.
                 mKeyguardService.onSystemReady();
                 // This is used to hide the scrim once keyguard displays.
-                mKeyguardService.onStartedWakingUp(new KeyguardShowDelegate(
-                        mShowListenerWhenConnect));
-                mShowListenerWhenConnect = null;
+                mKeyguardService.onStartedWakingUp();
+                mKeyguardService.onScreenTurningOn(
+                        new KeyguardShowDelegate(mDrawnListenerWhenConnect));
+                mKeyguardService.onScreenTurnedOn();
+                mDrawnListenerWhenConnect = null;
             }
             if (mKeyguardState.bootCompleted) {
                 mKeyguardService.onBootCompleted();
@@ -216,17 +226,38 @@ public class KeyguardServiceDelegate {
         mKeyguardState.dreaming = false;
     }
 
-    public void onStartedWakingUp(final ShowListener showListener) {
+    public void onStartedWakingUp() {
         if (mKeyguardService != null) {
-            if (DEBUG) Log.v(TAG, "onScreenTurnedOn(showListener = " + showListener + ")");
-            mKeyguardService.onStartedWakingUp(new KeyguardShowDelegate(showListener));
+            if (DEBUG) Log.v(TAG, "onStartedWakingUp()");
+            mKeyguardService.onStartedWakingUp();
+        }
+    }
+
+    public void onScreenTurnedOff() {
+        if (mKeyguardService != null) {
+            if (DEBUG) Log.v(TAG, "onScreenTurnedOff()");
+            mKeyguardService.onScreenTurnedOff();
+        }
+    }
+
+    public void onScreenTurningOn(final DrawnListener drawnListener) {
+        if (mKeyguardService != null) {
+            if (DEBUG) Log.v(TAG, "onScreenTurnedOn(showListener = " + drawnListener + ")");
+            mKeyguardService.onScreenTurningOn(new KeyguardShowDelegate(drawnListener));
         } else {
             // try again when we establish a connection
-            Slog.w(TAG, "onScreenTurnedOn(): no keyguard service!");
+            Slog.w(TAG, "onScreenTurningOn(): no keyguard service!");
             // This shouldn't happen, but if it does, show the scrim immediately and
             // invoke the listener's callback after the service actually connects.
-            mShowListenerWhenConnect = showListener;
+            mDrawnListenerWhenConnect = drawnListener;
             showScrim();
+        }
+    }
+
+    public void onScreenTurnedOn() {
+        if (mKeyguardService != null) {
+            if (DEBUG) Log.v(TAG, "onScreenTurnedOn()");
+            mKeyguardService.onScreenTurnedOn();
         }
     }
 
@@ -307,17 +338,19 @@ public class KeyguardServiceDelegate {
     }
 
     public void showScrim() {
-        if (!mKeyguardState.deviceHasKeyguard) return;
-        mScrim.post(new Runnable() {
-            @Override
-            public void run() {
-                mScrim.setVisibility(View.VISIBLE);
-            }
-        });
+        synchronized (mKeyguardState) {
+            if (!mKeyguardState.deviceHasKeyguard) return;
+            mScrimHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mScrim.setVisibility(View.VISIBLE);
+                }
+            });
+        }
     }
 
     public void hideScrim() {
-        mScrim.post(new Runnable() {
+        mScrimHandler.post(new Runnable() {
             @Override
             public void run() {
                 mScrim.setVisibility(View.GONE);

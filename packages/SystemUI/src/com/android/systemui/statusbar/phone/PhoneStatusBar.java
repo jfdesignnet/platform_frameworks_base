@@ -98,6 +98,7 @@ import com.android.internal.logging.MetricsLogger;
 import com.android.internal.statusbar.NotificationVisibility;
 import com.android.internal.statusbar.StatusBarIcon;
 import com.android.keyguard.KeyguardHostView.OnDismissAction;
+import com.android.keyguard.KeyguardUpdateMonitor;
 import com.android.keyguard.ViewMediatorCallback;
 import com.android.systemui.BatteryMeterView;
 import com.android.systemui.DemoMode;
@@ -184,7 +185,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         HeadsUpManager.OnHeadsUpChangedListener {
     static final String TAG = "PhoneStatusBar";
     public static final boolean DEBUG = BaseStatusBar.DEBUG;
-    public static final boolean DEBUG_EMPTY_KEYGUARD = true;
     public static final boolean SPEW = false;
     public static final boolean DUMPTRUCK = true; // extra dumpsys info
     public static final boolean DEBUG_GESTURES = false;
@@ -197,6 +197,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     public static final boolean CHATTY = DEBUG;
 
     public static final boolean SHOW_LOCKSCREEN_MEDIA_ARTWORK = true;
+
+    public static final String ACTION_FAKE_ARTWORK = "fake_artwork";
 
     private static final int MSG_OPEN_NOTIFICATION_PANEL = 1000;
     private static final int MSG_CLOSE_PANELS = 1001;
@@ -364,6 +366,9 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                 mUserSetup = userSetup;
                 if (!mUserSetup && mStatusBarView != null)
                     animateCollapseQuickSettings();
+                if (mKeyguardBottomArea != null) {
+                    mKeyguardBottomArea.setUserSetupComplete(mUserSetup);
+                }
             }
             if (mIconPolicy != null) {
                 mIconPolicy.setCurrentUserSetup(mUserSetup);
@@ -434,6 +439,12 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         public void onPlaybackStateChanged(PlaybackState state) {
             super.onPlaybackStateChanged(state);
             if (DEBUG_MEDIA) Log.v(TAG, "DEBUG_MEDIA: onPlaybackStateChanged: " + state);
+            if (state != null) {
+                if (!isPlaybackActive(state.getState())) {
+                    clearCurrentMediaNotification();
+                    updateMediaMetaData(true);
+                }
+            }
         }
 
         @Override
@@ -591,7 +602,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         addNavigationBar();
 
         // Lastly, call to the icon policy to install/update all the icons.
-        mIconPolicy = new PhoneStatusBarPolicy(mContext, mCastController, mHotspotController);
+        mIconPolicy = new PhoneStatusBarPolicy(mContext, mCastController, mHotspotController,
+                mUserInfoController, mBluetoothController);
         mIconPolicy.setCurrentUserSetup(mUserSetup);
         mSettingsObserver.onChange(false); // set up
 
@@ -834,12 +846,14 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         mFlashlightController = new FlashlightController(mContext);
         mKeyguardBottomArea.setFlashlightController(mFlashlightController);
         mKeyguardBottomArea.setPhoneStatusBar(this);
+        mKeyguardBottomArea.setUserSetupComplete(mUserSetup);
         mAccessibilityController = new AccessibilityController(mContext);
         mKeyguardBottomArea.setAccessibilityController(mAccessibilityController);
         mNextAlarmController = new NextAlarmController(mContext);
         mKeyguardMonitor = new KeyguardMonitor(mContext);
         if (UserSwitcherController.isUserSwitcherAvailable(UserManager.get(mContext))) {
-            mUserSwitcherController = new UserSwitcherController(mContext, mKeyguardMonitor);
+            mUserSwitcherController = new UserSwitcherController(mContext, mKeyguardMonitor,
+                    mHandler);
         }
         mKeyguardUserSwitcher = new KeyguardUserSwitcher(mContext,
                 (ViewStub) mStatusBarWindow.findViewById(R.id.keyguard_user_switcher),
@@ -890,11 +904,15 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         filter.addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
-        if (DEBUG_MEDIA_FAKE_ARTWORK) {
-            filter.addAction("fake_artwork");
-        }
-        filter.addAction(ACTION_DEMO);
         context.registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL, filter, null, null);
+
+        IntentFilter demoFilter = new IntentFilter();
+        if (DEBUG_MEDIA_FAKE_ARTWORK) {
+            demoFilter.addAction(ACTION_FAKE_ARTWORK);
+        }
+        demoFilter.addAction(ACTION_DEMO);
+        context.registerReceiverAsUser(mDemoReceiver, UserHandle.ALL, demoFilter,
+                android.Manifest.permission.DUMP, null);
 
         // listen for USER_SETUP_COMPLETE setting (per-user)
         resetUserSetupObserver();
@@ -1038,8 +1056,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             if (shouldDisableNavbarGestures()) {
                 return false;
             }
-            mAssistManager.prepareBeforeInvocation();
-            mAssistManager.onGestureInvoked();
+            MetricsLogger.action(mContext, MetricsLogger.ACTION_ASSIST_LONG_PRESS);
+            mAssistManager.startAssist(new Bundle() /* args */);
             awakenDreams();
             if (mNavigationBarView != null) {
                 mNavigationBarView.abortCurrentGesture();
@@ -1193,6 +1211,10 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         boolean deferRemoval = false;
         if (mHeadsUpManager.isHeadsUp(key)) {
             deferRemoval = !mHeadsUpManager.removeNotification(key);
+        }
+        if (key.equals(mMediaNotificationKey)) {
+            clearCurrentMediaNotification();
+            updateMediaMetaData(true);
         }
         if (deferRemoval) {
             mLatestRankingMap = ranking;
@@ -1487,23 +1509,31 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         synchronized (mNotificationData) {
             ArrayList<Entry> activeNotifications = mNotificationData.getActiveNotifications();
             final int N = activeNotifications.size();
+
+            // Promote the media notification with a controller in 'playing' state, if any.
             Entry mediaNotification = null;
             MediaController controller = null;
             for (int i = 0; i < N; i++) {
                 final Entry entry = activeNotifications.get(i);
                 if (isMediaNotification(entry)) {
-                    final MediaSession.Token token = entry.notification.getNotification().extras
+                    final MediaSession.Token token =
+                            entry.notification.getNotification().extras
                             .getParcelable(Notification.EXTRA_MEDIA_SESSION);
                     if (token != null) {
-                        controller = new MediaController(mContext, token);
-                        if (controller != null) {
-                            // we've got a live one, here
+                        MediaController aController = new MediaController(mContext, token);
+                        if (PlaybackState.STATE_PLAYING ==
+                                getMediaControllerPlaybackState(aController)) {
+                            if (DEBUG_MEDIA) {
+                                Log.v(TAG, "DEBUG_MEDIA: found mediastyle controller matching "
+                                        + entry.notification.getKey());
+                            }
                             mediaNotification = entry;
+                            controller = aController;
+                            break;
                         }
                     }
                 }
             }
-
             if (mediaNotification == null) {
                 // Still nothing? OK, let's just look for live media sessions and see if they match
                 // one of our notifications. This will catch apps that aren't (yet!) using media
@@ -1516,81 +1546,86 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                                     UserHandle.USER_ALL);
 
                     for (MediaController aController : sessions) {
-                        if (aController == null) continue;
-                        final PlaybackState state = aController.getPlaybackState();
-                        if (state == null) continue;
-                        switch (state.getState()) {
-                            case PlaybackState.STATE_STOPPED:
-                            case PlaybackState.STATE_ERROR:
-                                continue;
-                            default:
-                                // now to see if we have one like this
-                                final String pkg = aController.getPackageName();
+                        if (PlaybackState.STATE_PLAYING ==
+                                getMediaControllerPlaybackState(aController)) {
+                            // now to see if we have one like this
+                            final String pkg = aController.getPackageName();
 
-                                for (int i = 0; i < N; i++) {
-                                    final Entry entry = activeNotifications.get(i);
-                                    if (entry.notification.getPackageName().equals(pkg)) {
-                                        if (DEBUG_MEDIA) {
-                                            Log.v(TAG, "DEBUG_MEDIA: found controller matching "
-                                                + entry.notification.getKey());
-                                        }
-                                        controller = aController;
-                                        mediaNotification = entry;
-                                        break;
+                            for (int i = 0; i < N; i++) {
+                                final Entry entry = activeNotifications.get(i);
+                                if (entry.notification.getPackageName().equals(pkg)) {
+                                    if (DEBUG_MEDIA) {
+                                        Log.v(TAG, "DEBUG_MEDIA: found controller matching "
+                                            + entry.notification.getKey());
                                     }
+                                    controller = aController;
+                                    mediaNotification = entry;
+                                    break;
                                 }
+                            }
                         }
                     }
                 }
             }
 
-            if (!sameSessions(mMediaController, controller)) {
+            if (controller != null && !sameSessions(mMediaController, controller)) {
                 // We have a new media session
-
-                if (mMediaController != null) {
-                    // something old was playing
-                    Log.v(TAG, "DEBUG_MEDIA: Disconnecting from old controller: "
-                            + mMediaController);
-                    mMediaController.unregisterCallback(mMediaListener);
-                }
+                clearCurrentMediaNotification();
                 mMediaController = controller;
-
-                if (mMediaController != null) {
-                    mMediaController.registerCallback(mMediaListener);
-                    mMediaMetadata = mMediaController.getMetadata();
-                    if (DEBUG_MEDIA) {
-                        Log.v(TAG, "DEBUG_MEDIA: insert listener, receive metadata: "
-                                + mMediaMetadata);
-                    }
-
-                    final String notificationKey = mediaNotification == null
-                            ? null
-                            : mediaNotification.notification.getKey();
-
-                    if (notificationKey == null || !notificationKey.equals(mMediaNotificationKey)) {
-                        // we have a new notification!
-                        if (DEBUG_MEDIA) {
-                            Log.v(TAG, "DEBUG_MEDIA: Found new media notification: key="
-                                    + notificationKey + " controller=" + controller);
-                        }
-                        mMediaNotificationKey = notificationKey;
-                    }
-                } else {
-                    mMediaMetadata = null;
-                    mMediaNotificationKey = null;
-                }
-
-                metaDataChanged = true;
-            } else {
-                // Media session unchanged
-
+                mMediaController.registerCallback(mMediaListener);
+                mMediaMetadata = mMediaController.getMetadata();
                 if (DEBUG_MEDIA) {
-                    Log.v(TAG, "DEBUG_MEDIA: Continuing media notification: key=" + mMediaNotificationKey);
+                    Log.v(TAG, "DEBUG_MEDIA: insert listener, receive metadata: "
+                            + mMediaMetadata);
                 }
+
+                if (mediaNotification != null) {
+                    mMediaNotificationKey = mediaNotification.notification.getKey();
+                    if (DEBUG_MEDIA) {
+                        Log.v(TAG, "DEBUG_MEDIA: Found new media notification: key="
+                                + mMediaNotificationKey + " controller=" + mMediaController);
+                    }
+                }
+                metaDataChanged = true;
             }
         }
 
+        if (metaDataChanged) {
+            updateNotifications();
+        }
         updateMediaMetaData(metaDataChanged);
+    }
+
+    private int getMediaControllerPlaybackState(MediaController controller) {
+        if (controller != null) {
+            final PlaybackState playbackState = controller.getPlaybackState();
+            if (playbackState != null) {
+                return playbackState.getState();
+            }
+        }
+        return PlaybackState.STATE_NONE;
+    }
+
+    private boolean isPlaybackActive(int state) {
+        if (state != PlaybackState.STATE_STOPPED
+                && state != PlaybackState.STATE_ERROR
+                && state != PlaybackState.STATE_NONE) {
+            return true;
+        }
+        return false;
+    }
+
+    private void clearCurrentMediaNotification() {
+        mMediaNotificationKey = null;
+        mMediaMetadata = null;
+        if (mMediaController != null) {
+            if (DEBUG_MEDIA) {
+                Log.v(TAG, "DEBUG_MEDIA: Disconnecting from old controller: "
+                        + mMediaController.getPackageName());
+            }
+            mMediaController.unregisterCallback(mMediaListener);
+        }
+        mMediaController = null;
     }
 
     private boolean sameSessions(MediaController a, MediaController b) {
@@ -1658,7 +1693,8 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             }
             if (metaDataChanged) {
                 if (mBackdropBack.getDrawable() != null) {
-                    Drawable drawable = mBackdropBack.getDrawable();
+                    Drawable drawable =
+                            mBackdropBack.getDrawable().getConstantState().newDrawable().mutate();
                     mBackdropFront.setImageDrawable(drawable);
                     if (mScrimSrcModeEnabled) {
                         mBackdropFront.getDrawable().mutate().setXfermode(mSrcOverXferMode);
@@ -1701,7 +1737,10 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                     Log.v(TAG, "DEBUG_MEDIA: Fading out album artwork");
                 }
                 mBackdrop.animate()
-                        .alpha(0f)
+                        // Never let the alpha become zero - otherwise the RenderNode
+                        // won't draw anything and uninitialized memory will show through
+                        // if mScrimSrcModeEnabled. Note that 0.001 is rounded down to 0 in libhwui.
+                        .alpha(0.002f)
                         .setInterpolator(mBackdropInterpolator)
                         .setDuration(300)
                         .setStartDelay(0)
@@ -1728,7 +1767,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     }
 
     private int adjustDisableFlags(int state) {
-        if (!mLaunchTransitionFadingAway
+        if (!mLaunchTransitionFadingAway && !mKeyguardFadingAway
                 && (mExpandedVisible || mBouncerShowing || mWaitingForKeyguardExit)) {
             state |= StatusBarManager.DISABLE_NOTIFICATION_ICONS;
             state |= StatusBarManager.DISABLE_SYSTEM_INFO;
@@ -1999,15 +2038,11 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     }
 
     public boolean isKeyguardCurrentlySecure() {
-        return !mUnlockMethodCache.isCurrentlyInsecure();
+        return !mUnlockMethodCache.canSkipBouncer();
     }
 
     public void setPanelExpanded(boolean isExpanded) {
         mStatusBarWindowManager.setPanelExpanded(isExpanded);
-    }
-
-    public void endWindowManagerLogging() {
-        mStatusBarWindowManager.setLogState(false);
     }
 
     /**
@@ -2072,7 +2107,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         // Expand the window to encompass the full screen in anticipation of the drag.
         // This is only possible to do atomically because the status bar is at the top of the screen!
         mStatusBarWindowManager.setPanelVisible(true);
-        mStatusBarView.setFocusable(false);
 
         visibilityChanged(true);
         mWaitingForKeyguardExit = false;
@@ -2204,7 +2238,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         // Shrink the window to the size of the status bar only
         mStatusBarWindowManager.setPanelVisible(false);
         mStatusBarWindowManager.setForceStatusBarVisible(false);
-        mStatusBarView.setFocusable(true);
 
         // Close any "App info" popups that might have snuck on-screen
         dismissPopups();
@@ -2672,12 +2705,17 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             pw.print("  status bar gestures: ");
             mGestureRec.dump(fd, pw, args);
         }
-
+        if (mStatusBarWindowManager != null) {
+            mStatusBarWindowManager.dump(fd, pw, args);
+        }
         if (mNetworkController != null) {
             mNetworkController.dump(fd, pw, args);
         }
         if (mBluetoothController != null) {
             mBluetoothController.dump(fd, pw, args);
+        }
+        if (mHotspotController != null) {
+            mHotspotController.dump(fd, pw, args);
         }
         if (mCastController != null) {
             mCastController.dump(fd, pw, args);
@@ -2701,6 +2739,9 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             mHeadsUpManager.dump(fd, pw, args);
         } else {
             pw.println("  mHeadsUpManager: null");
+        }
+        if (KeyguardUpdateMonitor.getInstance(mContext) != null) {
+            KeyguardUpdateMonitor.getInstance(mContext).dump(fd, pw, args);
         }
 
         pw.println("SharedPreferences:");
@@ -2848,7 +2889,14 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                 mScreenOn = true;
                 notifyNavigationBarScreenOn(true);
             }
-            else if (ACTION_DEMO.equals(action)) {
+        }
+    };
+
+    private BroadcastReceiver mDemoReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            if (DEBUG) Log.v(TAG, "onReceive: " + intent);
+            String action = intent.getAction();
+            if (ACTION_DEMO.equals(action)) {
                 Bundle bundle = intent.getExtras();
                 if (bundle != null) {
                     String command = bundle.getString("command", "").trim().toLowerCase();
@@ -2860,7 +2908,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                         }
                     }
                 }
-            } else if ("fake_artwork".equals(action)) {
+            } else if (ACTION_FAKE_ARTWORK.equals(action)) {
                 if (DEBUG_MEDIA_FAKE_ARTWORK) {
                     updateMediaMetaData(true);
                 }
@@ -2909,7 +2957,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         updateRowStates();
         mIconController.updateResources();
         mScreenPinningRequest.onConfigurationChanged();
-        mNetworkController.handleConfigurationChanged();
+        mNetworkController.onConfigurationChanged();
     }
 
     @Override
@@ -3031,11 +3079,14 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         }
 
         final int N = newlyVisible.size();
-        String[] newlyVisibleKeyAr = new String[N];
-        for (int i = 0; i < N; i++) {
-            newlyVisibleKeyAr[i] = newlyVisibleAr[i].key;
+        if (N > 0) {
+            String[] newlyVisibleKeyAr = new String[N];
+            for (int i = 0; i < N; i++) {
+                newlyVisibleKeyAr[i] = newlyVisibleAr[i].key;
+            }
+
+            setNotificationsShown(newlyVisibleKeyAr);
         }
-        setNotificationsShown(newlyVisibleKeyAr);
     }
 
     // State logging
@@ -3045,20 +3096,20 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         boolean isOccluded = mStatusBarKeyguardViewManager.isOccluded();
         boolean isBouncerShowing = mStatusBarKeyguardViewManager.isBouncerShowing();
         boolean isSecure = mUnlockMethodCache.isMethodSecure();
-        boolean isCurrentlyInsecure = mUnlockMethodCache.isCurrentlyInsecure();
+        boolean canSkipBouncer = mUnlockMethodCache.canSkipBouncer();
         int stateFingerprint = getLoggingFingerprint(mState,
                 isShowing,
                 isOccluded,
                 isBouncerShowing,
                 isSecure,
-                isCurrentlyInsecure);
+                canSkipBouncer);
         if (stateFingerprint != mLastLoggedStateFingerprint) {
             EventLogTags.writeSysuiStatusBarState(mState,
                     isShowing ? 1 : 0,
                     isOccluded ? 1 : 0,
                     isBouncerShowing ? 1 : 0,
                     isSecure ? 1 : 0,
-                    isCurrentlyInsecure ? 1 : 0);
+                    canSkipBouncer ? 1 : 0);
             mLastLoggedStateFingerprint = stateFingerprint;
         }
     }
@@ -3113,9 +3164,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
 
     @Override
     public boolean shouldDisableNavbarGestures() {
-        return !isDeviceProvisioned()
-                || mExpandedVisible
-                || (mDisabled1 & StatusBarManager.DISABLE_SEARCH) != 0;
+        return !isDeviceProvisioned() || (mDisabled1 & StatusBarManager.DISABLE_SEARCH) != 0;
     }
 
     public void postStartActivityDismissingKeyguard(final Intent intent, int delay) {
@@ -3181,6 +3230,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             mHandlerThread = null;
         }
         mContext.unregisterReceiver(mBroadcastReceiver);
+        mContext.unregisterReceiver(mDemoReceiver);
         mAssistManager.destroy();
 
         final SignalClusterView signalCluster =
@@ -3204,7 +3254,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     public void dispatchDemoCommand(String command, Bundle args) {
         if (!mDemoModeAllowed) {
             mDemoModeAllowed = Settings.Global.getInt(mContext.getContentResolver(),
-                    "sysui_demo_allowed", 0) != 0;
+                    DEMO_MODE_ALLOWED, 0) != 0;
         }
         if (!mDemoModeAllowed) return;
         if (command.equals(COMMAND_ENTER)) {
@@ -3304,6 +3354,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
             mDraggedDownRow.notifyHeightChanged(false  /* needsAnimation */);
             mDraggedDownRow = null;
         }
+        mAssistManager.onLockscreenShown();
     }
 
     private void onLaunchTransitionFadingEnded() {
@@ -3453,7 +3504,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
                 startTime + fadeoutDuration
                         - StatusBarIconController.DEFAULT_TINT_ANIMATION_DURATION,
                 StatusBarIconController.DEFAULT_TINT_ANIMATION_DURATION);
-        disable(mDisabledUnmodified1, mDisabledUnmodified2, true /* animate */);
+        disable(mDisabledUnmodified1, mDisabledUnmodified2, fadeoutDuration > 0 /* animate */);
     }
 
     public boolean isKeyguardFadingAway() {
@@ -3583,9 +3634,6 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         // Make our window larger and the panel expanded.
         makeExpandedVisible(true);
         mNotificationPanel.instantExpand();
-        if (DEBUG_EMPTY_KEYGUARD) {
-            mStatusBarWindowManager.setLogState(true);
-        }
     }
 
     private void instantCollapseNotificationPanel() {
@@ -3613,12 +3661,9 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
         // down on the lockscreen), clear notification LED, vibration,
         // ringing.
         // Other transitions are covered in handleVisibleToUserChanged().
-        if (state != mState && mVisible && state == StatusBarState.SHADE_LOCKED) {
-            try {
-                mBarService.clearNotificationEffects();
-            } catch (RemoteException e) {
-                // Ignore.
-            }
+        if (state != mState && mVisible && (state == StatusBarState.SHADE_LOCKED
+                || (state == StatusBarState.SHADE && isGoingToNotificationShade()))) {
+            clearNotificationEffects();
         }
         mState = state;
         mGroupManager.setStatusBarState(state);
@@ -3665,7 +3710,7 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
 
     public void onTrackingStopped(boolean expand) {
         if (mState == StatusBarState.KEYGUARD || mState == StatusBarState.SHADE_LOCKED) {
-            if (!expand && !mUnlockMethodCache.isCurrentlyInsecure()) {
+            if (!expand && !mUnlockMethodCache.canSkipBouncer()) {
                 showBouncer();
             }
         }
@@ -3786,9 +3831,12 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     public void onScreenTurnedOn() {
         mScreenOnFromKeyguard = true;
         mStackScroller.setAnimationsEnabled(true);
-        mNotificationPanel.onScreenTurnedOn();
         mNotificationPanel.setTouchDisabled(false);
         updateVisibleToUser();
+    }
+
+    public void onScreenTurningOn() {
+        mNotificationPanel.onScreenTurningOn();
     }
 
     /**
@@ -3904,11 +3952,11 @@ public class PhoneStatusBar extends BaseStatusBar implements DemoMode,
     public void wakeUpIfDozing(long time, MotionEvent event) {
         if (mDozing && mDozeScrimController.isPulsing()) {
             PowerManager pm = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
-            pm.wakeUp(time);
+            pm.wakeUp(time, "com.android.systemui:NODOZE");
             mScreenOnComingFromTouch = true;
             mScreenOnTouchLocation = new PointF(event.getX(), event.getY());
             mNotificationPanel.setTouchDisabled(false);
-            mStatusBarKeyguardViewManager.notifyScreenWakeUpRequested();
+            mStatusBarKeyguardViewManager.notifyDeviceWakeUpRequested();
         }
     }
 

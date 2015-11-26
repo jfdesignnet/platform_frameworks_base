@@ -22,6 +22,7 @@ import static android.Manifest.permission.DUMP;
 import static android.Manifest.permission.MANAGE_NETWORK_POLICY;
 import static android.Manifest.permission.READ_NETWORK_USAGE_HISTORY;
 import static android.Manifest.permission.READ_PHONE_STATE;
+import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
 import static android.content.Intent.ACTION_PACKAGE_ADDED;
 import static android.content.Intent.ACTION_UID_REMOVED;
 import static android.content.Intent.ACTION_USER_ADDED;
@@ -38,6 +39,7 @@ import static android.net.NetworkPolicy.WARNING_DISABLED;
 import static android.net.NetworkPolicyManager.EXTRA_NETWORK_TEMPLATE;
 import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_DOZABLE;
 import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_STANDBY;
+import static android.net.NetworkPolicyManager.FIREWALL_RULE_DEFAULT;
 import static android.net.NetworkPolicyManager.FIREWALL_RULE_ALLOW;
 import static android.net.NetworkPolicyManager.FIREWALL_RULE_DENY;
 import static android.net.NetworkPolicyManager.POLICY_ALLOW_BACKGROUND_BATTERY_SAVE;
@@ -45,7 +47,6 @@ import static android.net.NetworkPolicyManager.POLICY_NONE;
 import static android.net.NetworkPolicyManager.POLICY_REJECT_METERED_BACKGROUND;
 import static android.net.NetworkPolicyManager.RULE_ALLOW_ALL;
 import static android.net.NetworkPolicyManager.RULE_REJECT_METERED;
-import static android.net.NetworkPolicyManager.RULE_REJECT_ALL;
 import static android.net.NetworkPolicyManager.computeLastCycleBoundary;
 import static android.net.NetworkPolicyManager.dumpPolicy;
 import static android.net.NetworkPolicyManager.dumpRules;
@@ -146,6 +147,7 @@ import android.util.SparseIntArray;
 import android.util.TrustedTime;
 import android.util.Xml;
 
+import com.android.server.DeviceIdleController;
 import com.android.server.EventLogTags;
 import libcore.io.IoUtils;
 
@@ -282,6 +284,13 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
 
     /**
      * UIDs that have been white-listed to always be able to have network access
+     * in power save mode, except device idle (doze) still applies.
+     * TODO: An int array might be sufficient
+     */
+    private final SparseBooleanArray mPowerSaveWhitelistExceptIdleAppIds = new SparseBooleanArray();
+
+    /**
+     * UIDs that have been white-listed to always be able to have network access
      * in power save mode.
      * TODO: An int array might be sufficient
      */
@@ -299,9 +308,6 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
 
     /** Foreground at UID granularity. */
     final SparseIntArray mUidState = new SparseIntArray();
-
-    /** The current maximum process state that we are considering to be foreground. */
-    private int mCurForegroundState = ActivityManager.PROCESS_STATE_TOP;
 
     private final RemoteCallbackList<INetworkPolicyListener>
             mListeners = new RemoteCallbackList<>();
@@ -363,7 +369,14 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
 
     void updatePowerSaveWhitelistLocked() {
         try {
-            final int[] whitelist = mDeviceIdleController.getAppIdWhitelist();
+            int[] whitelist = mDeviceIdleController.getAppIdWhitelistExceptIdle();
+            mPowerSaveWhitelistExceptIdleAppIds.clear();
+            if (whitelist != null) {
+                for (int uid : whitelist) {
+                    mPowerSaveWhitelistExceptIdleAppIds.put(uid, true);
+                }
+            }
+            whitelist = mDeviceIdleController.getAppIdWhitelist();
             mPowerSaveWhitelistAppIds.clear();
             if (whitelist != null) {
                 for (int uid : whitelist) {
@@ -423,7 +436,6 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
                         if (mRestrictPower != enabled) {
                             mRestrictPower = enabled;
                             updateRulesForGlobalChangeLocked(true);
-                            updateRulesForTempWhitelistChangeLocked();
                         }
                     }
                 }
@@ -435,9 +447,12 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
             readPolicyLocked();
 
             if (mRestrictBackground || mRestrictPower || mDeviceIdleMode) {
-                updateRulesForGlobalChangeLocked(true);
-                updateRulesForTempWhitelistChangeLocked();
+                updateRulesForGlobalChangeLocked(false);
                 updateNotificationsLocked();
+            } else {
+                // If we are not in any special mode, we just need to make sure the current
+                // app idle state is updated.
+                updateRulesForAppIdleLocked();
             }
         }
 
@@ -461,8 +476,11 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         // listen for changes to power save whitelist
         final IntentFilter whitelistFilter = new IntentFilter(
                 PowerManager.ACTION_POWER_SAVE_WHITELIST_CHANGED);
-        whitelistFilter.addAction(PowerManager.ACTION_POWER_SAVE_TEMP_WHITELIST_CHANGED);
         mContext.registerReceiver(mPowerSaveWhitelistReceiver, whitelistFilter, null, mHandler);
+
+        DeviceIdleController.LocalService deviceIdleService
+                = LocalServices.getService(DeviceIdleController.LocalService.class);
+        deviceIdleService.setNetworkPolicyTempWhitelistCallback(mTempPowerSaveChangedCallback);
 
         // watch for network interfaces to be claimed
         final IntentFilter connFilter = new IntentFilter(CONNECTIVITY_ACTION);
@@ -511,7 +529,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
 
     }
 
-    private IUidObserver mUidObserver = new IUidObserver.Stub() {
+    final private IUidObserver mUidObserver = new IUidObserver.Stub() {
         @Override public void onUidStateChanged(int uid, int procState) throws RemoteException {
             synchronized (mRulesLock) {
                 updateUidStateLocked(uid, procState);
@@ -525,24 +543,29 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         }
     };
 
-    private BroadcastReceiver mPowerSaveWhitelistReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mPowerSaveWhitelistReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and POWER_SAVE_WHITELIST_CHANGED is protected
             synchronized (mRulesLock) {
-                if (PowerManager.ACTION_POWER_SAVE_WHITELIST_CHANGED.equals(intent.getAction())) {
-                    updatePowerSaveWhitelistLocked();
-                    updateRulesForGlobalChangeLocked(false);
-                } else {
-                    updatePowerSaveTempWhitelistLocked();
-                    updateRulesForTempWhitelistChangeLocked();
-                    purgePowerSaveTempWhitelistLocked();
-                }
+                updatePowerSaveWhitelistLocked();
+                updateRulesForGlobalChangeLocked(false);
             }
         }
     };
 
-    private BroadcastReceiver mScreenReceiver = new BroadcastReceiver() {
+    final private Runnable mTempPowerSaveChangedCallback = new Runnable() {
+        @Override
+        public void run() {
+            synchronized (mRulesLock) {
+                updatePowerSaveTempWhitelistLocked();
+                updateRulesForTempWhitelistChangeLocked();
+                purgePowerSaveTempWhitelistLocked();
+            }
+        }
+    };
+
+    final private BroadcastReceiver mScreenReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // screen-related broadcasts are protected by system, no need
@@ -551,7 +574,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         }
     };
 
-    private BroadcastReceiver mPackageReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mPackageReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and PACKAGE_ADDED is protected
@@ -571,7 +594,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         }
     };
 
-    private BroadcastReceiver mUidRemovedReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mUidRemovedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and UID_REMOVED is protected
@@ -589,7 +612,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         }
     };
 
-    private BroadcastReceiver mUserReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mUserReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and USER_ADDED and USER_REMOVED
@@ -618,7 +641,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
      * Receiver that watches for {@link INetworkStatsService} updates, which we
      * use to check against {@link NetworkPolicy#warningBytes}.
      */
-    private BroadcastReceiver mStatsReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mStatsReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and verified
@@ -636,7 +659,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
      * Receiver that watches for {@link Notification} control of
      * {@link #mRestrictBackground}.
      */
-    private BroadcastReceiver mAllowReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mAllowReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and verified MANAGE_NETWORK_POLICY
@@ -650,7 +673,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
      * Receiver that watches for {@link Notification} control of
      * {@link NetworkPolicy#lastWarningSnooze}.
      */
-    private BroadcastReceiver mSnoozeWarningReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mSnoozeWarningReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and verified MANAGE_NETWORK_POLICY
@@ -664,7 +687,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
     /**
      * Receiver that watches for {@link WifiConfiguration} to be changed.
      */
-    private BroadcastReceiver mWifiConfigReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mWifiConfigReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and verified CONNECTIVITY_INTERNAL
@@ -691,7 +714,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
      * Receiver that watches {@link WifiInfo} state changes to infer metered
      * state. Ignores hints when policy is user-defined.
      */
-    private BroadcastReceiver mWifiStateReceiver = new BroadcastReceiver() {
+    final private BroadcastReceiver mWifiStateReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             // on background handler thread, and verified CONNECTIVITY_INTERNAL
@@ -731,7 +754,8 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
     /**
      * Observer that watches for {@link INetworkManagementService} alerts.
      */
-    private INetworkManagementEventObserver mAlertObserver = new BaseNetworkObserver() {
+    final private INetworkManagementEventObserver mAlertObserver
+            = new BaseNetworkObserver() {
         @Override
         public void limitReached(String limitName, String iface) {
             // only someone like NMS should be calling us
@@ -1509,9 +1533,14 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         }
 
         synchronized (mRulesLock) {
-            final int oldPolicy = mUidPolicy.get(uid, POLICY_NONE);
-            if (oldPolicy != policy) {
-                setUidPolicyUncheckedLocked(uid, policy, true);
+            final long token = Binder.clearCallingIdentity();
+            try {
+                final int oldPolicy = mUidPolicy.get(uid, POLICY_NONE);
+                if (oldPolicy != policy) {
+                    setUidPolicyUncheckedLocked(uid, policy, true);
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
             }
         }
     }
@@ -1651,11 +1680,17 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
     @Override
     public NetworkPolicy[] getNetworkPolicies(String callingPackage) {
         mContext.enforceCallingOrSelfPermission(MANAGE_NETWORK_POLICY, TAG);
-        mContext.enforceCallingOrSelfPermission(READ_PHONE_STATE, TAG);
+        try {
+            mContext.enforceCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE, TAG);
+            // SKIP checking run-time OP_READ_PHONE_STATE since caller or self has PRIVILEGED
+            // permission
+        } catch (SecurityException e) {
+            mContext.enforceCallingOrSelfPermission(READ_PHONE_STATE, TAG);
 
-        if (mAppOps.noteOp(AppOpsManager.OP_READ_PHONE_STATE, Binder.getCallingUid(),
-                callingPackage) != AppOpsManager.MODE_ALLOWED) {
-            return new NetworkPolicy[0];
+            if (mAppOps.noteOp(AppOpsManager.OP_READ_PHONE_STATE, Binder.getCallingUid(),
+                    callingPackage) != AppOpsManager.MODE_ALLOWED) {
+                return new NetworkPolicy[0];
+            }
         }
 
         synchronized (mRulesLock) {
@@ -1739,7 +1774,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         maybeRefreshTrustedTime();
         synchronized (mRulesLock) {
             mRestrictBackground = restrictBackground;
-            updateRulesForGlobalChangeLocked(false);
+            updateRulesForGlobalChangeLocked(true);
             updateNotificationsLocked();
             writePolicyLocked();
         }
@@ -1885,7 +1920,6 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
             fout.print("Restrict background: "); fout.println(mRestrictBackground);
             fout.print("Restrict power: "); fout.println(mRestrictPower);
             fout.print("Device idle: "); fout.println(mDeviceIdleMode);
-            fout.print("Current foreground state: "); fout.println(mCurForegroundState);
             fout.println("Network policies:");
             fout.increaseIndent();
             for (int i = 0; i < mNetworkPolicy.size(); i++) {
@@ -1908,6 +1942,20 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
                 fout.println();
             }
             fout.decreaseIndent();
+
+            size = mPowerSaveWhitelistExceptIdleAppIds.size();
+            if (size > 0) {
+                fout.println("Power save whitelist (except idle) app ids:");
+                fout.increaseIndent();
+                for (int i = 0; i < size; i++) {
+                    fout.print("UID=");
+                    fout.print(mPowerSaveWhitelistExceptIdleAppIds.keyAt(i));
+                    fout.print(": ");
+                    fout.print(mPowerSaveWhitelistExceptIdleAppIds.valueAt(i));
+                    fout.println();
+                }
+                fout.decreaseIndent();
+            }
 
             size = mPowerSaveWhitelistAppIds.size();
             if (size > 0) {
@@ -1938,7 +1986,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
                 int state = mUidState.get(uid, ActivityManager.PROCESS_STATE_CACHED_EMPTY);
                 fout.print(" state=");
                 fout.print(state);
-                fout.print(state <= mCurForegroundState ? " (fg)" : " (bg)");
+                fout.print(state <= ActivityManager.PROCESS_STATE_TOP ? " (fg)" : " (bg)");
 
                 fout.print(" rules=");
                 final int rulesIndex = mUidRules.indexOfKey(uid);
@@ -1966,7 +2014,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
     boolean isUidForegroundLocked(int uid) {
         // only really in foreground when screen is also on
         return mScreenOn && mUidState.get(uid, ActivityManager.PROCESS_STATE_CACHED_EMPTY)
-                <= mCurForegroundState;
+                <= ActivityManager.PROCESS_STATE_TOP;
     }
 
     /**
@@ -1979,6 +2027,10 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
             // state changed, push updated rules
             mUidState.put(uid, uidState);
             updateRulesForUidStateChangeLocked(uid, oldUidState, uidState);
+            if (mDeviceIdleMode && isProcStateAllowedWhileIdle(oldUidState)
+                    != isProcStateAllowedWhileIdle(uidState)) {
+                updateRulesForDeviceIdleLocked();
+            }
         }
     }
 
@@ -1990,13 +2042,16 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
             if (oldUidState != ActivityManager.PROCESS_STATE_CACHED_EMPTY) {
                 updateRulesForUidStateChangeLocked(uid, oldUidState,
                         ActivityManager.PROCESS_STATE_CACHED_EMPTY);
+                if (mDeviceIdleMode) {
+                    updateRulesForDeviceIdleLocked();
+                }
             }
         }
     }
 
     void updateRulesForUidStateChangeLocked(int uid, int oldUidState, int newUidState) {
-        final boolean oldForeground = oldUidState <= mCurForegroundState;
-        final boolean newForeground = newUidState <= mCurForegroundState;
+        final boolean oldForeground = oldUidState <= ActivityManager.PROCESS_STATE_TOP;
+        final boolean newForeground = newUidState <= ActivityManager.PROCESS_STATE_TOP;
         if (oldForeground != newForeground) {
             updateRulesForUidLocked(uid);
         }
@@ -2020,11 +2075,15 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         // only update rules for anyone with foreground activities
         final int size = mUidState.size();
         for (int i = 0; i < size; i++) {
-            if (mUidState.valueAt(i) <= mCurForegroundState) {
+            if (mUidState.valueAt(i) <= ActivityManager.PROCESS_STATE_TOP) {
                 final int uid = mUidState.keyAt(i);
                 updateRulesForUidLocked(uid);
             }
         }
+    }
+
+    static boolean isProcStateAllowedWhileIdle(int procState) {
+        return procState <= ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE;
     }
 
     void updateRulesForDeviceIdleLocked() {
@@ -2033,11 +2092,14 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
             // we are disabling the chain.
             SparseIntArray uidRules = new SparseIntArray();
             final List<UserInfo> users = mUserManager.getUsers();
-            for (UserInfo user : users) {
+            for (int ui = users.size() - 1; ui >= 0; ui--) {
+                UserInfo user = users.get(ui);
                 for (int i = mPowerSaveTempWhitelistAppIds.size() - 1; i >= 0; i--) {
-                    int appId = mPowerSaveTempWhitelistAppIds.keyAt(i);
-                    int uid = UserHandle.getUid(user.id, appId);
-                    uidRules.put(uid, FIREWALL_RULE_ALLOW);
+                    if (mPowerSaveTempWhitelistAppIds.valueAt(i)) {
+                        int appId = mPowerSaveTempWhitelistAppIds.keyAt(i);
+                        int uid = UserHandle.getUid(user.id, appId);
+                        uidRules.put(uid, FIREWALL_RULE_ALLOW);
+                    }
                 }
                 for (int i = mPowerSaveWhitelistAppIds.size() - 1; i >= 0; i--) {
                     int appId = mPowerSaveWhitelistAppIds.keyAt(i);
@@ -2045,9 +2107,53 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
                     uidRules.put(uid, FIREWALL_RULE_ALLOW);
                 }
             }
+            for (int i = mUidState.size() - 1; i >= 0; i--) {
+                if (isProcStateAllowedWhileIdle(mUidState.valueAt(i))) {
+                    uidRules.put(mUidState.keyAt(i), FIREWALL_RULE_ALLOW);
+                }
+            }
             setUidFirewallRules(FIREWALL_CHAIN_DOZABLE, uidRules);
         }
         enableFirewallChainLocked(FIREWALL_CHAIN_DOZABLE, mDeviceIdleMode);
+    }
+
+    void updateRuleForDeviceIdleLocked(int uid) {
+        if (mDeviceIdleMode) {
+            int appId = UserHandle.getAppId(uid);
+            if (mPowerSaveTempWhitelistAppIds.get(appId) || mPowerSaveWhitelistAppIds.get(appId)
+                    || isProcStateAllowedWhileIdle(mUidState.get(uid))) {
+                setUidFirewallRule(FIREWALL_CHAIN_DOZABLE, uid, FIREWALL_RULE_ALLOW);
+            } else {
+                setUidFirewallRule(FIREWALL_CHAIN_DOZABLE, uid, FIREWALL_RULE_DEFAULT);
+            }
+        }
+    }
+
+    void updateRulesForAppIdleLocked() {
+        // Fully update the app idle firewall chain.
+        SparseIntArray uidRules = new SparseIntArray();
+        final List<UserInfo> users = mUserManager.getUsers();
+        for (int ui = users.size() - 1; ui >= 0; ui--) {
+            UserInfo user = users.get(ui);
+            int[] idleUids = mUsageStats.getIdleUidsForUser(user.id);
+            for (int uid : idleUids) {
+                if (!mPowerSaveTempWhitelistAppIds.get(UserHandle.getAppId(uid), false)) {
+                    uidRules.put(uid, FIREWALL_RULE_DENY);
+                }
+            }
+        }
+        setUidFirewallRules(FIREWALL_CHAIN_STANDBY, uidRules);
+    }
+
+    void updateRuleForAppIdleLocked(int uid) {
+        if (!isUidValidForRules(uid)) return;
+
+        int appId = UserHandle.getAppId(uid);
+        if (!mPowerSaveTempWhitelistAppIds.get(appId) && isUidIdle(uid)) {
+            setUidFirewallRule(FIREWALL_CHAIN_STANDBY, uid, FIREWALL_RULE_DENY);
+        } else {
+            setUidFirewallRule(FIREWALL_CHAIN_STANDBY, uid, FIREWALL_RULE_DEFAULT);
+        }
     }
 
     void updateRulesForAppIdleParoleLocked() {
@@ -2062,14 +2168,8 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
     void updateRulesForGlobalChangeLocked(boolean restrictedNetworksChanged) {
         final PackageManager pm = mContext.getPackageManager();
 
-        // If we are in restrict power mode, we allow all important apps
-        // to have data access.  Otherwise, we restrict data access to only
-        // the top apps.
-        mCurForegroundState = (!mRestrictBackground && mRestrictPower)
-                ? ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE
-                : ActivityManager.PROCESS_STATE_TOP;
-
         updateRulesForDeviceIdleLocked();
+        updateRulesForAppIdleLocked();
 
         // update rules for all installed applications
         final List<UserInfo> users = mUserManager.getUsers();
@@ -2099,10 +2199,9 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
         for (UserInfo user : users) {
             for (int i = mPowerSaveTempWhitelistAppIds.size() - 1; i >= 0; i--) {
                 int appId = mPowerSaveTempWhitelistAppIds.keyAt(i);
-                boolean isAllow = mPowerSaveTempWhitelistAppIds.valueAt(i);
                 int uid = UserHandle.getUid(user.id, appId);
-                updateRulesForUidLocked(uid);
-                setUidFirewallRule(FIREWALL_CHAIN_DOZABLE, uid, !isAllow);
+                updateRuleForAppIdleLocked(uid);
+                updateRuleForDeviceIdleLocked(uid);
             }
         }
     }
@@ -2149,16 +2248,12 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
 
         final int uidPolicy = mUidPolicy.get(uid, POLICY_NONE);
         final boolean uidForeground = isUidForegroundLocked(uid);
-        final boolean uidIdle = isUidIdle(uid);
 
         // derive active rules based on policy and active state
 
         int appId = UserHandle.getAppId(uid);
         int uidRules = RULE_ALLOW_ALL;
-        if (uidIdle && !mPowerSaveWhitelistAppIds.get(appId)
-                && !mPowerSaveTempWhitelistAppIds.get(appId)) {
-            uidRules = RULE_REJECT_ALL;
-        } else if (!uidForeground && (uidPolicy & POLICY_REJECT_METERED_BACKGROUND) != 0) {
+        if (!uidForeground && (uidPolicy & POLICY_REJECT_METERED_BACKGROUND) != 0) {
             // uid in background, and policy says to block metered data
             uidRules = RULE_REJECT_METERED;
         } else if (mRestrictBackground) {
@@ -2167,7 +2262,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
                 uidRules = RULE_REJECT_METERED;
             }
         } else if (mRestrictPower) {
-            final boolean whitelisted = mPowerSaveWhitelistAppIds.get(appId)
+            final boolean whitelisted = mPowerSaveWhitelistExceptIdleAppIds.get(appId)
                     || mPowerSaveTempWhitelistAppIds.get(appId);
             if (!whitelisted && !uidForeground
                     && (uidPolicy & POLICY_ALLOW_BACKGROUND_BATTERY_SAVE) == 0) {
@@ -2193,13 +2288,6 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
             setUidNetworkRules(uid, rejectMetered);
         }
 
-        // Update firewall rules if necessary
-        final boolean oldFirewallReject = (oldRules & RULE_REJECT_ALL) != 0;
-        final boolean firewallReject = (uidRules & RULE_REJECT_ALL) != 0;
-        if (oldFirewallReject != firewallReject) {
-            setUidFirewallRule(FIREWALL_CHAIN_STANDBY, uid, firewallReject);
-        }
-
         // dispatch changed rule to existing listeners
         if (oldRules != uidRules) {
             mHandler.obtainMessage(MSG_RULES_CHANGED, uid, uidRules).sendToTarget();
@@ -2221,7 +2309,7 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
             try {
                 int uid = mContext.getPackageManager().getPackageUid(packageName, userId);
                 synchronized (mRulesLock) {
-                    updateRulesForUidLocked(uid);
+                    updateRuleForAppIdleLocked(uid);
                 }
             } catch (NameNotFoundException nnfe) {
             }
@@ -2383,10 +2471,9 @@ public class NetworkPolicyManagerService extends INetworkPolicyManager.Stub {
     /**
      * Add or remove a uid to the firewall blacklist for all network ifaces.
      */
-    private void setUidFirewallRule(int chain, int uid, boolean rejectOnAll) {
+    private void setUidFirewallRule(int chain, int uid, int rule) {
         try {
-            mNetworkManager.setFirewallUidRule(chain, uid,
-                    rejectOnAll ? FIREWALL_RULE_DENY : FIREWALL_RULE_ALLOW);
+            mNetworkManager.setFirewallUidRule(chain, uid, rule);
         } catch (IllegalStateException e) {
             Log.wtf(TAG, "problem setting firewall uid rules", e);
         } catch (RemoteException e) {

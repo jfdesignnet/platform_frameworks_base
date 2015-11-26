@@ -41,6 +41,7 @@ import java.security.KeyStoreException;
 import java.security.KeyStoreSpi;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
+import java.security.ProviderException;
 import java.security.PublicKey;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
@@ -291,7 +292,14 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
                     new KeyProtection.Builder(
                             KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY);
             // Authorized to be used with any digest (including no digest).
-            specBuilder.setDigests(KeyProperties.DIGEST_NONE);
+            // MD5 was never offered for Android Keystore for ECDSA.
+            specBuilder.setDigests(
+                    KeyProperties.DIGEST_NONE,
+                    KeyProperties.DIGEST_SHA1,
+                    KeyProperties.DIGEST_SHA224,
+                    KeyProperties.DIGEST_SHA256,
+                    KeyProperties.DIGEST_SHA384,
+                    KeyProperties.DIGEST_SHA512);
         } else if (KeyProperties.KEY_ALGORITHM_RSA.equalsIgnoreCase(keyAlgorithm)) {
             specBuilder =
                     new KeyProtection.Builder(
@@ -300,13 +308,25 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
                             | KeyProperties.PURPOSE_SIGN
                             | KeyProperties.PURPOSE_VERIFY);
             // Authorized to be used with any digest (including no digest).
-            specBuilder.setDigests(KeyProperties.DIGEST_NONE);
-            // Authorized to be used with any encryption and signature padding scheme (including no
-            // padding).
+            specBuilder.setDigests(
+                    KeyProperties.DIGEST_NONE,
+                    KeyProperties.DIGEST_MD5,
+                    KeyProperties.DIGEST_SHA1,
+                    KeyProperties.DIGEST_SHA224,
+                    KeyProperties.DIGEST_SHA256,
+                    KeyProperties.DIGEST_SHA384,
+                    KeyProperties.DIGEST_SHA512);
+            // Authorized to be used with any encryption and signature padding
+            // schemes (including no padding).
             specBuilder.setEncryptionPaddings(
-                    KeyProperties.ENCRYPTION_PADDING_NONE);
-            // Disable randomized encryption requirement to support encryption padding NONE
-            // above.
+                    KeyProperties.ENCRYPTION_PADDING_NONE,
+                    KeyProperties.ENCRYPTION_PADDING_RSA_PKCS1,
+                    KeyProperties.ENCRYPTION_PADDING_RSA_OAEP);
+            specBuilder.setSignaturePaddings(
+                    KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,
+                    KeyProperties.SIGNATURE_PADDING_RSA_PSS);
+            // Disable randomized encryption requirement to support encryption
+            // padding NONE above.
             specBuilder.setRandomizedEncryptionRequired(false);
         } else {
             throw new KeyStoreException("Unsupported key algorithm: " + keyAlgorithm);
@@ -605,50 +625,43 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
             args.addEnum(KeymasterDefs.KM_TAG_ALGORITHM, keymasterAlgorithm);
 
             int[] keymasterDigests;
-            int keymasterDigest = KeyProperties.KeyAlgorithm.toKeymasterDigest(key.getAlgorithm());
-            if (params.isDigestsSpecified()) {
-                // Digest(s) specified in parameters
-                keymasterDigests = KeyProperties.Digest.allToKeymaster(params.getDigests());
-                if (keymasterDigest != -1) {
-                    // Digest also specified in the JCA key algorithm name.
-                    if (!com.android.internal.util.ArrayUtils.contains(
-                            keymasterDigests, keymasterDigest)) {
-                        throw new KeyStoreException("Digest specified in key algorithm "
-                                + key.getAlgorithm() + " not specified in protection parameters: "
-                                + Arrays.asList(params.getDigests()));
-                    }
-                    // When the key is read back from keystore we reconstruct the JCA key algorithm
-                    // name from the KM_TAG_ALGORITHM and the first KM_TAG_DIGEST. Thus we need to
-                    // ensure that the digest reflected in the JCA key algorithm name is the first
-                    // KM_TAG_DIGEST tag.
-                    if (keymasterDigests[0] != keymasterDigest) {
-                        // The first digest is not the one implied by the JCA key algorithm name.
-                        // Swap the implied digest with the first one.
-                        for (int i = 0; i < keymasterDigests.length; i++) {
-                            if (keymasterDigests[i] == keymasterDigest) {
-                                keymasterDigests[i] = keymasterDigests[0];
-                                keymasterDigests[0] = keymasterDigest;
-                                break;
-                            }
-                        }
+            if (keymasterAlgorithm == KeymasterDefs.KM_ALGORITHM_HMAC) {
+                // JCA HMAC key algorithm implies a digest (e.g., HmacSHA256 key algorithm
+                // implies SHA-256 digest). Because keymaster HMAC key is authorized only for one
+                // digest, we don't let import parameters override the digest implied by the key.
+                // If the parameters specify digests at all, they must specify only one digest, the
+                // only implied by key algorithm.
+                int keymasterImpliedDigest =
+                        KeyProperties.KeyAlgorithm.toKeymasterDigest(key.getAlgorithm());
+                if (keymasterImpliedDigest == -1) {
+                    throw new ProviderException(
+                            "HMAC key algorithm digest unknown for key algorithm "
+                                    + key.getAlgorithm());
+                }
+                keymasterDigests = new int[] {keymasterImpliedDigest};
+                if (params.isDigestsSpecified()) {
+                    // Digest(s) explicitly specified in params -- check that the list consists of
+                    // exactly one digest, the one implied by key algorithm.
+                    int[] keymasterDigestsFromParams =
+                            KeyProperties.Digest.allToKeymaster(params.getDigests());
+                    if ((keymasterDigestsFromParams.length != 1)
+                            || (keymasterDigestsFromParams[0] != keymasterImpliedDigest)) {
+                        throw new KeyStoreException(
+                                "Unsupported digests specification: "
+                                + Arrays.asList(params.getDigests()) + ". Only "
+                                + KeyProperties.Digest.fromKeymaster(keymasterImpliedDigest)
+                                + " supported for HMAC key algorithm " + key.getAlgorithm());
                     }
                 }
             } else {
-                // No digest specified in parameters
-                if (keymasterDigest != -1) {
-                    // Digest specified in the JCA key algorithm name.
-                    keymasterDigests = new int[] {keymasterDigest};
+                // Key algorithm does not imply a digest.
+                if (params.isDigestsSpecified()) {
+                    keymasterDigests = KeyProperties.Digest.allToKeymaster(params.getDigests());
                 } else {
                     keymasterDigests = EmptyArray.INT;
                 }
             }
             args.addEnums(KeymasterDefs.KM_TAG_DIGEST, keymasterDigests);
-            if (keymasterAlgorithm == KeymasterDefs.KM_ALGORITHM_HMAC) {
-                if (keymasterDigests.length == 0) {
-                    throw new KeyStoreException("At least one digest algorithm must be specified"
-                            + " for key algorithm " + key.getAlgorithm());
-                }
-            }
 
             @KeyProperties.PurposeEnum int purposes = params.getPurposes();
             int[] keymasterBlockModes =
@@ -678,6 +691,11 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
             KeymasterUtils.addUserAuthArgs(args,
                     params.isUserAuthenticationRequired(),
                     params.getUserAuthenticationValidityDurationSeconds());
+            KeymasterUtils.addMinMacLengthAuthorizationIfNecessary(
+                    args,
+                    keymasterAlgorithm,
+                    keymasterBlockModes,
+                    keymasterDigests);
             args.addDateIfNotNull(KeymasterDefs.KM_TAG_ACTIVE_DATETIME,
                     params.getKeyValidityStart());
             args.addDateIfNotNull(KeymasterDefs.KM_TAG_ORIGINATION_EXPIRE_DATETIME,

@@ -21,9 +21,11 @@ import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.os.Looper;
+import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
 import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyManager;
+import android.test.suitebuilder.annotation.SmallTest;
 
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyIntents;
@@ -35,6 +37,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 
+@SmallTest
 public class NetworkControllerSignalTest extends NetworkControllerBaseTest {
 
     public void testNoIconWithoutMobile() {
@@ -70,11 +73,20 @@ public class NetworkControllerSignalTest extends NetworkControllerBaseTest {
 
     public void testEmergencyOnlyNoSubscriptions() {
         setupDefaultSignal();
+        setSubscriptions();
+        mNetworkController.mLastServiceState = new ServiceState();
+        mNetworkController.mLastServiceState.setEmergencyOnly(true);
+        mNetworkController.recalculateEmergency();
+        verifyEmergencyOnly(true);
+    }
+
+    public void testNoEmengencyNoSubscriptions() {
+        setupDefaultSignal();
+        setSubscriptions();
+        mNetworkController.mLastServiceState = new ServiceState();
+        mNetworkController.mLastServiceState.setEmergencyOnly(false);
         mNetworkController.recalculateEmergency();
         verifyEmergencyOnly(false);
-
-        setSubscriptions();
-        verifyEmergencyOnly(true);
     }
 
     public void testNoSimlessIconWithoutMobile() {
@@ -127,6 +139,7 @@ public class NetworkControllerSignalTest extends NetworkControllerBaseTest {
         for (int testStrength = SignalStrength.SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
                 testStrength <= SignalStrength.SIGNAL_STRENGTH_GREAT; testStrength++) {
             setupDefaultSignal();
+            setConnectivity(NetworkCapabilities.TRANSPORT_CELLULAR, false, false);
             setGsmRoaming(true);
             setLevel(testStrength);
 

@@ -145,7 +145,11 @@ void CanvasContext::setOpaque(bool opaque) {
 void CanvasContext::makeCurrent() {
     // TODO: Figure out why this workaround is needed, see b/13913604
     // In the meantime this matches the behavior of GLRenderer, so it is not a regression
-    mHaveNewSurface |= mEglManager.makeCurrent(mEglSurface);
+    EGLint error = 0;
+    mHaveNewSurface |= mEglManager.makeCurrent(mEglSurface, &error);
+    if (error) {
+        setSurface(nullptr);
+    }
 }
 
 void CanvasContext::processLayerUpdate(DeferredLayerUpdater* layerUpdater) {
@@ -174,16 +178,13 @@ void CanvasContext::prepareTree(TreeInfo& info, int64_t* uiFrameInfo, int64_t sy
 
     info.damageAccumulator = &mDamageAccumulator;
     info.renderer = mCanvas;
-    if (mPrefetechedLayers.size() && info.mode == TreeInfo::MODE_FULL) {
-        info.canvasContext = this;
-    }
+    info.canvasContext = this;
+
     mAnimationContext->startFrame(info.mode);
     mRootRenderNode->prepareTree(info);
     mAnimationContext->runRemainingAnimations(info);
 
-    if (info.canvasContext) {
-        freePrefetechedLayers();
-    }
+    freePrefetechedLayers();
 
     if (CC_UNLIKELY(!mNativeWindow.get())) {
         mCurrentFrameInfo->addFlag(FrameInfoFlags::SkippedFrame);
@@ -228,10 +229,11 @@ void CanvasContext::draw() {
     SkRect dirty;
     mDamageAccumulator.finish(&dirty);
 
-    if (dirty.isEmpty() && Properties::skipEmptyFrames) {
-        mCurrentFrameInfo->addFlag(FrameInfoFlags::SkippedFrame);
-        return;
-    }
+    // TODO: Re-enable after figuring out cause of b/22592975
+//    if (dirty.isEmpty() && Properties::skipEmptyFrames) {
+//        mCurrentFrameInfo->addFlag(FrameInfoFlags::SkippedFrame);
+//        return;
+//    }
 
     mCurrentFrameInfo->markIssueDrawCommandsStart();
 
@@ -365,7 +367,11 @@ void CanvasContext::destroyHardwareResources() {
     if (mEglManager.hasEglContext()) {
         freePrefetechedLayers();
         mRootRenderNode->destroyHardwareResources();
-        Caches::getInstance().flush(Caches::kFlushMode_Layers);
+        Caches& caches = Caches::getInstance();
+        // Make sure to release all the textures we were owning as there won't
+        // be another draw
+        caches.textureCache.resetMarkInUse(this);
+        caches.flush(Caches::kFlushMode_Layers);
     }
 }
 

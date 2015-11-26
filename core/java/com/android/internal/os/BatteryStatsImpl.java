@@ -25,7 +25,6 @@ import android.net.ConnectivityManager;
 import android.net.NetworkStats;
 import android.net.wifi.WifiActivityEnergyInfo;
 import android.net.wifi.WifiManager;
-import android.os.BadParcelableException;
 import android.os.BatteryManager;
 import android.os.BatteryStats;
 import android.os.Build;
@@ -2560,14 +2559,24 @@ public final class BatteryStatsImpl extends BatteryStats {
         addHistoryEventLocked(elapsedRealtime, uptime, code, name, uid);
     }
 
+    boolean ensureStartClockTime(final long currentTime) {
+        final long ABOUT_ONE_YEAR = 365*24*60*60*1000L;
+        if (currentTime > ABOUT_ONE_YEAR && mStartClockTime < (currentTime-ABOUT_ONE_YEAR)) {
+            // If the start clock time has changed by more than a year, then presumably
+            // the previous time was completely bogus.  So we are going to figure out a
+            // new time based on how much time has elapsed since we started counting.
+            mStartClockTime = currentTime - (SystemClock.elapsedRealtime()-(mRealtimeStart/1000));
+            return true;
+        }
+        return false;
+    }
+
     public void noteCurrentTimeChangedLocked() {
         final long currentTime = System.currentTimeMillis();
         final long elapsedRealtime = SystemClock.elapsedRealtime();
         final long uptime = SystemClock.uptimeMillis();
         recordCurrentTimeChangeLocked(currentTime, elapsedRealtime, uptime);
-        if (isStartClockTimeValid()) {
-            mStartClockTime = currentTime;
-        }
+        ensureStartClockTime(currentTime);
     }
 
     public void noteProcessStartLocked(String name, int uid) {
@@ -3120,6 +3129,13 @@ public final class BatteryStatsImpl extends BatteryStats {
             uid = mapUid(uid);
             getUidStatsLocked(uid).noteUserActivityLocked(event);
         }
+    }
+
+    public void noteWakeUpLocked(String reason, int reasonUid) {
+        final long elapsedRealtime = SystemClock.elapsedRealtime();
+        final long uptime = SystemClock.uptimeMillis();
+        addHistoryEventLocked(elapsedRealtime, uptime, HistoryItem.EVENT_SCREEN_WAKE_UP,
+                reason, reasonUid);
     }
 
     public void noteInteractiveLocked(boolean interactive) {
@@ -4299,19 +4315,11 @@ public final class BatteryStatsImpl extends BatteryStats {
         }
     }
 
-    boolean isStartClockTimeValid() {
-        return mStartClockTime > 365*24*60*60*1000L;
-    }
-
     @Override public long getStartClockTime() {
-        if (!isStartClockTimeValid()) {
-            // If the last clock time we got was very small, then we hadn't had a real
-            // time yet, so try to get it again.
-            mStartClockTime = System.currentTimeMillis();
-            if (isStartClockTimeValid()) {
-                recordCurrentTimeChangeLocked(mStartClockTime, SystemClock.elapsedRealtime(),
-                        SystemClock.uptimeMillis());
-            }
+        final long currentTime = System.currentTimeMillis();
+        if (ensureStartClockTime(currentTime)) {
+            recordCurrentTimeChangeLocked(currentTime, SystemClock.elapsedRealtime(),
+                    SystemClock.uptimeMillis());
         }
         return mStartClockTime;
     }
@@ -7665,6 +7673,7 @@ public final class BatteryStatsImpl extends BatteryStats {
             final long totalTimeMs = txTimeMs + rxTimeMs + idleTimeMs;
 
             long leftOverRxTimeMs = rxTimeMs;
+            long leftOverTxTimeMs = txTimeMs;
 
             if (DEBUG_ENERGY) {
                 Slog.d(TAG, "------ BEGIN WiFi power blaming ------");
@@ -7696,6 +7705,10 @@ public final class BatteryStatsImpl extends BatteryStats {
                 Slog.d(TAG, "  !Estimated scan time > Actual rx time (" + totalScanTimeMs + " ms > "
                         + rxTimeMs + " ms). Normalizing scan time.");
             }
+            if (DEBUG_ENERGY && totalScanTimeMs > txTimeMs) {
+                Slog.d(TAG, "  !Estimated scan time > Actual tx time (" + totalScanTimeMs + " ms > "
+                        + txTimeMs + " ms). Normalizing scan time.");
+            }
 
             // Actually assign and distribute power usage to apps.
             for (int i = 0; i < uidStatsSize; i++) {
@@ -7707,23 +7720,34 @@ public final class BatteryStatsImpl extends BatteryStats {
                     // Set the new mark so that next time we get new data since this point.
                     uid.mWifiScanTimer.setMark(elapsedRealtimeMs);
 
+                    long scanRxTimeSinceMarkMs = scanTimeSinceMarkMs;
+                    long scanTxTimeSinceMarkMs = scanTimeSinceMarkMs;
+
+                    // Our total scan time is more than the reported Tx/Rx time.
+                    // This is possible because the cost of a scan is approximate.
+                    // Let's normalize the result so that we evenly blame each app
+                    // scanning.
+                    //
+                    // This means that we may have apps that transmitted/received packets not be
+                    // blamed for this, but this is fine as scans are relatively more expensive.
                     if (totalScanTimeMs > rxTimeMs) {
-                        // Our total scan time is more than the reported Rx time.
-                        // This is possible because the cost of a scan is approximate.
-                        // Let's normalize the result so that we evenly blame each app
-                        // scanning.
-                        //
-                        // This means that we may have apps that received packets not be blamed
-                        // for this, but this is fine as scans are relatively more expensive.
-                        scanTimeSinceMarkMs = (rxTimeMs * scanTimeSinceMarkMs) / totalScanTimeMs;
+                        scanRxTimeSinceMarkMs = (rxTimeMs * scanRxTimeSinceMarkMs) /
+                                totalScanTimeMs;
+                    }
+                    if (totalScanTimeMs > txTimeMs) {
+                        scanTxTimeSinceMarkMs = (txTimeMs * scanTxTimeSinceMarkMs) /
+                                totalScanTimeMs;
                     }
 
                     if (DEBUG_ENERGY) {
-                        Slog.d(TAG, "  ScanTime for UID " + uid.getUid() + ": "
-                                + scanTimeSinceMarkMs + " ms)");
+                        Slog.d(TAG, "  ScanTime for UID " + uid.getUid() + ": Rx:"
+                                + scanRxTimeSinceMarkMs + " ms  Tx:"
+                                + scanTxTimeSinceMarkMs + " ms)");
                     }
-                    uid.noteWifiControllerActivityLocked(CONTROLLER_RX_TIME, scanTimeSinceMarkMs);
-                    leftOverRxTimeMs -= scanTimeSinceMarkMs;
+                    uid.noteWifiControllerActivityLocked(CONTROLLER_RX_TIME, scanRxTimeSinceMarkMs);
+                    uid.noteWifiControllerActivityLocked(CONTROLLER_TX_TIME, scanTxTimeSinceMarkMs);
+                    leftOverRxTimeMs -= scanRxTimeSinceMarkMs;
+                    leftOverTxTimeMs -= scanTxTimeSinceMarkMs;
                 }
 
                 // Distribute evenly the power consumed while Idle to each app holding a WiFi
@@ -7746,12 +7770,14 @@ public final class BatteryStatsImpl extends BatteryStats {
 
             if (DEBUG_ENERGY) {
                 Slog.d(TAG, "  New RxPower: " + leftOverRxTimeMs + " ms");
+                Slog.d(TAG, "  New TxPower: " + leftOverTxTimeMs + " ms");
             }
 
-            // Distribute the Tx power appropriately between all apps that transmitted packets.
+            // Distribute the remaining Tx power appropriately between all apps that transmitted
+            // packets.
             for (int i = 0; i < txPackets.size(); i++) {
                 final Uid uid = getUidStatsLocked(txPackets.keyAt(i));
-                final long myTxTimeMs = (txPackets.valueAt(i) * txTimeMs) / totalTxPackets;
+                final long myTxTimeMs = (txPackets.valueAt(i) * leftOverTxTimeMs) / totalTxPackets;
                 if (DEBUG_ENERGY) {
                     Slog.d(TAG, "  TxTime for UID " + uid.getUid() + ": " + myTxTimeMs + " ms");
                 }
@@ -7906,6 +7932,8 @@ public final class BatteryStatsImpl extends BatteryStats {
             return;
         }
 
+        // Record whether we've seen a non-zero time (for debugging b/22716723).
+        boolean seenNonZeroTime = false;
         for (Map.Entry<String, KernelWakelockStats.Entry> ent : wakelockStats.entrySet()) {
             String name = ent.getKey();
             KernelWakelockStats.Entry kws = ent.getValue();
@@ -7919,16 +7947,30 @@ public final class BatteryStatsImpl extends BatteryStats {
             kwlt.updateCurrentReportedCount(kws.mCount);
             kwlt.updateCurrentReportedTotalTime(kws.mTotalTime);
             kwlt.setUpdateVersion(kws.mVersion);
+
+            if (kws.mVersion != wakelockStats.kernelWakelockVersion)
+            seenNonZeroTime |= kws.mTotalTime > 0;
         }
 
+        int numWakelocksSetStale = 0;
         if (wakelockStats.size() != mKernelWakelockStats.size()) {
             // Set timers to stale if they didn't appear in /proc/wakelocks this time.
             for (Map.Entry<String, SamplingTimer> ent : mKernelWakelockStats.entrySet()) {
                 SamplingTimer st = ent.getValue();
                 if (st.getUpdateVersion() != wakelockStats.kernelWakelockVersion) {
                     st.setStale();
+                    numWakelocksSetStale++;
                 }
             }
+        }
+
+        if (!seenNonZeroTime) {
+            Slog.wtf(TAG, "All kernel wakelocks had time of zero");
+        }
+
+        if (numWakelocksSetStale == mKernelWakelockStats.size()) {
+            Slog.wtf(TAG, "All kernel wakelocks were set stale. new version=" +
+                    wakelockStats.kernelWakelockVersion);
         }
     }
 
@@ -8073,7 +8115,7 @@ public final class BatteryStatsImpl extends BatteryStats {
                     timer.mUid.mSystemCpuTime.addCountLocked(systemTimeUs);
 
                     final Uid.Proc proc = timer.mUid.getProcessStatsLocked("*wakelock*");
-                    proc.addCpuTimeLocked(userTimeUs, systemTimeUs);
+                    proc.addCpuTimeLocked(userTimeUs / 1000, systemTimeUs / 1000);
 
                     mTempTotalCpuUserTimeUs -= userTimeUs;
                     mTempTotalCpuSystemTimeUs -= systemTimeUs;
@@ -8097,8 +8139,8 @@ public final class BatteryStatsImpl extends BatteryStats {
                 u.mSystemCpuTime.addCountLocked(mTempTotalCpuSystemTimeUs);
 
                 final Uid.Proc proc = u.getProcessStatsLocked("*lost*");
-                proc.addCpuTimeLocked((int) mTempTotalCpuUserTimeUs,
-                        (int) mTempTotalCpuSystemTimeUs);
+                proc.addCpuTimeLocked((int) mTempTotalCpuUserTimeUs / 1000,
+                        (int) mTempTotalCpuSystemTimeUs / 1000);
             }
         }
 

@@ -37,7 +37,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.util.ArrayMap;
+import android.util.DebugUtils;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -55,6 +57,8 @@ import com.android.internal.app.IVoiceInteractorRequest;
 import com.android.internal.os.HandlerCaller;
 import com.android.internal.os.SomeArgs;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -90,6 +94,12 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * system assist gesture.
      */
     public static final int SHOW_SOURCE_ASSIST_GESTURE = 1<<2;
+
+    /**
+     * Flag for use with {@link #onShow}: indicates that the application itself has invoked
+     * the assistant.
+     */
+    public static final int SHOW_SOURCE_APPLICATION = 1<<3;
 
     final Context mContext;
     final HandlerCaller mHandlerCaller;
@@ -209,16 +219,30 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         }
 
         @Override
-        public void handleAssist(Bundle data, AssistStructure structure,
-                AssistContent content) {
+        public void handleAssist(final Bundle data, final AssistStructure structure,
+                final AssistContent content) {
             // We want to pre-warm the AssistStructure before handing it off to the main
-            // thread.  There is a strong argument to be made that it should be handed
-            // through as a separate param rather than part of the assistBundle.
-            if (structure != null) {
-                structure.ensureData();
-            }
-            mHandlerCaller.sendMessage(mHandlerCaller.obtainMessageOOO(MSG_HANDLE_ASSIST,
-                    data, structure, content));
+            // thread.  We also want to do this on a separate thread, so that if the app
+            // is for some reason slow (due to slow filling in of async children in the
+            // structure), we don't block other incoming IPCs (such as the screenshot) to
+            // us (since we are a oneway interface, they get serialized).  (Okay?)
+            Thread retriever = new Thread("AssistStructure retriever") {
+                @Override
+                public void run() {
+                    Throwable failure = null;
+                    if (structure != null) {
+                        try {
+                            structure.ensureData();
+                        } catch (Throwable e) {
+                            Log.w(TAG, "Failure retrieving AssistStructure", e);
+                            failure = e;
+                        }
+                    }
+                    mHandlerCaller.sendMessage(mHandlerCaller.obtainMessageOOOO(MSG_HANDLE_ASSIST,
+                            data, failure == null ? structure : null, failure, content));
+                }
+            };
+            retriever.start();
         }
 
         @Override
@@ -242,6 +266,11 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         @Override
         public void closeSystemDialogs() {
             mHandlerCaller.sendMessage(mHandlerCaller.obtainMessage(MSG_CLOSE_SYSTEM_DIALOGS));
+        }
+
+        @Override
+        public void onLockscreenShown() {
+            mHandlerCaller.sendMessage(mHandlerCaller.obtainMessage(MSG_ON_LOCKSCREEN_SHOWN));
         }
 
         @Override
@@ -302,6 +331,22 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
             return mExtras;
         }
 
+        /**
+         * Check whether this request is currently active.  A request becomes inactive after
+         * calling {@link #cancel} or a final result method that completes the request.  After
+         * this point, further interactions with the request will result in
+         * {@link java.lang.IllegalStateException} errors; you should not catch these errors,
+         * but can use this method if you need to determine the state of the request.  Returns
+         * true if the request is still active.
+         */
+        public boolean isActive() {
+            VoiceInteractionSession session = mSession.get();
+            if (session == null) {
+                return false;
+            }
+            return session.isRequestActive(mInterface.asBinder());
+        }
+
         void finishRequest() {
             VoiceInteractionSession session = mSession.get();
             if (session == null) {
@@ -318,6 +363,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
 
         /**
          * Ask the app to cancel this current request.
+         * This also finishes the request (it is no longer active).
          */
         public void cancel() {
             try {
@@ -325,6 +371,34 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 finishRequest();
                 mCallback.deliverCancel(mInterface);
             } catch (RemoteException e) {
+            }
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder(128);
+            DebugUtils.buildShortClassTag(this, sb);
+            sb.append(" ");
+            sb.append(mInterface.asBinder());
+            sb.append(" pkg=");
+            sb.append(mCallingPackage);
+            sb.append(" uid=");
+            UserHandle.formatUid(sb, mCallingUid);
+            sb.append('}');
+            return sb.toString();
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            writer.print(prefix); writer.print("mInterface=");
+            writer.println(mInterface.asBinder());
+            writer.print(prefix); writer.print("mCallingPackage="); writer.print(mCallingPackage);
+            writer.print(" mCallingUid="); UserHandle.formatUid(writer, mCallingUid);
+            writer.println();
+            writer.print(prefix); writer.print("mCallback=");
+            writer.println(mCallback.asBinder());
+            if (mExtras != null) {
+                writer.print(prefix); writer.print("mExtras=");
+                writer.println(mExtras);
             }
         }
     }
@@ -369,6 +443,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
          * in a call to
          * {@link android.app.VoiceInteractor.ConfirmationRequest#onConfirmationResult
          * VoiceInteractor.ConfirmationRequest.onConfirmationResult}.
+         * This finishes the request (it is no longer active).
          */
         public void sendConfirmationResult(boolean confirmed, Bundle result) {
             try {
@@ -378,6 +453,12 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 mCallback.deliverConfirmationResult(mInterface, confirmed, result);
             } catch (RemoteException e) {
             }
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt=");
+            writer.println(mPrompt);
         }
     }
 
@@ -455,10 +536,39 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
          * and resulting in a call to
          * {@link android.app.VoiceInteractor.PickOptionRequest#onPickOptionResult
          * VoiceInteractor.PickOptionRequest.onPickOptionResult} with false for finished.
+         * This finishes the request (it is no longer active).
          */
         public void sendPickOptionResult(
                 VoiceInteractor.PickOptionRequest.Option[] selections, Bundle result) {
             sendPickOptionResult(true, selections, result);
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt=");
+            writer.println(mPrompt);
+            if (mOptions != null) {
+                writer.print(prefix); writer.println("Options:");
+                for (int i=0; i<mOptions.length; i++) {
+                    VoiceInteractor.PickOptionRequest.Option op = mOptions[i];
+                    writer.print(prefix); writer.print("  #"); writer.print(i); writer.println(":");
+                    writer.print(prefix); writer.print("    mLabel=");
+                    writer.println(op.getLabel());
+                    writer.print(prefix); writer.print("    mIndex=");
+                    writer.println(op.getIndex());
+                    if (op.countSynonyms() > 0) {
+                        writer.print(prefix); writer.println("    Synonyms:");
+                        for (int j=0; j<op.countSynonyms(); j++) {
+                            writer.print(prefix); writer.print("      #"); writer.print(j);
+                            writer.print(": "); writer.println(op.getSynonymAt(j));
+                        }
+                    }
+                    if (op.getExtras() != null) {
+                        writer.print(prefix); writer.print("    mExtras=");
+                        writer.println(op.getExtras());
+                    }
+                }
+            }
         }
     }
 
@@ -502,6 +612,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
          * in a call to
          * {@link android.app.VoiceInteractor.CompleteVoiceRequest#onCompleteResult
          * VoiceInteractor.CompleteVoiceRequest.onCompleteResult}.
+         * This finishes the request (it is no longer active).
          */
         public void sendCompleteResult(Bundle result) {
             try {
@@ -511,6 +622,12 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 mCallback.deliverCompleteVoiceResult(mInterface, result);
             } catch (RemoteException e) {
             }
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt=");
+            writer.println(mPrompt);
         }
     }
 
@@ -550,7 +667,8 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
          * Report that the voice interactor has finished aborting the voice operation, resulting
          * in a call to
          * {@link android.app.VoiceInteractor.AbortVoiceRequest#onAbortResult
-         * VoiceInteractor.AbortVoiceRequest.onAbortResult}.
+         * VoiceInteractor.AbortVoiceRequest.onAbortResult}.  This finishes the request (it
+         * is no longer active).
          */
         public void sendAbortResult(Bundle result) {
             try {
@@ -560,6 +678,12 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 mCallback.deliverAbortVoiceResult(mInterface, result);
             } catch (RemoteException e) {
             }
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt=");
+            writer.println(mPrompt);
         }
     }
 
@@ -610,9 +734,16 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
          * Report the final result of the request, completing the request and resulting in a call to
          * {@link android.app.VoiceInteractor.CommandRequest#onCommandResult
          * VoiceInteractor.CommandRequest.onCommandResult} with true for isCompleted.
+         * This finishes the request (it is no longer active).
          */
         public void sendResult(Bundle result) {
             sendCommandResult(true, result);
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mCommand=");
+            writer.println(mCommand);
         }
     }
 
@@ -632,11 +763,12 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     static final int MSG_HANDLE_SCREENSHOT = 105;
     static final int MSG_SHOW = 106;
     static final int MSG_HIDE = 107;
+    static final int MSG_ON_LOCKSCREEN_SHOWN = 108;
 
     class MyCallbacks implements HandlerCaller.Callback, SoftInputWindow.Callback {
         @Override
         public void executeMessage(Message msg) {
-            SomeArgs args;
+            SomeArgs args = null;
             switch (msg.what) {
                 case MSG_START_CONFIRMATION:
                     if (DEBUG) Log.d(TAG, "onConfirm: req=" + msg.obj);
@@ -662,6 +794,8 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                     args = (SomeArgs)msg.obj;
                     if (DEBUG) Log.d(TAG, "onGetSupportedCommands: cmds=" + args.arg1);
                     args.arg1 = onGetSupportedCommands((String[]) args.arg1);
+                    args.complete();
+                    args = null;
                     break;
                 case MSG_CANCEL:
                     if (DEBUG) Log.d(TAG, "onCancel: req=" + ((Request)msg.obj));
@@ -689,8 +823,8 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                     args = (SomeArgs)msg.obj;
                     if (DEBUG) Log.d(TAG, "onHandleAssist: data=" + args.arg1
                             + " structure=" + args.arg2 + " content=" + args.arg3);
-                    onHandleAssist((Bundle) args.arg1, (AssistStructure) args.arg2,
-                            (AssistContent) args.arg3);
+                    doOnHandleAssist((Bundle) args.arg1, (AssistStructure) args.arg2,
+                            (Throwable) args.arg3, (AssistContent) args.arg4);
                     break;
                 case MSG_HANDLE_SCREENSHOT:
                     if (DEBUG) Log.d(TAG, "onHandleScreenshot: " + msg.obj);
@@ -708,6 +842,13 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                     if (DEBUG) Log.d(TAG, "doHide");
                     doHide();
                     break;
+                case MSG_ON_LOCKSCREEN_SHOWN:
+                    if (DEBUG) Log.d(TAG, "onLockscreenShown");
+                    onLockscreenShown();
+                    break;
+            }
+            if (args != null) {
+                args.recycle();
             }
         }
 
@@ -795,7 +936,15 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     }
 
     void addRequest(Request req) {
-        mActiveRequests.put(req.mInterface.asBinder(), req);
+        synchronized (this) {
+            mActiveRequests.put(req.mInterface.asBinder(), req);
+        }
+    }
+
+    boolean isRequestActive(IBinder reqInterface) {
+        synchronized (this) {
+            return mActiveRequests.containsKey(reqInterface);
+        }
     }
 
     Request removeRequest(IBinder reqInterface) {
@@ -894,12 +1043,55 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     }
 
     /**
+     * Equivalent to {@link VoiceInteractionService#setDisabledShowContext
+     * VoiceInteractionService.setDisabledShowContext(int)}.
+     */
+    public void setDisabledShowContext(int flags) {
+        try {
+            mSystemService.setDisabledShowContext(flags);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Equivalent to {@link VoiceInteractionService#getDisabledShowContext
+     * VoiceInteractionService.getDisabledShowContext}.
+     */
+    public int getDisabledShowContext() {
+        try {
+            return mSystemService.getDisabledShowContext();
+        } catch (RemoteException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Return which show context flags have been disabled by the user through the system
+     * settings UI, so the session will never get this data.  Returned flags are any combination of
+     * {@link VoiceInteractionSession#SHOW_WITH_ASSIST VoiceInteractionSession.SHOW_WITH_ASSIST} and
+     * {@link VoiceInteractionSession#SHOW_WITH_SCREENSHOT
+     * VoiceInteractionSession.SHOW_WITH_SCREENSHOT}.  Note that this only tells you about
+     * global user settings, not about restrictions that may be applied contextual based on
+     * the current application the user is in or other transient states.
+     */
+    public int getUserDisabledShowContext() {
+        try {
+            return mSystemService.getUserDisabledShowContext();
+        } catch (RemoteException e) {
+            return 0;
+        }
+    }
+
+    /**
      * Show the UI for this session.  This asks the system to go through the process of showing
      * your UI, which will eventually culminate in {@link #onShow}.  This is similar to calling
      * {@link VoiceInteractionService#showSession VoiceInteractionService.showSession}.
      * @param args Arbitrary arguments that will be propagated {@link #onShow}.
      * @param flags Indicates additional optional behavior that should be performed.  May
-     * be {@link VoiceInteractionSession#SHOW_WITH_ASSIST VoiceInteractionSession.SHOW_WITH_ASSIST}
+     * be any combination of
+     * {@link VoiceInteractionSession#SHOW_WITH_ASSIST VoiceInteractionSession.SHOW_WITH_ASSIST} and
+     * {@link VoiceInteractionSession#SHOW_WITH_SCREENSHOT
+     * VoiceInteractionSession.SHOW_WITH_SCREENSHOT}
      * to request that the system generate and deliver assist data on the current foreground
      * app as part of showing the session UI.
      */
@@ -1111,10 +1303,56 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         mContentFrame.requestApplyInsets();
     }
 
-    public void onHandleAssist(Bundle data, AssistStructure structure, AssistContent content) {
+    void doOnHandleAssist(Bundle data, AssistStructure structure, Throwable failure,
+            AssistContent content) {
+        if (failure != null) {
+            onAssistStructureFailure(failure);
+        }
+        onHandleAssist(data, structure, content);
     }
 
-    public void onHandleScreenshot(Bitmap screenshot) {
+    /**
+     * Called when there has been a failure transferring the {@link AssistStructure} to
+     * the assistant.  This may happen, for example, if the data is too large and results
+     * in an out of memory exception, or the client has provided corrupt data.  This will
+     * be called immediately before {@link #onHandleAssist} and the AssistStructure supplied
+     * there afterwards will be null.
+     *
+     * @param failure The failure exception that was thrown when building the
+     * {@link AssistStructure}.
+     */
+    public void onAssistStructureFailure(Throwable failure) {
+    }
+
+    /**
+     * Called to receive data from the application that the user was currently viewing when
+     * an assist session is started.  If the original show request did not specify
+     * {@link #SHOW_WITH_ASSIST}, this method will not be called.
+     *
+     * @param data Arbitrary data supplied by the app through
+     * {@link android.app.Activity#onProvideAssistData Activity.onProvideAssistData}.
+     * May be null if assist data has been disabled by the user or device policy.
+     * @param structure If available, the structure definition of all windows currently
+     * displayed by the app.  May be null if assist data has been disabled by the user
+     * or device policy; will be an empty stub if the application has disabled assist
+     * by marking its window as secure.
+     * @param content Additional content data supplied by the app through
+     * {@link android.app.Activity#onProvideAssistContent Activity.onProvideAssistContent}.
+     * May be null if assist data has been disabled by the user or device policy; will
+     * not be automatically filled in with data from the app if the app has marked its
+     * window as secure.
+     */
+    public void onHandleAssist(@Nullable Bundle data, @Nullable AssistStructure structure,
+            @Nullable AssistContent content) {
+    }
+
+    /**
+     * Called to receive a screenshot of what the user was currently viewing when an assist
+     * session is started.  May be null if screenshots are disabled by the user, policy,
+     * or application.  If the original show request did not specify
+     * {@link #SHOW_WITH_SCREENSHOT}, this method will not be called.
+     */
+    public void onHandleScreenshot(@Nullable Bitmap screenshot) {
     }
 
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -1149,6 +1387,13 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * calls {@link #hide}.
      */
     public void onCloseSystemDialogs() {
+        hide();
+    }
+
+    /**
+     * Called when the lockscreen was shown.
+     */
+    public void onLockscreenShown() {
         hide();
     }
 
@@ -1284,5 +1529,38 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * @param request The request that is being canceled.
      */
     public void onCancelRequest(Request request) {
+    }
+
+    /**
+     * Print the Service's state into the given stream.  This gets invoked by
+     * {@link VoiceInteractionSessionService} when its Service
+     * {@link android.app.Service#dump} method is called.
+     *
+     * @param prefix Text to print at the front of each line.
+     * @param fd The raw file descriptor that the dump is being sent to.
+     * @param writer The PrintWriter to which you should dump your state.  This will be
+     * closed for you after you return.
+     * @param args additional arguments to the dump request.
+     */
+    public void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+        writer.print(prefix); writer.print("mToken="); writer.println(mToken);
+        writer.print(prefix); writer.print("mTheme=#"); writer.println(Integer.toHexString(mTheme));
+        writer.print(prefix); writer.print("mInitialized="); writer.println(mInitialized);
+        writer.print(prefix); writer.print("mWindowAdded="); writer.print(mWindowAdded);
+        writer.print(" mWindowVisible="); writer.println(mWindowVisible);
+        writer.print(prefix); writer.print("mWindowWasVisible="); writer.print(mWindowWasVisible);
+        writer.print(" mInShowWindow="); writer.println(mInShowWindow);
+        if (mActiveRequests.size() > 0) {
+            writer.print(prefix); writer.println("Active requests:");
+            String innerPrefix = prefix + "    ";
+            for (int i=0; i<mActiveRequests.size(); i++) {
+                Request req = mActiveRequests.valueAt(i);
+                writer.print(prefix); writer.print("  #"); writer.print(i);
+                writer.print(": ");
+                writer.println(req);
+                req.dump(innerPrefix, fd, writer, args);
+
+            }
+        }
     }
 }

@@ -114,12 +114,6 @@
     <string name="accessibility_data_two_bars" msgid="6166018492360432091">"數據網絡訊號強度為兩格。"</string>
     <string name="accessibility_data_three_bars" msgid="9167670452395038520">"數據網絡訊號強度為三格。"</string>
     <string name="accessibility_data_signal_full" msgid="2708384608124519369">"數據網絡訊號滿格。"</string>
-    <string name="accessibility_wifi_off" msgid="3177380296697933627">"WiFi 已關閉。"</string>
-    <string name="accessibility_no_wifi" msgid="1425476551827924474">"WiFi 連線已中斷。"</string>
-    <string name="accessibility_wifi_one_bar" msgid="7735893178010724377">"WiFi 訊號強度為一格。"</string>
-    <string name="accessibility_wifi_two_bars" msgid="4994274250497262434">"WiFi 訊號強度為兩格。"</string>
-    <string name="accessibility_wifi_three_bars" msgid="3495755044276588384">"WiFi 訊號強度為三格。"</string>
-    <string name="accessibility_wifi_signal_full" msgid="6853561303586480376">"WiFi 訊號已滿。"</string>
     <string name="accessibility_wifi_name" msgid="7202151365171148501">"已連線至<xliff:g id="WIFI">%s</xliff:g>。"</string>
     <string name="accessibility_bluetooth_name" msgid="8441517146585531676">"已連線至<xliff:g id="BLUETOOTH">%s</xliff:g>。"</string>
     <string name="accessibility_no_wimax" msgid="4329180129727630368">"沒有 WiMAX 訊號。"</string>
@@ -406,7 +400,7 @@
     <string name="volumeui_notification_title" msgid="4906770126345910955">"「<xliff:g id="APP_NAME">%1$s</xliff:g>」為音量對話框"</string>
     <string name="volumeui_notification_text" msgid="1826889705095768656">"輕觸即可復原。"</string>
     <string name="managed_profile_foreground_toast" msgid="5421487114739245972">"您正在使用工作設定檔"</string>
-    <string name="system_ui_tuner" msgid="3442596010150119600">"系統使用者介面調諧器"</string>
+    <string name="system_ui_tuner" msgid="708224127392452018">"系統使用者介面調諧器"</string>
     <string name="show_battery_percentage" msgid="5444136600512968798">"顯示嵌入的電池百分比"</string>
     <string name="show_battery_percentage_summary" msgid="3215025775576786037">"非充電時，在狀態列圖示顯示電量百分比"</string>
     <string name="quick_settings" msgid="10042998191725428">"快速設定"</string>
@@ -427,4 +421,11 @@
     <string name="accessibility_quick_settings_detail" msgid="2579369091672902101">"<xliff:g id="TITLE">%s</xliff:g>的快速設定。"</string>
     <string name="accessibility_status_bar_hotspot" msgid="4099381329956402865">"熱點"</string>
     <string name="accessibility_managed_profile" msgid="6613641363112584120">"工作設定檔"</string>
+    <string name="tuner_warning_title" msgid="7094689930793031682">"這只是測試版本，並不包含完整功能"</string>
+    <string name="tuner_warning" msgid="8730648121973575701">"使用者介面調諧器讓您以更多方法修改和自訂 Android 使用者介面。但請小心，這些實驗功能可能會在日後發佈時更改、分拆或消失。"</string>
+    <string name="tuner_persistent_warning" msgid="8597333795565621795">"請小心，這些實驗功能可能會在日後發佈時更改、分拆或消失。"</string>
+    <string name="got_it" msgid="2239653834387972602">"知道了"</string>
+    <string name="tuner_toast" msgid="603429811084428439">"恭喜您！系統使用者介面調諧器已新增至「設定」中"</string>
+    <string name="remove_from_settings" msgid="8389591916603406378">"從「設定」移除"</string>
+    <string name="remove_from_settings_prompt" msgid="6069085993355887748">"要從「設定」移除系統使用者介面調諧器，並停止其所有功能嗎？"</string>
 </resources>

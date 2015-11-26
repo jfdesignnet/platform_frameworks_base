@@ -173,6 +173,28 @@ public abstract class CameraMetadata<TKey> {
             }
         }
 
+        ArrayList<TKey> vendorKeys = CameraMetadataNative.getAllVendorKeys(keyClass);
+
+        if (vendorKeys != null) {
+            for (TKey k : vendorKeys) {
+                String keyName;
+                if (k instanceof CaptureRequest.Key<?>) {
+                    keyName = ((CaptureRequest.Key<?>) k).getName();
+                } else if (k instanceof CaptureResult.Key<?>) {
+                    keyName = ((CaptureResult.Key<?>) k).getName();
+                } else if (k instanceof CameraCharacteristics.Key<?>) {
+                    keyName = ((CameraCharacteristics.Key<?>) k).getName();
+                } else {
+                    continue;
+                }
+
+                if (filterTags == null || Arrays.binarySearch(filterTags,
+                        CameraMetadataNative.getTag(keyName)) >= 0) {
+                    keyList.add(k);
+                }
+            }
+        }
+
         return keyList;
     }
 
@@ -625,8 +647,8 @@ public abstract class CameraMetadata<TKey> {
      *   {@link android.hardware.camera2.CaptureResult }:<ul>
      * <li>{@link CameraCharacteristics#LENS_POSE_TRANSLATION android.lens.poseTranslation}</li>
      * <li>{@link CameraCharacteristics#LENS_POSE_ROTATION android.lens.poseRotation}</li>
-     * <li>android.lens.intrinsicCalibration</li>
-     * <li>android.lens.radialDistortion</li>
+     * <li>{@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration}</li>
+     * <li>{@link CameraCharacteristics#LENS_RADIAL_DISTORTION android.lens.radialDistortion}</li>
      * </ul>
      * </li>
      * <li>The {@link CameraCharacteristics#DEPTH_DEPTH_IS_EXCLUSIVE android.depth.depthIsExclusive} entry is listed by this device.</li>
@@ -645,8 +667,10 @@ public abstract class CameraMetadata<TKey> {
      *
      * @see CameraCharacteristics#DEPTH_DEPTH_IS_EXCLUSIVE
      * @see CameraCharacteristics#LENS_FACING
+     * @see CameraCharacteristics#LENS_INTRINSIC_CALIBRATION
      * @see CameraCharacteristics#LENS_POSE_ROTATION
      * @see CameraCharacteristics#LENS_POSE_TRANSLATION
+     * @see CameraCharacteristics#LENS_RADIAL_DISTORTION
      * @see CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES
      */
     public static final int REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT = 8;
@@ -655,8 +679,8 @@ public abstract class CameraMetadata<TKey> {
      * <p>The device supports constrained high speed video recording (frame rate &gt;=120fps)
      * use case. The camera device will support high speed capture session created by
      * {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedCaptureSession }, which
-     * only accepts high speed request list created by
-     * {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedRequestList }.</p>
+     * only accepts high speed request lists created by
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList }.</p>
      * <p>A camera device can still support high speed video streaming by advertising the high speed
      * FPS ranges in {@link CameraCharacteristics#CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES android.control.aeAvailableTargetFpsRanges}. For this case, all normal
      * capture request per frame control and synchronization requirements will apply to
@@ -717,9 +741,9 @@ public abstract class CameraMetadata<TKey> {
      * <li>The FPS ranges are selected from
      * {@link android.hardware.camera2.params.StreamConfigurationMap#getHighSpeedVideoFpsRanges }.</li>
      * </ul>
-     * <p>When above conditions are NOT satistied, the
+     * <p>When above conditions are NOT satistied,
      * {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedCaptureSession }
-     * and {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedRequestList } will fail.</p>
+     * will fail.</p>
      * <p>Switching to a FPS range that has different maximum FPS may trigger some camera device
      * reconfigurations, which may introduce extra latency. It is recommended that
      * the application avoids unnecessary maximum target FPS changes as much as possible
@@ -1813,9 +1837,8 @@ public abstract class CameraMetadata<TKey> {
     public static final int CONTROL_SCENE_MODE_BARCODE = 16;
 
     /**
-     * <p>This is deprecated, please use
-     * {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedCaptureSession }
-     * and {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedRequestList }
+     * <p>This is deprecated, please use {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedCaptureSession }
+     * and {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList }
      * for high speed video recording.</p>
      * <p>Optimized for high speed video recording (frame rate &gt;=60fps) use case.</p>
      * <p>The supported high speed video sizes and fps ranges are specified in
@@ -1936,21 +1959,21 @@ public abstract class CameraMetadata<TKey> {
 
     /**
      * <p>Same as FACE_PRIORITY scene mode, except that the camera
-     * device will choose higher sensivity values ({@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity})
+     * device will choose higher sensitivity values ({@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity})
      * under low light conditions.</p>
      * <p>The camera device may be tuned to expose the images in a reduced
      * sensitivity range to produce the best quality images. For example,
      * if the {@link CameraCharacteristics#SENSOR_INFO_SENSITIVITY_RANGE android.sensor.info.sensitivityRange} gives range of [100, 1600],
      * the camera device auto-exposure routine tuning process may limit the actual
-     * exposure sensivity range to [100, 1200] to ensure that the noise level isn't
-     * exessive to compromise the image quality. Under this situation, the image under
+     * exposure sensitivity range to [100, 1200] to ensure that the noise level isn't
+     * exessive in order to preserve the image quality. Under this situation, the image under
      * low light may be under-exposed when the sensor max exposure time (bounded by the
      * {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE android.control.aeTargetFpsRange} when {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode} is one of the
-     * ON_* modes) and effecitve max sensitivity are reached. This scene mode allows the
+     * ON_* modes) and effective max sensitivity are reached. This scene mode allows the
      * camera device auto-exposure routine to increase the sensitivity up to the max
      * sensitivity specified by {@link CameraCharacteristics#SENSOR_INFO_SENSITIVITY_RANGE android.sensor.info.sensitivityRange} when the scene is too
      * dark and the max exposure time is reached. The captured images may be noisier
-     * compared with the images captured in normal FACE_PRIORITY mode, therefore, it is
+     * compared with the images captured in normal FACE_PRIORITY mode; therefore, it is
      * recommended that the application only use this scene mode when it is capable of
      * reducing the noise level of the captured images.</p>
      * <p>Unlike the other scene modes, {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode},
@@ -1995,8 +2018,9 @@ public abstract class CameraMetadata<TKey> {
     public static final int EDGE_MODE_OFF = 0;
 
     /**
-     * <p>Apply edge enhancement at a quality level that does not slow down frame rate relative to sensor
-     * output</p>
+     * <p>Apply edge enhancement at a quality level that does not slow down frame rate
+     * relative to sensor output. It may be the same as OFF if edge enhancement will
+     * slow down frame rate relative to sensor.</p>
      * @see CaptureRequest#EDGE_MODE
      */
     public static final int EDGE_MODE_FAST = 1;
@@ -2118,7 +2142,8 @@ public abstract class CameraMetadata<TKey> {
 
     /**
      * <p>Noise reduction is applied without reducing frame rate relative to sensor
-     * output.</p>
+     * output. It may be the same as OFF if noise reduction will reduce frame rate
+     * relative to sensor.</p>
      * @see CaptureRequest#NOISE_REDUCTION_MODE
      */
     public static final int NOISE_REDUCTION_MODE_FAST = 1;

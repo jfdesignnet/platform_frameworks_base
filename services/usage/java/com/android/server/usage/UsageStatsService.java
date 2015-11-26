@@ -35,6 +35,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
@@ -42,6 +43,7 @@ import android.content.pm.UserInfo;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.hardware.display.DisplayManager;
+import android.net.NetworkScoreManager;
 import android.os.BatteryManager;
 import android.os.BatteryStats;
 import android.os.Binder;
@@ -64,6 +66,7 @@ import android.util.AtomicFile;
 import android.util.KeyValueListParser;
 import android.util.Slog;
 import android.util.SparseArray;
+import android.util.SparseIntArray;
 import android.util.TimeUtils;
 import android.view.Display;
 
@@ -798,7 +801,10 @@ public class UsageStatsService extends SystemService implements
         }
         if (packageName.equals("android")) return false;
         try {
-            if (mDeviceIdleController.isPowerSaveWhitelistApp(packageName)) {
+            // We allow all whitelisted apps, including those that don't want to be whitelisted
+            // for idle mode, because app idle (aka app standby) is really not as big an issue
+            // for controlling who participates vs. doze mode.
+            if (mDeviceIdleController.isPowerSaveWhitelistExceptIdleApp(packageName)) {
                 return false;
             }
         } catch (RemoteException re) {
@@ -812,12 +818,85 @@ public class UsageStatsService extends SystemService implements
             return false;
         }
 
+        if (isActiveNetworkScorer(packageName)) {
+            return false;
+        }
+
         if (mAppWidgetManager != null
                 && mAppWidgetManager.isBoundWidgetPackage(packageName, userId)) {
             return false;
         }
 
         return isAppIdleUnfiltered(packageName, userService, timeNow, screenOnTime);
+    }
+
+    int[] getIdleUidsForUser(int userId) {
+        if (!mAppIdleEnabled) {
+            return new int[0];
+        }
+
+        final long timeNow;
+        final UserUsageStatsService userService;
+        final long screenOnTime;
+        synchronized (mLock) {
+            timeNow = checkAndGetTimeLocked();
+            userService = getUserDataAndInitializeIfNeededLocked(userId, timeNow);
+            screenOnTime = getScreenOnTimeLocked(timeNow);
+        }
+
+        List<ApplicationInfo> apps;
+        try {
+            ParceledListSlice<ApplicationInfo> slice
+                    = AppGlobals.getPackageManager().getInstalledApplications(0, userId);
+            if (slice == null) {
+                return new int[0];
+            }
+            apps = slice.getList();
+        } catch (RemoteException e) {
+            return new int[0];
+        }
+
+        // State of each uid.  Key is the uid.  Value lower 16 bits is the number of apps
+        // associated with that uid, upper 16 bits is the number of those apps that is idle.
+        SparseIntArray uidStates = new SparseIntArray();
+
+        // Now resolve all app state.  Iterating over all apps, keeping track of how many
+        // we find for each uid and how many of those are idle.
+        for (int i = apps.size()-1; i >= 0; i--) {
+            ApplicationInfo ai = apps.get(i);
+
+            // Check whether this app is idle.
+            boolean idle = isAppIdleFiltered(ai.packageName, userId, userService, timeNow,
+                    screenOnTime);
+
+            int index = uidStates.indexOfKey(ai.uid);
+            if (index < 0) {
+                uidStates.put(ai.uid, 1 + (idle ? 1<<16 : 0));
+            } else {
+                int value = uidStates.valueAt(index);
+                uidStates.setValueAt(index, value + 1 + (idle ? 1<<16 : 0));
+            }
+        }
+
+        int numIdle = 0;
+        for (int i = uidStates.size() - 1; i >= 0; i--) {
+            int value = uidStates.valueAt(i);
+            if ((value&0x7fff) == (value>>16)) {
+                numIdle++;
+            }
+        }
+
+        int[] res = new int[numIdle];
+        numIdle = 0;
+        for (int i = uidStates.size() - 1; i >= 0; i--) {
+            int value = uidStates.valueAt(i);
+            if ((value&0x7fff) == (value>>16)) {
+                res[numIdle] = uidStates.keyAt(i);
+                numIdle++;
+            }
+        }
+
+        return res;
     }
 
     void setAppIdle(String packageName, boolean idle, int userId) {
@@ -845,6 +924,12 @@ public class UsageStatsService extends SystemService implements
         TelephonyManager telephonyManager = getContext().getSystemService(TelephonyManager.class);
         return telephonyManager.checkCarrierPrivilegesForPackageAnyPhone(packageName)
                     == TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS;
+    }
+
+    private boolean isActiveNetworkScorer(String packageName) {
+        NetworkScoreManager nsm = (NetworkScoreManager) getContext().getSystemService(
+                Context.NETWORK_SCORE_SERVICE);
+        return packageName != null && packageName.equals(nsm.getActiveScorerPackage());
     }
 
     void informListeners(String packageName, int userId, boolean isIdle) {
@@ -1177,7 +1262,11 @@ public class UsageStatsService extends SystemService implements
         @Override
         public void whitelistAppTemporarily(String packageName, long duration, int userId)
                 throws RemoteException {
-            mDeviceIdleController.addPowerSaveTempWhitelistApp(packageName, duration, userId);
+            StringBuilder reason = new StringBuilder(32);
+            reason.append("from:");
+            UserHandle.formatUid(reason, Binder.getCallingUid());
+            mDeviceIdleController.addPowerSaveTempWhitelistApp(packageName, duration, userId,
+                    reason.toString());
         }
 
         @Override
@@ -1266,6 +1355,11 @@ public class UsageStatsService extends SystemService implements
         @Override
         public boolean isAppIdle(String packageName, int userId) {
             return UsageStatsService.this.isAppIdleFiltered(packageName, userId, -1);
+        }
+
+        @Override
+        public int[] getIdleUidsForUser(int userId) {
+            return UsageStatsService.this.getIdleUidsForUser(userId);
         }
 
         @Override

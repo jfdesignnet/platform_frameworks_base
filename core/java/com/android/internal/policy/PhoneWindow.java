@@ -27,11 +27,11 @@ import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.app.ActivityManagerNative;
 import android.app.SearchManager;
+import android.os.Build;
 import android.os.UserHandle;
 
 import android.view.ActionMode;
 import android.view.ContextThemeWrapper;
-import android.view.Display;
 import android.view.Gravity;
 import android.view.IRotationWatcher.Stub;
 import android.view.IWindowManager;
@@ -2907,13 +2907,18 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     mLastHasRightStableInset = hasRightStableInset;
                 }
 
-                updateColorViewInt(mStatusColorViewState, sysUiVisibility, mStatusBarColor,
-                        mLastTopInset, false /* matchVertical */, animate && !disallowAnimate);
-
                 boolean navBarToRightEdge = mLastBottomInset == 0 && mLastRightInset > 0;
                 int navBarSize = navBarToRightEdge ? mLastRightInset : mLastBottomInset;
                 updateColorViewInt(mNavigationColorViewState, sysUiVisibility, mNavigationBarColor,
-                        navBarSize, navBarToRightEdge, animate && !disallowAnimate);
+                        navBarSize, navBarToRightEdge, 0 /* rightInset */,
+                        animate && !disallowAnimate);
+
+                boolean statusBarNeedsRightInset = navBarToRightEdge
+                        && mNavigationColorViewState.present;
+                int statusBarRightInset = statusBarNeedsRightInset ? mLastRightInset : 0;
+                updateColorViewInt(mStatusColorViewState, sysUiVisibility, mStatusBarColor,
+                        mLastTopInset, false /* matchVertical */, statusBarRightInset,
+                        animate && !disallowAnimate);
             }
 
             // When we expand the window with FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS, we still need
@@ -2966,15 +2971,17 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
          * @param size the current size in the non-parent-matching dimension.
          * @param verticalBar if true the view is attached to a vertical edge, otherwise to a
          *                    horizontal edge,
+         * @param rightMargin rightMargin for the color view.
          * @param animate if true, the change will be animated.
          */
         private void updateColorViewInt(final ColorViewState state, int sysUiVis, int color,
-                int size, boolean verticalBar, boolean animate) {
-            boolean show = size > 0 && (sysUiVis & state.systemUiHideFlag) == 0
+                int size, boolean verticalBar, int rightMargin, boolean animate) {
+            state.present = size > 0 && (sysUiVis & state.systemUiHideFlag) == 0
                     && (getAttributes().flags & state.hideWindowFlag) == 0
-                    && (getAttributes().flags & state.translucentFlag) == 0
-                    && (color & Color.BLACK) != 0
                     && (getAttributes().flags & FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0;
+            boolean show = state.present
+                    && (color & Color.BLACK) != 0
+                    && (getAttributes().flags & state.translucentFlag) == 0;
 
             boolean visibilityChanged = false;
             View view = state.view;
@@ -2993,7 +3000,10 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     view.setVisibility(INVISIBLE);
                     state.targetVisibility = VISIBLE;
 
-                    addView(view, new LayoutParams(resolvedWidth, resolvedHeight, resolvedGravity));
+                    LayoutParams lp = new LayoutParams(resolvedWidth, resolvedHeight,
+                            resolvedGravity);
+                    lp.rightMargin = rightMargin;
+                    addView(view, lp);
                     updateColorViewTranslations();
                 }
             } else {
@@ -3003,10 +3013,11 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 if (show) {
                     LayoutParams lp = (LayoutParams) view.getLayoutParams();
                     if (lp.height != resolvedHeight || lp.width != resolvedWidth
-                            || lp.gravity != resolvedGravity) {
+                            || lp.gravity != resolvedGravity || lp.rightMargin != rightMargin) {
                         lp.height = resolvedHeight;
                         lp.width = resolvedWidth;
                         lp.gravity = resolvedGravity;
+                        lp.rightMargin = rightMargin;
                         view.setLayoutParams(lp);
                     }
                     view.setBackgroundColor(color);
@@ -3531,7 +3542,28 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
             public void onDestroyActionMode(ActionMode mode) {
                 mWrapped.onDestroyActionMode(mode);
-                if (mode == mPrimaryActionMode) {
+                final boolean isMncApp = mContext.getApplicationInfo().targetSdkVersion
+                        >= Build.VERSION_CODES.M;
+                final boolean isPrimary;
+                final boolean isFloating;
+                if (isMncApp) {
+                    isPrimary = mode == mPrimaryActionMode;
+                    isFloating = mode == mFloatingActionMode;
+                    if (!isPrimary && mode.getType() == ActionMode.TYPE_PRIMARY) {
+                        Log.e(TAG, "Destroying unexpected ActionMode instance of TYPE_PRIMARY; "
+                                + mode + " was not the current primary action mode! Expected "
+                                + mPrimaryActionMode);
+                    }
+                    if (!isFloating && mode.getType() == ActionMode.TYPE_FLOATING) {
+                        Log.e(TAG, "Destroying unexpected ActionMode instance of TYPE_FLOATING; "
+                                + mode + " was not the current floating action mode! Expected "
+                                + mFloatingActionMode);
+                    }
+                } else {
+                    isPrimary = mode.getType() == ActionMode.TYPE_PRIMARY;
+                    isFloating = mode.getType() == ActionMode.TYPE_FLOATING;
+                }
+                if (isPrimary) {
                     if (mPrimaryActionModePopup != null) {
                         removeCallbacks(mShowPrimaryActionModePopup);
                     }
@@ -3569,7 +3601,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     }
 
                     mPrimaryActionMode = null;
-                } else if (mode == mFloatingActionMode) {
+                } else if (isFloating) {
                     cleanupFloatingActionModeViews();
                     mFloatingActionMode = null;
                 }
@@ -4419,7 +4451,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             Bundle args = new Bundle();
             args.putInt(Intent.EXTRA_ASSIST_INPUT_DEVICE_ID, event.getDeviceId());
             return ((SearchManager)getContext().getSystemService(Context.SEARCH_SERVICE))
-                    .launchAssistAction(null, UserHandle.myUserId(), args);
+                    .launchLegacyAssist(null, UserHandle.myUserId(), args);
         }
         return result;
     }
@@ -5001,6 +5033,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     private static class ColorViewState {
         View view = null;
         int targetVisibility = View.INVISIBLE;
+        boolean present = false;
 
         final int id;
         final int systemUiHideFlag;

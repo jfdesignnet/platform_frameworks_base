@@ -356,10 +356,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Aplikaciji omogoča nadzor svetilke."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"neposredno klicanje telefonskih številk"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Aplikaciji omogoča klicanje telefonskih številk brez vašega posredovanja. Zaradi tega lahko pride do nepričakovanih stroškov ali klicev. Aplikaciji to ne dovoljuje opravljanja klicev v sili. Zlonamerne aplikacije lahko kličejo brez vaše potrditve, kar vas lahko drago stane."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"dostop do storitve za klicanje IMS"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Aplikaciji dovoljuje uporabo storitev IMS za opravljanje klicev brez vašega posredovanja."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"branje stanja in identitete telefona"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Aplikaciji omogoča dostop do funkcij telefona v napravi. S tem dovoljenjem lahko aplikacija določi telefonsko številko in ID-je naprave, določi lahko tudi, ali je klic aktiven, in oddaljeno številko, s katero je klic povezan."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"preprečitev prehoda tabličnega računalnika v stanje pripravljenosti"</string>
@@ -438,6 +436,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Prst <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Ikona prstnih odtisov"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"branje nastavitev sinhronizacije"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Aplikaciji omogoča branje nastavitev sinhronizacije za račun. S tem lahko aplikacija na primer ugotovi, ali je aplikacija Ljudje sinhronizirana z računom."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"vklop in izklop sinhronizacije"</string>
@@ -716,6 +715,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Celica je dodana"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Dodana <xliff:g id="CELL_INDEX">%1$s</xliff:g>. celica"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Vzorec je končan"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Območje vzorca."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Pripomoček %2$d za %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Dodajanje pripomočka."</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Prazno"</string>
@@ -1055,7 +1055,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB za prenos datotek"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB za prenos fotografij"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB za MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Povezan kot namestitveni program"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Priključen na dodatek USB"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Za več možnosti se dotaknite."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"Iskanje in odpravljanje napak USB je povezano"</string>
@@ -1167,19 +1166,8 @@
       <item quantity="other"><xliff:g id="INDEX">%d</xliff:g> od <xliff:g id="TOTAL">%d</xliff:g></item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Končano"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Izpenjanje pomnilnika USB ..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Izpenjanje kartice SD ..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Brisanje pomnilnika USB ..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Brisanje kartice SD ..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Pomnilnika USB ni bilo mogoče izbrisati."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Kartice SD ni bilo mogoče izbrisati."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"Kartica SD je bila odstranjena, preden je bila izpeta."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"Trenutno poteka preverjanje pomnilnika USB."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"Poteka preverjanje kartice SD."</string>
-    <string name="media_removed" msgid="7001526905057952097">"Kartica SD je odstranjena."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"Pomnilnik USB trenutno uporablja računalnik."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"Kartico SD trenutno uporablja računalnik."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"Neznano stanje zunanjih nosilcev podatkov."</string>
     <string name="share" msgid="1778686618230011964">"Deli z dr."</string>
     <string name="find" msgid="4808270900322985960">"Najdi"</string>
     <string name="websearch" msgid="4337157977400211589">"Spletno iskanje"</string>

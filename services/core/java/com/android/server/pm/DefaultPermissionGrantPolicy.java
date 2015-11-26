@@ -34,6 +34,7 @@ import android.provider.CalendarContract;
 import android.provider.ContactsContract;
 import android.provider.MediaStore;
 import android.provider.Telephony.Sms.Intents;
+import android.security.Credentials;
 import android.util.ArraySet;
 import android.util.Log;
 
@@ -72,6 +73,7 @@ final class DefaultPermissionGrantPolicy {
     static {
         CONTACTS_PERMISSIONS.add(Manifest.permission.READ_CONTACTS);
         CONTACTS_PERMISSIONS.add(Manifest.permission.WRITE_CONTACTS);
+        CONTACTS_PERMISSIONS.add(Manifest.permission.GET_ACCOUNTS);
     }
 
     private static final Set<String> LOCATION_PERMISSIONS = new ArraySet<>();
@@ -117,16 +119,6 @@ final class DefaultPermissionGrantPolicy {
         STORAGE_PERMISSIONS.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
     }
 
-    private static final Set<String> ACCOUNTS_PERMISSIONS = new ArraySet<>();
-    static {
-        //ACCOUNTS_PERMISSIONS.add(Manifest.permission.GET_ACCOUNTS);
-    }
-
-    private static final Set<String> SETTINGS_PERMISSIONS = new ArraySet<>();
-    static {
-        SETTINGS_PERMISSIONS.add(Manifest.permission.WRITE_SETTINGS);
-    }
-
     private final PackageManagerService mService;
 
     private PackagesProvider mImePackagesProvider;
@@ -134,6 +126,7 @@ final class DefaultPermissionGrantPolicy {
     private PackagesProvider mVoiceInteractionPackagesProvider;
     private PackagesProvider mSmsAppPackagesProvider;
     private PackagesProvider mDialerAppPackagesProvider;
+    private PackagesProvider mSimCallManagerPackagesProvider;
     private SyncAdapterPackagesProvider mSyncAdapterPackagesProvider;
 
     public DefaultPermissionGrantPolicy(PackageManagerService service) {
@@ -160,7 +153,11 @@ final class DefaultPermissionGrantPolicy {
         mDialerAppPackagesProvider = provider;
     }
 
-    public void setSyncAdapterPackagesProviderrLPw(SyncAdapterPackagesProvider provider) {
+    public void setSimCallManagerPackagesProviderLPw(PackagesProvider provider) {
+        mSimCallManagerPackagesProvider = provider;
+    }
+
+    public void setSyncAdapterPackagesProviderLPw(SyncAdapterPackagesProvider provider) {
         mSyncAdapterPackagesProvider = provider;
     }
 
@@ -174,29 +171,22 @@ final class DefaultPermissionGrantPolicy {
 
         synchronized (mService.mPackages) {
             for (PackageParser.Package pkg : mService.mPackages.values()) {
-                if (!isSysComponentOrPersistentPrivApp(pkg)
-                        || !doesPackageSupportRuntimePermissions(pkg)) {
+                if (!isSysComponentOrPersistentPlatformSignedPrivAppLPr(pkg)
+                        || !doesPackageSupportRuntimePermissions(pkg)
+                        || pkg.requestedPermissions.isEmpty()) {
                     continue;
                 }
+                Set<String> permissions = new ArraySet<>();
                 final int permissionCount = pkg.requestedPermissions.size();
                 for (int i = 0; i < permissionCount; i++) {
                     String permission = pkg.requestedPermissions.get(i);
                     BasePermission bp = mService.mSettings.mPermissions.get(permission);
                     if (bp != null && bp.isRuntime()) {
-                        final int flags = mService.getPermissionFlags(permission,
-                                pkg.packageName, userId);
-                        if ((flags & PackageManager.FLAG_PERMISSION_SYSTEM_FIXED) == 0) {
-                            mService.grantRuntimePermission(pkg.packageName, permission, userId);
-                            mService.updatePermissionFlags(permission, pkg.packageName,
-                                    PackageManager.MASK_PERMISSION_FLAGS,
-                                    PackageManager.FLAG_PERMISSION_SYSTEM_FIXED
-                                    | PackageManager.FLAG_PERMISSION_GRANTED_BY_DEFAULT, userId);
-                            if (DEBUG) {
-                                Log.i(TAG, "Granted " + permission + " to system component "
-                                        + pkg.packageName);
-                            }
-                        }
+                        permissions.add(permission);
                     }
+                }
+                if (!permissions.isEmpty()) {
+                    grantRuntimePermissionsLPw(pkg, permissions, true, userId);
                 }
             }
         }
@@ -210,6 +200,7 @@ final class DefaultPermissionGrantPolicy {
         final PackagesProvider voiceInteractionPackagesProvider;
         final PackagesProvider smsAppPackagesProvider;
         final PackagesProvider dialerAppPackagesProvider;
+        final PackagesProvider simCallManagerPackagesProvider;
         final SyncAdapterPackagesProvider syncAdapterPackagesProvider;
 
         synchronized (mService.mPackages) {
@@ -218,6 +209,7 @@ final class DefaultPermissionGrantPolicy {
             voiceInteractionPackagesProvider = mVoiceInteractionPackagesProvider;
             smsAppPackagesProvider = mSmsAppPackagesProvider;
             dialerAppPackagesProvider = mDialerAppPackagesProvider;
+            simCallManagerPackagesProvider = mSimCallManagerPackagesProvider;
             syncAdapterPackagesProvider = mSyncAdapterPackagesProvider;
         }
 
@@ -231,6 +223,8 @@ final class DefaultPermissionGrantPolicy {
                 ? smsAppPackagesProvider.getPackages(userId) : null;
         String[] dialerAppPackageNames = (dialerAppPackagesProvider != null)
                 ? dialerAppPackagesProvider.getPackages(userId) : null;
+        String[] simCallManagerPackageNames = (simCallManagerPackagesProvider != null)
+                ? simCallManagerPackagesProvider.getPackages(userId) : null;
         String[] contactsSyncAdapterPackages = (syncAdapterPackagesProvider != null) ?
                 syncAdapterPackagesProvider.getPackages(ContactsContract.AUTHORITY, userId) : null;
         String[] calendarSyncAdapterPackages = (syncAdapterPackagesProvider != null) ?
@@ -251,18 +245,19 @@ final class DefaultPermissionGrantPolicy {
             if (verifierPackage != null
                     && doesPackageSupportRuntimePermissions(verifierPackage)) {
                 grantRuntimePermissionsLPw(verifierPackage, STORAGE_PERMISSIONS, true, userId);
+                grantRuntimePermissionsLPw(verifierPackage, PHONE_PERMISSIONS, false, userId);
+                grantRuntimePermissionsLPw(verifierPackage, SMS_PERMISSIONS, false, userId);
             }
 
             // SetupWizard
             Intent setupIntent = new Intent(Intent.ACTION_MAIN);
-            setupIntent.addCategory(Intent.CATEGORY_HOME);
+            setupIntent.addCategory(Intent.CATEGORY_SETUP_WIZARD);
             PackageParser.Package setupPackage = getDefaultSystemHandlerActivityPackageLPr(
                     setupIntent, userId);
             if (setupPackage != null
                     && doesPackageSupportRuntimePermissions(setupPackage)) {
                 grantRuntimePermissionsLPw(setupPackage, PHONE_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(setupPackage, CONTACTS_PERMISSIONS, userId);
-                grantRuntimePermissionsLPw(setupPackage, SETTINGS_PERMISSIONS, userId);
             }
 
             // Camera
@@ -303,7 +298,16 @@ final class DefaultPermissionGrantPolicy {
             PackageParser.Package storagePackage = getDefaultProviderAuthorityPackageLPr(
                     "com.android.externalstorage.documents", userId);
             if (storagePackage != null) {
-                grantRuntimePermissionsLPw(storagePackage, STORAGE_PERMISSIONS, userId);
+                grantRuntimePermissionsLPw(storagePackage, STORAGE_PERMISSIONS, true, userId);
+            }
+
+            // CertInstaller
+            Intent certInstallerIntent = new Intent(Credentials.INSTALL_ACTION);
+            PackageParser.Package certInstallerPackage = getDefaultSystemHandlerActivityPackageLPr(
+                    certInstallerIntent, userId);
+            if (certInstallerPackage != null
+                    && doesPackageSupportRuntimePermissions(certInstallerPackage)) {
+                grantRuntimePermissionsLPw(certInstallerPackage, STORAGE_PERMISSIONS, true, userId);
             }
 
             // Dialer
@@ -319,6 +323,18 @@ final class DefaultPermissionGrantPolicy {
                     PackageParser.Package dialerPackage = getSystemPackageLPr(dialerAppPackageName);
                     if (dialerPackage != null) {
                         grantDefaultPermissionsToDefaultSystemDialerAppLPr(dialerPackage, userId);
+                    }
+                }
+            }
+
+            // Sim call manager
+            if (simCallManagerPackageNames != null) {
+                for (String simCallManagerPackageName : simCallManagerPackageNames) {
+                    PackageParser.Package simCallManagerPackage =
+                            getSystemPackageLPr(simCallManagerPackageName);
+                    if (simCallManagerPackage != null) {
+                        grantDefaultPermissionsToDefaultSimCallManagerLPr(simCallManagerPackage,
+                                userId);
                     }
                 }
             }
@@ -345,9 +361,16 @@ final class DefaultPermissionGrantPolicy {
             Intent cbrIntent = new Intent(Intents.SMS_CB_RECEIVED_ACTION);
             PackageParser.Package cbrPackage =
                     getDefaultSystemHandlerActivityPackageLPr(cbrIntent, userId);
-
             if (cbrPackage != null && doesPackageSupportRuntimePermissions(cbrPackage)) {
-                grantRuntimePermissionsLPw(cbrPackage, SMS_PERMISSIONS, false, userId);
+                grantRuntimePermissionsLPw(cbrPackage, SMS_PERMISSIONS, userId);
+            }
+
+            // Carrier Provisioning Service
+            Intent carrierProvIntent = new Intent(Intents.SMS_CARRIER_PROVISION_ACTION);
+            PackageParser.Package carrierProvPackage =
+                    getDefaultSystemHandlerServicePackageLPr(carrierProvIntent, userId);
+            if (carrierProvPackage != null && doesPackageSupportRuntimePermissions(carrierProvPackage)) {
+                grantRuntimePermissionsLPw(carrierProvPackage, SMS_PERMISSIONS, false, userId);
             }
 
             // Calendar
@@ -359,7 +382,6 @@ final class DefaultPermissionGrantPolicy {
                     && doesPackageSupportRuntimePermissions(calendarPackage)) {
                 grantRuntimePermissionsLPw(calendarPackage, CALENDAR_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(calendarPackage, CONTACTS_PERMISSIONS, userId);
-                grantRuntimePermissionsLPw(calendarPackage, ACCOUNTS_PERMISSIONS, userId);
             }
 
             // Calendar provider
@@ -369,14 +391,12 @@ final class DefaultPermissionGrantPolicy {
                 grantRuntimePermissionsLPw(calendarProviderPackage, CONTACTS_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(calendarProviderPackage, CALENDAR_PERMISSIONS,
                         true, userId);
-                grantRuntimePermissionsLPw(calendarProviderPackage, ACCOUNTS_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(calendarProviderPackage, STORAGE_PERMISSIONS, userId);
             }
 
             // Calendar provider sync adapters
             List<PackageParser.Package> calendarSyncAdapters = getHeadlessSyncAdapterPackagesLPr(
-                    calendarSyncAdapterPackages,
-                            userId);
+                    calendarSyncAdapterPackages, userId);
             final int calendarSyncAdapterCount = calendarSyncAdapters.size();
             for (int i = 0; i < calendarSyncAdapterCount; i++) {
                 PackageParser.Package calendarSyncAdapter = calendarSyncAdapters.get(i);
@@ -394,13 +414,11 @@ final class DefaultPermissionGrantPolicy {
                     && doesPackageSupportRuntimePermissions(contactsPackage)) {
                 grantRuntimePermissionsLPw(contactsPackage, CONTACTS_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(contactsPackage, PHONE_PERMISSIONS, userId);
-                grantRuntimePermissionsLPw(contactsPackage, ACCOUNTS_PERMISSIONS, userId);
             }
 
             // Contacts provider sync adapters
             List<PackageParser.Package> contactsSyncAdapters = getHeadlessSyncAdapterPackagesLPr(
-                    contactsSyncAdapterPackages,
-                            userId);
+                    contactsSyncAdapterPackages, userId);
             final int contactsSyncAdapterCount = contactsSyncAdapters.size();
             for (int i = 0; i < contactsSyncAdapterCount; i++) {
                 PackageParser.Package contactsSyncAdapter = contactsSyncAdapters.get(i);
@@ -417,7 +435,6 @@ final class DefaultPermissionGrantPolicy {
                         true, userId);
                 grantRuntimePermissionsLPw(contactsProviderPackage, PHONE_PERMISSIONS,
                         true, userId);
-                grantRuntimePermissionsLPw(contactsProviderPackage, ACCOUNTS_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(contactsProviderPackage, STORAGE_PERMISSIONS, userId);
             }
 
@@ -428,7 +445,7 @@ final class DefaultPermissionGrantPolicy {
                     getDefaultSystemHandlerActivityPackageLPr(deviceProvisionIntent, userId);
             if (deviceProvisionPackage != null
                     && doesPackageSupportRuntimePermissions(deviceProvisionPackage)) {
-                grantRuntimePermissionsLPw(deviceProvisionPackage, ACCOUNTS_PERMISSIONS, userId);
+                grantRuntimePermissionsLPw(deviceProvisionPackage, CONTACTS_PERMISSIONS, userId);
             }
 
             // Maps
@@ -512,6 +529,16 @@ final class DefaultPermissionGrantPolicy {
                 }
             }
 
+            // Voice recognition
+            Intent voiceRecoIntent = new Intent("android.speech.RecognitionService");
+            voiceRecoIntent.addCategory(Intent.CATEGORY_DEFAULT);
+            PackageParser.Package voiceRecoPackage = getDefaultSystemHandlerServicePackageLPr(
+                    voiceRecoIntent, userId);
+            if (voiceRecoPackage != null
+                    && doesPackageSupportRuntimePermissions(voiceRecoPackage)) {
+                grantRuntimePermissionsLPw(voiceRecoPackage, MICROPHONE_PERMISSIONS, userId);
+            }
+
             // Location
             if (locationPackageNames != null) {
                 for (String packageName : locationPackageNames) {
@@ -576,9 +603,9 @@ final class DefaultPermissionGrantPolicy {
         }
         PackageParser.Package smsPackage = getPackageLPr(packageName);
         if (smsPackage != null && doesPackageSupportRuntimePermissions(smsPackage)) {
-            grantRuntimePermissionsLPw(smsPackage, PHONE_PERMISSIONS, userId);
-            grantRuntimePermissionsLPw(smsPackage, CONTACTS_PERMISSIONS, userId);
-            grantRuntimePermissionsLPw(smsPackage, SMS_PERMISSIONS, userId);
+            grantRuntimePermissionsLPw(smsPackage, PHONE_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(smsPackage, CONTACTS_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(smsPackage, SMS_PERMISSIONS, false, true, userId);
         }
     }
 
@@ -590,10 +617,29 @@ final class DefaultPermissionGrantPolicy {
         PackageParser.Package dialerPackage = getPackageLPr(packageName);
         if (dialerPackage != null
                 && doesPackageSupportRuntimePermissions(dialerPackage)) {
-            grantRuntimePermissionsLPw(dialerPackage, PHONE_PERMISSIONS, userId);
-            grantRuntimePermissionsLPw(dialerPackage, CONTACTS_PERMISSIONS, userId);
-            grantRuntimePermissionsLPw(dialerPackage, SMS_PERMISSIONS, userId);
-            grantRuntimePermissionsLPw(dialerPackage, MICROPHONE_PERMISSIONS, userId);
+            grantRuntimePermissionsLPw(dialerPackage, PHONE_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(dialerPackage, CONTACTS_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(dialerPackage, SMS_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(dialerPackage, MICROPHONE_PERMISSIONS, false, true, userId);
+        }
+    }
+
+    private void grantDefaultPermissionsToDefaultSimCallManagerLPr(
+            PackageParser.Package simCallManagerPackage, int userId) {
+        Log.i(TAG, "Granting permissions to sim call manager for user:" + userId);
+        if (doesPackageSupportRuntimePermissions(simCallManagerPackage)) {
+            grantRuntimePermissionsLPw(simCallManagerPackage, PHONE_PERMISSIONS, userId);
+            grantRuntimePermissionsLPw(simCallManagerPackage, MICROPHONE_PERMISSIONS, userId);
+        }
+    }
+
+    public void grantDefaultPermissionsToDefaultSimCallManagerLPr(String packageName, int userId) {
+        if (packageName == null) {
+            return;
+        }
+        PackageParser.Package simCallManagerPackage = getPackageLPr(packageName);
+        if (simCallManagerPackage != null) {
+            grantDefaultPermissionsToDefaultSimCallManagerLPr(simCallManagerPackage, userId);
         }
     }
 
@@ -608,6 +654,7 @@ final class DefaultPermissionGrantPolicy {
                     && doesPackageSupportRuntimePermissions(carrierPackage)) {
                 grantRuntimePermissionsLPw(carrierPackage, PHONE_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(carrierPackage, LOCATION_PERMISSIONS, userId);
+                grantRuntimePermissionsLPw(carrierPackage, SMS_PERMISSIONS, userId);
             }
         }
     }
@@ -620,20 +667,43 @@ final class DefaultPermissionGrantPolicy {
         PackageParser.Package browserPackage = getSystemPackageLPr(packageName);
         if (browserPackage != null
                 && doesPackageSupportRuntimePermissions(browserPackage)) {
-            grantRuntimePermissionsLPw(browserPackage, LOCATION_PERMISSIONS, userId);
+            grantRuntimePermissionsLPw(browserPackage, LOCATION_PERMISSIONS, false, false, userId);
         }
     }
 
     private PackageParser.Package getDefaultSystemHandlerActivityPackageLPr(
             Intent intent, int userId) {
-        List<ResolveInfo> handlers = mService.queryIntentActivities(intent,
-                intent.resolveType(mService.mContext.getContentResolver()), 0, userId);
+        List<ResolveInfo> handlers = mService.mActivities.queryIntent(intent,
+                intent.resolveType(mService.mContext.getContentResolver()),
+                PackageManager.GET_DISABLED_COMPONENTS, userId);
+        if (handlers == null) {
+            return null;
+        }
         final int handlerCount = handlers.size();
         for (int i = 0; i < handlerCount; i++) {
             ResolveInfo handler = handlers.get(i);
-            // TODO: This is a temporary hack to figure out the setup app.
             PackageParser.Package handlerPackage = getSystemPackageLPr(
                     handler.activityInfo.packageName);
+            if (handlerPackage != null) {
+                return handlerPackage;
+            }
+        }
+        return null;
+    }
+
+    private PackageParser.Package getDefaultSystemHandlerServicePackageLPr(
+            Intent intent, int userId) {
+        List<ResolveInfo> handlers = mService.queryIntentServices(intent,
+                intent.resolveType(mService.mContext.getContentResolver()),
+                PackageManager.GET_DISABLED_COMPONENTS, userId);
+        if (handlers == null) {
+            return null;
+        }
+        final int handlerCount = handlers.size();
+        for (int i = 0; i < handlerCount; i++) {
+            ResolveInfo handler = handlers.get(i);
+            PackageParser.Package handlerPackage = getSystemPackageLPr(
+                    handler.serviceInfo.packageName);
             if (handlerPackage != null) {
                 return handlerPackage;
             }
@@ -646,13 +716,14 @@ final class DefaultPermissionGrantPolicy {
         List<PackageParser.Package> syncAdapterPackages = new ArrayList<>();
 
         Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-        homeIntent.addCategory(Intent.CATEGORY_HOME);
+        homeIntent.addCategory(Intent.CATEGORY_LAUNCHER);
 
         for (String syncAdapterPackageName : syncAdapterPackageNames) {
             homeIntent.setPackage(syncAdapterPackageName);
 
-            List<ResolveInfo> homeActivities = mService.queryIntentActivities(homeIntent,
-                    homeIntent.resolveType(mService.mContext.getContentResolver()), 0, userId);
+            List<ResolveInfo> homeActivities = mService.mActivities.queryIntent(homeIntent,
+                    homeIntent.resolveType(mService.mContext.getContentResolver()),
+                    PackageManager.GET_DISABLED_COMPONENTS, userId);
             if (!homeActivities.isEmpty()) {
                 continue;
             }
@@ -682,37 +753,70 @@ final class DefaultPermissionGrantPolicy {
     private PackageParser.Package getSystemPackageLPr(String packageName) {
         PackageParser.Package pkg = getPackageLPr(packageName);
         if (pkg != null && pkg.isSystemApp()) {
-            return !isSysComponentOrPersistentPrivApp(pkg) ? pkg : null;
+            return !isSysComponentOrPersistentPlatformSignedPrivAppLPr(pkg) ? pkg : null;
         }
         return null;
     }
 
     private void grantRuntimePermissionsLPw(PackageParser.Package pkg, Set<String> permissions,
             int userId) {
-        grantRuntimePermissionsLPw(pkg, permissions, false, userId);
+        grantRuntimePermissionsLPw(pkg, permissions, false, false, userId);
     }
 
     private void grantRuntimePermissionsLPw(PackageParser.Package pkg, Set<String> permissions,
             boolean systemFixed, int userId) {
+        grantRuntimePermissionsLPw(pkg, permissions, systemFixed, false, userId);
+    }
+
+    private void grantRuntimePermissionsLPw(PackageParser.Package pkg, Set<String> permissions,
+            boolean systemFixed, boolean overrideUserChoice,  int userId) {
+        if (pkg.requestedPermissions.isEmpty()) {
+            return;
+        }
+
         List<String> requestedPermissions = pkg.requestedPermissions;
+        Set<String> grantablePermissions = null;
 
         if (pkg.isUpdatedSystemApp()) {
             PackageSetting sysPs = mService.mSettings.getDisabledSystemPkgLPr(pkg.packageName);
             if (sysPs != null) {
-                requestedPermissions = sysPs.pkg.requestedPermissions;
+                if (sysPs.pkg.requestedPermissions.isEmpty()) {
+                    return;
+                }
+                if (!requestedPermissions.equals(sysPs.pkg.requestedPermissions)) {
+                    grantablePermissions = new ArraySet<>(requestedPermissions);
+                    requestedPermissions = sysPs.pkg.requestedPermissions;
+                }
             }
         }
 
-        final int permissionCount = requestedPermissions.size();
-        for (int i = 0; i < permissionCount; i++) {
+        final int grantablePermissionCount = requestedPermissions.size();
+        for (int i = 0; i < grantablePermissionCount; i++) {
             String permission = requestedPermissions.get(i);
+
+            // If there is a disabled system app it may request a permission the updated
+            // version ot the data partition doesn't, In this case skip the permission.
+            if (grantablePermissions != null && !grantablePermissions.contains(permission)) {
+                continue;
+            }
+
             if (permissions.contains(permission)) {
                 final int flags = mService.getPermissionFlags(permission, pkg.packageName, userId);
 
                 // If any flags are set to the permission, then it is either set in
                 // its current state by the system or device/profile owner or the user.
                 // In all these cases we do not want to clobber the current state.
-                if (flags == 0) {
+                // Unless the caller wants to override user choices. The override is
+                // to make sure we can grant the needed permission to the default
+                // sms and phone apps after the user chooses this in the UI.
+                if (flags == 0 || overrideUserChoice) {
+                    // Never clobber policy or system.
+                    final int fixedFlags = PackageManager.FLAG_PERMISSION_SYSTEM_FIXED
+                            | PackageManager.FLAG_PERMISSION_POLICY_FIXED;
+                    if ((flags & fixedFlags) != 0) {
+                        continue;
+                    }
+
                     mService.grantRuntimePermission(pkg.packageName, permission, userId);
                     if (DEBUG) {
                         Log.i(TAG, "Granted " + permission + " to default handler "
@@ -731,11 +835,23 @@ final class DefaultPermissionGrantPolicy {
         }
     }
 
-    private static boolean isSysComponentOrPersistentPrivApp(PackageParser.Package pkg) {
-        return UserHandle.getAppId(pkg.applicationInfo.uid) < FIRST_APPLICATION_UID
-                || ((pkg.applicationInfo.privateFlags
-                & ApplicationInfo.PRIVATE_FLAG_PRIVILEGED) != 0
-                && (pkg.applicationInfo.flags & ApplicationInfo.FLAG_PERSISTENT) != 0);
+    private boolean isSysComponentOrPersistentPlatformSignedPrivAppLPr(PackageParser.Package pkg) {
+        if (UserHandle.getAppId(pkg.applicationInfo.uid) < FIRST_APPLICATION_UID) {
+            return true;
+        }
+        if (!pkg.isPrivilegedApp()) {
+            return false;
+        }
+        PackageSetting sysPkg = mService.mSettings.getDisabledSystemPkgLPr(pkg.packageName);
+        if (sysPkg != null) {
+            if ((sysPkg.pkg.applicationInfo.flags & ApplicationInfo.FLAG_PERSISTENT) == 0) {
+                return false;
+            }
+        } else if ((pkg.applicationInfo.flags & ApplicationInfo.FLAG_PERSISTENT) == 0) {
+            return false;
+        }
+        return PackageManagerService.compareSignatures(mService.mPlatformPackage.mSignatures,
+                pkg.mSignatures) == PackageManager.SIGNATURE_MATCH;
     }
 
     private static boolean doesPackageSupportRuntimePermissions(PackageParser.Package pkg) {

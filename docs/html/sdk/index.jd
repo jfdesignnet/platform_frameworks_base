@@ -5,47 +5,48 @@ page.image=images/cards/android-studio_2x.png
 header.hide=1
 page.metaDescription=Download the official Android IDE and developer tools to build apps for Android phones, tablets, wearables, TVs, and more.
 
-studio.version=1.2.2.0
+studio.version=1.3.2.0
 
-studio.linux_bundle_download=android-studio-ide-141.1980579-linux.zip
-studio.linux_bundle_bytes=258628239
-studio.linux_bundle_checksum=1fcb226bcf71760296b07dc0db74216563ce83f7
+studio.linux_bundle_download=android-studio-ide-141.2178183-linux.zip
+studio.linux_bundle_bytes=352010593
+studio.linux_bundle_checksum=cf780413f8c8223eb348bd27c19a9c04b75eaeb2
 
-studio.mac_bundle_download=android-studio-ide-141.1980579-mac.dmg
-studio.mac_bundle_bytes=260363204
-studio.mac_bundle_checksum=811a868958f8799a1c86a3acfab0fc5dc8de2f41
+studio.mac_bundle_download=android-studio-ide-141.2178183-mac.dmg
+studio.mac_bundle_bytes=368335367
+studio.mac_bundle_checksum=75b67eb15a34a152a40e7189484ab0ebc375b877
 
-studio.win_bundle_download=android-studio-ide-141.1980579-windows.zip
-studio.win_bundle_bytes=261036618
-studio.win_bundle_checksum=e61c9c27a92eff943f6bfdcdec3827199dd0c63d
-
-
-studio.win_bundle_exe_download=android-studio-bundle-141.1980579-windows.exe
-studio.win_bundle_exe_bytes=930456592
-studio.win_bundle_exe_checksum=964959e5165e90aaf693e868d5d1c2f7b38e8754
-
-studio.win_notools_exe_download=android-studio-ide-141.1980579-windows.exe
-studio.win_notools_exe_bytes=243741776
-studio.win_notools_exe_checksum=ae09797db2537afb572a00b7eacc292bb66d539e
+studio.win_bundle_download=android-studio-ide-141.2178183-windows.zip
+studio.win_bundle_bytes=344424713
+studio.win_bundle_checksum=3134f226b5f3c3f74d4fc2d9cff03a4458f01d69
 
 
+studio.win_bundle_exe_download=android-studio-bundle-141.2178183-windows.exe
+studio.win_bundle_exe_bytes=1136982712
+studio.win_bundle_exe_checksum=c7d39c529dd434489da9d086ff689d34dc791526
 
-sdk.linux_download=android-sdk_r24.3.3-linux.tgz
-sdk.linux_bytes=309109716
-sdk.linux_checksum=cd4cab76c2e3d926b3495c26ec56c831ba77d0d0
-
-sdk.mac_download=android-sdk_r24.3.3-macosx.zip
-sdk.mac_bytes=98330824
-sdk.mac_checksum=41f0f3e76d6868018740e654aefb04fd765c357d
-
-sdk.win_download=android-sdk_r24.3.3-windows.zip
-sdk.win_bytes=187480692
-sdk.win_checksum=b6a4899efbf20fc593042f1515446c6630ba502e
+studio.win_notools_exe_download=android-studio-ide-141.2178183-windows.exe
+studio.win_notools_exe_bytes=321810248
+studio.win_notools_exe_checksum=b5d1aaa000729c03a3cf980add79d1b93121c56d
 
 
-sdk.win_installer=installer_r24.3.3-windows.exe
-sdk.win_installer_bytes=139463749
-sdk.win_installer_checksum=bbdae40a7665e55b3cdb1fbae865986e6cd3df14
+
+
+sdk.linux_download=android-sdk_r24.3.4-linux.tgz
+sdk.linux_bytes=309138331
+sdk.linux_checksum=fb293d7bca42e05580be56b1adc22055d46603dd
+
+sdk.mac_download=android-sdk_r24.3.4-macosx.zip
+sdk.mac_bytes=98340900
+sdk.mac_checksum=128f10fba668ea490cc94a08e505a48a608879b9
+
+sdk.win_download=android-sdk_r24.3.4-windows.zip
+sdk.win_bytes=187496897
+sdk.win_checksum=4a8718fb4a2bf2128d34b92f23ddd79fc65839e7
+
+
+sdk.win_installer=installer_r24.3.4-windows.exe
+sdk.win_installer_bytes=139477985
+sdk.win_installer_checksum=094dd45f98a31f839feae898b48f23704f2878dd
 
 
 
@@ -288,7 +289,7 @@ width: 400px;text-align: center;">The official Android IDE</p>
 </ul>
 
 <a class="online landing-button green download-bundle-button"
-href="#Other" >Download Android Studio</a>
+href="#Other" >Download Android Studio<br/><span class='small'></span></a>
 
 <!-- this appears when viewing the offline docs -->
 <p class="offline">

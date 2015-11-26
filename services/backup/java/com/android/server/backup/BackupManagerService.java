@@ -401,21 +401,40 @@ public class BackupManagerService {
         public boolean isSystemRestore;
         public String[] filterSet;
 
-        // Restore a single package
+        /**
+         * Restore a single package; no kill after restore
+         */
         RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
-                long _token, PackageInfo _pkg, int _pmToken) {
+                long _token, PackageInfo _pkg) {
             transport = _transport;
             dirName = _dirName;
             observer = _obs;
             token = _token;
             pkgInfo = _pkg;
-            pmToken = _pmToken;
+            pmToken = 0;
             isSystemRestore = false;
             filterSet = null;
         }
 
-        // Restore everything possible.  This is the form that Setup Wizard or similar
-        // restore UXes use.
+        /**
+         * Restore at install: PM token needed, kill after restore
+         */
+        RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
+                long _token, String _pkgName, int _pmToken) {
+            transport = _transport;
+            dirName = _dirName;
+            observer = _obs;
+            token = _token;
+            pkgInfo = null;
+            pmToken = _pmToken;
+            isSystemRestore = false;
+            filterSet = new String[] { _pkgName };
+        }
+
+        /**
+         * Restore everything possible.  This is the form that Setup Wizard or similar
+         * restore UXes use.
+         */
         RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
                 long _token) {
             transport = _transport;
@@ -428,8 +447,10 @@ public class BackupManagerService {
             filterSet = null;
         }
 
-        // Restore some set of packages.  Leave this one up to the caller to specify
-        // whether it's to be considered a system-level restore.
+        /**
+         * Restore some set of packages.  Leave this one up to the caller to specify
+         * whether it's to be considered a system-level restore.
+         */
         RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
                 long _token, String[] _filterSet, boolean _isSystemRestore) {
             transport = _transport;
@@ -1934,10 +1955,12 @@ public class BackupManagerService {
                 .setPackage(pkgInfo.packageName);
         List<ResolveInfo> hosts = mPackageManager.queryIntentServicesAsUser(
                 intent, 0, UserHandle.USER_OWNER);
-        final int N = hosts.size();
-        for (int i = 0; i < N; i++) {
-            final ServiceInfo info = hosts.get(i).serviceInfo;
-            tryBindTransport(info);
+        if (hosts != null) {
+            final int N = hosts.size();
+            for (int i = 0; i < N; i++) {
+                final ServiceInfo info = hosts.get(i).serviceInfo;
+                tryBindTransport(info);
+            }
         }
     }
 
@@ -7848,8 +7871,12 @@ if (MORE_DEBUG) Slog.v(TAG, "   + got " + nRead + "; now wanting " + (size - soF
                 // If we get this far, the callback or timeout will schedule the
                 // next restore state, so we're done
             } catch (Exception e) {
-                Slog.e(TAG, "Unable to finalize restore of " + mCurrentPackage.packageName);
-                executeNextState(UnifiedRestoreState.FINAL);
+                final String packageName = mCurrentPackage.packageName;
+                Slog.e(TAG, "Unable to finalize restore of " + packageName);
+                EventLog.writeEvent(EventLogTags.RESTORE_AGENT_FAILURE,
+                        packageName, e.toString());
+                keyValueAgentErrorCleanup();
+                executeNextState(UnifiedRestoreState.RUNNING_QUEUE);
             }
         }
 
@@ -8091,6 +8118,7 @@ if (MORE_DEBUG) Slog.v(TAG, "   + got " + nRead + "; now wanting " + (size - soF
             keyValueAgentCleanup();
         }
 
+        // TODO: clean up naming; this is now used at finish by both k/v and stream restores
         void keyValueAgentCleanup() {
             mBackupDataName.delete();
             mStageName.delete();
@@ -8126,8 +8154,17 @@ if (MORE_DEBUG) Slog.v(TAG, "   + got " + nRead + "; now wanting " + (size - soF
                     // usual full initialization.  Note that this is only done for
                     // full-system restores: when a single app has requested a restore,
                     // it is explicitly not killed following that operation.
-                    if (mTargetPackage == null && (mCurrentPackage.applicationInfo.flags
-                            & ApplicationInfo.FLAG_KILL_AFTER_RESTORE) != 0) {
+                    //
+                    // We execute this kill when these conditions hold:
+                    //    1. the app did not request its own restore (mTargetPackage == null), and either
+                    //    2a. the app is a full-data target (TYPE_FULL_STREAM) or
+                    //     b. the app does not state android:killAfterRestore="false" in its manifest
+                    final int appFlags = mCurrentPackage.applicationInfo.flags;
+                    final boolean killAfterRestore =
+                            (mRestoreDescription.getDataType() == RestoreDescription.TYPE_FULL_STREAM)
+                            || ((appFlags & ApplicationInfo.FLAG_KILL_AFTER_RESTORE) != 0);
+
+                    if (mTargetPackage == null && killAfterRestore) {
                         if (DEBUG) Slog.d(TAG, "Restore complete, killing host process of "
                                 + mCurrentPackage.applicationInfo.processName);
                         mActivityManager.killApplicationProcess(
@@ -9122,19 +9159,13 @@ if (MORE_DEBUG) Slog.v(TAG, "   + got " + nRead + "; now wanting " + (size - soF
                 // This can throw and so *must* happen before the wakelock is acquired
                 String dirName = transport.transportDirName();
 
-                // We can use a synthetic PackageInfo here because:
-                //   1. We know it's valid, since the Package Manager supplied the name
-                //   2. Only the packageName field will be used by the restore code
-                PackageInfo pkg = new PackageInfo();
-                pkg.packageName = packageName;
-
                 mWakelock.acquire();
                 if (MORE_DEBUG) {
                     Slog.d(TAG, "Restore at install of " + packageName);
                 }
                 Message msg = mBackupHandler.obtainMessage(MSG_RUN_RESTORE);
                 msg.obj = new RestoreParams(transport, dirName, null,
-                        restoreSet, pkg, token);
+                        restoreSet, packageName, token);
                 mBackupHandler.sendMessage(msg);
             } catch (RemoteException e) {
                 // Binding to the transport broke; back off and proceed with the installation.
@@ -9513,8 +9544,7 @@ if (MORE_DEBUG) Slog.v(TAG, "   + got " + nRead + "; now wanting " + (size - soF
                     Slog.d(TAG, "restorePackage() : " + packageName);
                 }
                 Message msg = mBackupHandler.obtainMessage(MSG_RUN_RESTORE);
-                msg.obj = new RestoreParams(mRestoreTransport, dirName,
-                        observer, token, app, 0);
+                msg.obj = new RestoreParams(mRestoreTransport, dirName, observer, token, app);
                 mBackupHandler.sendMessage(msg);
             } finally {
                 Binder.restoreCallingIdentity(oldId);
@@ -9535,16 +9565,8 @@ if (MORE_DEBUG) Slog.v(TAG, "   + got " + nRead + "; now wanting " + (size - soF
             public void run() {
                 // clean up the session's bookkeeping
                 synchronized (mSession) {
-                    try {
-                        if (mSession.mRestoreTransport != null) {
-                            mSession.mRestoreTransport.finishRestore();
-                        }
-                    } catch (Exception e) {
-                        Slog.e(TAG, "Error in finishRestore", e);
-                    } finally {
-                        mSession.mRestoreTransport = null;
-                        mSession.mEnded = true;
-                    }
+                    mSession.mRestoreTransport = null;
+                    mSession.mEnded = true;
                 }
 
                 // clean up the BackupManagerImpl side of the bookkeeping

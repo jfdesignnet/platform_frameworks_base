@@ -30,6 +30,7 @@ import com.android.server.lights.LightsManager;
 import com.android.server.Watchdog;
 
 import android.Manifest;
+import android.app.AppOpsManager;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -830,7 +831,18 @@ public final class PowerManagerService extends SystemService
     private void applyWakeLockFlagsOnAcquireLocked(WakeLock wakeLock, int uid) {
         if ((wakeLock.mFlags & PowerManager.ACQUIRE_CAUSES_WAKEUP) != 0
                 && isScreenLock(wakeLock)) {
-            wakeUpNoUpdateLocked(SystemClock.uptimeMillis(), uid);
+            String opPackageName;
+            int opUid;
+            if (wakeLock.mWorkSource != null && wakeLock.mWorkSource.getName(0) != null) {
+                opPackageName = wakeLock.mWorkSource.getName(0);
+                opUid = wakeLock.mWorkSource.get(0);
+            } else {
+                opPackageName = wakeLock.mPackageName;
+                opUid = wakeLock.mWorkSource != null ? wakeLock.mWorkSource.get(0)
+                        : wakeLock.mOwnerUid;
+            }
+            wakeUpNoUpdateLocked(SystemClock.uptimeMillis(), wakeLock.mTag, opUid,
+                    opPackageName, opUid);
         }
     }
 
@@ -1042,17 +1054,19 @@ public final class PowerManagerService extends SystemService
         return false;
     }
 
-    private void wakeUpInternal(long eventTime, int uid) {
+    private void wakeUpInternal(long eventTime, String reason, int uid, String opPackageName,
+            int opUid) {
         synchronized (mLock) {
-            if (wakeUpNoUpdateLocked(eventTime, uid)) {
+            if (wakeUpNoUpdateLocked(eventTime, reason, uid, opPackageName, opUid)) {
                 updatePowerStateLocked();
             }
         }
     }
 
-    private boolean wakeUpNoUpdateLocked(long eventTime, int uid) {
+    private boolean wakeUpNoUpdateLocked(long eventTime, String reason, int reasonUid,
+            String opPackageName, int opUid) {
         if (DEBUG_SPEW) {
-            Slog.d(TAG, "wakeUpNoUpdateLocked: eventTime=" + eventTime + ", uid=" + uid);
+            Slog.d(TAG, "wakeUpNoUpdateLocked: eventTime=" + eventTime + ", uid=" + reasonUid);
         }
 
         if (eventTime < mLastSleepTime || mWakefulness == WAKEFULNESS_AWAKE
@@ -1064,21 +1078,22 @@ public final class PowerManagerService extends SystemService
         try {
             switch (mWakefulness) {
                 case WAKEFULNESS_ASLEEP:
-                    Slog.i(TAG, "Waking up from sleep (uid " + uid +")...");
+                    Slog.i(TAG, "Waking up from sleep (uid " + reasonUid +")...");
                     break;
                 case WAKEFULNESS_DREAMING:
-                    Slog.i(TAG, "Waking up from dream (uid " + uid +")...");
+                    Slog.i(TAG, "Waking up from dream (uid " + reasonUid +")...");
                     break;
                 case WAKEFULNESS_DOZING:
-                    Slog.i(TAG, "Waking up from dozing (uid " + uid +")...");
+                    Slog.i(TAG, "Waking up from dozing (uid " + reasonUid +")...");
                     break;
             }
 
             mLastWakeTime = eventTime;
             setWakefulnessLocked(WAKEFULNESS_AWAKE, 0);
 
+            mNotifier.onWakeUp(reason, reasonUid, opPackageName, opUid);
             userActivityNoUpdateLocked(
-                    eventTime, PowerManager.USER_ACTIVITY_EVENT_OTHER, 0, uid);
+                    eventTime, PowerManager.USER_ACTIVITY_EVENT_OTHER, 0, reasonUid);
         } finally {
             Trace.traceEnd(Trace.TRACE_TAG_POWER);
         }
@@ -1334,7 +1349,8 @@ public final class PowerManagerService extends SystemService
                 final long now = SystemClock.uptimeMillis();
                 if (shouldWakeUpWhenPluggedOrUnpluggedLocked(wasPowered, oldPlugType,
                         dockedOnWirelessCharger)) {
-                    wakeUpNoUpdateLocked(now, Process.SYSTEM_UID);
+                    wakeUpNoUpdateLocked(now, "android.server.power:POWER", Process.SYSTEM_UID,
+                            mContext.getOpPackageName(), Process.SYSTEM_UID);
                 }
                 userActivityNoUpdateLocked(
                         now, PowerManager.USER_ACTIVITY_EVENT_OTHER, 0, Process.SYSTEM_UID);
@@ -1788,7 +1804,8 @@ public final class PowerManagerService extends SystemService
                             PowerManager.GO_TO_SLEEP_REASON_TIMEOUT, 0, Process.SYSTEM_UID);
                     updatePowerStateLocked();
                 } else {
-                    wakeUpNoUpdateLocked(SystemClock.uptimeMillis(), Process.SYSTEM_UID);
+                    wakeUpNoUpdateLocked(SystemClock.uptimeMillis(), "android.server.power:DREAM",
+                            Process.SYSTEM_UID, mContext.getOpPackageName(), Process.SYSTEM_UID);
                     updatePowerStateLocked();
                 }
             } else if (wakefulness == WAKEFULNESS_DOZING) {
@@ -3136,7 +3153,7 @@ public final class PowerManagerService extends SystemService
         }
 
         @Override // Binder call
-        public void wakeUp(long eventTime) {
+        public void wakeUp(long eventTime, String reason, String opPackageName) {
             if (eventTime > SystemClock.uptimeMillis()) {
                 throw new IllegalArgumentException("event time must not be in the future");
             }
@@ -3147,7 +3164,7 @@ public final class PowerManagerService extends SystemService
             final int uid = Binder.getCallingUid();
             final long ident = Binder.clearCallingIdentity();
             try {
-                wakeUpInternal(eventTime, uid);
+                wakeUpInternal(eventTime, reason, uid, opPackageName, uid);
             } finally {
                 Binder.restoreCallingIdentity(ident);
             }
@@ -3303,8 +3320,14 @@ public final class PowerManagerService extends SystemService
          */
         @Override // Binder call
         public void setStayOnSetting(int val) {
-            mContext.enforceCallingOrSelfPermission(
-                    android.Manifest.permission.WRITE_SETTINGS, null);
+            int uid = Binder.getCallingUid();
+            // if uid is of root's, we permit this operation straight away
+            if (uid != Process.ROOT_UID) {
+                if (!Settings.checkAndNoteWriteSettingsOperation(mContext, uid,
+                        Settings.getPackageNameForUid(mContext, uid), true)) {
+                    return;
+                }
+            }
 
             final long ident = Binder.clearCallingIdentity();
             try {

@@ -664,7 +664,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * the max possible number of frames the camera device will group together for this high
      * speed stream configuration. This max batch size will be used to generate a high speed
      * recording request list by
-     * {@link android.hardware.camera2.CameraDevice#createConstrainedHighSpeedRequestList }.
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList }.
      * The max batch size for each configuration will satisfy below conditions:</p>
      * <ul>
      * <li>Each max batch size will be a divisor of its corresponding fps_max / 30. For example,
@@ -1003,13 +1003,13 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
     /**
      * <p>The orientation of the camera relative to the sensor
      * coordinate system.</p>
-     * <p>The four coefficients that describe the quarternion
+     * <p>The four coefficients that describe the quaternion
      * rotation from the Android sensor coordinate system to a
      * camera-aligned coordinate system where the X-axis is
      * aligned with the long side of the image sensor, the Y-axis
      * is aligned with the short side of the image sensor, and
      * the Z-axis is aligned with the optical axis of the sensor.</p>
-     * <p>To convert from the quarternion coefficients <code>(x,y,z,w)</code>
+     * <p>To convert from the quaternion coefficients <code>(x,y,z,w)</code>
      * to the axis of rotation <code>(a_x, a_y, a_z)</code> and rotation
      * amount <code>theta</code>, the following formulas can be used:</p>
      * <pre><code> theta = 2 * acos(w)
@@ -1018,7 +1018,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * a_z = z / sin(theta/2)
      * </code></pre>
      * <p>To create a 3x3 rotation matrix that applies the rotation
-     * defined by this quarternion, the following matrix can be
+     * defined by this quaternion, the following matrix can be
      * used:</p>
      * <pre><code>R = [ 1 - 2y^2 - 2z^2,       2xy - 2zw,       2xz + 2yw,
      *            2xy + 2zw, 1 - 2x^2 - 2z^2,       2yz - 2xw,
@@ -1030,7 +1030,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <p>where <code>p</code> is in the device sensor coordinate system, and
      *  <code>p'</code> is in the camera-oriented coordinate system.</p>
      * <p><b>Units</b>:
-     * Quarternion coefficients</p>
+     * Quaternion coefficients</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      */
     @PublicKey
@@ -1052,13 +1052,13 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * user's perspective) will report <code>(0.03, 0, 0)</code>.</p>
      * <p>To transform a pixel coordinates between two cameras
      * facing the same direction, first the source camera
-     * android.lens.radialDistortion must be corrected for.  Then
-     * the source camera android.lens.intrinsicCalibration needs
+     * {@link CameraCharacteristics#LENS_RADIAL_DISTORTION android.lens.radialDistortion} must be corrected for.  Then
+     * the source camera {@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration} needs
      * to be applied, followed by the {@link CameraCharacteristics#LENS_POSE_ROTATION android.lens.poseRotation}
      * of the source camera, the translation of the source camera
      * relative to the destination camera, the
      * {@link CameraCharacteristics#LENS_POSE_ROTATION android.lens.poseRotation} of the destination camera, and
-     * finally the inverse of android.lens.intrinsicCalibration
+     * finally the inverse of {@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration}
      * of the destination camera. This obtains a
      * radial-distortion-free coordinate in the destination
      * camera pixel coordinates.</p>
@@ -1069,7 +1069,9 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <p><b>Units</b>: Meters</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      *
+     * @see CameraCharacteristics#LENS_INTRINSIC_CALIBRATION
      * @see CameraCharacteristics#LENS_POSE_ROTATION
+     * @see CameraCharacteristics#LENS_RADIAL_DISTORTION
      */
     @PublicKey
     public static final Key<float[]> LENS_POSE_TRANSLATION =
@@ -1115,7 +1117,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * where <code>(0,0)</code> is the top-left of the
      * preCorrectionActiveArraySize rectangle. Once the pose and
      * intrinsic calibration transforms have been applied to a
-     * world point, then the android.lens.radialDistortion
+     * world point, then the {@link CameraCharacteristics#LENS_RADIAL_DISTORTION android.lens.radialDistortion}
      * transform needs to be applied, and the result adjusted to
      * be in the {@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize} coordinate
      * system (where <code>(0, 0)</code> is the top-left of the
@@ -1130,6 +1132,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      *
      * @see CameraCharacteristics#LENS_POSE_ROTATION
      * @see CameraCharacteristics#LENS_POSE_TRANSLATION
+     * @see CameraCharacteristics#LENS_RADIAL_DISTORTION
      * @see CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE
      * @see CameraCharacteristics#SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE
      */
@@ -1156,7 +1159,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * </code></pre>
      * <p>The pixel coordinates are defined in a normalized
      * coordinate system related to the
-     * android.lens.intrinsicCalibration calibration fields.
+     * {@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration} calibration fields.
      * Both <code>[x_i, y_i]</code> and <code>[x_c, y_c]</code> have <code>(0,0)</code> at the
      * lens optical center <code>[c_x, c_y]</code>. The maximum magnitudes
      * of both x and y coordinates are normalized to be 1 at the
@@ -1169,6 +1172,8 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <p><b>Units</b>:
      * Unitless coefficients.</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
+     *
+     * @see CameraCharacteristics#LENS_INTRINSIC_CALIBRATION
      */
     @PublicKey
     public static final Key<float[]> LENS_RADIAL_DISTORTION =
@@ -1901,7 +1906,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <tbody>
      * <tr>
      * <td align="center">{@link android.graphics.ImageFormat#JPEG }</td>
-     * <td align="center">{@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize}</td>
+     * <td align="center">{@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize} (*1)</td>
      * <td align="center">Any</td>
      * <td align="center"></td>
      * </tr>
@@ -1913,7 +1918,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * </tr>
      * <tr>
      * <td align="center">{@link android.graphics.ImageFormat#JPEG }</td>
-     * <td align="center">1280x720 (720)</td>
+     * <td align="center">1280x720 (720p)</td>
      * <td align="center">Any</td>
      * <td align="center">if 720p &lt;= activeArraySize</td>
      * </tr>
@@ -1951,6 +1956,22 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * </table>
      * <p>Refer to {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} and {@link android.hardware.camera2.CameraDevice#createCaptureSession } for additional mandatory
      * stream configurations on a per-capability basis.</p>
+     * <p>*1: For JPEG format, the sizes may be restricted by below conditions:</p>
+     * <ul>
+     * <li>The HAL may choose the aspect ratio of each Jpeg size to be one of well known ones
+     * (e.g. 4:3, 16:9, 3:2 etc.). If the sensor maximum resolution
+     * (defined by {@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize}) has an aspect ratio other than these,
+     * it does not have to be included in the supported JPEG sizes.</li>
+     * <li>Some hardware JPEG encoders may have pixel boundary alignment requirements, such as
+     * the dimensions being a multiple of 16.
+     * Therefore, the maximum JPEG size may be smaller than sensor maximum resolution.
+     * However, the largest JPEG size will be as close as possible to the sensor maximum
+     * resolution given above constraints. It is required that after aspect ratio adjustments,
+     * additional size reduction due to other issues must be less than 3% in area. For example,
+     * if the sensor maximum resolution is 3280x2464, if the maximum JPEG size has aspect
+     * ratio 4:3, and the JPEG encoder alignment requirement is 16, the maximum JPEG size will be
+     * 3264x2448.</li>
+     * </ul>
      * <p>This key is available on all devices.</p>
      *
      * @see CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL
@@ -2246,7 +2267,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * {@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize}.</p>
      * <p>The currently supported fields that correct for geometric distortion are:</p>
      * <ol>
-     * <li>android.lens.radialDistortion.</li>
+     * <li>{@link CameraCharacteristics#LENS_RADIAL_DISTORTION android.lens.radialDistortion}.</li>
      * </ol>
      * <p>If all of the geometric distortion fields are no-ops, this rectangle will be the same
      * as the post-distortion-corrected rectangle given in
@@ -2259,6 +2280,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <p><b>Units</b>: Pixel coordinates on the image sensor</p>
      * <p>This key is available on all devices.</p>
      *
+     * @see CameraCharacteristics#LENS_RADIAL_DISTORTION
      * @see CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE
      * @see CameraCharacteristics#SENSOR_INFO_PIXEL_ARRAY_SIZE
      * @see CameraCharacteristics#SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE

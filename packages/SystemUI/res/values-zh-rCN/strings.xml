@@ -114,12 +114,6 @@
     <string name="accessibility_data_two_bars" msgid="6166018492360432091">"数据信号强度为两格。"</string>
     <string name="accessibility_data_three_bars" msgid="9167670452395038520">"数据信号强度为三格。"</string>
     <string name="accessibility_data_signal_full" msgid="2708384608124519369">"数据信号满格。"</string>
-    <string name="accessibility_wifi_off" msgid="3177380296697933627">"已关闭WLAN。"</string>
-    <string name="accessibility_no_wifi" msgid="1425476551827924474">"WLAN连接已断开。"</string>
-    <string name="accessibility_wifi_one_bar" msgid="7735893178010724377">"WLAN信号强度为一格。"</string>
-    <string name="accessibility_wifi_two_bars" msgid="4994274250497262434">"WLAN信号强度为两格。"</string>
-    <string name="accessibility_wifi_three_bars" msgid="3495755044276588384">"WLAN信号强度为三格。"</string>
-    <string name="accessibility_wifi_signal_full" msgid="6853561303586480376">"WLAN信号满格。"</string>
     <string name="accessibility_wifi_name" msgid="7202151365171148501">"已连接到<xliff:g id="WIFI">%s</xliff:g>。"</string>
     <string name="accessibility_bluetooth_name" msgid="8441517146585531676">"已连接到<xliff:g id="BLUETOOTH">%s</xliff:g>。"</string>
     <string name="accessibility_no_wimax" msgid="4329180129727630368">"无 WiMAX 信号。"</string>
@@ -406,7 +400,7 @@
     <string name="volumeui_notification_title" msgid="4906770126345910955">"“<xliff:g id="APP_NAME">%1$s</xliff:g>”已用作音量控制对话框"</string>
     <string name="volumeui_notification_text" msgid="1826889705095768656">"触摸即可恢复原始设置。"</string>
     <string name="managed_profile_foreground_toast" msgid="5421487114739245972">"您当前正在使用工作资料"</string>
-    <string name="system_ui_tuner" msgid="3442596010150119600">"系统界面调谐器"</string>
+    <string name="system_ui_tuner" msgid="708224127392452018">"系统界面调谐器"</string>
     <string name="show_battery_percentage" msgid="5444136600512968798">"嵌入式显示电池电量百分比 显示嵌入的电池电量百分比"</string>
     <string name="show_battery_percentage_summary" msgid="3215025775576786037">"未充电时在状态栏图标内显示电池电量百分比"</string>
     <string name="quick_settings" msgid="10042998191725428">"快速设置"</string>
@@ -427,4 +421,11 @@
     <string name="accessibility_quick_settings_detail" msgid="2579369091672902101">"快速设置，<xliff:g id="TITLE">%s</xliff:g>。"</string>
     <string name="accessibility_status_bar_hotspot" msgid="4099381329956402865">"热点"</string>
     <string name="accessibility_managed_profile" msgid="6613641363112584120">"工作资料"</string>
+    <string name="tuner_warning_title" msgid="7094689930793031682">"是否有趣完全取决于个人感觉"</string>
+    <string name="tuner_warning" msgid="8730648121973575701">"系统界面调谐器可让您通过其他方式调整及自定义 Android 用户界面。在日后推出的版本中，这些实验性功能可能会变更、损坏或消失。操作时请务必谨慎。"</string>
+    <string name="tuner_persistent_warning" msgid="8597333795565621795">"在日后推出的版本中，这些实验性功能可能会变更、损坏或消失。操作时请务必谨慎。"</string>
+    <string name="got_it" msgid="2239653834387972602">"知道了"</string>
+    <string name="tuner_toast" msgid="603429811084428439">"恭喜！系统界面调谐器已添加到“设置”中"</string>
+    <string name="remove_from_settings" msgid="8389591916603406378">"从“设置”中移除"</string>
+    <string name="remove_from_settings_prompt" msgid="6069085993355887748">"要将系统界面调谐器从“设置”中移除，并停止使用所有相关功能吗？"</string>
 </resources>

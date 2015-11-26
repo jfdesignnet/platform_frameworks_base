@@ -181,6 +181,7 @@ LOCAL_SRC_FILES += \
 	core/java/android/hardware/location/IGeofenceHardwareMonitorCallback.aidl \
 	core/java/android/hardware/soundtrigger/IRecognitionStatusCallback.aidl \
 	core/java/android/hardware/usb/IUsbManager.aidl \
+	core/java/android/net/ICaptivePortal.aidl \
 	core/java/android/net/IConnectivityManager.aidl \
 	core/java/android/net/IEthernetManager.aidl \
 	core/java/android/net/IEthernetServiceListener.aidl \
@@ -284,7 +285,7 @@ LOCAL_SRC_FILES += \
 	core/java/com/android/internal/appwidget/IAppWidgetHost.aidl \
 	core/java/com/android/internal/backup/IBackupTransport.aidl \
 	core/java/com/android/internal/backup/IObbBackupService.aidl \
-	core/java/com/android/internal/policy/IKeyguardShowCallback.aidl \
+	core/java/com/android/internal/policy/IKeyguardDrawnCallback.aidl \
 	core/java/com/android/internal/policy/IKeyguardExitCallback.aidl \
 	core/java/com/android/internal/policy/IKeyguardService.aidl \
 	core/java/com/android/internal/policy/IKeyguardStateCallback.aidl \
@@ -667,7 +668,8 @@ dirs_to_check_apis := \
 # FRAMEWORKS_BASE_SUBDIRS comes from build/core/pathmap.mk
 dirs_to_document := \
 	$(dirs_to_check_apis) \
-  $(addprefix ../../, $(FRAMEWORKS_SUPPORT_JAVA_SRC_DIRS))
+  $(addprefix ../../, $(FRAMEWORKS_DATA_BINDING_JAVA_SRC_DIRS)) \
+  $(addprefix ../../, $(FRAMEWORKS_SUPPORT_JAVA_SRC_DIRS)) \
 
 # These are relative to frameworks/base
 html_dirs := \
@@ -748,6 +750,7 @@ framework_docs_LOCAL_DROIDDOC_OPTIONS := \
     -since $(SRC_API_DIR)/20.txt 20 \
     -since $(SRC_API_DIR)/21.txt 21 \
     -since $(SRC_API_DIR)/22.txt 22 \
+    -since $(SRC_API_DIR)/23.txt 23 \
 		-werror -hide 111 -hide 113 \
 		-overview $(LOCAL_PATH)/core/java/overview.html
 
@@ -785,7 +788,7 @@ sample_groups := -samplegroup Admin \
 
 ## SDK version identifiers used in the published docs
   # major[.minor] version for current SDK. (full releases only)
-framework_docs_SDK_VERSION:=5.1
+framework_docs_SDK_VERSION:=6.0
   # release version (ie "Release x")  (full releases only)
 framework_docs_SDK_REL_ID:=1
 

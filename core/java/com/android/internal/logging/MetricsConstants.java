@@ -22,6 +22,7 @@ package com.android.internal.logging;
  */
 public interface MetricsConstants {
     // These constants must match those in the analytic pipeline, do not edit.
+    // Add temporary values to the top of MetricsLogger instead.
     public static final int VIEW_UNKNOWN = 0;
     public static final int MAIN_SETTINGS = 1;
     public static final int ACCESSIBILITY = 2;
@@ -229,6 +230,41 @@ public interface MetricsConstants {
     public static final int ACTION_NOTE_CONTROLS = 204;
     public static final int ACTION_NOTE_INFO = 205;
     public static final int ACTION_APP_NOTE_SETTINGS = 206;
+    public static final int VOLUME_DIALOG = 207;
+    public static final int VOLUME_DIALOG_DETAILS = 208;
+    public static final int ACTION_VOLUME_SLIDER = 209;
+    public static final int ACTION_VOLUME_STREAM = 210;
+    public static final int ACTION_VOLUME_KEY = 211;
+    public static final int ACTION_VOLUME_ICON = 212;
+    public static final int ACTION_RINGER_MODE = 213;
+    public static final int ACTION_ACTIVITY_CHOOSER_SHOWN = 214;
+    public static final int ACTION_ACTIVITY_CHOOSER_PICKED_APP_TARGET = 215;
+    public static final int ACTION_ACTIVITY_CHOOSER_PICKED_SERVICE_TARGET = 216;
+    public static final int ACTION_ACTIVITY_CHOOSER_PICKED_STANDARD_TARGET = 217;
+    public static final int ACTION_BRIGHTNESS = 218;
+    public static final int ACTION_BRIGHTNESS_AUTO = 219;
+    public static final int BRIGHTNESS_DIALOG = 220;
+    public static final int SYSTEM_ALERT_WINDOW_APPS = 221;
+    public static final int DREAMING = 222;
+    public static final int DOZING = 223;
+    public static final int OVERVIEW_ACTIVITY = 224;
+    public static final int ABOUT_LEGAL_SETTINGS = 225;
+    public static final int ACTION_SEARCH_RESULTS = 226;
+    public static final int TUNER = 227;
+    public static final int TUNER_QS = 228;
+    public static final int TUNER_DEMO_MODE = 229;
+    public static final int TUNER_QS_REORDER = 230;
+    public static final int TUNER_QS_ADD = 231;
+    public static final int TUNER_QS_REMOVE = 232;
+    public static final int TUNER_STATUS_BAR_ENABLE = 233;
+    public static final int TUNER_STATUS_BAR_DISABLE = 234;
+    public static final int TUNER_DEMO_MODE_ENABLED = 235;
+    public static final int TUNER_DEMO_MODE_ON = 236;
+    public static final int TUNER_BATTERY_PERCENTAGE = 237;
+    public static final int FUELGAUGE_INACTIVE_APPS = 238;
+
+    // These constants must match those in the analytic pipeline, do not edit.
+    // Add temporary values to the top of MetricsLogger instead.
 
     //aliases
     public static final int DEVICEINFO_STORAGE = DEVICEINFO_MEMORY;

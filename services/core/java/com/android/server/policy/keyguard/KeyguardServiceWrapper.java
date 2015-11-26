@@ -22,9 +22,9 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Slog;
 
+import com.android.internal.policy.IKeyguardDrawnCallback;
 import com.android.internal.policy.IKeyguardExitCallback;
 import com.android.internal.policy.IKeyguardService;
-import com.android.internal.policy.IKeyguardShowCallback;
 import com.android.internal.policy.IKeyguardStateCallback;
 
 /**
@@ -124,9 +124,36 @@ public class KeyguardServiceWrapper implements IKeyguardService {
     }
 
     @Override
-    public void onStartedWakingUp(IKeyguardShowCallback callback) {
+    public void onStartedWakingUp() {
         try {
-            mService.onStartedWakingUp(callback);
+            mService.onStartedWakingUp();
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onScreenTurningOn(IKeyguardDrawnCallback callback) {
+        try {
+            mService.onScreenTurningOn(callback);
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onScreenTurnedOn() {
+        try {
+            mService.onScreenTurnedOn();
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onScreenTurnedOff() {
+        try {
+            mService.onScreenTurnedOff();
         } catch (RemoteException e) {
             Slog.w(TAG , "Remote Exception", e);
         }

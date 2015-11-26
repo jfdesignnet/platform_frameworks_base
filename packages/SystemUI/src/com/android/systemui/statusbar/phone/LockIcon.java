@@ -47,9 +47,9 @@ public class LockIcon extends KeyguardAffordanceView {
     private static final int STATE_FINGERPRINT_ERROR = 4;
 
     private int mLastState = 0;
-    private boolean mLastScreenOn;
+    private boolean mLastDeviceInteractive;
     private boolean mTransientFpError;
-    private boolean mScreenOn;
+    private boolean mDeviceInteractive;
     private final TrustDrawable mTrustDrawable;
     private final UnlockMethodCache mUnlockMethodCache;
     private AccessibilityController mAccessibilityController;
@@ -83,13 +83,14 @@ public class LockIcon extends KeyguardAffordanceView {
         update();
     }
 
-    public void setScreenOn(boolean screenOn) {
-        mScreenOn = screenOn;
+    public void setDeviceInteractive(boolean deviceInteractive) {
+        mDeviceInteractive = deviceInteractive;
         update();
     }
 
     public void update() {
-        boolean visible = isShown() && KeyguardUpdateMonitor.getInstance(mContext).isScreenOn();
+        boolean visible = isShown()
+                && KeyguardUpdateMonitor.getInstance(mContext).isDeviceInteractive();
         if (visible) {
             mTrustDrawable.start();
         } else {
@@ -101,8 +102,9 @@ public class LockIcon extends KeyguardAffordanceView {
         // TODO: Real icon for facelock.
         int state = getState();
         boolean anyFingerprintIcon = state == STATE_FINGERPRINT || state == STATE_FINGERPRINT_ERROR;
-        if (state != mLastState || mScreenOn != mLastScreenOn) {
-            int iconRes = getAnimationResForTransition(mLastState, state, mLastScreenOn, mScreenOn);
+        if (state != mLastState || mDeviceInteractive != mLastDeviceInteractive) {
+            int iconRes = getAnimationResForTransition(mLastState, state, mLastDeviceInteractive,
+                    mDeviceInteractive);
             if (iconRes == R.drawable.lockscreen_fingerprint_draw_off_animation) {
                 anyFingerprintIcon = true;
             }
@@ -149,7 +151,7 @@ public class LockIcon extends KeyguardAffordanceView {
                 }
             }
             mLastState = state;
-            mLastScreenOn = mScreenOn;
+            mLastDeviceInteractive = mDeviceInteractive;
         }
 
         // Hide trust circle when fingerprint is running.
@@ -214,7 +216,7 @@ public class LockIcon extends KeyguardAffordanceView {
         } else if (oldState == STATE_FINGERPRINT_ERROR && newState == STATE_FINGERPRINT) {
             return R.drawable.lockscreen_fingerprint_error_state_to_fp_animation;
         } else if (oldState == STATE_FINGERPRINT && newState == STATE_LOCK_OPEN
-                && !mUnlockMethodCache.isCurrentlyInsecure()) {
+                && !mUnlockMethodCache.isTrusted()) {
             return R.drawable.lockscreen_fingerprint_draw_off_animation;
         } else if (newState == STATE_FINGERPRINT && !oldScreenOn && screenOn) {
             return R.drawable.lockscreen_fingerprint_draw_on_animation;
@@ -224,13 +226,14 @@ public class LockIcon extends KeyguardAffordanceView {
     }
 
     private int getState() {
-        boolean fingerprintRunning =
-                KeyguardUpdateMonitor.getInstance(mContext).isFingerprintDetectionRunning();
-        if (mUnlockMethodCache.isCurrentlyInsecure()) {
+        KeyguardUpdateMonitor updateMonitor = KeyguardUpdateMonitor.getInstance(mContext);
+        boolean fingerprintRunning = updateMonitor.isFingerprintDetectionRunning();
+        boolean unlockingAllowed = updateMonitor.isUnlockingWithFingerprintAllowed();
+        if (mUnlockMethodCache.canSkipBouncer()) {
             return STATE_LOCK_OPEN;
         } else if (mTransientFpError) {
             return STATE_FINGERPRINT_ERROR;
-        } else if (fingerprintRunning) {
+        } else if (fingerprintRunning && unlockingAllowed) {
             return STATE_FINGERPRINT;
         } else if (mUnlockMethodCache.isFaceUnlockRunning()) {
             return STATE_FACE_UNLOCK;

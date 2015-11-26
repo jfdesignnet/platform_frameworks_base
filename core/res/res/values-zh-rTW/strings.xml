@@ -354,10 +354,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"允許應用程式控制閃光燈。"</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"直接撥打電話號碼"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"允許應用程式自行撥打電話，但可能產生非預期的費用或撥打非預期的電話。注意：這項權限不允許應用程式撥打緊急電話。惡意應用程式可能利用此功能擅自撥打電話，增加您不必要的額外支出。"</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"存取 IMS 撥號服務"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"允許應用程式自動使用 IMS 服務撥打電話。"</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"讀取手機狀態和識別碼"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"允許應用程式使用裝置的電話功能。這項權限可讓應用程式判讀手機號碼和裝置 ID、是否正在通話中，以及所撥打的對方號碼。"</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"防止平板電腦進入休眠狀態"</string>
@@ -436,6 +434,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"手指 <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"指紋圖示"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"讀取同步處理設定"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"允許應用程式讀取帳戶的同步處理設定，例如判斷「使用者」應用程式是否和某個帳戶進行同步處理。"</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"開啟及關閉同步功能"</string>
@@ -714,6 +713,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"已加入 1 格"</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"已加入圓點 <xliff:g id="CELL_INDEX">%1$s</xliff:g>"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"已畫出解鎖圖形"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"解鎖圖形區域。"</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s。第 %2$d 個小工具，共 %3$d 個。"</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"新增小工具。"</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"空白"</string>
@@ -1041,7 +1041,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB 檔案傳輸"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB 相片傳輸"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"已視為安裝程式連線"</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"已連接 USB 配件"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"輕觸即可顯示更多選項。"</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"已連接 USB 偵錯工具"</string>
@@ -1151,19 +1150,8 @@
       <item quantity="one">1 個相符項目</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"完成"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"正在卸載 USB 儲存裝置…"</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"正在卸載 SD 卡…"</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"正在清除 USB 儲存裝置的資料…"</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"正在清除 SD 卡的資料…"</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"無法清除 USB 儲存裝置。"</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"無法清除 SD 卡。"</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"SD 卡尚未卸載就已移除。"</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"USB 儲存裝置目前正在接受檢查。"</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"SD 卡目前正在接受檢查。"</string>
-    <string name="media_removed" msgid="7001526905057952097">"SD 卡已移除。"</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"電腦目前正在使用 USB 儲存裝置。"</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"電腦目前正在使用 SD 卡。"</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"外部媒體狀態不明。"</string>
     <string name="share" msgid="1778686618230011964">"分享"</string>
     <string name="find" msgid="4808270900322985960">"尋找"</string>
     <string name="websearch" msgid="4337157977400211589">"網頁搜尋"</string>

@@ -47,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * A helper class for retrieving the power usage information for all applications and services.
@@ -124,6 +125,9 @@ public final class BatteryStatsHelper {
     PowerCalculator mSensorPowerCalculator;
     PowerCalculator mCameraPowerCalculator;
     PowerCalculator mFlashlightPowerCalculator;
+
+    boolean mHasWifiPowerReporting = false;
+    boolean mHasBluetoothPowerReporting = false;
 
     public static boolean checkWifiOnly(Context context) {
         ConnectivityManager cm = (ConnectivityManager)context.getSystemService(
@@ -267,15 +271,20 @@ public final class BatteryStatsHelper {
 
     public static String makemAh(double power) {
         if (power == 0) return "0";
-        else if (power < .00001) return String.format("%.8f", power);
-        else if (power < .0001) return String.format("%.7f", power);
-        else if (power < .001) return String.format("%.6f", power);
-        else if (power < .01) return String.format("%.5f", power);
-        else if (power < .1) return String.format("%.4f", power);
-        else if (power < 1) return String.format("%.3f", power);
-        else if (power < 10) return String.format("%.2f", power);
-        else if (power < 100) return String.format("%.1f", power);
-        else return String.format("%.0f", power);
+
+        final String format;
+        if (power < .00001) format = "%.8f";
+        else if (power < .0001) format = "%.7f";
+        else if (power < .001) format = "%.6f";
+        else if (power < .01) format = "%.5f";
+        else if (power < .1) format = "%.4f";
+        else if (power < 1) format = "%.3f";
+        else if (power < 10) format = "%.2f";
+        else if (power < 100) format = "%.1f";
+        else format = "%.0f";
+
+        // Use English locale because this is never used in UI (only in checkin and dump).
+        return String.format(Locale.ENGLISH, format, power);
     }
 
     /**
@@ -343,21 +352,23 @@ public final class BatteryStatsHelper {
         }
         mMobileRadioPowerCalculator.reset(mStats);
 
-        if (mWifiPowerCalculator == null) {
-            if (checkHasWifiPowerReporting(mStats, mPowerProfile)) {
-                mWifiPowerCalculator = new WifiPowerCalculator(mPowerProfile);
-            } else {
-                mWifiPowerCalculator = new WifiPowerEstimator(mPowerProfile);
-            }
+        // checkHasWifiPowerReporting can change if we get energy data at a later point, so
+        // always check this field.
+        final boolean hasWifiPowerReporting = checkHasWifiPowerReporting(mStats, mPowerProfile);
+        if (mWifiPowerCalculator == null || hasWifiPowerReporting != mHasWifiPowerReporting) {
+            mWifiPowerCalculator = hasWifiPowerReporting ?
+                    new WifiPowerCalculator(mPowerProfile) :
+                    new WifiPowerEstimator(mPowerProfile);
+            mHasWifiPowerReporting = hasWifiPowerReporting;
         }
         mWifiPowerCalculator.reset();
 
-        if (mBluetoothPowerCalculator == null) {
-            if (checkHasBluetoothPowerReporting(mStats, mPowerProfile)) {
-                mBluetoothPowerCalculator = new BluetoothPowerCalculator(mPowerProfile);
-            } else {
-                mBluetoothPowerCalculator = new BluetoothPowerCalculator(mPowerProfile);
-            }
+        final boolean hasBluetoothPowerReporting = checkHasBluetoothPowerReporting(mStats,
+                                                                                   mPowerProfile);
+        if (mBluetoothPowerCalculator == null ||
+                hasBluetoothPowerReporting != mHasBluetoothPowerReporting) {
+            mBluetoothPowerCalculator = new BluetoothPowerCalculator(mPowerProfile);
+            mHasBluetoothPowerReporting = hasBluetoothPowerReporting;
         }
         mBluetoothPowerCalculator.reset();
 

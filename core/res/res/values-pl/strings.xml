@@ -356,10 +356,8 @@
     <string name="permdesc_flashlight" msgid="6522284794568368310">"Pozwala aplikacji na sterowanie latarką."</string>
     <string name="permlab_callPhone" msgid="3925836347681847954">"bezpośrednie wybieranie numerów telefonów"</string>
     <string name="permdesc_callPhone" msgid="3740797576113760827">"Pozwala aplikacji na dzwonienie pod numery telefonów bez Twojej wiedzy. Może to skutkować nieoczekiwanymi opłatami lub połączeniami. Aplikacja nie może dzwonić pod numery alarmowe. Złośliwe aplikacje mogą generować koszty, wykonując połączenia bez Twojego potwierdzenia."</string>
-    <!-- no translation found for permlab_accessImsCallService (3574943847181793918) -->
-    <skip />
-    <!-- no translation found for permdesc_accessImsCallService (8992884015198298775) -->
-    <skip />
+    <string name="permlab_accessImsCallService" msgid="3574943847181793918">"usługa telefoniczna z dostępem do komunikatora"</string>
+    <string name="permdesc_accessImsCallService" msgid="8992884015198298775">"Zezwala aplikacji na korzystanie z usługi komunikatora, by nawiązywać połączenia bez Twojego udziału."</string>
     <string name="permlab_readPhoneState" msgid="9178228524507610486">"odczytywanie stanu i informacji o telefonie"</string>
     <string name="permdesc_readPhoneState" msgid="1639212771826125528">"Pozwala aplikacji na dostęp do funkcji telefonicznych urządzenia. Aplikacja z tym uprawnieniem może odczytać numer telefonu i identyfikator urządzenia, sprawdzić, czy połączenie jest aktywne, oraz poznać numer, z którym jest nawiązane połączenie."</string>
     <string name="permlab_wakeLock" product="tablet" msgid="1531731435011495015">"zapobieganie przechodzeniu tabletu do trybu uśpienia"</string>
@@ -438,6 +436,7 @@
     <string name="fingerprint_name_template" msgid="5870957565512716938">"Palec <xliff:g id="FINGERID">%d</xliff:g>"</string>
   <string-array name="fingerprint_error_vendor">
   </string-array>
+    <string name="fingerprint_icon_content_description" msgid="2340202869968465936">"Ikona odcisku palca"</string>
     <string name="permlab_readSyncSettings" msgid="6201810008230503052">"czytanie ustawień synchronizacji"</string>
     <string name="permdesc_readSyncSettings" msgid="2706745674569678644">"Zezwala aplikacji na odczyt ustawień synchronizacji konta. Pozwala to na przykład określić, czy aplikacja Ludzie jest zsynchronizowana z kontem."</string>
     <string name="permlab_writeSyncSettings" msgid="5408694875793945314">"włączanie i wyłączanie synchronizacji"</string>
@@ -716,6 +715,7 @@
     <string name="lockscreen_access_pattern_cell_added" msgid="6756031208359292487">"Dodano komórkę."</string>
     <string name="lockscreen_access_pattern_cell_added_verbose" msgid="7264580781744026939">"Dodano komórkę <xliff:g id="CELL_INDEX">%1$s</xliff:g>"</string>
     <string name="lockscreen_access_pattern_detected" msgid="4988730895554057058">"Wzór ukończony"</string>
+    <string name="lockscreen_access_pattern_area" msgid="400813207572953209">"Obszar wzoru."</string>
     <string name="keyguard_accessibility_widget_changed" msgid="5678624624681400191">"%1$s. Widżet %2$d z %3$d."</string>
     <string name="keyguard_accessibility_add_widget" msgid="8273277058724924654">"Dodaj widżet."</string>
     <string name="keyguard_accessibility_widget_empty_slot" msgid="1281505703307930757">"Puste"</string>
@@ -1055,7 +1055,6 @@
     <string name="usb_mtp_notification_title" msgid="8396264943589760855">"USB w trybie przesyłania plików"</string>
     <string name="usb_ptp_notification_title" msgid="1347328437083192112">"USB w trybie przesyłania zdjęć"</string>
     <string name="usb_midi_notification_title" msgid="4850904915889144654">"USB w trybie MIDI"</string>
-    <string name="usb_cd_installer_notification_title" msgid="6774712827892090754">"Podłączono jako nośnik instalacyjny."</string>
     <string name="usb_accessory_notification_title" msgid="7848236974087653666">"Podłączono akcesorium USB"</string>
     <string name="usb_notification_message" msgid="7347368030849048437">"Kliknij, by zobaczyć więcej opcji."</string>
     <string name="adb_active_notification_title" msgid="6729044778949189918">"Podłączono moduł debugowania USB"</string>
@@ -1167,19 +1166,8 @@
       <item quantity="one">1 dopasowanie</item>
     </plurals>
     <string name="action_mode_done" msgid="7217581640461922289">"Gotowe"</string>
-    <string name="progress_unmounting" product="nosdcard" msgid="3923810448507612746">"Odłączanie nośnika USB..."</string>
-    <string name="progress_unmounting" product="default" msgid="1327894998409537190">"Odłączanie karty SD..."</string>
     <string name="progress_erasing" product="nosdcard" msgid="4521573321524340058">"Czyszczenie nośnika USB..."</string>
     <string name="progress_erasing" product="default" msgid="6596988875507043042">"Czyszczenie karty SD..."</string>
-    <string name="format_error" product="nosdcard" msgid="6299769563624776948">"Nie można wymazać pamięci USB."</string>
-    <string name="format_error" product="default" msgid="7315248696644510935">"Nie można wymazać karty SD."</string>
-    <string name="media_bad_removal" msgid="7960864061016603281">"Karta SD została wyjęta przed jej odłączeniem."</string>
-    <string name="media_checking" product="nosdcard" msgid="418188720009569693">"Nośnik USB jest obecnie sprawdzany."</string>
-    <string name="media_checking" product="default" msgid="7334762503904827481">"Karta SD jest obecnie sprawdzana."</string>
-    <string name="media_removed" msgid="7001526905057952097">"Karta SD została wyjęta."</string>
-    <string name="media_shared" product="nosdcard" msgid="5830814349250834225">"Nośnik USB jest obecnie używany przez komputer."</string>
-    <string name="media_shared" product="default" msgid="5706130568133540435">"Karta SD jest obecnie używana przez komputer."</string>
-    <string name="media_unknown_state" msgid="729192782197290385">"Nośnik zewnętrzny jest w nieznanym stanie."</string>
     <string name="share" msgid="1778686618230011964">"Udostępnij"</string>
     <string name="find" msgid="4808270900322985960">"Znajdź"</string>
     <string name="websearch" msgid="4337157977400211589">"Wyszukiwarka"</string>

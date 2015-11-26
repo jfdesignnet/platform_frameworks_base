@@ -1073,6 +1073,18 @@ public abstract class PackageManager {
     public static final int INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_NEVER = 3;
 
     /**
+     * Used as the {@code status} argument for {@link PackageManager#updateIntentVerificationStatus}
+     * to indicate that this app should always be considered as an ambiguous candidate for
+     * handling the matching Intent even if there are other candidate apps in the "always"
+     * state.  Put another way: if there are any 'always ask' apps in a set of more than
+     * one candidate app, then a disambiguation is *always* presented even if there is
+     * another candidate app with the 'always' state.
+     *
+     * @hide
+     */
+    public static final int INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ALWAYS_ASK = 4;
+
+    /**
      * Can be used as the {@code millisecondsToDelay} argument for
      * {@link PackageManager#extendVerificationTimeout}. This is the
      * maximum time {@code PackageManager} waits for the verification
@@ -1514,6 +1526,13 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device has biometric hardware to detect a fingerprint.
+      */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_FINGERPRINT = "android.hardware.fingerprint";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: The device supports portrait orientation
      * screens.  For backwards compatibility, you can assume that if neither
      * this nor {@link #FEATURE_SCREEN_LANDSCAPE} is set then the device supports
@@ -1867,14 +1886,6 @@ public abstract class PackageManager {
     @SystemApi
     public static final String ACTION_REQUEST_PERMISSIONS =
             "android.content.pm.action.REQUEST_PERMISSIONS";
-
-    /**
-     * The component name handling runtime permission grants.
-     *
-     * @hide
-     */
-    public static final String GRANT_PERMISSIONS_PACKAGE_NAME =
-            "com.android.packageinstaller";
 
     /**
      * The names of the requested permissions.
@@ -2398,7 +2409,7 @@ public abstract class PackageManager {
      * Check whether a particular package has been granted a particular
      * permission.
      *
-     * @param permName The name of the permission you are checking for,
+     * @param permName The name of the permission you are checking for.
      * @param pkgName The name of the package you are checking against.
      *
      * @return If the package has the permission, PERMISSION_GRANTED is
@@ -2410,6 +2421,31 @@ public abstract class PackageManager {
      */
     @CheckResult
     public abstract int checkPermission(String permName, String pkgName);
+
+    /**
+     * Checks whether a particular permissions has been revoked for a
+     * package by policy. Typically the device owner or the profile owner
+     * may apply such a policy. The user cannot grant policy revoked
+     * permissions, hence the only way for an app to get such a permission
+     * is by a policy change.
+     *
+     * @param permName The name of the permission you are checking for.
+     * @param pkgName The name of the package you are checking against.
+     *
+     * @return Whether the permission is restricted by policy.
+     */
+    @CheckResult
+    public abstract boolean isPermissionRevokedByPolicy(@NonNull String permName,
+            @NonNull String pkgName);
+
+    /**
+     * Gets the package name of the component controlling runtime permissions.
+     *
+     * @return The package name.
+     *
+     * @hide
+     */
+    public abstract String getPermissionControllerPackageName();
 
     /**
      * Add a new dynamic permission to the system.  For this to work, your
@@ -2593,7 +2629,7 @@ public abstract class PackageManager {
         }
         Intent intent = new Intent(ACTION_REQUEST_PERMISSIONS);
         intent.putExtra(EXTRA_REQUEST_PERMISSIONS_NAMES, permissions);
-        intent.setPackage(GRANT_PERMISSIONS_PACKAGE_NAME);
+        intent.setPackage(getPermissionControllerPackageName());
         return intent;
     }
 

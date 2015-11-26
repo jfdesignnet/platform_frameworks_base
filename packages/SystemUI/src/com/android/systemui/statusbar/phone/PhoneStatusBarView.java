@@ -20,14 +20,13 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.util.AttributeSet;
 import android.util.EventLog;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
 
+import com.android.systemui.DejankUtils;
 import com.android.systemui.EventLogTags;
 import com.android.systemui.R;
-import com.android.systemui.statusbar.StatusBarState;
 
 public class PhoneStatusBarView extends PanelBar {
     private static final String TAG = "PhoneStatusBarView";
@@ -118,18 +117,13 @@ public class PhoneStatusBarView extends PanelBar {
     @Override
     public void onAllPanelsCollapsed() {
         super.onAllPanelsCollapsed();
-        if (PhoneStatusBar.DEBUG_EMPTY_KEYGUARD
-                && mBar.getBarState() == StatusBarState.KEYGUARD) {
-            Log.i(PhoneStatusBar.TAG, "Panel collapsed! Stacktrace: "
-                    + Log.getStackTraceString(new Throwable()));
-        }
         // Close the status bar in the next frame so we can show the end of the animation.
-        postOnAnimation(mHideExpandedRunnable);
+        DejankUtils.postAfterTraversal(mHideExpandedRunnable);
         mLastFullyOpenedPanel = null;
     }
 
     public void removePendingHideExpandedRunnables() {
-        removeCallbacks(mHideExpandedRunnable);
+        DejankUtils.removeCallbacks(mHideExpandedRunnable);
     }
 
     @Override

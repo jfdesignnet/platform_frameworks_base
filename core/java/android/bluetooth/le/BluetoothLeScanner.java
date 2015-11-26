@@ -19,6 +19,7 @@ package android.bluetooth.le;
 import android.Manifest;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.app.ActivityThread;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallbackWrapper;
@@ -78,6 +79,10 @@ public final class BluetoothLeScanner {
      * delivered through {@code callback}.
      * <p>
      * Requires {@link android.Manifest.permission#BLUETOOTH_ADMIN} permission.
+     * An app must hold
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION ACCESS_COARSE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION ACCESS_FINE_LOCATION} permission
+     * in order to get results.
      *
      * @param callback Callback used to deliver scan results.
      * @throws IllegalArgumentException If {@code callback} is null.
@@ -94,6 +99,10 @@ public final class BluetoothLeScanner {
      * Start Bluetooth LE scan. The scan results will be delivered through {@code callback}.
      * <p>
      * Requires {@link android.Manifest.permission#BLUETOOTH_ADMIN} permission.
+     * An app must hold
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION ACCESS_COARSE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION ACCESS_FINE_LOCATION} permission
+     * in order to get results.
      *
      * @param filters {@link ScanFilter}s for finding exact BLE devices.
      * @param settings Settings for the scan.
@@ -313,7 +322,7 @@ public final class BluetoothLeScanner {
                     mClientIf = clientIf;
                     try {
                         mBluetoothGatt.startScan(mClientIf, false, mSettings, mFilters,
-                                mResultStorages);
+                                mResultStorages, ActivityThread.currentOpPackageName());
                     } catch (RemoteException e) {
                         Log.e(TAG, "fail to start le scan: " + e);
                         mClientIf = -1;

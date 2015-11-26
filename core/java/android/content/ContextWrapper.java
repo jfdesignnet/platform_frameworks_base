@@ -402,6 +402,12 @@ public class ContextWrapper extends Context {
     }
 
     /** @hide */
+    @Override
+    public void sendBroadcastMultiplePermissions(Intent intent, String[] receiverPermissions) {
+        mBase.sendBroadcastMultiplePermissions(intent, receiverPermissions);
+    }
+
+    /** @hide */
     @SystemApi
     @Override
     public void sendBroadcast(Intent intent, String receiverPermission, Bundle options) {
@@ -483,10 +489,18 @@ public class ContextWrapper extends Context {
     @Override
     public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
             String receiverPermission, int appOp, BroadcastReceiver resultReceiver,
-            Handler scheduler,
-            int initialCode, String initialData, Bundle initialExtras) {
+            Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
         mBase.sendOrderedBroadcastAsUser(intent, user, receiverPermission, appOp, resultReceiver,
                 scheduler, initialCode, initialData, initialExtras);
+    }
+
+    /** @hide */
+    @Override
+    public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
+            String receiverPermission, int appOp, Bundle options, BroadcastReceiver resultReceiver,
+            Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
+        mBase.sendOrderedBroadcastAsUser(intent, user, receiverPermission, appOp, options,
+                resultReceiver, scheduler, initialCode, initialData, initialExtras);
     }
 
     @Override

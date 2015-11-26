@@ -31,6 +31,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
@@ -64,6 +65,11 @@ public class NetworkControllerImpl extends BroadcastReceiver
     static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
     // additional diagnostics, but not logspew
     static final boolean CHATTY =  Log.isLoggable(TAG + "Chat", Log.DEBUG);
+
+    private static final int EMERGENCY_NO_CONTROLLERS = 0;
+    private static final int EMERGENCY_FIRST_CONTROLLER = 100;
+    private static final int EMERGENCY_VOICE_CONTROLLER = 200;
+    private static final int EMERGENCY_NO_SUB = 300;
 
     private final Context mContext;
     private final TelephonyManager mPhone;
@@ -116,6 +122,12 @@ public class NetworkControllerImpl extends BroadcastReceiver
     private final Handler mReceiverHandler;
     // Handler that all callbacks are made on.
     private final CallbackHandler mCallbackHandler;
+
+    private int mEmergencySource;
+    private boolean mIsEmergency;
+
+    @VisibleForTesting
+    ServiceState mLastServiceState;
 
     /**
      * Construct this controller object and register for updates.
@@ -194,10 +206,10 @@ public class NetworkControllerImpl extends BroadcastReceiver
         filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         filter.addAction(TelephonyIntents.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED);
         filter.addAction(TelephonyIntents.ACTION_DEFAULT_VOICE_SUBSCRIPTION_CHANGED);
+        filter.addAction(TelephonyIntents.ACTION_SERVICE_STATE_CHANGED);
         filter.addAction(TelephonyIntents.SPN_STRINGS_UPDATED_ACTION);
         filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
         filter.addAction(ConnectivityManager.INET_CONDITION_ACTION);
-        filter.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
         filter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);
         mContext.registerReceiver(this, filter, null, mReceiverHandler);
         mListening = true;
@@ -260,21 +272,31 @@ public class NetworkControllerImpl extends BroadcastReceiver
     }
 
     public boolean isEmergencyOnly() {
+        if (mMobileSignalControllers.size() == 0) {
+            // When there are no active subscriptions, determine emengency state from last
+            // broadcast.
+            mEmergencySource = EMERGENCY_NO_CONTROLLERS;
+            return mLastServiceState != null && mLastServiceState.isEmergencyOnly();
+        }
         int voiceSubId = mSubDefaults.getDefaultVoiceSubId();
         if (!SubscriptionManager.isValidSubscriptionId(voiceSubId)) {
             for (MobileSignalController mobileSignalController :
                                             mMobileSignalControllers.values()) {
                 if (!mobileSignalController.getState().isEmergency) {
+                    mEmergencySource = EMERGENCY_FIRST_CONTROLLER
+                            + mobileSignalController.mSubscriptionInfo.getSubscriptionId();
                     if (DEBUG) Log.d(TAG, "Found emergency " + mobileSignalController.mTag);
                     return false;
                 }
             }
         }
         if (mMobileSignalControllers.containsKey(voiceSubId)) {
+            mEmergencySource = EMERGENCY_VOICE_CONTROLLER + voiceSubId;
             if (DEBUG) Log.d(TAG, "Getting emergency from " + voiceSubId);
             return mMobileSignalControllers.get(voiceSubId).getState().isEmergency;
         }
         if (DEBUG) Log.e(TAG, "Cannot find controller for voice sub: " + voiceSubId);
+        mEmergencySource = EMERGENCY_NO_SUB + voiceSubId;
         // Something is wrong, better assume we can't make calls...
         return true;
     }
@@ -284,7 +306,8 @@ public class NetworkControllerImpl extends BroadcastReceiver
      * so we should recheck and send out the state to listeners.
      */
     void recalculateEmergency() {
-        mCallbackHandler.setEmergencyCallsOnly(isEmergencyOnly());
+        mIsEmergency = isEmergencyOnly();
+        mCallbackHandler.setEmergencyCallsOnly(mIsEmergency);
     }
 
     public void addSignalCallback(SignalCallback cb) {
@@ -339,8 +362,6 @@ public class NetworkControllerImpl extends BroadcastReceiver
         if (action.equals(ConnectivityManager.CONNECTIVITY_ACTION) ||
                 action.equals(ConnectivityManager.INET_CONDITION_ACTION)) {
             updateConnectivity();
-        } else if (action.equals(Intent.ACTION_CONFIGURATION_CHANGED)) {
-            handleConfigurationChanged();
         } else if (action.equals(Intent.ACTION_AIRPLANE_MODE_CHANGED)) {
             refreshLocale();
             updateAirplaneMode(false);
@@ -356,6 +377,13 @@ public class NetworkControllerImpl extends BroadcastReceiver
         } else if (action.equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED)) {
             // Might have different subscriptions now.
             updateMobileControllers();
+        } else if (action.equals(TelephonyIntents.ACTION_SERVICE_STATE_CHANGED)) {
+            mLastServiceState = ServiceState.newFromBundle(intent.getExtras());
+            if (mMobileSignalControllers.size() == 0) {
+                // If none of the subscriptions are active, we might need to recalculate
+                // emergency state.
+                recalculateEmergency();
+            }
         } else {
             int subId = intent.getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
                     SubscriptionManager.INVALID_SUBSCRIPTION_ID);
@@ -373,8 +401,18 @@ public class NetworkControllerImpl extends BroadcastReceiver
         }
     }
 
-    public void handleConfigurationChanged() {
+    public void onConfigurationChanged() {
         mConfig = Config.readConfig(mContext);
+        mReceiverHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                handleConfigurationChanged();
+            }
+        });
+    }
+
+    @VisibleForTesting
+    void handleConfigurationChanged() {
         for (MobileSignalController mobileSignalController : mMobileSignalControllers.values()) {
             mobileSignalController.setConfiguration(mConfig);
         }
@@ -580,6 +618,12 @@ public class NetworkControllerImpl extends BroadcastReceiver
         pw.println(mAirplaneMode);
         pw.print("  mLocale=");
         pw.println(mLocale);
+        pw.print("  mLastServiceState=");
+        pw.println(mLastServiceState);
+        pw.print("  mIsEmergency=");
+        pw.println(mIsEmergency);
+        pw.print("  mEmergencySource=");
+        pw.println(emergencyToString(mEmergencySource));
 
         for (MobileSignalController mobileSignalController : mMobileSignalControllers.values()) {
             mobileSignalController.dump(pw);
@@ -589,6 +633,19 @@ public class NetworkControllerImpl extends BroadcastReceiver
         mEthernetSignalController.dump(pw);
 
         mAccessPoints.dump(pw);
+    }
+
+    private static final String emergencyToString(int emergencySource) {
+        if (emergencySource > EMERGENCY_NO_SUB) {
+            return "NO_SUB(" + (emergencySource - EMERGENCY_NO_SUB) + ")";
+        } else if (emergencySource > EMERGENCY_VOICE_CONTROLLER) {
+            return "VOICE_CONTROLLER(" + (emergencySource - EMERGENCY_VOICE_CONTROLLER) + ")";
+        } else if (emergencySource > EMERGENCY_FIRST_CONTROLLER) {
+            return "FIRST_CONTROLLER(" + (emergencySource - EMERGENCY_FIRST_CONTROLLER) + ")";
+        } else if (emergencySource == EMERGENCY_NO_CONTROLLERS) {
+            return "NO_CONTROLLERS";
+        }
+        return "UNKNOWN_SOURCE";
     }
 
     private boolean mDemoMode;
@@ -661,8 +718,8 @@ public class NetworkControllerImpl extends BroadcastReceiver
                     for (int i = start /* get out of normal index range */; i < start + num; i++) {
                         subs.add(addSignalController(i, i));
                     }
+                    mCallbackHandler.setSubs(subs);
                 }
-                mCallbackHandler.setSubs(subs);
             }
             String nosim = args.getString("nosim");
             if (nosim != null) {

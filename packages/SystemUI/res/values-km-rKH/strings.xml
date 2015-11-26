@@ -114,12 +114,6 @@
     <string name="accessibility_data_two_bars" msgid="6166018492360432091">"ទិន្នន័យ​ពីរ​​កាំ។"</string>
     <string name="accessibility_data_three_bars" msgid="9167670452395038520">"ទិន្នន័យ​បី​កាំ។"</string>
     <string name="accessibility_data_signal_full" msgid="2708384608124519369">"សញ្ញា​ទិន្នន័យ​ពេញ។"</string>
-    <string name="accessibility_wifi_off" msgid="3177380296697933627">"បិទ​វ៉ាយហ្វាយ។"</string>
-    <string name="accessibility_no_wifi" msgid="1425476551827924474">"បាន​ផ្ដាច់​វ៉ាយហ្វាយ។"</string>
-    <string name="accessibility_wifi_one_bar" msgid="7735893178010724377">"សញ្ញា​វ៉ាយហ្វាយ​មួយ​កាំ។"</string>
-    <string name="accessibility_wifi_two_bars" msgid="4994274250497262434">"សេវា​វ៉ាយហ្វាយ​ពីរ​កាំ។"</string>
-    <string name="accessibility_wifi_three_bars" msgid="3495755044276588384">"វ៉ាយហ្វាយ​បី​កាំ។"</string>
-    <string name="accessibility_wifi_signal_full" msgid="6853561303586480376">"សញ្ញា​វ៉ាយហ្វាយ​ពេញ។"</string>
     <string name="accessibility_wifi_name" msgid="7202151365171148501">"បាន​ភ្ជាប់​ទៅ <xliff:g id="WIFI">%s</xliff:g> ។"</string>
     <string name="accessibility_bluetooth_name" msgid="8441517146585531676">"បាន​ភ្ជាប់​ទៅ <xliff:g id="BLUETOOTH">%s</xliff:g> ។"</string>
     <string name="accessibility_no_wimax" msgid="4329180129727630368">"គ្មាន WiMAX ។"</string>
@@ -404,7 +398,7 @@
     <string name="volumeui_notification_title" msgid="4906770126345910955">"<xliff:g id="APP_NAME">%1$s</xliff:g> គឺជាប្រអប់សម្លេង"</string>
     <string name="volumeui_notification_text" msgid="1826889705095768656">"ប៉ះដើម្បីស្តារច្បាប់ដើម។"</string>
     <string name="managed_profile_foreground_toast" msgid="5421487114739245972">"អ្នកកំពុងប្រើប្រវត្តិរូបការងាររបស់អ្នក"</string>
-    <string name="system_ui_tuner" msgid="3442596010150119600">"ឧបករណ៍ចាប់ SystemUI"</string>
+    <string name="system_ui_tuner" msgid="708224127392452018">"កម្មវិធីសម្រួល UI ប្រព័ន្ធ"</string>
     <string name="show_battery_percentage" msgid="5444136600512968798">"បង្ហាញភាគរយថាមពលថ្មដែលបានបង្កប់"</string>
     <string name="show_battery_percentage_summary" msgid="3215025775576786037">"បង្ហាញភាគរយនៃកម្រិតថាមពលថ្មនៅក្នុងរូបតំណាងរបារស្ថានភាពនៅពេលមិនសាកថ្ម"</string>
     <string name="quick_settings" msgid="10042998191725428">"ការកំណត់រហ័ស"</string>
@@ -425,4 +419,11 @@
     <string name="accessibility_quick_settings_detail" msgid="2579369091672902101">"ការកំណត់រហ័ស <xliff:g id="TITLE">%s</xliff:g>។"</string>
     <string name="accessibility_status_bar_hotspot" msgid="4099381329956402865">"ហតស្ប៉ត"</string>
     <string name="accessibility_managed_profile" msgid="6613641363112584120">"ប្រវត្តិរូបការងារ"</string>
+    <string name="tuner_warning_title" msgid="7094689930793031682">"ល្អសម្រាប់អ្នកប្រើមួយចំនួន តែមិនសម្រាប់គ្រប់គ្នាទេ"</string>
+    <string name="tuner_warning" msgid="8730648121973575701">"កម្មវិធីសម្រួល UI ប្រព័ន្ធផ្តល់ជូនអ្នកនូវមធ្យោបាយបន្ថែមទៀតដើម្បីកែសម្រួល និងប្តូរចំណុចប្រទាក់អ្នកប្រើ Android តាមបំណង។ លក្ខណៈពិសេសសាកល្បងនេះអាចនឹងផ្លាស់ប្តូរ បំបែក ឬបាត់បង់បន្ទាប់ពីការចេញផ្សាយនាពេលអនាគត។ សូមបន្តដោយប្រុងប្រយ័ត្ន។"</string>
+    <string name="tuner_persistent_warning" msgid="8597333795565621795">"លក្ខណៈពិសេសសាកល្បងនេះអាចនឹងផ្លាស់ប្តូរ បំបែក ឬបាត់បង់បន្ទាប់ពីការចេញផ្សាយនាពេលអនាគត។ សូមបន្តដោយប្រុងប្រយ័ត្ន។"</string>
+    <string name="got_it" msgid="2239653834387972602">"យល់ហើយ"</string>
+    <string name="tuner_toast" msgid="603429811084428439">"សូមអបអរសាទរ! កម្មវិធីសម្រួល UI ប្រព័ន្ធត្រូវបានបន្ថែមទៅការកំណត់ហើយ"</string>
+    <string name="remove_from_settings" msgid="8389591916603406378">"យកចេញពីការកំណត់"</string>
+    <string name="remove_from_settings_prompt" msgid="6069085993355887748">"យកកម្មវិធីសម្រួល UI ប្រព័ន្ធចេញពីការកំណត់ ហើយឈប់ប្រើលក្ខណៈពិសេសរបស់វាទាំងអស់?"</string>
 </resources>

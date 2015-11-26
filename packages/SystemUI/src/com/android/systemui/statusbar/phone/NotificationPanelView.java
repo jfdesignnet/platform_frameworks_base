@@ -26,6 +26,7 @@ import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.util.MathUtils;
 import android.view.MotionEvent;
@@ -42,6 +43,7 @@ import android.widget.TextView;
 
 import com.android.internal.logging.MetricsLogger;
 import com.android.keyguard.KeyguardStatusView;
+import com.android.systemui.DejankUtils;
 import com.android.systemui.EventLogConstants;
 import com.android.systemui.EventLogTags;
 import com.android.systemui.R;
@@ -78,6 +80,8 @@ public class NotificationPanelView extends PanelView implements
     private static final String COUNTER_PANEL_OPEN = "panel_open";
     private static final String COUNTER_PANEL_OPEN_QS = "panel_open_qs";
     private static final String COUNTER_PANEL_OPEN_PEEK = "panel_open_peek";
+
+    private static final Rect mDummyDirtyRect = new Rect(0, 0, 1, 1);
 
     public static final long DOZE_ANIMATION_DURATION = 700;
 
@@ -198,10 +202,12 @@ public class NotificationPanelView extends PanelView implements
     private int mPositionMinSideMargin;
     private int mLastOrientation = -1;
     private boolean mClosingWithAlphaFadeOut;
+    private boolean mHeadsUpAnimatingAway;
 
     private Runnable mHeadsUpExistenceChangedRunnable = new Runnable() {
         @Override
         public void run() {
+            mHeadsUpAnimatingAway = false;
             notifyBarPanelExpansionChanged();
         }
     };
@@ -621,6 +627,7 @@ public class NotificationPanelView extends PanelView implements
                         && shouldQuickSettingsIntercept(mInitialTouchX, mInitialTouchY, h)) {
                     mQsTracking = true;
                     onQsExpansionStarted();
+                    notifyExpandingFinished();
                     mInitialHeightOnTouch = mQsExpansionHeight;
                     mInitialTouchY = y;
                     mInitialTouchX = x;
@@ -773,14 +780,7 @@ public class NotificationPanelView extends PanelView implements
                 && mQsExpansionEnabled) {
             mTwoFingerQsExpandPossible = true;
         }
-        final int pointerCount = event.getPointerCount();
-        final boolean twoFingerDrag = action == MotionEvent.ACTION_POINTER_DOWN
-                && pointerCount == 2;
-        final boolean stylusClickDrag = action == MotionEvent.ACTION_DOWN
-                && pointerCount == 1 && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS
-                && (event.isButtonPressed(MotionEvent.BUTTON_SECONDARY)
-                        || event.isButtonPressed(MotionEvent.BUTTON_TERTIARY));
-        if (mTwoFingerQsExpandPossible && (twoFingerDrag || stylusClickDrag)
+        if (mTwoFingerQsExpandPossible && isOpenQsEvent(event)
                 && event.getY(event.getActionIndex()) < mStatusBarMinHeight) {
             MetricsLogger.count(mContext, COUNTER_PANEL_OPEN_QS, 1);
             mQsExpandImmediate = true;
@@ -799,6 +799,24 @@ public class NotificationPanelView extends PanelView implements
                 || y <= mQsContainer.getY() + mQsContainer.getHeight());
     }
 
+    private boolean isOpenQsEvent(MotionEvent event) {
+        final int pointerCount = event.getPointerCount();
+        final int action = event.getActionMasked();
+
+        final boolean twoFingerDrag = action == MotionEvent.ACTION_POINTER_DOWN
+                && pointerCount == 2;
+
+        final boolean stylusButtonClickDrag = action == MotionEvent.ACTION_DOWN
+                && (event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)
+                        || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_SECONDARY));
+
+        final boolean mouseButtonClickDrag = action == MotionEvent.ACTION_DOWN
+                && (event.isButtonPressed(MotionEvent.BUTTON_SECONDARY)
+                        || event.isButtonPressed(MotionEvent.BUTTON_TERTIARY));
+
+        return twoFingerDrag || stylusButtonClickDrag || mouseButtonClickDrag;
+    }
+
     private void handleQsDown(MotionEvent event) {
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN
                 && shouldQuickSettingsIntercept(event.getX(), event.getY(), -1)) {
@@ -809,9 +827,7 @@ public class NotificationPanelView extends PanelView implements
             mInitialTouchX = event.getY();
 
             // If we interrupt an expansion gesture here, make sure to update the state correctly.
-            if (mIsExpanding) {
-                onExpandingFinished();
-            }
+            notifyExpandingFinished();
         }
     }
 
@@ -1765,7 +1781,22 @@ public class NotificationPanelView extends PanelView implements
         mIsExpanding = false;
         mScrollYOverride = -1;
         if (isFullyCollapsed()) {
-            setListening(false);
+            DejankUtils.postAfterTraversal(new Runnable() {
+                @Override
+                public void run() {
+                    setListening(false);
+                }
+            });
+
+            // Workaround b/22639032: Make sure we invalidate something because else RenderThread
+            // thinks we are actually drawing a frame put in reality we don't, so RT doesn't go
+            // ahead with rendering and we jank.
+            postOnAnimation(new Runnable() {
+                @Override
+                public void run() {
+                    getParent().invalidateChild(NotificationPanelView.this, mDummyDirtyRect);
+                }
+            });
         } else {
             setListening(true);
         }
@@ -2195,7 +2226,7 @@ public class NotificationPanelView extends PanelView implements
         }
     };
 
-    public void onScreenTurnedOn() {
+    public void onScreenTurningOn() {
         mKeyguardStatusView.refreshTime();
     }
 
@@ -2262,6 +2293,7 @@ public class NotificationPanelView extends PanelView implements
             mHeadsUpExistenceChangedRunnable.run();
             updateNotificationTranslucency();
         } else {
+            mHeadsUpAnimatingAway = true;
             mNotificationStackScroller.runAfterAnimationFinished(
                     mHeadsUpExistenceChangedRunnable);
         }
@@ -2351,5 +2383,9 @@ public class NotificationPanelView extends PanelView implements
 
     public void clearNotificattonEffects() {
         mStatusBar.clearNotificationEffects();
+    }
+
+    protected boolean isPanelVisibleBecauseOfHeadsUp() {
+        return mHeadsUpManager.hasPinnedHeadsUp() || mHeadsUpAnimatingAway;
     }
 }

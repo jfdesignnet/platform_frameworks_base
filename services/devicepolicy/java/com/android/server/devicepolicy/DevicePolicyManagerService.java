@@ -60,7 +60,6 @@ import android.content.pm.ServiceInfo;
 import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.graphics.Bitmap;
-import android.hardware.usb.UsbManager;
 import android.media.AudioManager;
 import android.media.IAudioService;
 import android.net.ConnectivityManager;
@@ -1278,11 +1277,13 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 && !hasUserSetupCompleted(userId);
 
         if (reqPolicy == DeviceAdminInfo.USES_POLICY_DEVICE_OWNER) {
-            if (ownsDevice || (userId == UserHandle.USER_OWNER && ownsInitialization)) {
+            if ((userId == UserHandle.USER_OWNER && (ownsDevice || ownsInitialization))
+                    || (ownsDevice && ownsProfile)) {
                 return true;
             }
         } else if (reqPolicy == DeviceAdminInfo.USES_POLICY_PROFILE_OWNER) {
-            if (ownsDevice || ownsProfile || ownsInitialization) {
+            if ((userId == UserHandle.USER_OWNER && ownsDevice) || ownsProfile
+                    || ownsInitialization) {
                 return true;
             }
         } else {
@@ -4141,6 +4142,14 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             }
             mDeviceOwner.writeOwnerFile();
             updateDeviceOwnerLocked();
+            Intent intent = new Intent(DevicePolicyManager.ACTION_DEVICE_OWNER_CHANGED);
+
+            ident = Binder.clearCallingIdentity();
+            try {
+                mContext.sendBroadcastAsUser(intent, UserHandle.OWNER);
+            } finally {
+                Binder.restoreCallingIdentity(ident);
+            }
             return true;
         }
     }
@@ -4236,6 +4245,17 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 initializer.getPackageName(), mContext.getPackageManager())) {
             throw new IllegalArgumentException("Invalid component name " + initializer
                     + " for device initializer");
+        }
+        boolean isInitializerSystemApp;
+        try {
+            isInitializerSystemApp = isSystemApp(AppGlobals.getPackageManager(),
+                    initializer.getPackageName(), Binder.getCallingUserHandle().getIdentifier());
+        } catch (RemoteException | IllegalArgumentException e) {
+            isInitializerSystemApp = false;
+            Slog.e(LOG_TAG, "Fail to check if device initialzer is system app.", e);
+        }
+        if (!isInitializerSystemApp) {
+            throw new IllegalArgumentException("Only system app can be set as device initializer.");
         }
         synchronized (this) {
             enforceCanSetDeviceInitializer(who);
@@ -5446,10 +5466,6 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                         Settings.Secure.putIntForUser(mContext.getContentResolver(),
                                 Settings.Secure.WIFI_NETWORKS_AVAILABLE_NOTIFICATION_ON, 0,
                                 userHandle);
-                    } else if (UserManager.DISALLOW_USB_FILE_TRANSFER.equals(key)) {
-                        UsbManager manager =
-                                (UsbManager) mContext.getSystemService(Context.USB_SERVICE);
-                        manager.setCurrentFunction("none");
                     } else if (UserManager.DISALLOW_SHARE_LOCATION.equals(key)) {
                         Settings.Secure.putIntForUser(mContext.getContentResolver(),
                                 Settings.Secure.LOCATION_MODE, Settings.Secure.LOCATION_MODE_OFF,
@@ -6420,7 +6436,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 final ApplicationInfo ai = AppGlobals.getPackageManager()
                         .getApplicationInfo(packageName, 0, user.getIdentifier());
                 final int targetSdkVersion = ai == null ? 0 : ai.targetSdkVersion;
-                if (targetSdkVersion < android.os.Build.VERSION_CODES.MNC) {
+                if (targetSdkVersion < android.os.Build.VERSION_CODES.M) {
                     return false;
                 }
                 final PackageManager packageManager = mContext.getPackageManager();

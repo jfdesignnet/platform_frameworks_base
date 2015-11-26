@@ -1837,12 +1837,12 @@ public class NotificationManagerService extends SystemService {
 
     void dumpImpl(PrintWriter pw, DumpFilter filter) {
         pw.print("Current Notification Manager state");
-        if (filter != null) {
+        if (filter.filtered) {
             pw.print(" (filtered to "); pw.print(filter); pw.print(")");
         }
         pw.println(':');
         int N;
-        final boolean zenOnly = filter != null && filter.zen;
+        final boolean zenOnly = filter.filtered && filter.zen;
 
         if (!zenOnly) {
             synchronized (mToastQueue) {
@@ -1864,13 +1864,13 @@ public class NotificationManagerService extends SystemService {
                     pw.println("  Notification List:");
                     for (int i=0; i<N; i++) {
                         final NotificationRecord nr = mNotificationList.get(i);
-                        if (filter != null && !filter.matches(nr.sbn)) continue;
-                        nr.dump(pw, "    ", getContext());
+                        if (filter.filtered && !filter.matches(nr.sbn)) continue;
+                        nr.dump(pw, "    ", getContext(), filter.redact);
                     }
                     pw.println("  ");
                 }
 
-                if (filter == null) {
+                if (!filter.filtered) {
                     N = mLights.size();
                     if (N > 0) {
                         pw.println("  Lights List:");
@@ -1911,7 +1911,7 @@ public class NotificationManagerService extends SystemService {
                 mUsageStats.dump(pw, "    ", filter);
             }
 
-            if (filter == null || zenOnly) {
+            if (!filter.filtered || zenOnly) {
                 pw.println("\n  Zen Mode:");
                 pw.print("    mInterruptionFilter="); pw.println(mInterruptionFilter);
                 mZenModeHelper.dump(pw, "    ");
@@ -1948,7 +1948,7 @@ public class NotificationManagerService extends SystemService {
                 pw.println("    " + entry.getKey() + " -> " + r.getKey());
                 if (mNotificationsByKey.get(r.getKey()) != r) {
                     pw.println("!!!!!!LEAK: Record not found in mNotificationsByKey.");
-                    r.dump(pw, "      ", getContext());
+                    r.dump(pw, "      ", getContext(), filter.redact);
                 }
             }
 
@@ -3499,46 +3499,59 @@ public class NotificationManagerService extends SystemService {
     }
 
     public static final class DumpFilter {
+        public boolean filtered = false;
         public String pkgFilter;
         public boolean zen;
         public long since;
         public boolean stats;
-        private boolean all;
+        public boolean redact = true;
 
         public static DumpFilter parseFromArguments(String[] args) {
-            if (args != null && args.length == 2 && "p".equals(args[0])
-                    && args[1] != null && !args[1].trim().isEmpty()) {
-                final DumpFilter filter = new DumpFilter();
-                filter.pkgFilter = args[1].trim().toLowerCase();
-                return filter;
+            final DumpFilter filter = new DumpFilter();
+            for (int ai = 0; ai < args.length; ai++) {
+                final String a = args[ai];
+                if ("--noredact".equals(a) || "--reveal".equals(a)) {
+                    filter.redact = false;
+                } else if ("p".equals(a) || "pkg".equals(a) || "--package".equals(a)) {
+                    if (ai < args.length-1) {
+                        ai++;
+                        filter.pkgFilter = args[ai].trim().toLowerCase();
+                        if (filter.pkgFilter.isEmpty()) {
+                            filter.pkgFilter = null;
+                        } else {
+                            filter.filtered = true;
+                        }
+                    }
+                } else if ("--zen".equals(a) || "zen".equals(a)) {
+                    filter.filtered = true;
+                    filter.zen = true;
+                } else if ("--stats".equals(a)) {
+                    filter.stats = true;
+                    if (ai < args.length-1) {
+                        ai++;
+                        filter.since = Long.valueOf(args[ai]);
+                    } else {
+                        filter.since = 0;
+                    }
+                }
             }
-            if (args != null && args.length == 1 && "zen".equals(args[0])) {
-                final DumpFilter filter = new DumpFilter();
-                filter.zen = true;
-                filter.all = true;
-                return filter;
-            }
-            if (args != null && args.length >= 1 && "--stats".equals(args[0])) {
-                final DumpFilter filter = new DumpFilter();
-                filter.stats = true;
-                filter.since = args.length == 2 ? Long.valueOf(args[1]) : 0;
-                filter.all = true;
-                return filter;
-            }
-            return null;
+            return filter;
         }
 
         public boolean matches(StatusBarNotification sbn) {
-            return all ? true : sbn != null
+            if (!filtered) return true;
+            return zen ? true : sbn != null
                     && (matches(sbn.getPackageName()) || matches(sbn.getOpPkg()));
         }
 
         public boolean matches(ComponentName component) {
-            return all ? true : component != null && matches(component.getPackageName());
+            if (!filtered) return true;
+            return zen ? true : component != null && matches(component.getPackageName());
         }
 
         public boolean matches(String pkg) {
-            return all ? true : pkg != null && pkg.toLowerCase().contains(pkgFilter);
+            if (!filtered) return true;
+            return zen ? true : pkg != null && pkg.toLowerCase().contains(pkgFilter);
         }
 
         @Override
@@ -3602,22 +3615,28 @@ public class NotificationManagerService extends SystemService {
 
         public ArraySet<String> getGrantedPackages() {
             final ArraySet<String> pkgs = new ArraySet<>();
-            final String setting = Settings.Secure.getStringForUser(
-                    getContext().getContentResolver(),
-                    Settings.Secure.ENABLED_NOTIFICATION_POLICY_ACCESS_PACKAGES,
-                    ActivityManager.getCurrentUser());
-            if (setting != null) {
-                final String[] tokens = setting.split(SEPARATOR);
-                for (int i = 0; i < tokens.length; i++) {
-                    String token = tokens[i];
-                    if (token != null) {
-                        token.trim();
+
+            long identity = Binder.clearCallingIdentity();
+            try {
+                final String setting = Settings.Secure.getStringForUser(
+                        getContext().getContentResolver(),
+                        Settings.Secure.ENABLED_NOTIFICATION_POLICY_ACCESS_PACKAGES,
+                        ActivityManager.getCurrentUser());
+                if (setting != null) {
+                    final String[] tokens = setting.split(SEPARATOR);
+                    for (int i = 0; i < tokens.length; i++) {
+                        String token = tokens[i];
+                        if (token != null) {
+                            token.trim();
+                        }
+                        if (TextUtils.isEmpty(token)) {
+                            continue;
+                        }
+                        pkgs.add(token);
                     }
-                    if (TextUtils.isEmpty(token)) {
-                        continue;
-                    }
-                    pkgs.add(token);
                 }
+            } finally {
+                Binder.restoreCallingIdentity(identity);
             }
             return pkgs;
         }

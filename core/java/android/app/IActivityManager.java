@@ -72,7 +72,8 @@ public interface IActivityManager extends IInterface {
             ProfilerInfo profilerInfo, Bundle options, int userId) throws RemoteException;
     public int startActivityAsCaller(IApplicationThread caller, String callingPackage,
             Intent intent, String resolvedType, IBinder resultTo, String resultWho, int requestCode,
-            int flags, ProfilerInfo profilerInfo, Bundle options, int userId) throws RemoteException;
+            int flags, ProfilerInfo profilerInfo, Bundle options, boolean ignoreTargetSecurity,
+            int userId) throws RemoteException;
     public WaitResult startActivityAndWait(IApplicationThread caller, String callingPackage,
             Intent intent, String resolvedType, IBinder resultTo, String resultWho,
             int requestCode, int flags, ProfilerInfo profilerInfo, Bundle options,
@@ -106,7 +107,7 @@ public interface IActivityManager extends IInterface {
     public void unregisterReceiver(IIntentReceiver receiver) throws RemoteException;
     public int broadcastIntent(IApplicationThread caller, Intent intent,
             String resolvedType, IIntentReceiver resultTo, int resultCode,
-            String resultData, Bundle map, String requiredPermission,
+            String resultData, Bundle map, String[] requiredPermissions,
             int appOp, Bundle options, boolean serialized, boolean sticky, int userId) throws RemoteException;
     public void unbroadcastIntent(IApplicationThread caller, Intent intent, int userId) throws RemoteException;
     public void finishReceiver(IBinder who, int resultCode, String resultData, Bundle map,
@@ -433,8 +434,8 @@ public interface IActivityManager extends IInterface {
 
     public Bundle getAssistContextExtras(int requestType) throws RemoteException;
 
-    public void requestAssistContextExtras(int requestType, IResultReceiver receiver)
-            throws RemoteException;
+    public boolean requestAssistContextExtras(int requestType, IResultReceiver receiver,
+            IBinder activityToken) throws RemoteException;
 
     public void reportAssistContextExtras(IBinder token, Bundle extras,
             AssistStructure structure, AssistContent content, Uri referrer) throws RemoteException;
@@ -442,9 +443,11 @@ public interface IActivityManager extends IInterface {
     public boolean launchAssistIntent(Intent intent, int requestType, String hint, int userHandle,
             Bundle args) throws RemoteException;
 
-    public boolean isScreenCaptureAllowedOnCurrentActivity() throws RemoteException;
+    public boolean isAssistDataAllowedOnCurrentActivity() throws RemoteException;
 
-    public void killUid(int uid, String reason) throws RemoteException;
+    public boolean showAssistFromActivity(IBinder token, Bundle args) throws RemoteException;
+
+    public void killUid(int appId, int userId, String reason) throws RemoteException;
 
     public void hang(IBinder who, boolean allowRestart) throws RemoteException;
 
@@ -511,6 +514,8 @@ public interface IActivityManager extends IInterface {
 
     public boolean setProcessMemoryTrimLevel(String process, int uid, int level)
             throws RemoteException;
+
+    public boolean isRootVoiceInteraction(IBinder token) throws RemoteException;
 
     /*
      * Private non-Binder interfaces
@@ -857,4 +862,6 @@ public interface IActivityManager extends IInterface {
     int UNREGISTER_UID_OBSERVER_TRANSACTION = IBinder.FIRST_CALL_TRANSACTION+298;
     int IS_SCREEN_CAPTURE_ALLOWED_ON_CURRENT_ACTIVITY_TRANSACTION
             = IBinder.FIRST_CALL_TRANSACTION+299;
+    int SHOW_ASSIST_FROM_ACTIVITY_TRANSACTION = IBinder.FIRST_CALL_TRANSACTION+300;
+    int IS_ROOT_VOICE_INTERACTION_TRANSACTION = IBinder.FIRST_CALL_TRANSACTION+301;
 }

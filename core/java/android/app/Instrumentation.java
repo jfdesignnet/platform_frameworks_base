@@ -1701,7 +1701,8 @@ public class Instrumentation {
      */
     public ActivityResult execStartActivityAsCaller(
             Context who, IBinder contextThread, IBinder token, Activity target,
-            Intent intent, int requestCode, Bundle options, int userId) {
+            Intent intent, int requestCode, Bundle options, boolean ignoreTargetSecurity,
+            int userId) {
         IApplicationThread whoThread = (IApplicationThread) contextThread;
         if (mActivityMonitors != null) {
             synchronized (mSync) {
@@ -1725,7 +1726,7 @@ public class Instrumentation {
                 .startActivityAsCaller(whoThread, who.getBasePackageName(), intent,
                         intent.resolveTypeIfNeeded(who.getContentResolver()),
                         token, target != null ? target.mEmbeddedID : null,
-                        requestCode, 0, null, options, userId);
+                        requestCode, 0, null, options, ignoreTargetSecurity, userId);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
             throw new RuntimeException("Failure from system", e);
@@ -1809,9 +1810,14 @@ public class Instrumentation {
                 throw new SecurityException(
                         "Starting under voice control not allowed for: " + intent);
             case ActivityManager.START_NOT_CURRENT_USER_ACTIVITY:
-                throw new SecurityException(
-                        "Not allowed to start background user activity that shouldn't be"
-                        + " displayed for all users.");
+                // Fail silently for this case so we don't break current apps.
+                // TODO(b/22929608): Instead of failing silently or throwing an exception,
+                // we should properly position the activity in the stack (i.e. behind all current
+                // user activity/task) and not change the positioning of stacks.
+                Log.e(TAG,
+                        "Not allowed to start background user activity that shouldn't be displayed"
+                        + " for all users. Failing silently...");
+                break;
             default:
                 throw new AndroidRuntimeException("Unknown error code "
                         + res + " when starting " + intent);
