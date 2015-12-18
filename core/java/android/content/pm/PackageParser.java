@@ -36,6 +36,8 @@ import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.FileUtils;
 import android.os.PatternMatcher;
 import android.os.UserHandle;
 import android.text.TextUtils;
@@ -892,6 +894,7 @@ public class PackageParser {
             }
 
             pkg.volumeUuid = volumeUuid;
+            pkg.applicationInfo.volumeUuid = volumeUuid;
             pkg.baseCodePath = apkPath;
             pkg.mSignatures = null;
 
@@ -1194,7 +1197,8 @@ public class PackageParser {
         }
     }
 
-    private static String validateName(String name, boolean requiresSeparator) {
+    private static String validateName(String name, boolean requireSeparator,
+            boolean requireFilename) {
         final int N = name.length();
         boolean hasSep = false;
         boolean front = true;
@@ -1216,7 +1220,10 @@ public class PackageParser {
             }
             return "bad character '" + c + "'";
         }
-        return hasSep || !requiresSeparator
+        if (requireFilename && !FileUtils.isValidExtFilename(name)) {
+            return "Invalid filename";
+        }
+        return hasSep || !requireSeparator
                 ? null : "must have at least one '.' separator";
     }
 
@@ -1240,7 +1247,7 @@ public class PackageParser {
 
         final String packageName = attrs.getAttributeValue(null, "package");
         if (!"android".equals(packageName)) {
-            final String error = validateName(packageName, true);
+            final String error = validateName(packageName, true, true);
             if (error != null) {
                 throw new PackageParserException(INSTALL_PARSE_FAILED_BAD_PACKAGE_NAME,
                         "Invalid manifest package: " + error);
@@ -1252,7 +1259,7 @@ public class PackageParser {
             if (splitName.length() == 0) {
                 splitName = null;
             } else {
-                final String error = validateName(splitName, false);
+                final String error = validateName(splitName, false, false);
                 if (error != null) {
                     throw new PackageParserException(INSTALL_PARSE_FAILED_BAD_PACKAGE_NAME,
                             "Invalid manifest split: " + error);
@@ -1391,7 +1398,7 @@ public class PackageParser {
         String str = sa.getNonConfigurationString(
                 com.android.internal.R.styleable.AndroidManifest_sharedUserId, 0);
         if (str != null && str.length() > 0) {
-            String nameError = validateName(str, true);
+            String nameError = validateName(str, true, false);
             if (nameError != null && !"android".equals(pkgName)) {
                 outError[0] = "<manifest> specifies bad sharedUserId name \""
                     + str + "\": " + nameError;
@@ -1500,7 +1507,8 @@ public class PackageParser {
                 if (!parseUsesPermission(pkg, res, parser, attrs)) {
                     return null;
                 }
-            } else if (tagName.equals("uses-permission-sdk-m")) {
+            } else if (tagName.equals("uses-permission-sdk-m")
+                    || tagName.equals("uses-permission-sdk-23")) {
                 if (!parseUsesPermission(pkg, res, parser, attrs)) {
                     return null;
                 }
@@ -1973,7 +1981,7 @@ public class PackageParser {
                 return null;
             }
             String subName = proc.substring(1);
-            String nameError = validateName(subName, false);
+            String nameError = validateName(subName, false, false);
             if (nameError != null) {
                 outError[0] = "Invalid " + type + " name " + proc + " in package "
                         + pkg + ": " + nameError;
@@ -1981,7 +1989,7 @@ public class PackageParser {
             }
             return (pkg + proc).intern();
         }
-        String nameError = validateName(proc, true);
+        String nameError = validateName(proc, true, false);
         if (nameError != null && !"system".equals(proc)) {
             outError[0] = "Invalid " + type + " name " + proc + " in package "
                     + pkg + ": " + nameError;
@@ -2047,8 +2055,9 @@ public class PackageParser {
             String tagName = parser.getName();
             if (tagName.equals("key-set")) {
                 if (currentKeySet != null) {
-                    Slog.w(TAG, "Improperly nested 'key-set' tag at "
-                            + parser.getPositionDescription());
+                    outError[0] = "Improperly nested 'key-set' tag at "
+                            + parser.getPositionDescription();
+                    mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
                     return false;
                 }
                 final TypedArray sa = res.obtainAttributes(attrs,
@@ -2061,8 +2070,9 @@ public class PackageParser {
                 sa.recycle();
             } else if (tagName.equals("public-key")) {
                 if (currentKeySet == null) {
-                    Slog.w(TAG, "Improperly nested 'public-key' tag at "
-                            + parser.getPositionDescription());
+                    outError[0] = "Improperly nested 'key-set' tag at "
+                            + parser.getPositionDescription();
+                    mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
                     return false;
                 }
                 final TypedArray sa = res.obtainAttributes(attrs,
@@ -2072,8 +2082,9 @@ public class PackageParser {
                 final String encodedKey = sa.getNonResourceString(
                             com.android.internal.R.styleable.AndroidManifestPublicKey_value);
                 if (encodedKey == null && publicKeys.get(publicKeyName) == null) {
-                    Slog.w(TAG, "'public-key' " + publicKeyName + " must define a public-key value"
-                            + " on first use at " + parser.getPositionDescription());
+                    outError[0] = "'public-key' " + publicKeyName + " must define a public-key value"
+                            + " on first use at " + parser.getPositionDescription();
+                    mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
                     sa.recycle();
                     return false;
                 } else if (encodedKey != null) {
@@ -2093,9 +2104,10 @@ public class PackageParser {
                         /* public-key first definition, or matches old definition */
                         publicKeys.put(publicKeyName, currentKey);
                     } else {
-                        Slog.w(TAG, "Value of 'public-key' " + publicKeyName
+                        outError[0] = "Value of 'public-key' " + publicKeyName
                                + " conflicts with previously defined value at "
-                               + parser.getPositionDescription());
+                               + parser.getPositionDescription();
+                        mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
                         sa.recycle();
                         return false;
                     }
@@ -2112,9 +2124,10 @@ public class PackageParser {
                 sa.recycle();
                 XmlUtils.skipCurrentTag(parser);
             } else if (RIGID_PARSER) {
-                Slog.w(TAG, "Bad element under <key-sets>: " + parser.getName()
+                outError[0] = "Bad element under <key-sets>: " + parser.getName()
                         + " at " + mArchiveSourcePath + " "
-                        + parser.getPositionDescription());
+                        + parser.getPositionDescription();
+                mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
                 return false;
             } else {
                 Slog.w(TAG, "Unknown element under <key-sets>: " + parser.getName()
@@ -2126,8 +2139,9 @@ public class PackageParser {
         }
         Set<String> publicKeyNames = publicKeys.keySet();
         if (publicKeyNames.removeAll(definedKeySets.keySet())) {
-            Slog.w(TAG, "Package" + owner.packageName + " AndroidManifext.xml "
-                   + "'key-set' and 'public-key' names must be distinct.");
+            outError[0] = "Package" + owner.packageName + " AndroidManifext.xml "
+                    + "'key-set' and 'public-key' names must be distinct.";
+            mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
             return false;
         }
         owner.mKeySetMapping = new ArrayMap<String, ArraySet<PublicKey>>();
@@ -2152,8 +2166,9 @@ public class PackageParser {
         if (owner.mKeySetMapping.keySet().containsAll(upgradeKeySets)) {
             owner.mUpgradeKeySets = upgradeKeySets;
         } else {
-            Slog.w(TAG, "Package" + owner.packageName + " AndroidManifext.xml "
-                   + "does not define all 'upgrade-key-set's .");
+            outError[0] ="Package" + owner.packageName + " AndroidManifext.xml "
+                   + "does not define all 'upgrade-key-set's .";
+            mParseError = PackageManager.INSTALL_PARSE_FAILED_MANIFEST_MALFORMED;
             return false;
         }
         return true;
@@ -2421,8 +2436,8 @@ public class PackageParser {
         if (allowBackup) {
             ai.flags |= ApplicationInfo.FLAG_ALLOW_BACKUP;
 
-            // backupAgent, killAfterRestore, and restoreAnyVersion are only relevant
-            // if backup is possible for the given application.
+            // backupAgent, killAfterRestore, fullBackupContent and restoreAnyVersion are only
+            // relevant if backup is possible for the given application.
             String backupAgent = sa.getNonConfigurationString(
                     com.android.internal.R.styleable.AndroidManifestApplication_backupAgent,
                     Configuration.NATIVE_CONFIG_VERSION);
@@ -2448,6 +2463,20 @@ public class PackageParser {
                         false)) {
                     ai.flags |= ApplicationInfo.FLAG_FULL_BACKUP_ONLY;
                 }
+            }
+
+            TypedValue v = sa.peekValue(
+                    com.android.internal.R.styleable.AndroidManifestApplication_fullBackupContent);
+            if (v != null && (ai.fullBackupContent = v.resourceId) == 0) {
+                if (DEBUG_BACKUP) {
+                    Slog.v(TAG, "fullBackupContent specified as boolean=" +
+                            (v.data == 0 ? "false" : "true"));
+                }
+                // "false" => -1, "true" => 0
+                ai.fullBackupContent = (v.data == 0 ? -1 : 0);
+            }
+            if (DEBUG_BACKUP) {
+                Slog.v(TAG, "fullBackupContent=" + ai.fullBackupContent + " for " + pkgName);
             }
         }
 
@@ -2509,7 +2538,9 @@ public class PackageParser {
         owner.baseHardwareAccelerated = sa.getBoolean(
                 com.android.internal.R.styleable.AndroidManifestApplication_hardwareAccelerated,
                 owner.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.ICE_CREAM_SANDWICH);
-        ai.hardwareAccelerated = owner.baseHardwareAccelerated;
+        if (owner.baseHardwareAccelerated) {
+            ai.flags |= ApplicationInfo.FLAG_HARDWARE_ACCELERATED;
+        }
 
         if (sa.getBoolean(
                 com.android.internal.R.styleable.AndroidManifestApplication_hasCode,
@@ -2805,7 +2836,6 @@ public class PackageParser {
                 if (!aii.hasAction(Intent.ACTION_DEFAULT)) continue;
                 if (aii.hasDataScheme(IntentFilter.SCHEME_HTTP) ||
                         aii.hasDataScheme(IntentFilter.SCHEME_HTTPS)) {
-                    Slog.d(TAG, "hasDomainURLs:true for package:" + pkg.packageName);
                     return true;
                 }
             }
@@ -3334,6 +3364,7 @@ public class PackageParser {
         info.labelRes = target.info.labelRes;
         info.nonLocalizedLabel = target.info.nonLocalizedLabel;
         info.launchMode = target.info.launchMode;
+        info.lockTaskLaunchMode = target.info.lockTaskLaunchMode;
         info.processName = target.info.processName;
         if (info.descriptionRes == 0) {
             info.descriptionRes = target.info.descriptionRes;
@@ -3995,7 +4026,7 @@ public class PackageParser {
 
     public static final PublicKey parsePublicKey(final String encodedPublicKey) {
         if (encodedPublicKey == null) {
-            Slog.i(TAG, "Could not parse null public key");
+            Slog.w(TAG, "Could not parse null public key");
             return null;
         }
 
@@ -4004,7 +4035,7 @@ public class PackageParser {
             final byte[] encoded = Base64.decode(encodedPublicKey, Base64.DEFAULT);
             keySpec = new X509EncodedKeySpec(encoded);
         } catch (IllegalArgumentException e) {
-            Slog.i(TAG, "Could not parse verifier public key; invalid Base64");
+            Slog.w(TAG, "Could not parse verifier public key; invalid Base64");
             return null;
         }
 
@@ -4013,10 +4044,19 @@ public class PackageParser {
             final KeyFactory keyFactory = KeyFactory.getInstance("RSA");
             return keyFactory.generatePublic(keySpec);
         } catch (NoSuchAlgorithmException e) {
-            Log.wtf(TAG, "Could not parse public key because RSA isn't included in build");
-            return null;
+            Slog.wtf(TAG, "Could not parse public key: RSA KeyFactory not included in build");
         } catch (InvalidKeySpecException e) {
             // Not a RSA public key.
+        }
+
+        /* Now try it as a ECDSA key. */
+        try {
+            final KeyFactory keyFactory = KeyFactory.getInstance("EC");
+            return keyFactory.generatePublic(keySpec);
+        } catch (NoSuchAlgorithmException e) {
+            Slog.wtf(TAG, "Could not parse public key: EC KeyFactory not included in build");
+        } catch (InvalidKeySpecException e) {
+            // Not a ECDSA public key.
         }
 
         /* Now try it as a DSA key. */
@@ -4024,12 +4064,12 @@ public class PackageParser {
             final KeyFactory keyFactory = KeyFactory.getInstance("DSA");
             return keyFactory.generatePublic(keySpec);
         } catch (NoSuchAlgorithmException e) {
-            Log.wtf(TAG, "Could not parse public key because DSA isn't included in build");
-            return null;
+            Slog.wtf(TAG, "Could not parse public key: DSA KeyFactory not included in build");
         } catch (InvalidKeySpecException e) {
             // Not a DSA public key.
         }
 
+        /* Not a supported key type */
         return null;
     }
 
@@ -4315,9 +4355,6 @@ public class PackageParser {
         // Additional data supplied by callers.
         public Object mExtras;
 
-        // Whether an operation is currently pending on this package
-        public boolean mOperationPending;
-
         // Applications hardware preferences
         public ArrayList<ConfigurationInfo> configPreferences = null;
 
@@ -4473,8 +4510,26 @@ public class PackageParser {
         /**
          * @hide
          */
+        public boolean isPrivilegedApp() {
+            return applicationInfo.isPrivilegedApp();
+        }
+
+        /**
+         * @hide
+         */
         public boolean isUpdatedSystemApp() {
             return applicationInfo.isUpdatedSystemApp();
+        }
+
+        /**
+         * @hide
+         */
+        public boolean canHaveOatDir() {
+            // The following app types CANNOT have oat directory
+            // - non-updated system apps
+            // - forward-locked apps or apps installed in ASEC containers
+            return (!isSystemApp() || isUpdatedSystemApp())
+                    && !isForwardLocked() && !applicationInfo.isExternalAsec();
         }
 
         public String toString() {
@@ -4742,7 +4797,7 @@ public class PackageParser {
         // Make shallow copy so we can store the metadata/libraries safely
         ApplicationInfo ai = new ApplicationInfo(p.applicationInfo);
         ai.uid = UserHandle.getUid(userId, ai.uid);
-        ai.dataDir = PackageManager.getDataDirForUser(ai.volumeUuid, ai.packageName, userId)
+        ai.dataDir = Environment.getDataUserPackageDirectory(ai.volumeUuid, userId, ai.packageName)
                 .getAbsolutePath();
         if ((flags & PackageManager.GET_META_DATA) != 0) {
             ai.metaData = p.mAppMetaData;
@@ -4769,7 +4824,7 @@ public class PackageParser {
         // make a copy.
         ai = new ApplicationInfo(ai);
         ai.uid = UserHandle.getUid(userId, ai.uid);
-        ai.dataDir = PackageManager.getDataDirForUser(ai.volumeUuid, ai.packageName, userId)
+        ai.dataDir = Environment.getDataUserPackageDirectory(ai.volumeUuid, userId, ai.packageName)
                 .getAbsolutePath();
         if (state.stopped) {
             ai.flags |= ApplicationInfo.FLAG_STOPPED;

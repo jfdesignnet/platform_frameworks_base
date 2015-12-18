@@ -32,7 +32,6 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.Region.Op;
 import android.graphics.drawable.Drawable;
-import android.os.Bundle;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -46,7 +45,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.SoundEffectConstants;
 import android.view.VelocityTracker;
-import android.view.ViewAssistStructure;
+import android.view.ViewStructure;
 import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -63,7 +62,7 @@ import com.android.internal.R;
  * {@link #setTextAppearance(android.content.Context, int) textAppearance} and the related
  * setTypeface() methods control the typeface and style of label text, whereas the
  * {@link #setSwitchTextAppearance(android.content.Context, int) switchTextAppearance} and
- * the related seSwitchTypeface() methods control that of the thumb.
+ * the related setSwitchTypeface() methods control that of the thumb.
  *
  * <p>See the <a href="{@docRoot}guide/topics/ui/controls/togglebutton.html">Toggle Buttons</a>
  * guide.</p>
@@ -242,6 +241,38 @@ public class Switch extends CompoundButton {
         mSwitchPadding = a.getDimensionPixelSize(
                 com.android.internal.R.styleable.Switch_switchPadding, 0);
         mSplitTrack = a.getBoolean(com.android.internal.R.styleable.Switch_splitTrack, false);
+
+        ColorStateList thumbTintList = a.getColorStateList(
+                com.android.internal.R.styleable.Switch_thumbTint);
+        if (thumbTintList != null) {
+            mThumbTintList = thumbTintList;
+            mHasThumbTint = true;
+        }
+        PorterDuff.Mode thumbTintMode = Drawable.parseTintMode(
+                a.getInt(com.android.internal.R.styleable.Switch_thumbTintMode, -1), null);
+        if (mThumbTintMode != thumbTintMode) {
+            mThumbTintMode = thumbTintMode;
+            mHasThumbTintMode = true;
+        }
+        if (mHasThumbTint || mHasThumbTintMode) {
+            applyThumbTint();
+        }
+
+        ColorStateList trackTintList = a.getColorStateList(
+                com.android.internal.R.styleable.Switch_trackTint);
+        if (trackTintList != null) {
+            mTrackTintList = trackTintList;
+            mHasTrackTint = true;
+        }
+        PorterDuff.Mode trackTintMode = Drawable.parseTintMode(
+                a.getInt(com.android.internal.R.styleable.Switch_trackTintMode, -1), null);
+        if (mTrackTintMode != trackTintMode) {
+            mTrackTintMode = trackTintMode;
+            mHasTrackTintMode = true;
+        }
+        if (mHasTrackTint || mHasTrackTintMode) {
+            applyTrackTint();
+        }
 
         final int appearance = a.getResourceId(
                 com.android.internal.R.styleable.Switch_switchTextAppearance, 0);
@@ -1363,8 +1394,8 @@ public class Switch extends CompoundButton {
     }
 
     @Override
-    public void onProvideAssistStructure(ViewAssistStructure structure) {
-        super.onProvideAssistStructure(structure);
+    public void onProvideStructure(ViewStructure structure) {
+        super.onProvideStructure(structure);
         CharSequence switchText = isChecked() ? mTextOn : mTextOff;
         if (!TextUtils.isEmpty(switchText)) {
             CharSequence oldText = structure.getText();
@@ -1375,7 +1406,9 @@ public class Switch extends CompoundButton {
                 newText.append(oldText).append(' ').append(switchText);
                 structure.setText(newText);
             }
-            structure.setTextPaint(mTextPaint);
+            // The style of the label text is provided via the base TextView class. This is more
+            // relevant than the style of the (optional) on/off text on the switch button itself,
+            // so ignore the size/color/style stored this.mTextPaint.
         }
     }
 

@@ -25,26 +25,30 @@ import android.hardware.camera2.utils.BinderHolder;
 import android.hardware.ICameraServiceListener;
 import android.hardware.CameraInfo;
 
-/** @hide */
+/**
+ * Binder interface for the native camera service running in mediaserver.
+ *
+ * @hide
+ */
 interface ICameraService
 {
     /**
      * Keep up-to-date with frameworks/av/include/camera/ICameraService.h
      */
-    int getNumberOfCameras();
+    int getNumberOfCameras(int type);
 
     // rest of 'int' return values in this file are actually status_t
 
     int getCameraInfo(int cameraId, out CameraInfo info);
 
     int connect(ICameraClient client, int cameraId,
-                    String clientPackageName,
+                    String opPackageName,
                     int clientUid,
                     // Container for an ICamera object
                     out BinderHolder device);
 
     int connectDevice(ICameraDeviceCallbacks callbacks, int cameraId,
-                              String clientPackageName,
+                              String opPackageName,
                               int clientUid,
                               // Container for an ICameraDeviceUser object
                               out BinderHolder device);
@@ -69,7 +73,7 @@ interface ICameraService
 
     int connectLegacy(ICameraClient client, int cameraId,
                     int halVersion,
-                    String clientPackageName,
+                    String opPackageName,
                     int clientUid,
                     // Container for an ICamera object
                     out BinderHolder device);
@@ -81,5 +85,5 @@ interface ICameraService
      *
      * Callers require the android.permission.CAMERA_SEND_SYSTEM_EVENTS permission.
      */
-    oneway void notifySystemEvent(int eventId, int arg0);
+    oneway void notifySystemEvent(int eventId, in int[] args);
 }

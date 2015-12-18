@@ -66,25 +66,30 @@ public:
     /**
      * Resets all Textures to not be marked as in use
      */
-    void resetMarkInUse();
+    void resetMarkInUse(void* ownerToken);
 
     /**
      * Attempts to precache the SkBitmap. Returns true if a Texture was successfully
      * acquired for the bitmap, false otherwise. If a Texture was acquired it is
      * marked as in use.
      */
-    bool prefetchAndMarkInUse(const SkBitmap* bitmap);
+    bool prefetchAndMarkInUse(void* ownerToken, const SkBitmap* bitmap);
 
     /**
-     * Returns the texture associated with the specified bitmap. If the texture
-     * cannot be found in the cache, a new texture is generated.
+     * Returns the texture associated with the specified bitmap from either within the cache, or
+     * the AssetAtlas. If the texture cannot be found in the cache, a new texture is generated.
      */
-    Texture* get(const SkBitmap* bitmap);
+    Texture* get(const SkBitmap* bitmap) {
+        return get(bitmap, AtlasUsageType::Use);
+    }
+
     /**
-     * Returns the texture associated with the specified bitmap. The generated
-     * texture is not kept in the cache. The caller must destroy the texture.
+     * Returns the texture associated with the specified bitmap. If the texture cannot be found in
+     * the cache, a new texture is generated, even if it resides in the AssetAtlas.
      */
-    Texture* getTransient(const SkBitmap* bitmap);
+    Texture* getAndBypassAtlas(const SkBitmap* bitmap) {
+        return get(bitmap, AtlasUsageType::Bypass);
+    }
 
     /**
      * Removes the texture associated with the specified pixelRef. This is meant
@@ -128,10 +133,15 @@ public:
     void setAssetAtlas(AssetAtlas* assetAtlas);
 
 private:
+    enum class AtlasUsageType {
+        Use,
+        Bypass,
+    };
 
     bool canMakeTextureFromBitmap(const SkBitmap* bitmap);
 
-    Texture* getCachedTexture(const SkBitmap* bitmap);
+    Texture* get(const SkBitmap* bitmap, AtlasUsageType atlasUsageType);
+    Texture* getCachedTexture(const SkBitmap* bitmap, AtlasUsageType atlasUsageType);
 
     /**
      * Generates the texture from a bitmap into the specified texture structure.

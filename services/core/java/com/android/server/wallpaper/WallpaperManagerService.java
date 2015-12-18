@@ -79,6 +79,7 @@ import java.io.FileNotFoundException;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -589,12 +590,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
     void switchUser(int userId, IRemoteCallback reply) {
         synchronized (mLock) {
             mCurrentUserId = userId;
-            WallpaperData wallpaper = mWallpaperMap.get(userId);
-            if (wallpaper == null) {
-                wallpaper = new WallpaperData(userId);
-                mWallpaperMap.put(userId, wallpaper);
-                loadSettingsLocked(userId);
-            }
+            WallpaperData wallpaper = getWallpaperSafeLocked(userId);
             // Not started watching yet, in case wallpaper data was loaded for other reasons.
             if (wallpaper.wallpaperObserver == null) {
                 wallpaper.wallpaperObserver = new WallpaperObserver(wallpaper);
@@ -717,10 +713,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
         }
         synchronized (mLock) {
             int userId = UserHandle.getCallingUserId();
-            WallpaperData wallpaper = mWallpaperMap.get(userId);
-            if (wallpaper == null) {
-                throw new IllegalStateException("Wallpaper not yet initialized for user " + userId);
-            }
+            WallpaperData wallpaper = getWallpaperSafeLocked(userId);
             if (width <= 0 || height <= 0) {
                 throw new IllegalArgumentException("width and height must be > 0");
             }
@@ -782,10 +775,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
         }
         synchronized (mLock) {
             int userId = UserHandle.getCallingUserId();
-            WallpaperData wallpaper = mWallpaperMap.get(userId);
-            if (wallpaper == null) {
-                throw new IllegalStateException("Wallpaper not yet initialized for user " + userId);
-            }
+            WallpaperData wallpaper = getWallpaperSafeLocked(userId);
             if (padding.left < 0 || padding.top < 0 || padding.right < 0 || padding.bottom < 0) {
                 throw new IllegalArgumentException("padding must be positive: " + padding);
             }
@@ -866,10 +856,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
         synchronized (mLock) {
             if (DEBUG) Slog.v(TAG, "setWallpaper");
             int userId = UserHandle.getCallingUserId();
-            WallpaperData wallpaper = mWallpaperMap.get(userId);
-            if (wallpaper == null) {
-                throw new IllegalStateException("Wallpaper not yet initialized for user " + userId);
-            }
+            WallpaperData wallpaper = getWallpaperSafeLocked(userId);
             final long ident = Binder.clearCallingIdentity();
             try {
                 ParcelFileDescriptor pfd = updateWallpaperBitmapLocked(name, wallpaper);
@@ -1038,7 +1025,8 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
                             mContext.getText(com.android.internal.R.string.chooser_wallpaper)),
                     0, null, new UserHandle(serviceUserId)));
             if (!mContext.bindServiceAsUser(intent, newConn,
-                    Context.BIND_AUTO_CREATE | Context.BIND_SHOWING_UI,
+                    Context.BIND_AUTO_CREATE | Context.BIND_SHOWING_UI
+                            | Context.BIND_FOREGROUND_SERVICE_WHILE_AWAKE,
                     new UserHandle(serviceUserId))) {
                 String msg = "Unable to bind service: "
                         + componentName;
@@ -1164,7 +1152,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
         try {
             stream = new FileOutputStream(journal.chooseForWrite(), false);
             XmlSerializer out = new FastXmlSerializer();
-            out.setOutput(stream, "utf-8");
+            out.setOutput(stream, StandardCharsets.UTF_8.name());
             out.startDocument(null, true);
 
             out.startTag(null, "wp");
@@ -1228,6 +1216,22 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
         return Integer.parseInt(value);
     }
 
+    /**
+     * Sometimes it is expected the wallpaper map may not have a user's data.  E.g. This could
+     * happen during user switch.  The async user switch observer may not have received
+     * the event yet.  We use this safe method when we don't care about this ordering and just
+     * want to update the data.  The data is going to be applied when the user switch observer
+     * is eventually executed.
+     */
+    private WallpaperData getWallpaperSafeLocked(int userId) {
+        WallpaperData wallpaper = mWallpaperMap.get(userId);
+        if (wallpaper == null) {
+            loadSettingsLocked(userId);
+            wallpaper = mWallpaperMap.get(userId);
+        }
+        return wallpaper;
+    }
+
     private void loadSettingsLocked(int userId) {
         if (DEBUG) Slog.v(TAG, "loadSettingsLocked");
 
@@ -1247,7 +1251,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
         try {
             stream = new FileInputStream(file);
             XmlPullParser parser = Xml.newPullParser();
-            parser.setInput(stream, null);
+            parser.setInput(stream, StandardCharsets.UTF_8.name());
 
             int type;
             do {

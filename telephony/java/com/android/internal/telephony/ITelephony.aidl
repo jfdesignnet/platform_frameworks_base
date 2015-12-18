@@ -23,6 +23,9 @@ import android.telephony.CellInfo;
 import android.telephony.IccOpenLogicalChannelResponse;
 import android.telephony.NeighboringCellInfo;
 import android.telephony.RadioAccessFamily;
+import android.telephony.ModemActivityInfo;
+import com.android.internal.telephony.CellNetworkScanResult;
+import com.android.internal.telephony.OperatorInfo;
 import java.util.List;
 
 
@@ -113,59 +116,67 @@ interface ITelephony {
 
     /**
      * Check if we are in either an active or holding call
+     * @param callingPackage the name of the package making the call.
      * @return true if the phone state is OFFHOOK.
      */
-    boolean isOffhook();
+    boolean isOffhook(String callingPackage);
 
     /**
      * Check if a particular subId has an active or holding call
      *
      * @param subId user preferred subId.
+     * @param callingPackage the name of the package making the call.
      * @return true if the phone state is OFFHOOK.
      */
-    boolean isOffhookForSubscriber(int subId);
+    boolean isOffhookForSubscriber(int subId, String callingPackage);
 
     /**
      * Check if an incoming phone call is ringing or call waiting
      * on a particular subId.
      *
      * @param subId user preferred subId.
+     * @param callingPackage the name of the package making the call.
      * @return true if the phone state is RINGING.
      */
-    boolean isRingingForSubscriber(int subId);
+    boolean isRingingForSubscriber(int subId, String callingPackage);
 
     /**
      * Check if an incoming phone call is ringing or call waiting.
+     * @param callingPackage the name of the package making the call.
      * @return true if the phone state is RINGING.
      */
-    boolean isRinging();
+    boolean isRinging(String callingPackage);
 
     /**
      * Check if the phone is idle.
+     * @param callingPackage the name of the package making the call.
      * @return true if the phone state is IDLE.
      */
-    boolean isIdle();
+    boolean isIdle(String callingPackage);
 
     /**
      * Check if the phone is idle on a particular subId.
      *
      * @param subId user preferred subId.
+     * @param callingPackage the name of the package making the call.
      * @return true if the phone state is IDLE.
      */
-    boolean isIdleForSubscriber(int subId);
+    boolean isIdleForSubscriber(int subId, String callingPackage);
 
     /**
      * Check to see if the radio is on or not.
+     * @param callingPackage the name of the package making the call.
      * @return returns true if the radio is on.
      */
-    boolean isRadioOn();
+    boolean isRadioOn(String callingPackage);
 
     /**
      * Check to see if the radio is on or not on particular subId.
      * @param subId user preferred subId.
+     * @param callingPackage the name of the package making the call.
      * @return returns true if the radio is on.
      */
-    boolean isRadioOnForSubscriber(int subId);
+    boolean isRadioOnForSubscriber(int subId, String callingPackage);
 
     /**
      * Check if the SIM pin lock is enabled.
@@ -377,40 +388,46 @@ interface ITelephony {
 
     /**
      * Returns the CDMA ERI icon index to display
+     * @param callingPackage package making the call.
      */
-    int getCdmaEriIconIndex();
+    int getCdmaEriIconIndex(String callingPackage);
 
     /**
      * Returns the CDMA ERI icon index to display on particular subId.
      * @param subId user preferred subId.
+     * @param callingPackage package making the call.
      */
-    int getCdmaEriIconIndexForSubscriber(int subId);
+    int getCdmaEriIconIndexForSubscriber(int subId, String callingPackage);
 
     /**
      * Returns the CDMA ERI icon mode,
      * 0 - ON
      * 1 - FLASHING
+     * @param callingPackage package making the call.
      */
-    int getCdmaEriIconMode();
+    int getCdmaEriIconMode(String callingPackage);
 
     /**
      * Returns the CDMA ERI icon mode on particular subId,
      * 0 - ON
      * 1 - FLASHING
      * @param subId user preferred subId.
+     * @param callingPackage package making the call.
      */
-    int getCdmaEriIconModeForSubscriber(int subId);
+    int getCdmaEriIconModeForSubscriber(int subId, String callingPackage);
 
     /**
      * Returns the CDMA ERI text,
+     * @param callingPackage package making the call.
      */
-    String getCdmaEriText();
+    String getCdmaEriText(String callingPackage);
 
     /**
      * Returns the CDMA ERI text for particular subId,
      * @param subId user preferred subId.
+     * @param callingPackage package making the call.
      */
-    String getCdmaEriTextForSubscriber(int subId);
+    String getCdmaEriTextForSubscriber(int subId, String callingPackage);
 
     /**
      * Returns true if OTA service provisioning needs to run.
@@ -437,40 +454,38 @@ interface ITelephony {
     int getVoiceMessageCountForSubscriber(int subId);
 
     /**
-      * Returns the network type for data transmission
-      */
+     * Returns the network type for data transmission
+     * Legacy call, permission-free
+     */
     int getNetworkType();
 
     /**
      * Returns the network type of a subId.
      * @param subId user preferred subId.
-     * Returns the network type
+     * @param callingPackage package making the call.
      */
-    int getNetworkTypeForSubscriber(int subId);
+    int getNetworkTypeForSubscriber(int subId, String callingPackage);
 
     /**
-      * Returns the network type for data transmission
-      */
-    int getDataNetworkType();
+     * Returns the network type for data transmission
+     * @param callingPackage package making the call.
+     */
+    int getDataNetworkType(String callingPackage);
 
     /**
-      * Returns the data network type of a subId
-      * @param subId user preferred subId.
-      * Returns the network type
-      */
-    int getDataNetworkTypeForSubscriber(int subId);
-
-    /**
-      * Returns the network type for voice
-      */
-    int getVoiceNetworkType();
+     * Returns the data network type of a subId
+     * @param subId user preferred subId.
+     * @param callingPackage package making the call.
+     */
+    int getDataNetworkTypeForSubscriber(int subId, String callingPackage);
 
     /**
       * Returns the voice network type of a subId
       * @param subId user preferred subId.
+      * @param callingPackage package making the call.
       * Returns the network type
       */
-    int getVoiceNetworkTypeForSubscriber(int subId);
+    int getVoiceNetworkTypeForSubscriber(int subId, String callingPackage);
 
     /**
      * Return true if an ICC card is present
@@ -489,20 +504,22 @@ interface ITelephony {
      * is a tri-state return value as for a period of time
      * the mode may be unknown.
      *
+     * @param callingPackage the name of the calling package
      * @return {@link Phone#LTE_ON_CDMA_UNKNOWN}, {@link Phone#LTE_ON_CDMA_FALSE}
      * or {@link PHone#LTE_ON_CDMA_TRUE}
      */
-    int getLteOnCdmaMode();
+    int getLteOnCdmaMode(String callingPackage);
 
     /**
      * Return if the current radio is LTE on CDMA. This
      * is a tri-state return value as for a period of time
      * the mode may be unknown.
      *
+     * @param callingPackage the name of the calling package
      * @return {@link Phone#LTE_ON_CDMA_UNKNOWN}, {@link Phone#LTE_ON_CDMA_FALSE}
      * or {@link PHone#LTE_ON_CDMA_TRUE}
      */
-    int getLteOnCdmaModeForSubscriber(int subId);
+    int getLteOnCdmaModeForSubscriber(int subId, String callingPackage);
 
     /**
      * Returns the all observed cell information of the device.
@@ -678,6 +695,27 @@ interface ITelephony {
     void setNetworkSelectionModeAutomatic(int subId);
 
     /**
+     * Perform a radio scan and return the list of avialble networks.
+     *
+     * @param subId the id of the subscription.
+     * @return CellNetworkScanResult containing status of scan and networks.
+     */
+    CellNetworkScanResult getCellNetworkScanResults(int subId);
+
+    /**
+     * Ask the radio to connect to the input network and change selection mode to manual.
+     *
+     * @param subId the id of the subscription.
+     * @param operatorInfo the operator to attach to.
+     * @param persistSelection should the selection persist till reboot or its
+     *        turned off? Will also result in notification being not shown to
+     *        the user if the signal is lost.
+     * @return true if the request suceeded.
+     */
+    boolean setNetworkSelectionModeManual(int subId, in OperatorInfo operator,
+            boolean persistSelection);
+
+    /**
      * Set the preferred network type.
      * Used for device configuration by some CDMA operators.
      *
@@ -739,9 +777,14 @@ interface ITelephony {
     int getCarrierPrivilegeStatus();
 
     /**
-     * Similar to above, but check for pkg whose name is pkgname.
+     * Similar to above, but check for the package whose name is pkgName.
      */
-    int checkCarrierPrivilegesForPackage(String pkgname);
+    int checkCarrierPrivilegesForPackage(String pkgName);
+
+    /**
+     * Similar to above, but check across all phones.
+     */
+    int checkCarrierPrivilegesForPackageAnyPhone(String pkgName);
 
     /**
      * Returns list of the package names of the carrier apps that should handle the input intent
@@ -789,7 +832,7 @@ interface ITelephony {
      */
     String getLine1AlphaTagForDisplay(int subId, String callingPackage);
 
-    String[] getMergedSubscriberIds();
+    String[] getMergedSubscriberIds(String callingPackage);
 
     /**
      * Override the operator branding for the current ICCID.
@@ -865,9 +908,10 @@ interface ITelephony {
      * Get phone radio type and access technology.
      *
      * @param phoneId which phone you want to get
+     * @param callingPackage the name of the package making the call
      * @return phone radio type and access technology
      */
-    int getRadioAccessFamily(in int phoneId);
+    int getRadioAccessFamily(in int phoneId, String callingPackage);
 
     /**
      * Enables or disables video calling.
@@ -919,15 +963,18 @@ interface ITelephony {
 
     /**
      * Returns the Status of Wi-Fi Calling
-     *@hide
      */
-    boolean isWifiCallingEnabled();
+    boolean isWifiCallingAvailable();
+    
+    /**
+     * Returns the Status of Volte
+     */
+    boolean isVolteAvailable();
 
      /**
-     * Returns the Status of Volte
-     *@hide
+     * Returns the Status of VT (video telephony)
      */
-    boolean isVolteEnabled();
+    boolean isVideoTelephonyAvailable();
 
     /**
       * Returns the unique device ID of phone, for example, the IMEI for
@@ -945,4 +992,17 @@ interface ITelephony {
     int getSubIdForPhoneAccount(in PhoneAccount phoneAccount);
 
     void factoryReset(int subId);
+
+    /**
+     * An estimate of the users's current locale based on the default SIM.
+     *
+     * The returned string will be a well formed BCP-47 language tag, or {@code null}
+     * if no locale could be derived.
+     */
+    String getLocaleFromDefaultSim();
+
+    /**
+     * Return the modem activity info.
+     */
+    ModemActivityInfo getModemActivityInfo();
 }

@@ -19,10 +19,12 @@ package android.telecom;
 import android.annotation.SystemApi;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
 
 import java.lang.String;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -130,7 +132,7 @@ public final class Call {
         /**
          * @hide
          */
-        public static final int CAPABILITY_UNUSED = 0x00000010;
+        public static final int CAPABILITY_UNUSED_1 = 0x00000010;
 
         /** Call supports responding via text option. */
         public static final int CAPABILITY_RESPOND_VIA_TEXT = 0x00000020;
@@ -187,27 +189,6 @@ public final class Call {
         public static final int CAPABILITY_DISCONNECT_FROM_CONFERENCE = 0x00002000;
 
         /**
-         * Whether the call is a generic conference, where we do not know the precise state of
-         * participants in the conference (eg. on CDMA).
-         */
-        public static final int CAPABILITY_GENERIC_CONFERENCE = 0x00004000;
-
-        /**
-         * Call is using high definition audio.
-         */
-        public static final int CAPABILITY_HIGH_DEF_AUDIO = 0x00008000;
-
-        /**
-         * Call is using WIFI.
-         */
-        public static final int CAPABILITY_WIFI = 0x00010000;
-
-        /**
-         * Indicates that the current device callback number should be shown.
-         */
-        public static final int CAPABILITY_SHOW_CALLBACK_NUMBER = 0x00020000;
-
-        /**
          * Speed up audio setup for MT call.
          * @hide
          */
@@ -221,12 +202,42 @@ public final class Call {
 
         /**
          * For video calls, indicates whether the outgoing video for the call can be paused using
-         * the {@link android.telecom.VideoProfile.VideoState#PAUSED} VideoState.
+         * the {@link android.telecom.VideoProfile#STATE_PAUSED} VideoState.
          */
         public static final int CAPABILITY_CAN_PAUSE_VIDEO = 0x00100000;
 
         //******************************************************************************************
-        // Next CAPABILITY value: 0x00200000
+        // Next CAPABILITY value: 0x00004000
+        //******************************************************************************************
+
+        /**
+         * Whether the call is currently a conference.
+         */
+        public static final int PROPERTY_CONFERENCE = 0x00000001;
+
+        /**
+         * Whether the call is a generic conference, where we do not know the precise state of
+         * participants in the conference (eg. on CDMA).
+         */
+        public static final int PROPERTY_GENERIC_CONFERENCE = 0x00000002;
+
+        /**
+         * Whether the call is made while the device is in emergency callback mode.
+         */
+        public static final int PROPERTY_EMERGENCY_CALLBACK_MODE = 0x00000004;
+
+        /**
+         * Connection is using WIFI.
+         */
+        public static final int PROPERTY_WIFI = 0x00000008;
+
+        /**
+         * Call is using high definition audio.
+         */
+        public static final int PROPERTY_HIGH_DEF_AUDIO = 0x00000010;
+
+        //******************************************************************************************
+        // Next PROPERTY value: 0x00000020
         //******************************************************************************************
 
         private final Uri mHandle;
@@ -242,6 +253,7 @@ public final class Call {
         private final int mVideoState;
         private final StatusHints mStatusHints;
         private final Bundle mExtras;
+        private final Bundle mIntentExtras;
 
         /**
          * Whether the supplied capabilities  supports the specified capability.
@@ -312,18 +324,6 @@ public final class Call {
             if (can(capabilities, CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL)) {
                 builder.append(" CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL");
             }
-            if (can(capabilities, CAPABILITY_HIGH_DEF_AUDIO)) {
-                builder.append(" CAPABILITY_HIGH_DEF_AUDIO");
-            }
-            if (can(capabilities, CAPABILITY_WIFI)) {
-                builder.append(" CAPABILITY_WIFI");
-            }
-            if (can(capabilities, CAPABILITY_GENERIC_CONFERENCE)) {
-                builder.append(" CAPABILITY_GENERIC_CONFERENCE");
-            }
-            if (can(capabilities, CAPABILITY_SHOW_CALLBACK_NUMBER)) {
-                builder.append(" CAPABILITY_SHOW_CALLBACK_NUMBER");
-            }
             if (can(capabilities, CAPABILITY_SPEED_UP_MT_AUDIO)) {
                 builder.append(" CAPABILITY_SPEED_UP_MT_AUDIO");
             }
@@ -332,6 +332,55 @@ public final class Call {
             }
             if (can(capabilities, CAPABILITY_CAN_PAUSE_VIDEO)) {
                 builder.append(" CAPABILITY_CAN_PAUSE_VIDEO");
+            }
+            builder.append("]");
+            return builder.toString();
+        }
+
+        /**
+         * Whether the supplied properties includes the specified property.
+         *
+         * @param properties A bit field of properties.
+         * @param property The property to check properties for.
+         * @return Whether the specified property is supported.
+         */
+        public static boolean hasProperty(int properties, int property) {
+            return (properties & property) != 0;
+        }
+
+        /**
+         * Whether the properties of this {@code Details} includes the specified property.
+         *
+         * @param property The property to check properties for.
+         * @return Whether the specified property is supported.
+         */
+        public boolean hasProperty(int property) {
+            return hasProperty(mCallProperties, property);
+        }
+
+        /**
+         * Render a set of property bits ({@code PROPERTY_*}) as a human readable string.
+         *
+         * @param properties A property bit field.
+         * @return A human readable string representation.
+         */
+        public static String propertiesToString(int properties) {
+            StringBuilder builder = new StringBuilder();
+            builder.append("[Properties:");
+            if (hasProperty(properties, PROPERTY_CONFERENCE)) {
+                builder.append(" PROPERTY_CONFERENCE");
+            }
+            if (hasProperty(properties, PROPERTY_GENERIC_CONFERENCE)) {
+                builder.append(" PROPERTY_GENERIC_CONFERENCE");
+            }
+            if (hasProperty(properties, PROPERTY_WIFI)) {
+                builder.append(" PROPERTY_WIFI");
+            }
+            if (hasProperty(properties, PROPERTY_HIGH_DEF_AUDIO)) {
+                builder.append(" PROPERTY_HIGH_DEF_AUDIO");
+            }
+            if (hasProperty(properties, PROPERTY_EMERGENCY_CALLBACK_MODE)) {
+                builder.append(" PROPERTY_EMERGENCY_CALLBACK_MODE");
             }
             builder.append("]");
             return builder.toString();
@@ -385,8 +434,8 @@ public final class Call {
         }
 
         /**
-         * @return A bitmask of the properties of the {@code Call}, as defined in
-         *         {@link CallProperties}.
+         * @return A bitmask of the properties of the {@code Call}, as defined by the various
+         *         {@code PROPERTY_*} constants in this class.
          */
         public int getCallProperties() {
             return mCallProperties;
@@ -432,10 +481,17 @@ public final class Call {
         }
 
         /**
-         * @return A bundle extras to pass with the call
+         * @return The extras associated with this call.
          */
         public Bundle getExtras() {
             return mExtras;
+        }
+
+        /**
+         * @return The extras used with the original intent to place this call.
+         */
+        public Bundle getIntentExtras() {
+            return mIntentExtras;
         }
 
         @Override
@@ -456,7 +512,8 @@ public final class Call {
                         Objects.equals(mGatewayInfo, d.mGatewayInfo) &&
                         Objects.equals(mVideoState, d.mVideoState) &&
                         Objects.equals(mStatusHints, d.mStatusHints) &&
-                        Objects.equals(mExtras, d.mExtras);
+                        areBundlesEqual(mExtras, d.mExtras) &&
+                        areBundlesEqual(mIntentExtras, d.mIntentExtras);
             }
             return false;
         }
@@ -476,7 +533,8 @@ public final class Call {
                     Objects.hashCode(mGatewayInfo) +
                     Objects.hashCode(mVideoState) +
                     Objects.hashCode(mStatusHints) +
-                    Objects.hashCode(mExtras);
+                    Objects.hashCode(mExtras) +
+                    Objects.hashCode(mIntentExtras);
         }
 
         /** {@hide} */
@@ -493,7 +551,8 @@ public final class Call {
                 GatewayInfo gatewayInfo,
                 int videoState,
                 StatusHints statusHints,
-                Bundle extras) {
+                Bundle extras,
+                Bundle intentExtras) {
             mHandle = handle;
             mHandlePresentation = handlePresentation;
             mCallerDisplayName = callerDisplayName;
@@ -507,6 +566,7 @@ public final class Call {
             mVideoState = videoState;
             mStatusHints = statusHints;
             mExtras = extras;
+            mIntentExtras = intentExtras;
         }
     }
 
@@ -608,7 +668,7 @@ public final class Call {
     private final List<String> mChildrenIds = new ArrayList<>();
     private final List<Call> mChildren = new ArrayList<>();
     private final List<Call> mUnmodifiableChildren = Collections.unmodifiableList(mChildren);
-    private final List<Callback> mCallbacks = new CopyOnWriteArrayList<>();
+    private final List<CallbackRecord<Callback>> mCallbackRecords = new CopyOnWriteArrayList<>();
     private final List<Call> mConferenceableCalls = new ArrayList<>();
     private final List<Call> mUnmodifiableConferenceableCalls =
             Collections.unmodifiableList(mConferenceableCalls);
@@ -850,7 +910,21 @@ public final class Call {
      * @param callback A {@code Callback}.
      */
     public void registerCallback(Callback callback) {
-        mCallbacks.add(callback);
+        registerCallback(callback, new Handler());
+    }
+
+    /**
+     * Registers a callback to this {@code Call}.
+     *
+     * @param callback A {@code Callback}.
+     * @param handler A handler which command and status changes will be delivered to.
+     */
+    public void registerCallback(Callback callback, Handler handler) {
+        unregisterCallback(callback);
+        // Don't allow new callback registration if the call is already being destroyed.
+        if (callback != null && handler != null && mState != STATE_DISCONNECTED) {
+            mCallbackRecords.add(new CallbackRecord<Callback>(callback, handler));
+        }
     }
 
     /**
@@ -859,8 +933,14 @@ public final class Call {
      * @param callback A {@code Callback}.
      */
     public void unregisterCallback(Callback callback) {
-        if (callback != null) {
-            mCallbacks.remove(callback);
+        // Don't allow callback deregistration if the call is already being destroyed.
+        if (callback != null && mState != STATE_DISCONNECTED) {
+            for (CallbackRecord<Callback> record : mCallbackRecords) {
+                if (record.getCallback() == callback) {
+                    mCallbackRecords.remove(record);
+                    break;
+                }
+            }
         }
     }
 
@@ -890,13 +970,20 @@ public final class Call {
         unregisterCallback(listener);
     }
 
-
     /** {@hide} */
     Call(Phone phone, String telecomCallId, InCallAdapter inCallAdapter) {
         mPhone = phone;
         mTelecomCallId = telecomCallId;
         mInCallAdapter = inCallAdapter;
         mState = STATE_NEW;
+    }
+
+    /** {@hide} */
+    Call(Phone phone, String telecomCallId, InCallAdapter inCallAdapter, int state) {
+        mPhone = phone;
+        mTelecomCallId = telecomCallId;
+        mInCallAdapter = inCallAdapter;
+        mState = state;
     }
 
     /** {@hide} */
@@ -920,7 +1007,8 @@ public final class Call {
                 parcelableCall.getGatewayInfo(),
                 parcelableCall.getVideoState(),
                 parcelableCall.getStatusHints(),
-                parcelableCall.getExtras());
+                parcelableCall.getExtras(),
+                parcelableCall.getIntentExtras());
         boolean detailsChanged = !Objects.equals(mDetails, details);
         if (detailsChanged) {
             mDetails = details;
@@ -934,9 +1022,9 @@ public final class Call {
         }
 
         boolean videoCallChanged = parcelableCall.isVideoCallProviderChanged() &&
-                !Objects.equals(mVideoCall, parcelableCall.getVideoCall());
+                !Objects.equals(mVideoCall, parcelableCall.getVideoCall(this));
         if (videoCallChanged) {
-            mVideoCall = parcelableCall.getVideoCall();
+            mVideoCall = parcelableCall.getVideoCall(this);
         }
 
         int state = parcelableCall.getState();
@@ -1001,7 +1089,6 @@ public final class Call {
         // DISCONNECTED Call while still relying on the existence of that Call in the Phone's list.
         if (mState == STATE_DISCONNECTED) {
             fireCallDestroyed();
-            mPhone.internalRemoveCall(this);
         }
     }
 
@@ -1017,61 +1104,180 @@ public final class Call {
             mState = Call.STATE_DISCONNECTED;
             fireStateChanged(mState);
             fireCallDestroyed();
-            mPhone.internalRemoveCall(this);
         }
     }
 
-    private void fireStateChanged(int newState) {
-        for (Callback callback : mCallbacks) {
-            callback.onStateChanged(this, newState);
+    private void fireStateChanged(final int newState) {
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onStateChanged(call, newState);
+                }
+            });
         }
     }
 
-    private void fireParentChanged(Call newParent) {
-        for (Callback callback : mCallbacks) {
-            callback.onParentChanged(this, newParent);
+    private void fireParentChanged(final Call newParent) {
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onParentChanged(call, newParent);
+                }
+            });
         }
     }
 
-    private void fireChildrenChanged(List<Call> children) {
-        for (Callback callback : mCallbacks) {
-            callback.onChildrenChanged(this, children);
+    private void fireChildrenChanged(final List<Call> children) {
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onChildrenChanged(call, children);
+                }
+            });
         }
     }
 
-    private void fireDetailsChanged(Details details) {
-        for (Callback callback : mCallbacks) {
-            callback.onDetailsChanged(this, details);
+    private void fireDetailsChanged(final Details details) {
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onDetailsChanged(call, details);
+                }
+            });
         }
     }
 
-    private void fireCannedTextResponsesLoaded(List<String> cannedTextResponses) {
-        for (Callback callback : mCallbacks) {
-            callback.onCannedTextResponsesLoaded(this, cannedTextResponses);
+    private void fireCannedTextResponsesLoaded(final List<String> cannedTextResponses) {
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onCannedTextResponsesLoaded(call, cannedTextResponses);
+                }
+            });
         }
     }
 
-    private void fireVideoCallChanged(InCallService.VideoCall videoCall) {
-        for (Callback callback : mCallbacks) {
-            callback.onVideoCallChanged(this, videoCall);
+    private void fireVideoCallChanged(final InCallService.VideoCall videoCall) {
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onVideoCallChanged(call, videoCall);
+                }
+            });
         }
     }
 
-    private void firePostDialWait(String remainingPostDialSequence) {
-        for (Callback callback : mCallbacks) {
-            callback.onPostDialWait(this, remainingPostDialSequence);
+    private void firePostDialWait(final String remainingPostDialSequence) {
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onPostDialWait(call, remainingPostDialSequence);
+                }
+            });
         }
     }
 
     private void fireCallDestroyed() {
-        for (Callback callback : mCallbacks) {
-            callback.onCallDestroyed(this);
+        /**
+         * To preserve the ordering of the Call's onCallDestroyed callback and Phone's
+         * onCallRemoved callback, we remove this call from the Phone's record
+         * only once all of the registered onCallDestroyed callbacks are executed.
+         * All the callbacks get removed from our records as a part of this operation
+         * since onCallDestroyed is the final callback.
+         */
+        final Call call = this;
+        if (mCallbackRecords.isEmpty()) {
+            // No callbacks registered, remove the call from Phone's record.
+            mPhone.internalRemoveCall(call);
+        }
+        for (final CallbackRecord<Callback> record : mCallbackRecords) {
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    boolean isFinalRemoval = false;
+                    RuntimeException toThrow = null;
+                    try {
+                        callback.onCallDestroyed(call);
+                    } catch (RuntimeException e) {
+                            toThrow = e;
+                    }
+                    synchronized(Call.this) {
+                        mCallbackRecords.remove(record);
+                        if (mCallbackRecords.isEmpty()) {
+                            isFinalRemoval = true;
+                        }
+                    }
+                    if (isFinalRemoval) {
+                        mPhone.internalRemoveCall(call);
+                    }
+                    if (toThrow != null) {
+                        throw toThrow;
+                    }
+                }
+            });
         }
     }
 
     private void fireConferenceableCallsChanged() {
-        for (Callback callback : mCallbacks) {
-            callback.onConferenceableCallsChanged(this, mUnmodifiableConferenceableCalls);
+        for (CallbackRecord<Callback> record : mCallbackRecords) {
+            final Call call = this;
+            final Callback callback = record.getCallback();
+            record.getHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onConferenceableCallsChanged(call, mUnmodifiableConferenceableCalls);
+                }
+            });
         }
+    }
+
+    /**
+     * Determines if two bundles are equal.
+     *
+     * @param bundle The original bundle.
+     * @param newBundle The bundle to compare with.
+     * @retrun {@code true} if the bundles are equal, {@code false} otherwise.
+     */
+    private static boolean areBundlesEqual(Bundle bundle, Bundle newBundle) {
+        if (bundle == null || newBundle == null) {
+            return bundle == newBundle;
+        }
+
+        if (bundle.size() != newBundle.size()) {
+            return false;
+        }
+
+        for(String key : bundle.keySet()) {
+            if (key != null) {
+                final Object value = bundle.get(key);
+                final Object newValue = newBundle.get(key);
+                if (!Objects.equals(value, newValue)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

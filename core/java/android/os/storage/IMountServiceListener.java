@@ -91,10 +91,17 @@ public interface IMountServiceListener extends IInterface {
                     reply.writeNoException();
                     return true;
                 }
-                case TRANSACTION_onVolumeMetadataChanged: {
+                case TRANSACTION_onVolumeRecordChanged: {
                     data.enforceInterface(DESCRIPTOR);
-                    final VolumeInfo vol = (VolumeInfo) data.readParcelable(null);
-                    onVolumeMetadataChanged(vol);
+                    final VolumeRecord rec = (VolumeRecord) data.readParcelable(null);
+                    onVolumeRecordChanged(rec);
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_onVolumeForgotten: {
+                    data.enforceInterface(DESCRIPTOR);
+                    final String fsUuid = data.readString();
+                    onVolumeForgotten(fsUuid);
                     reply.writeNoException();
                     return true;
                 }
@@ -103,6 +110,13 @@ public interface IMountServiceListener extends IInterface {
                     final DiskInfo disk = (DiskInfo) data.readParcelable(null);
                     final int volumeCount = data.readInt();
                     onDiskScanned(disk, volumeCount);
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_onDiskDestroyed: {
+                    data.enforceInterface(DESCRIPTOR);
+                    final DiskInfo disk = (DiskInfo) data.readParcelable(null);
+                    onDiskDestroyed(disk);
                     reply.writeNoException();
                     return true;
                 }
@@ -192,13 +206,29 @@ public interface IMountServiceListener extends IInterface {
             }
 
             @Override
-            public void onVolumeMetadataChanged(VolumeInfo vol) throws RemoteException {
+            public void onVolumeRecordChanged(VolumeRecord rec) throws RemoteException {
                 Parcel _data = Parcel.obtain();
                 Parcel _reply = Parcel.obtain();
                 try {
                     _data.writeInterfaceToken(DESCRIPTOR);
-                    _data.writeParcelable(vol, 0);
-                    mRemote.transact(Stub.TRANSACTION_onVolumeMetadataChanged, _data, _reply,
+                    _data.writeParcelable(rec, 0);
+                    mRemote.transact(Stub.TRANSACTION_onVolumeRecordChanged, _data, _reply,
+                            android.os.IBinder.FLAG_ONEWAY);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public void onVolumeForgotten(String fsUuid) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeString(fsUuid);
+                    mRemote.transact(Stub.TRANSACTION_onVolumeForgotten, _data, _reply,
                             android.os.IBinder.FLAG_ONEWAY);
                     _reply.readException();
                 } finally {
@@ -223,13 +253,31 @@ public interface IMountServiceListener extends IInterface {
                     _data.recycle();
                 }
             }
+
+            @Override
+            public void onDiskDestroyed(DiskInfo disk) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeParcelable(disk, 0);
+                    mRemote.transact(Stub.TRANSACTION_onDiskDestroyed, _data, _reply,
+                            android.os.IBinder.FLAG_ONEWAY);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
         }
 
         static final int TRANSACTION_onUsbMassStorageConnectionChanged = (IBinder.FIRST_CALL_TRANSACTION + 0);
         static final int TRANSACTION_onStorageStateChanged = (IBinder.FIRST_CALL_TRANSACTION + 1);
         static final int TRANSACTION_onVolumeStateChanged = (IBinder.FIRST_CALL_TRANSACTION + 2);
-        static final int TRANSACTION_onVolumeMetadataChanged = (IBinder.FIRST_CALL_TRANSACTION + 3);
-        static final int TRANSACTION_onDiskScanned = (IBinder.FIRST_CALL_TRANSACTION + 4);
+        static final int TRANSACTION_onVolumeRecordChanged = (IBinder.FIRST_CALL_TRANSACTION + 3);
+        static final int TRANSACTION_onVolumeForgotten = (IBinder.FIRST_CALL_TRANSACTION + 4);
+        static final int TRANSACTION_onDiskScanned = (IBinder.FIRST_CALL_TRANSACTION + 5);
+        static final int TRANSACTION_onDiskDestroyed = (IBinder.FIRST_CALL_TRANSACTION + 6);
     }
 
     /**
@@ -252,8 +300,10 @@ public interface IMountServiceListener extends IInterface {
 
     public void onVolumeStateChanged(VolumeInfo vol, int oldState, int newState)
             throws RemoteException;
-
-    public void onVolumeMetadataChanged(VolumeInfo vol) throws RemoteException;
+    public void onVolumeRecordChanged(VolumeRecord rec) throws RemoteException;
+    public void onVolumeForgotten(String fsUuid) throws RemoteException;
 
     public void onDiskScanned(DiskInfo disk, int volumeCount) throws RemoteException;
+
+    public void onDiskDestroyed(DiskInfo disk) throws RemoteException;
 }

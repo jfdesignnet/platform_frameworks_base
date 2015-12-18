@@ -31,6 +31,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroupOverlay;
 import android.view.ViewParent;
+import android.view.ViewRootImpl;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.widget.ImageView;
@@ -187,11 +188,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
      */
     public static final int MSG_SHARED_ELEMENT_DESTINATION = 107;
 
-    /**
-     * Send the shared element positions.
-     */
-    public static final int MSG_SEND_SHARED_ELEMENT_DESTINATION = 108;
-
     private Window mWindow;
     final protected ArrayList<String> mAllSharedElementNames;
     final protected ArrayList<View> mSharedElements = new ArrayList<View>();
@@ -207,6 +203,8 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             new ArrayList<GhostViewListeners>();
     private ArrayMap<View, Float> mOriginalAlphas = new ArrayMap<View, Float>();
     private ArrayList<Matrix> mSharedElementParentMatrices;
+    private boolean mSharedElementTransitionComplete;
+    private boolean mViewsTransitionComplete;
 
     public ActivityTransitionCoordinator(Window window,
             ArrayList<String> allSharedElementNames,
@@ -476,9 +474,8 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             tempRect.set(0, 0, width, height);
             view.getMatrix().mapRect(tempRect);
 
-            ViewGroup parent = (ViewGroup) view.getParent();
-            left = leftInParent - tempRect.left + parent.getScrollX();
-            top = topInParent - tempRect.top + parent.getScrollY();
+            left = leftInParent - tempRect.left;
+            top = topInParent - tempRect.top;
             right = left + width;
             bottom = top + height;
         }
@@ -506,7 +503,7 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             ViewGroup parent = (ViewGroup) view.getParent();
             Matrix matrix = new Matrix();
             parent.transformMatrixToLocal(matrix);
-
+            matrix.postTranslate(parent.getScrollX(), parent.getScrollY());
             mSharedElementParentMatrices.add(matrix);
         }
     }
@@ -521,6 +518,7 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
                 // Find the location in the view's parent
                 ViewGroup parent = (ViewGroup) viewParent;
                 parent.transformMatrixToLocal(matrix);
+                matrix.postTranslate(parent.getScrollX(), parent.getScrollY());
             }
         } else {
             // The indices of mSharedElementParentMatrices matches the
@@ -877,6 +875,40 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
                     });
         }
     }
+
+    protected boolean isViewsTransitionComplete() {
+        return mViewsTransitionComplete;
+    }
+
+    protected void viewsTransitionComplete() {
+        mViewsTransitionComplete = true;
+        startInputWhenTransitionsComplete();
+    }
+
+    protected void sharedElementTransitionComplete() {
+        mSharedElementTransitionComplete = true;
+        startInputWhenTransitionsComplete();
+    }
+    private void startInputWhenTransitionsComplete() {
+        if (mViewsTransitionComplete && mSharedElementTransitionComplete) {
+            final View decor = getDecor();
+            if (decor != null) {
+                final ViewRootImpl viewRoot = decor.getViewRootImpl();
+                viewRoot.setPausedForTransition(false);
+            }
+            onTransitionsComplete();
+        }
+    }
+
+    protected void pauseInput() {
+        final View decor = getDecor();
+        final ViewRootImpl viewRoot = decor == null ? null : decor.getViewRootImpl();
+        if (viewRoot != null) {
+            viewRoot.setPausedForTransition(true);
+        }
+    }
+
+    protected void onTransitionsComplete() {}
 
     protected class ContinueTransitionListener extends Transition.TransitionListenerAdapter {
         @Override

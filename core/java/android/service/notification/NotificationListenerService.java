@@ -21,12 +21,16 @@ import android.annotation.SdkConstant;
 import android.app.INotificationManager;
 import android.app.Notification;
 import android.app.Notification.Builder;
-import android.app.NotificationManager.Policy;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ParceledListSlice;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
+import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Parcel;
@@ -37,6 +41,7 @@ import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -64,25 +69,29 @@ public abstract class NotificationListenerService extends Service {
      * {@link #getCurrentInterruptionFilter() Interruption filter} constant -
      *     Normal interruption filter.
      */
-    public static final int INTERRUPTION_FILTER_ALL = 1;
+    public static final int INTERRUPTION_FILTER_ALL
+            = NotificationManager.INTERRUPTION_FILTER_ALL;
 
     /**
      * {@link #getCurrentInterruptionFilter() Interruption filter} constant -
      *     Priority interruption filter.
      */
-    public static final int INTERRUPTION_FILTER_PRIORITY = 2;
+    public static final int INTERRUPTION_FILTER_PRIORITY
+            = NotificationManager.INTERRUPTION_FILTER_PRIORITY;
 
     /**
      * {@link #getCurrentInterruptionFilter() Interruption filter} constant -
      *     No interruptions filter.
      */
-    public static final int INTERRUPTION_FILTER_NONE = 3;
+    public static final int INTERRUPTION_FILTER_NONE
+            = NotificationManager.INTERRUPTION_FILTER_NONE;
 
     /**
      * {@link #getCurrentInterruptionFilter() Interruption filter} constant -
      *     Alarms only interruption filter.
      */
-    public static final int INTERRUPTION_FILTER_ALARMS = 4;
+    public static final int INTERRUPTION_FILTER_ALARMS
+            = NotificationManager.INTERRUPTION_FILTER_ALARMS;
 
     /** {@link #getCurrentInterruptionFilter() Interruption filter} constant - returned when
      * the value is unavailable for any reason.  For example, before the notification listener
@@ -90,7 +99,8 @@ public abstract class NotificationListenerService extends Service {
      *
      * {@see #onListenerConnected()}
      */
-    public static final int INTERRUPTION_FILTER_UNKNOWN = 0;
+    public static final int INTERRUPTION_FILTER_UNKNOWN
+            = NotificationManager.INTERRUPTION_FILTER_UNKNOWN;
 
     /** {@link #getCurrentListenerHints() Listener hints} constant - the primary device UI
      * should disable notification sound, vibrating and other visual or aural effects.
@@ -317,7 +327,7 @@ public abstract class NotificationListenerService extends Service {
         if (!isBound()) return;
         try {
             getNotificationInterface().cancelNotificationsFromListener(mWrapper,
-                    new String[] {key});
+                    new String[] { key });
         } catch (android.os.RemoteException ex) {
             Log.v(TAG, "Unable to contact notification manager", ex);
         }
@@ -359,7 +369,9 @@ public abstract class NotificationListenerService extends Service {
 
     /**
      * Inform the notification manager that these notifications have been viewed by the
-     * user.
+     * user. This should only be called when there is sufficient confidence that the user is
+     * looking at the notifications, such as when the notifications appear on the screen due to
+     * an explicit user interaction.
      * @param keys Notifications to mark as seen.
      */
     public final void setNotificationsShown(String[] keys) {
@@ -454,13 +466,28 @@ public abstract class NotificationListenerService extends Service {
             ParceledListSlice<StatusBarNotification> parceledList = getNotificationInterface()
                     .getActiveNotificationsFromListener(mWrapper, keys, trim);
             List<StatusBarNotification> list = parceledList.getList();
-
+            ArrayList<StatusBarNotification> corruptNotifications = null;
             int N = list.size();
             for (int i = 0; i < N; i++) {
-                Notification notification = list.get(i).getNotification();
-                Builder.rebuild(getContext(), notification);
+                StatusBarNotification sbn = list.get(i);
+                Notification notification = sbn.getNotification();
+                try {
+                    Builder.rebuild(getContext(), notification);
+                    // convert icon metadata to legacy format for older clients
+                    createLegacyIconExtras(notification);
+                } catch (IllegalArgumentException e) {
+                    if (corruptNotifications == null) {
+                        corruptNotifications = new ArrayList<>(N);
+                    }
+                    corruptNotifications.add(sbn);
+                    Log.w(TAG, "onNotificationPosted: can't rebuild notification from " +
+                            sbn.getPackageName());
+                }
             }
-            return list.toArray(new StatusBarNotification[N]);
+            if (corruptNotifications != null) {
+                list.removeAll(corruptNotifications);
+            }
+            return list.toArray(new StatusBarNotification[list.size()]);
         } catch (android.os.RemoteException ex) {
             Log.v(TAG, "Unable to contact notification manager", ex);
         }
@@ -512,22 +539,6 @@ public abstract class NotificationListenerService extends Service {
         } catch (android.os.RemoteException ex) {
             Log.v(TAG, "Unable to contact notification manager", ex);
             return INTERRUPTION_FILTER_UNKNOWN;
-        }
-    }
-
-    /**
-     * Gets the notification policy token associated with this listener.
-     *
-     * <p>
-     * Returns null if this listener is not currently active.
-     */
-    public final Policy.Token getNotificationPolicyToken() {
-        if (!isBound()) return null;
-        try {
-            return getNotificationInterface().getPolicyTokenFromListener(mWrapper);
-        } catch (android.os.RemoteException ex) {
-            Log.v(TAG, "Unable to contact notification manager", ex);
-            return null;
         }
     }
 
@@ -647,6 +658,24 @@ public abstract class NotificationListenerService extends Service {
         }
     }
 
+    /** Convert new-style Icons to legacy representations for pre-M clients. */
+    private void createLegacyIconExtras(Notification n) {
+        Icon smallIcon = n.getSmallIcon();
+        Icon largeIcon = n.getLargeIcon();
+        if (smallIcon != null && smallIcon.getType() == Icon.TYPE_RESOURCE) {
+            n.extras.putInt(Notification.EXTRA_SMALL_ICON, smallIcon.getResId());
+            n.icon = smallIcon.getResId();
+        }
+        if (largeIcon != null) {
+            Drawable d = largeIcon.loadDrawable(getContext());
+            if (d != null && d instanceof BitmapDrawable) {
+                final Bitmap largeIconBits = ((BitmapDrawable) d).getBitmap();
+                n.extras.putParcelable(Notification.EXTRA_LARGE_ICON, largeIconBits);
+                n.largeIcon = largeIconBits;
+            }
+        }
+    }
+
     private class INotificationListenerWrapper extends INotificationListener.Stub {
         @Override
         public void onNotificationPosted(IStatusBarNotificationHolder sbnHolder,
@@ -658,13 +687,28 @@ public abstract class NotificationListenerService extends Service {
                 Log.w(TAG, "onNotificationPosted: Error receiving StatusBarNotification", e);
                 return;
             }
-            Notification.Builder.rebuild(getContext(), sbn.getNotification());
+
+            try {
+                Notification.Builder.rebuild(getContext(), sbn.getNotification());
+                // convert icon metadata to legacy format for older clients
+                createLegacyIconExtras(sbn.getNotification());
+            } catch (IllegalArgumentException e) {
+                // drop corrupt notification
+                sbn = null;
+                Log.w(TAG, "onNotificationPosted: can't rebuild notification from " +
+                        sbn.getPackageName());
+            }
 
             // protect subclass from concurrent modifications of (@link mNotificationKeys}.
             synchronized (mWrapper) {
                 applyUpdate(update);
                 try {
-                    NotificationListenerService.this.onNotificationPosted(sbn, mRankingMap);
+                    if (sbn != null) {
+                        NotificationListenerService.this.onNotificationPosted(sbn, mRankingMap);
+                    } else {
+                        // still pass along the ranking map, it may contain other information
+                        NotificationListenerService.this.onNotificationRankingUpdate(mRankingMap);
+                    }
                 } catch (Throwable t) {
                     Log.w(TAG, "Error running onNotificationPosted", t);
                 }

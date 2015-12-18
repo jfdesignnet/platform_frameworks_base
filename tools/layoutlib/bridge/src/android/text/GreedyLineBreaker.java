@@ -16,8 +16,7 @@
 
 package android.text;
 
-import com.android.annotations.NonNull;
-
+import android.annotation.NonNull;
 import android.text.Primitive.PrimitiveType;
 import android.text.StaticLayout.LineBreaks;
 
@@ -36,7 +35,7 @@ public class GreedyLineBreaker extends LineBreaker {
     }
 
     @Override
-    public void computeBreaks(LineBreaks lineBreaks) {
+    public void computeBreaks(@NonNull LineBreaks lineBreaks) {
         BreakInfo breakInfo = new BreakInfo();
         int lineNum = 0;
         float width = 0, printedWidth = 0;

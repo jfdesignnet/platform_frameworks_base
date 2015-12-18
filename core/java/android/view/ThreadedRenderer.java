@@ -17,12 +17,12 @@
 package android.view;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.content.Context;
-import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
+import android.graphics.Point;
 import android.graphics.Rect;
-import android.graphics.drawable.Drawable;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -30,7 +30,6 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.Trace;
 import android.util.Log;
-import android.util.LongSparseArray;
 import android.view.Surface.OutOfResourcesException;
 import android.view.View.AttachInfo;
 
@@ -40,8 +39,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.ArrayList;
-import java.util.HashSet;
 
 /**
  * Hardware renderer that proxies the rendering to a render thread. Most calls
@@ -151,7 +148,6 @@ public class ThreadedRenderer extends HardwareRenderer {
         mInitialized = true;
         updateEnabledState(surface);
         boolean status = nInitialize(mNativeProxy, surface);
-        surface.allocateBuffers();
         return status;
     }
 
@@ -196,10 +192,10 @@ public class ThreadedRenderer extends HardwareRenderer {
     }
 
     @Override
-    void setup(int width, int height, Rect surfaceInsets) {
-        final float lightX = width / 2.0f;
+    void setup(int width, int height, AttachInfo attachInfo, Rect surfaceInsets) {
         mWidth = width;
         mHeight = height;
+
         if (surfaceInsets != null && (surfaceInsets.left != 0 || surfaceInsets.right != 0
                 || surfaceInsets.top != 0 || surfaceInsets.bottom != 0)) {
             mHasInsets = true;
@@ -217,10 +213,23 @@ public class ThreadedRenderer extends HardwareRenderer {
             mSurfaceWidth = width;
             mSurfaceHeight = height;
         }
+
         mRootNode.setLeftTopRightBottom(-mInsetLeft, -mInsetTop, mSurfaceWidth, mSurfaceHeight);
-        nSetup(mNativeProxy, mSurfaceWidth, mSurfaceHeight,
-                lightX, mLightY, mLightZ, mLightRadius,
+        nSetup(mNativeProxy, mSurfaceWidth, mSurfaceHeight, mLightRadius,
                 mAmbientShadowAlpha, mSpotShadowAlpha);
+
+        setLightCenter(attachInfo);
+    }
+
+    @Override
+    void setLightCenter(AttachInfo attachInfo) {
+        // Adjust light position for window offsets.
+        final Point displaySize = attachInfo.mPoint;
+        attachInfo.mDisplay.getRealSize(displaySize);
+        final float lightX = displaySize.x / 2f - attachInfo.mWindowLeft;
+        final float lightY = mLightY - attachInfo.mWindowTop;
+
+        nSetLightCenter(mNativeProxy, lightX, lightY, mLightZ);
     }
 
     @Override
@@ -269,7 +278,7 @@ public class ThreadedRenderer extends HardwareRenderer {
         view.mRecreateDisplayList = (view.mPrivateFlags & View.PFLAG_INVALIDATED)
                 == View.PFLAG_INVALIDATED;
         view.mPrivateFlags &= ~View.PFLAG_INVALIDATED;
-        view.getDisplayList();
+        view.updateDisplayListIfDirty();
         view.mRecreateDisplayList = false;
     }
 
@@ -285,7 +294,7 @@ public class ThreadedRenderer extends HardwareRenderer {
                 callbacks.onHardwarePreDraw(canvas);
 
                 canvas.insertReorderBarrier();
-                canvas.drawRenderNode(view.getDisplayList());
+                canvas.drawRenderNode(view.updateDisplayListIfDirty());
                 canvas.insertInorderBarrier();
 
                 callbacks.onHardwarePostDraw(canvas);
@@ -360,7 +369,7 @@ public class ThreadedRenderer extends HardwareRenderer {
     @Override
     boolean copyLayerInto(final HardwareLayer layer, final Bitmap bitmap) {
         return nCopyLayerInto(mNativeProxy,
-                layer.getDeferredLayerUpdater(), bitmap.getSkBitmap());
+                layer.getDeferredLayerUpdater(), bitmap);
     }
 
     @Override
@@ -412,13 +421,19 @@ public class ThreadedRenderer extends HardwareRenderer {
         nTrimMemory(level);
     }
 
+    public static void overrideProperty(@NonNull String name, @NonNull String value) {
+        if (name == null || value == null) {
+            throw new IllegalArgumentException("name and value must be non-null");
+        }
+        nOverrideProperty(name, value);
+    }
+
     public static void dumpProfileData(byte[] data, FileDescriptor fd) {
         nDumpProfileData(data, fd);
     }
 
     private static class ProcessInitializer {
         static ProcessInitializer sInstance = new ProcessInitializer();
-        static IGraphicsStats sGraphicsStatsService;
         private static IBinder sProcToken;
 
         private boolean mInitialized = false;
@@ -433,19 +448,19 @@ public class ThreadedRenderer extends HardwareRenderer {
         }
 
         private static void initGraphicsStats(Context context, long renderProxy) {
-            IBinder binder = ServiceManager.getService("graphicsstats");
-            if (binder == null) return;
-
-            sGraphicsStatsService = IGraphicsStats.Stub.asInterface(binder);
-            sProcToken = new Binder();
             try {
+                IBinder binder = ServiceManager.getService("graphicsstats");
+                if (binder == null) return;
+                IGraphicsStats graphicsStatsService = IGraphicsStats.Stub
+                        .asInterface(binder);
+                sProcToken = new Binder();
                 final String pkg = context.getApplicationInfo().packageName;
-                ParcelFileDescriptor pfd = sGraphicsStatsService.
+                ParcelFileDescriptor pfd = graphicsStatsService.
                         requestBufferForProcess(pkg, sProcToken);
                 nSetProcessStatsBuffer(renderProxy, pfd.getFd());
                 pfd.close();
-            } catch (Exception e) {
-                Log.w(LOG_TAG, "Could not acquire gfx stats buffer", e);
+            } catch (Throwable t) {
+                Log.w(LOG_TAG, "Could not acquire gfx stats buffer", t);
             }
         }
 
@@ -460,8 +475,6 @@ public class ThreadedRenderer extends HardwareRenderer {
                     if (buffer != null) {
                         long[] map = atlas.getMap();
                         if (map != null) {
-                            // TODO Remove after fixing b/15425820
-                            validateMap(context, map);
                             nSetAtlas(renderProxy, buffer, map);
                         }
                         // If IAssetAtlas is not the same class as the IBinder
@@ -474,32 +487,6 @@ public class ThreadedRenderer extends HardwareRenderer {
                 }
             } catch (RemoteException e) {
                 Log.w(LOG_TAG, "Could not acquire atlas", e);
-            }
-        }
-
-        private static void validateMap(Context context, long[] map) {
-            Log.d("Atlas", "Validating map...");
-            HashSet<Long> preloadedPointers = new HashSet<Long>();
-
-            // We only care about drawables that hold bitmaps
-            final Resources resources = context.getResources();
-            final LongSparseArray<Drawable.ConstantState> drawables = resources.getPreloadedDrawables();
-
-            final int count = drawables.size();
-            ArrayList<Bitmap> tmpList = new ArrayList<Bitmap>();
-            for (int i = 0; i < count; i++) {
-                drawables.valueAt(i).addAtlasableBitmaps(tmpList);
-                for (int j = 0; j < tmpList.size(); j++) {
-                    preloadedPointers.add(tmpList.get(j).getSkBitmap());
-                }
-                tmpList.clear();
-            }
-
-            for (int i = 0; i < map.length; i += 4) {
-                if (!preloadedPointers.contains(map[i])) {
-                    Log.w("Atlas", String.format("Pointer 0x%X, not in getPreloadedDrawables?", map[i]));
-                    map[i] = 0;
-                }
             }
         }
     }
@@ -520,8 +507,9 @@ public class ThreadedRenderer extends HardwareRenderer {
     private static native void nUpdateSurface(long nativeProxy, Surface window);
     private static native boolean nPauseSurface(long nativeProxy, Surface window);
     private static native void nSetup(long nativeProxy, int width, int height,
-            float lightX, float lightY, float lightZ, float lightRadius,
-            int ambientShadowAlpha, int spotShadowAlpha);
+            float lightRadius, int ambientShadowAlpha, int spotShadowAlpha);
+    private static native void nSetLightCenter(long nativeProxy,
+            float lightX, float lightY, float lightZ);
     private static native void nSetOpaque(long nativeProxy, boolean opaque);
     private static native int nSyncAndDrawFrame(long nativeProxy, long[] frameInfo, int size);
     private static native void nDestroy(long nativeProxy);
@@ -531,13 +519,14 @@ public class ThreadedRenderer extends HardwareRenderer {
 
     private static native long nCreateTextureLayer(long nativeProxy);
     private static native void nBuildLayer(long nativeProxy, long node);
-    private static native boolean nCopyLayerInto(long nativeProxy, long layer, long bitmap);
+    private static native boolean nCopyLayerInto(long nativeProxy, long layer, Bitmap bitmap);
     private static native void nPushLayerUpdate(long nativeProxy, long layer);
     private static native void nCancelLayerUpdate(long nativeProxy, long layer);
     private static native void nDetachSurfaceTexture(long nativeProxy, long layer);
 
     private static native void nDestroyHardwareResources(long nativeProxy);
     private static native void nTrimMemory(int level);
+    private static native void nOverrideProperty(String name, String value);
 
     private static native void nFence(long nativeProxy);
     private static native void nStopDrawing(long nativeProxy);

@@ -30,8 +30,8 @@ class DhcpAckPacket extends DhcpPacket {
     private final Inet4Address mSrcIp;
 
     DhcpAckPacket(int transId, short secs, boolean broadcast, Inet4Address serverAddress,
-                  Inet4Address clientIp, byte[] clientMac) {
-        super(transId, secs, INADDR_ANY, clientIp, serverAddress, INADDR_ANY, clientMac, broadcast);
+                  Inet4Address clientIp, Inet4Address yourIp, byte[] clientMac) {
+        super(transId, secs, clientIp, yourIp, serverAddress, INADDR_ANY, clientMac, broadcast);
         mBroadcast = broadcast;
         mSrcIp = serverAddress;
     }
@@ -46,7 +46,7 @@ class DhcpAckPacket extends DhcpPacket {
 
         return s + " ACK: your new IP " + mYourIp +
                 ", netmask " + mSubnetMask +
-                ", gateway " + mGateway + dnsServers +
+                ", gateways " + mGateways + dnsServers +
                 ", lease time " + mLeaseTime;
     }
 
@@ -79,7 +79,7 @@ class DhcpAckPacket extends DhcpPacket {
         }
 
         addTlv(buffer, DHCP_SUBNET_MASK, mSubnetMask);
-        addTlv(buffer, DHCP_ROUTER, mGateway);
+        addTlv(buffer, DHCP_ROUTER, mGateways);
         addTlv(buffer, DHCP_DOMAIN_NAME, mDomainName);
         addTlv(buffer, DHCP_BROADCAST_ADDRESS, mBroadcastAddress);
         addTlv(buffer, DHCP_DNS_SERVER, mDnsServers);

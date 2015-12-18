@@ -520,6 +520,8 @@ public class AccessibilityNodeInfo implements Parcelable {
 
     private static final int BOOLEAN_PROPERTY_CONTENT_INVALID = 0x00010000;
 
+    private static final int BOOLEAN_PROPERTY_CONTEXT_CLICKABLE = 0x00020000;
+
     /**
      * Bits that provide the id of a virtual descendant of a view.
      */
@@ -1009,6 +1011,10 @@ public class AccessibilityNodeInfo implements Parcelable {
     public void addAction(AccessibilityAction action) {
         enforceNotSealed();
 
+        addActionUnchecked(action);
+    }
+
+    private void addActionUnchecked(AccessibilityAction action) {
         if (action == null) {
             return;
         }
@@ -1489,6 +1495,15 @@ public class AccessibilityNodeInfo implements Parcelable {
     }
 
     /**
+     * Returns the actual rect containing the node bounds in screen coordinates.
+     *
+     * @hide Not safe to expose outside the framework.
+     */
+    public Rect getBoundsInScreen() {
+        return mBoundsInScreen;
+    }
+
+    /**
      * Sets the node bounds in screen coordinates.
      * <p>
      *   <strong>Note:</strong> Cannot be called from an
@@ -1927,6 +1942,30 @@ public class AccessibilityNodeInfo implements Parcelable {
      */
     public void setContentInvalid(boolean contentInvalid) {
         setBooleanProperty(BOOLEAN_PROPERTY_CONTENT_INVALID, contentInvalid);
+    }
+
+    /**
+     * Gets whether this node is context clickable.
+     *
+     * @return True if the node is context clickable.
+     */
+    public boolean isContextClickable() {
+        return getBooleanProperty(BOOLEAN_PROPERTY_CONTEXT_CLICKABLE);
+    }
+
+    /**
+     * Sets whether this node is context clickable.
+     * <p>
+     * <strong>Note:</strong> Cannot be called from an
+     * {@link android.accessibilityservice.AccessibilityService}. This class is made immutable
+     * before being delivered to an AccessibilityService.
+     * </p>
+     *
+     * @param contextClickable True if the node is context clickable.
+     * @throws IllegalStateException If called from an AccessibilityService.
+     */
+    public void setContextClickable(boolean contextClickable) {
+        setBooleanProperty(BOOLEAN_PROPERTY_CONTEXT_CLICKABLE, contextClickable);
     }
 
     /**
@@ -2698,10 +2737,10 @@ public class AccessibilityNodeInfo implements Parcelable {
 
         if (mCollectionItemInfo != null) {
             parcel.writeInt(1);
-            parcel.writeInt(mCollectionItemInfo.getColumnIndex());
-            parcel.writeInt(mCollectionItemInfo.getColumnSpan());
             parcel.writeInt(mCollectionItemInfo.getRowIndex());
             parcel.writeInt(mCollectionItemInfo.getRowSpan());
+            parcel.writeInt(mCollectionItemInfo.getColumnIndex());
+            parcel.writeInt(mCollectionItemInfo.getColumnSpan());
             parcel.writeInt(mCollectionItemInfo.isHeading() ? 1 : 0);
             parcel.writeInt(mCollectionItemInfo.isSelected() ? 1 : 0);
         } else {
@@ -2782,7 +2821,7 @@ public class AccessibilityNodeInfo implements Parcelable {
      * @param parcel A parcel containing the state of a {@link AccessibilityNodeInfo}.
      */
     private void initFromParcel(Parcel parcel) {
-        mSealed = (parcel.readInt()  == 1);
+        final boolean sealed = (parcel.readInt()  == 1);
         mSourceNodeId = parcel.readLong();
         mWindowId = parcel.readInt();
         mParentNodeId = parcel.readLong();
@@ -2820,9 +2859,9 @@ public class AccessibilityNodeInfo implements Parcelable {
             addLegacyStandardActions(legacyStandardActions);
             final int nonLegacyActionCount = actionCount - Integer.bitCount(legacyStandardActions);
             for (int i = 0; i < nonLegacyActionCount; i++) {
-                AccessibilityAction action = new AccessibilityAction(
+                final AccessibilityAction action = new AccessibilityAction(
                         parcel.readInt(), parcel.readCharSequence());
-                addAction(action);
+                addActionUnchecked(action);
             }
         }
 
@@ -2872,6 +2911,8 @@ public class AccessibilityNodeInfo implements Parcelable {
                     parcel.readInt() == 1,
                     parcel.readInt() == 1);
         }
+
+        mSealed = sealed;
     }
 
     /**
@@ -3117,6 +3158,7 @@ public class AccessibilityNodeInfo implements Parcelable {
         builder.append("; selected: ").append(isSelected());
         builder.append("; clickable: ").append(isClickable());
         builder.append("; longClickable: ").append(isLongClickable());
+        builder.append("; contextClickable: ").append(isContextClickable());
         builder.append("; enabled: ").append(isEnabled());
         builder.append("; password: ").append(isPassword());
         builder.append("; scrollable: ").append(isScrollable());
@@ -3472,6 +3514,36 @@ public class AccessibilityNodeInfo implements Parcelable {
         public static final AccessibilityAction ACTION_SCROLL_TO_POSITION =
                 new AccessibilityAction(R.id.accessibilityActionScrollToPosition, null);
 
+        /**
+         * Action to scroll the node content up.
+         */
+        public static final AccessibilityAction ACTION_SCROLL_UP =
+                new AccessibilityAction(R.id.accessibilityActionScrollUp, null);
+
+        /**
+         * Action to scroll the node content left.
+         */
+        public static final AccessibilityAction ACTION_SCROLL_LEFT =
+                new AccessibilityAction(R.id.accessibilityActionScrollLeft, null);
+
+        /**
+         * Action to scroll the node content down.
+         */
+        public static final AccessibilityAction ACTION_SCROLL_DOWN =
+                new AccessibilityAction(R.id.accessibilityActionScrollDown, null);
+
+        /**
+         * Action to scroll the node content right.
+         */
+         public static final AccessibilityAction ACTION_SCROLL_RIGHT =
+                new AccessibilityAction(R.id.accessibilityActionScrollRight, null);
+
+        /**
+         * Action that context clicks the node.
+         */
+        public static final AccessibilityAction ACTION_CONTEXT_CLICK =
+                new AccessibilityAction(R.id.accessibilityActionContextClick, null);
+
         private static final ArraySet<AccessibilityAction> sStandardActions = new ArraySet<>();
         static {
             sStandardActions.add(ACTION_FOCUS);
@@ -3498,6 +3570,11 @@ public class AccessibilityNodeInfo implements Parcelable {
             sStandardActions.add(ACTION_SET_TEXT);
             sStandardActions.add(ACTION_SHOW_ON_SCREEN);
             sStandardActions.add(ACTION_SCROLL_TO_POSITION);
+            sStandardActions.add(ACTION_SCROLL_UP);
+            sStandardActions.add(ACTION_SCROLL_LEFT);
+            sStandardActions.add(ACTION_SCROLL_DOWN);
+            sStandardActions.add(ACTION_SCROLL_RIGHT);
+            sStandardActions.add(ACTION_CONTEXT_CLICK);
         }
 
         private final int mActionId;

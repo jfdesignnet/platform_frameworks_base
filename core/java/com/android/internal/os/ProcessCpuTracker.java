@@ -139,6 +139,8 @@ public class ProcessCpuTracker {
     private float mLoad5 = 0;
     private float mLoad15 = 0;
 
+    // All times are in milliseconds. They are converted from jiffies to milliseconds
+    // when extracted from the kernel.
     private long mCurrentSampleTime;
     private long mLastSampleTime;
 
@@ -170,21 +172,6 @@ public class ProcessCpuTracker {
 
     private byte[] mBuffer = new byte[4096];
 
-    /**
-     * The time in microseconds that the CPU has been running at each speed.
-     */
-    private long[] mCpuSpeedTimes;
-
-    /**
-     * The relative time in microseconds that the CPU has been running at each speed.
-     */
-    private long[] mRelCpuSpeedTimes;
-
-    /**
-     * The different speeds that the CPU can be running at.
-     */
-    private long[] mCpuSpeeds;
-
     public static class Stats {
         public final int pid;
         public final int uid;
@@ -206,12 +193,34 @@ public class ProcessCpuTracker {
         // filter out kernel processes.
         public long vsize;
 
+        /**
+         * Time in milliseconds.
+         */
         public long base_uptime;
+
+        /**
+         * Time in milliseconds.
+         */
         public long rel_uptime;
 
+        /**
+         * Time in milliseconds.
+         */
         public long base_utime;
+
+        /**
+         * Time in milliseconds.
+         */
         public long base_stime;
+
+        /**
+         * Time in milliseconds.
+         */
         public int rel_utime;
+
+        /**
+         * Time in milliseconds.
+         */
         public int rel_stime;
 
         public long base_minfaults;
@@ -573,7 +582,7 @@ public class ProcessCpuTracker {
     }
 
     /**
-     * Returns the total time (in clock ticks, or 1/100 sec) spent executing in
+     * Returns the total time (in milliseconds) spent executing in
      * both user and system code.  Safe to call without lock held.
      */
     public long getCpuTimeForPid(int pid) {
@@ -591,89 +600,43 @@ public class ProcessCpuTracker {
     }
 
     /**
-     * Returns the delta time (in clock ticks, or 1/100 sec) spent at each CPU
-     * speed, since the last call to this method. If this is the first call, it
-     * will return 1 for each value.
+     * @return time in milliseconds.
      */
-    public long[] getLastCpuSpeedTimes() {
-        if (mCpuSpeedTimes == null) {
-            mCpuSpeedTimes = getCpuSpeedTimes(null);
-            mRelCpuSpeedTimes = new long[mCpuSpeedTimes.length];
-            for (int i = 0; i < mCpuSpeedTimes.length; i++) {
-                mRelCpuSpeedTimes[i] = 1; // Initialize
-            }
-        } else {
-            getCpuSpeedTimes(mRelCpuSpeedTimes);
-            for (int i = 0; i < mCpuSpeedTimes.length; i++) {
-                long temp = mRelCpuSpeedTimes[i];
-                mRelCpuSpeedTimes[i] -= mCpuSpeedTimes[i];
-                mCpuSpeedTimes[i] = temp;
-            }
-        }
-        return mRelCpuSpeedTimes;
-    }
-
-    private long[] getCpuSpeedTimes(long[] out) {
-        long[] tempTimes = out;
-        long[] tempSpeeds = mCpuSpeeds;
-        final int MAX_SPEEDS = 60;
-        if (out == null) {
-            tempTimes = new long[MAX_SPEEDS]; // Hopefully no more than that
-            tempSpeeds = new long[MAX_SPEEDS];
-        }
-        int speed = 0;
-        String file = readFile("/sys/devices/system/cpu/cpu0/cpufreq/stats/time_in_state", '\0');
-        // Note: file may be null on kernels without cpufreq (i.e. the emulator's)
-        if (file != null) {
-            StringTokenizer st = new StringTokenizer(file, "\n ");
-            while (st.hasMoreElements()) {
-                String token = st.nextToken();
-                try {
-                    long val = Long.parseLong(token);
-                    tempSpeeds[speed] = val;
-                    token = st.nextToken();
-                    val = Long.parseLong(token);
-                    tempTimes[speed] = val;
-                    speed++;
-                    if (speed == MAX_SPEEDS) break; // No more
-                    if (localLOGV && out == null) {
-                        Slog.v(TAG, "First time : Speed/Time = " + tempSpeeds[speed - 1]
-                              + "\t" + tempTimes[speed - 1]);
-                    }
-                } catch (NumberFormatException nfe) {
-                    Slog.i(TAG, "Unable to parse time_in_state");
-                }
-            }
-        }
-        if (out == null) {
-            out = new long[speed];
-            mCpuSpeeds = new long[speed];
-            System.arraycopy(tempSpeeds, 0, mCpuSpeeds, 0, speed);
-            System.arraycopy(tempTimes, 0, out, 0, speed);
-        }
-        return out;
-    }
-
     final public int getLastUserTime() {
         return mRelUserTime;
     }
 
+    /**
+     * @return time in milliseconds.
+     */
     final public int getLastSystemTime() {
         return mRelSystemTime;
     }
 
+    /**
+     * @return time in milliseconds.
+     */
     final public int getLastIoWaitTime() {
         return mRelIoWaitTime;
     }
 
+    /**
+     * @return time in milliseconds.
+     */
     final public int getLastIrqTime() {
         return mRelIrqTime;
     }
 
+    /**
+     * @return time in milliseconds.
+     */
     final public int getLastSoftIrqTime() {
         return mRelSoftIrqTime;
     }
 
+    /**
+     * @return time in milliseconds.
+     */
     final public int getLastIdleTime() {
         return mRelIdleTime;
     }

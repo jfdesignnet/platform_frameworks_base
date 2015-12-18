@@ -21,6 +21,7 @@ import android.app.Service;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -40,8 +41,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * {@code ConnectionService} is an abstract service that should be implemented by any app which can
- * make phone calls and want those calls to be integrated into the built-in phone app.
+ * An abstract service that should be implemented by any apps which can make phone calls (VoIP or
+ * otherwise) and want those calls to be integrated into the built-in phone app.
  * Once implemented, the {@code ConnectionService} needs two additional steps before it will be
  * integrated into the phone app:
  * <p>
@@ -50,7 +51,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <pre>
  * &lt;service android:name="com.example.package.MyConnectionService"
  *    android:label="@string/some_label_for_my_connection_service"
- *    android:permission="android.permission.BIND_CONNECTION_SERVICE"&gt;
+ *    android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"&gt;
  *  &lt;intent-filter&gt;
  *   &lt;action android:name="android.telecom.ConnectionService" /&gt;
  *  &lt;/intent-filter&gt;
@@ -61,7 +62,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <br/>
  * See {@link PhoneAccount} and {@link TelecomManager#registerPhoneAccount} for more information.
  * <p>
- * Once registered and enabled by the user in the dialer settings, telecom will bind to a
+ * Once registered and enabled by the user in the phone app settings, telecom will bind to a
  * {@code ConnectionService} implementation when it wants that {@code ConnectionService} to place
  * a call or the service has indicated that is has an incoming call through
  * {@link TelecomManager#addNewIncomingCall}. The {@code ConnectionService} can then expect a call
@@ -90,7 +91,7 @@ public abstract class ConnectionService extends Service {
     private static final int MSG_DISCONNECT = 6;
     private static final int MSG_HOLD = 7;
     private static final int MSG_UNHOLD = 8;
-    private static final int MSG_ON_AUDIO_STATE_CHANGED = 9;
+    private static final int MSG_ON_CALL_AUDIO_STATE_CHANGED = 9;
     private static final int MSG_PLAY_DTMF_TONE = 10;
     private static final int MSG_STOP_DTMF_TONE = 11;
     private static final int MSG_CONFERENCE = 12;
@@ -147,7 +148,6 @@ public abstract class ConnectionService extends Service {
         }
 
         @Override
-        /** @hide */
         public void answerVideo(String callId, int videoState) {
             SomeArgs args = SomeArgs.obtain();
             args.arg1 = callId;
@@ -181,11 +181,11 @@ public abstract class ConnectionService extends Service {
         }
 
         @Override
-        public void onAudioStateChanged(String callId, AudioState audioState) {
+        public void onCallAudioStateChanged(String callId, CallAudioState callAudioState) {
             SomeArgs args = SomeArgs.obtain();
             args.arg1 = callId;
-            args.arg2 = audioState;
-            mHandler.obtainMessage(MSG_ON_AUDIO_STATE_CHANGED, args).sendToTarget();
+            args.arg2 = callAudioState;
+            mHandler.obtainMessage(MSG_ON_CALL_AUDIO_STATE_CHANGED, args).sendToTarget();
         }
 
         @Override
@@ -305,12 +305,12 @@ public abstract class ConnectionService extends Service {
                 case MSG_UNHOLD:
                     unhold((String) msg.obj);
                     break;
-                case MSG_ON_AUDIO_STATE_CHANGED: {
+                case MSG_ON_CALL_AUDIO_STATE_CHANGED: {
                     SomeArgs args = (SomeArgs) msg.obj;
                     try {
                         String callId = (String) args.arg1;
-                        AudioState audioState = (AudioState) args.arg2;
-                        onAudioStateChanged(callId, audioState);
+                        CallAudioState audioState = (CallAudioState) args.arg2;
+                        onCallAudioStateChanged(callId, new CallAudioState(audioState));
                     } finally {
                         args.recycle();
                     }
@@ -432,6 +432,12 @@ public abstract class ConnectionService extends Service {
         public void onStatusHintsChanged(Conference conference, StatusHints statusHints) {
             String id = mIdByConference.get(conference);
             mAdapter.setStatusHints(id, statusHints);
+        }
+
+        @Override
+        public void onExtrasChanged(Conference conference, Bundle extras) {
+            String id = mIdByConference.get(conference);
+            mAdapter.setExtras(id, extras);
         }
     };
 
@@ -562,6 +568,22 @@ public abstract class ConnectionService extends Service {
                 mAdapter.setIsConferenced(id, conferenceId);
             }
         }
+
+        @Override
+        public void onConferenceMergeFailed(Connection connection) {
+            String id = mIdByConnection.get(connection);
+            if (id != null) {
+                mAdapter.onConferenceMergeFailed(id);
+            }
+        }
+
+        @Override
+        public void onExtrasChanged(Connection connection, Bundle extras) {
+            String id = mIdByConnection.get(connection);
+            if (id != null) {
+                mAdapter.setExtras(id, extras);
+            }
+        }
     };
 
     /** {@inheritDoc} */
@@ -629,9 +651,14 @@ public abstract class ConnectionService extends Service {
                         connection.getVideoState(),
                         connection.isRingbackRequested(),
                         connection.getAudioModeIsVoip(),
+                        connection.getConnectTimeMillis(),
                         connection.getStatusHints(),
                         connection.getDisconnectCause(),
-                        createIdList(connection.getConferenceables())));
+                        createIdList(connection.getConferenceables()),
+                        connection.getExtras()));
+        if (isUnknown) {
+            triggerConferenceRecalculate();
+        }
     }
 
     private void abort(String callId) {
@@ -681,12 +708,14 @@ public abstract class ConnectionService extends Service {
         }
     }
 
-    private void onAudioStateChanged(String callId, AudioState audioState) {
-        Log.d(this, "onAudioStateChanged %s %s", callId, audioState);
+    private void onCallAudioStateChanged(String callId, CallAudioState callAudioState) {
+        Log.d(this, "onAudioStateChanged %s %s", callId, callAudioState);
         if (mConnectionById.containsKey(callId)) {
-            findConnectionForAction(callId, "onAudioStateChanged").setAudioState(audioState);
+            findConnectionForAction(callId, "onCallAudioStateChanged").setCallAudioState(
+                    callAudioState);
         } else {
-            findConferenceForAction(callId, "onAudioStateChanged").setAudioState(audioState);
+            findConferenceForAction(callId, "onCallAudioStateChanged").setCallAudioState(
+                    callAudioState);
         }
     }
 
@@ -910,7 +939,8 @@ public abstract class ConnectionService extends Service {
                             null : conference.getVideoProvider().getInterface(),
                     conference.getVideoState(),
                     conference.getConnectTimeMillis(),
-                    conference.getStatusHints());
+                    conference.getStatusHints(),
+                    conference.getExtras());
 
             mAdapter.addConferenceCall(id, parcelableConference);
             mAdapter.setVideoProvider(id, conference.getVideoProvider());
@@ -953,9 +983,11 @@ public abstract class ConnectionService extends Service {
                     connection.getVideoState(),
                     connection.isRingbackRequested(),
                     connection.getAudioModeIsVoip(),
+                    connection.getConnectTimeMillis(),
                     connection.getStatusHints(),
                     connection.getDisconnectCause(),
-                    emptyList);
+                    emptyList,
+                    connection.getExtras());
             mAdapter.addExistingConnection(id, parcelableConnection);
         }
     }
@@ -984,6 +1016,16 @@ public abstract class ConnectionService extends Service {
             PhoneAccountHandle connectionManagerPhoneAccount,
             ConnectionRequest request) {
         return null;
+    }
+
+    /**
+     * Trigger recalculate functinality for conference calls. This is used when a Telephony
+     * Connection is part of a conference controller but is not yet added to Connection
+     * Service and hence cannot be added to the conference call.
+     *
+     * @hide
+     */
+    public void triggerConferenceRecalculate() {
     }
 
     /**

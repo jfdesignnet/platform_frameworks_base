@@ -18,9 +18,9 @@
 #define CANVASCONTEXT_H_
 
 #include "DamageAccumulator.h"
-#include "DrawProfiler.h"
 #include "IContextFactory.h"
 #include "FrameInfo.h"
+#include "FrameInfoVisualizer.h"
 #include "RenderNode.h"
 #include "utils/RingBuffer.h"
 #include "renderthread/RenderTask.h"
@@ -29,6 +29,7 @@
 #include <cutils/compiler.h>
 #include <EGL/egl.h>
 #include <SkBitmap.h>
+#include <SkRect.h>
 #include <utils/Functor.h>
 #include <utils/Vector.h>
 
@@ -71,12 +72,13 @@ public:
     bool pauseSurface(ANativeWindow* window);
     bool hasSurface() { return mNativeWindow.get(); }
 
-    void setup(int width, int height, const Vector3& lightCenter, float lightRadius,
+    void setup(int width, int height, float lightRadius,
             uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha);
+    void setLightCenter(const Vector3& lightCenter);
     void setOpaque(bool opaque);
     void makeCurrent();
     void processLayerUpdate(DeferredLayerUpdater* layerUpdater);
-    void prepareTree(TreeInfo& info, int64_t* uiFrameInfo);
+    void prepareTree(TreeInfo& info, int64_t* uiFrameInfo, int64_t syncQueued);
     void draw();
     void destroy();
 
@@ -102,7 +104,7 @@ public:
     void stopDrawing();
     void notifyFramePending();
 
-    DrawProfiler& profiler() { return mProfiler; }
+    FrameInfoVisualizer& profiler() { return mProfiler; }
 
     void dumpFrames(int fd);
     void resetFrameStats();
@@ -117,10 +119,8 @@ private:
     friend class android::uirenderer::RenderState;
 
     void setSurface(ANativeWindow* window);
-    void swapBuffers();
+    void swapBuffers(const SkRect& dirty, EGLint width, EGLint height);
     void requireSurface();
-
-    void requireGlContext();
 
     void freePrefetechedLayers();
 
@@ -139,12 +139,12 @@ private:
 
     const sp<RenderNode> mRootRenderNode;
 
-    DrawProfiler mProfiler;
     FrameInfo* mCurrentFrameInfo = nullptr;
-    // Ring buffer large enough for 1 second worth of frames
-    RingBuffer<FrameInfo, 60> mFrames;
+    // Ring buffer large enough for 2 seconds worth of frames
+    RingBuffer<FrameInfo, 120> mFrames;
     std::string mName;
     JankTracker mJankTracker;
+    FrameInfoVisualizer mProfiler;
 
     std::set<RenderNode*> mPrefetechedLayers;
 };

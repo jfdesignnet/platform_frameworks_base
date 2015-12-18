@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.annotation.Nullable;
 import android.os.Bundle;
 import android.os.Trace;
 import com.android.internal.R;
@@ -23,6 +24,7 @@ import com.android.internal.util.Predicate;
 import com.google.android.collect.Lists;
 
 import android.annotation.IdRes;
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.TypedArray;
@@ -40,6 +42,7 @@ import android.view.SoundEffectConstants;
 import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
+import android.view.ViewHierarchyEncoder;
 import android.view.ViewParent;
 import android.view.ViewRootImpl;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -142,7 +145,7 @@ public class ListView extends AbsListView {
     }
 
     public ListView(Context context, AttributeSet attrs) {
-        this(context, attrs, com.android.internal.R.attr.listViewStyle);
+        this(context, attrs, R.attr.listViewStyle);
     }
 
     public ListView(Context context, AttributeSet attrs, int defStyleAttr) {
@@ -153,38 +156,37 @@ public class ListView extends AbsListView {
         super(context, attrs, defStyleAttr, defStyleRes);
 
         final TypedArray a = context.obtainStyledAttributes(
-                attrs, com.android.internal.R.styleable.ListView, defStyleAttr, defStyleRes);
+                attrs, R.styleable.ListView, defStyleAttr, defStyleRes);
 
-        CharSequence[] entries = a.getTextArray(
-                com.android.internal.R.styleable.ListView_entries);
+        final CharSequence[] entries = a.getTextArray(R.styleable.ListView_entries);
         if (entries != null) {
-            setAdapter(new ArrayAdapter<CharSequence>(context,
-                    com.android.internal.R.layout.simple_list_item_1, entries));
+            setAdapter(new ArrayAdapter<>(context, R.layout.simple_list_item_1, entries));
         }
 
-        final Drawable d = a.getDrawable(com.android.internal.R.styleable.ListView_divider);
+        final Drawable d = a.getDrawable(R.styleable.ListView_divider);
         if (d != null) {
-            // If a divider is specified use its intrinsic height for divider height
+            // Use an implicit divider height which may be explicitly
+            // overridden by android:dividerHeight further down.
             setDivider(d);
         }
-        
-        final Drawable osHeader = a.getDrawable(
-                com.android.internal.R.styleable.ListView_overScrollHeader);
+
+        final Drawable osHeader = a.getDrawable(R.styleable.ListView_overScrollHeader);
         if (osHeader != null) {
             setOverscrollHeader(osHeader);
         }
 
-        final Drawable osFooter = a.getDrawable(
-                com.android.internal.R.styleable.ListView_overScrollFooter);
+        final Drawable osFooter = a.getDrawable(R.styleable.ListView_overScrollFooter);
         if (osFooter != null) {
             setOverscrollFooter(osFooter);
         }
 
-        // Use the height specified, zero being the default
-        final int dividerHeight = a.getDimensionPixelSize(
-                com.android.internal.R.styleable.ListView_dividerHeight, 0);
-        if (dividerHeight != 0) {
-            setDividerHeight(dividerHeight);
+        // Use an explicit divider height, if specified.
+        if (a.hasValueOrEmpty(R.styleable.ListView_dividerHeight)) {
+            final int dividerHeight = a.getDimensionPixelSize(
+                    R.styleable.ListView_dividerHeight, 0);
+            if (dividerHeight != 0) {
+                setDividerHeight(dividerHeight);
+            }
         }
 
         mHeaderDividersEnabled = a.getBoolean(R.styleable.ListView_headerDividersEnabled, true);
@@ -1141,8 +1143,8 @@ public class ListView extends AbsListView {
         // Sets up mListPadding
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
-        int widthMode = MeasureSpec.getMode(widthMeasureSpec);
-        int heightMode = MeasureSpec.getMode(heightMeasureSpec);
+        final int widthMode = MeasureSpec.getMode(widthMeasureSpec);
+        final int heightMode = MeasureSpec.getMode(heightMeasureSpec);
         int widthSize = MeasureSpec.getSize(widthMeasureSpec);
         int heightSize = MeasureSpec.getSize(heightMeasureSpec);
 
@@ -1151,10 +1153,12 @@ public class ListView extends AbsListView {
         int childState = 0;
 
         mItemCount = mAdapter == null ? 0 : mAdapter.getCount();
-        if (mItemCount > 0 && (widthMode == MeasureSpec.UNSPECIFIED ||
-                heightMode == MeasureSpec.UNSPECIFIED)) {
+        if (mItemCount > 0 && (widthMode == MeasureSpec.UNSPECIFIED
+                || heightMode == MeasureSpec.UNSPECIFIED)) {
             final View child = obtainView(0, mIsScrap);
 
+            // Lay out child directly against the parent measure spec so that
+            // we can obtain exected minimum width and height.
             measureScrapChild(child, 0, widthMeasureSpec, heightSize);
 
             childWidth = child.getMeasuredWidth();
@@ -1171,7 +1175,7 @@ public class ListView extends AbsListView {
             widthSize = mListPadding.left + mListPadding.right + childWidth +
                     getVerticalScrollbarWidth();
         } else {
-            widthSize |= (childState&MEASURED_STATE_MASK);
+            widthSize |= (childState & MEASURED_STATE_MASK);
         }
 
         if (heightMode == MeasureSpec.UNSPECIFIED) {
@@ -1184,8 +1188,9 @@ public class ListView extends AbsListView {
             heightSize = measureHeightOfChildren(widthMeasureSpec, 0, NO_POSITION, heightSize, -1);
         }
 
-        setMeasuredDimension(widthSize , heightSize);
-        mWidthMeasureSpec = widthMeasureSpec;        
+        setMeasuredDimension(widthSize, heightSize);
+
+        mWidthMeasureSpec = widthMeasureSpec;
     }
 
     private void measureScrapChild(View child, int position, int widthMeasureSpec, int heightHint) {
@@ -1195,18 +1200,23 @@ public class ListView extends AbsListView {
             child.setLayoutParams(p);
         }
         p.viewType = mAdapter.getItemViewType(position);
+        p.isEnabled = mAdapter.isEnabled(position);
         p.forceAdd = true;
 
-        int childWidthSpec = ViewGroup.getChildMeasureSpec(widthMeasureSpec,
+        final int childWidthSpec = ViewGroup.getChildMeasureSpec(widthMeasureSpec,
                 mListPadding.left + mListPadding.right, p.width);
-        int lpHeight = p.height;
-        int childHeightSpec;
+        final int lpHeight = p.height;
+        final int childHeightSpec;
         if (lpHeight > 0) {
             childHeightSpec = MeasureSpec.makeMeasureSpec(lpHeight, MeasureSpec.EXACTLY);
         } else {
-            childHeightSpec = MeasureSpec.makeMeasureSpec(heightHint, MeasureSpec.UNSPECIFIED);
+            childHeightSpec = MeasureSpec.makeSafeMeasureSpec(heightHint, MeasureSpec.UNSPECIFIED);
         }
         child.measure(childWidthSpec, childHeightSpec);
+
+        // Since this view was measured directly aginst the parent measure
+        // spec, we must measure it again before reuse.
+        child.forceLayout();
     }
 
     /**
@@ -1246,8 +1256,7 @@ public class ListView extends AbsListView {
      * @return The height of this ListView with the given children.
      */
     final int measureHeightOfChildren(int widthMeasureSpec, int startPosition, int endPosition,
-            final int maxHeight, int disallowPartialChildPosition) {
-
+            int maxHeight, int disallowPartialChildPosition) {
         final ListAdapter adapter = mAdapter;
         if (adapter == null) {
             return mListPadding.top + mListPadding.bottom;
@@ -1613,7 +1622,8 @@ public class ListView extends AbsListView {
                 // We can remember the focused view to restore after re-layout
                 // if the data hasn't changed, or if the focused position is a
                 // header or footer.
-                if (!dataChanged || isDirectChildHeaderOrFooter(focusedChild)) {
+                if (!dataChanged || isDirectChildHeaderOrFooter(focusedChild)
+                        || focusedChild.hasTransientState() || mAdapterHasStableIds) {
                     focusLayoutRestoreDirectChild = focusedChild;
                     // Remember the specific view that had focus.
                     focusLayoutRestoreView = findFocus();
@@ -1904,9 +1914,10 @@ public class ListView extends AbsListView {
             p = (AbsListView.LayoutParams) generateDefaultLayoutParams();
         }
         p.viewType = mAdapter.getItemViewType(position);
+        p.isEnabled = mAdapter.isEnabled(position);
 
-        if ((recycled && !p.forceAdd) || (p.recycledHeaderFooter &&
-                p.viewType == AdapterView.ITEM_VIEW_TYPE_HEADER_OR_FOOTER)) {
+        if ((recycled && !p.forceAdd) || (p.recycledHeaderFooter
+                && p.viewType == AdapterView.ITEM_VIEW_TYPE_HEADER_OR_FOOTER)) {
             attachViewToParent(child, flowDown ? -1 : 0, p);
         } else {
             p.forceAdd = false;
@@ -1934,14 +1945,14 @@ public class ListView extends AbsListView {
         }
 
         if (needToMeasure) {
-            int childWidthSpec = ViewGroup.getChildMeasureSpec(mWidthMeasureSpec,
+            final int childWidthSpec = ViewGroup.getChildMeasureSpec(mWidthMeasureSpec,
                     mListPadding.left + mListPadding.right, p.width);
-            int lpHeight = p.height;
-            int childHeightSpec;
+            final int lpHeight = p.height;
+            final int childHeightSpec;
             if (lpHeight > 0) {
                 childHeightSpec = MeasureSpec.makeMeasureSpec(lpHeight, MeasureSpec.EXACTLY);
             } else {
-                childHeightSpec = MeasureSpec.makeMeasureSpec(getMeasuredHeight(),
+                childHeightSpec = MeasureSpec.makeSafeMeasureSpec(getMeasuredHeight(),
                         MeasureSpec.UNSPECIFIED);
             }
             child.measure(childWidthSpec, childHeightSpec);
@@ -2696,7 +2707,7 @@ public class ListView extends AbsListView {
         if (lpHeight > 0) {
             childHeightSpec = MeasureSpec.makeMeasureSpec(lpHeight, MeasureSpec.EXACTLY);
         } else {
-            childHeightSpec = MeasureSpec.makeMeasureSpec(getMeasuredHeight(),
+            childHeightSpec = MeasureSpec.makeSafeMeasureSpec(getMeasuredHeight(),
                     MeasureSpec.UNSPECIFIED);
         }
         child.measure(childWidthSpec, childHeightSpec);
@@ -3432,18 +3443,23 @@ public class ListView extends AbsListView {
      * Returns the drawable that will be drawn between each item in the list.
      *
      * @return the current drawable drawn between list elements
+     * @attr ref R.styleable#ListView_divider
      */
+    @Nullable
     public Drawable getDivider() {
         return mDivider;
     }
 
     /**
-     * Sets the drawable that will be drawn between each item in the list. If the drawable does
-     * not have an intrinsic height, you should also call {@link #setDividerHeight(int)}
+     * Sets the drawable that will be drawn between each item in the list.
+     * <p>
+     * <strong>Note:</strong> If the drawable does not have an intrinsic
+     * height, you should also call {@link #setDividerHeight(int)}.
      *
-     * @param divider The drawable to use.
+     * @param divider the drawable to use
+     * @attr ref R.styleable#ListView_divider
      */
-    public void setDivider(Drawable divider) {
+    public void setDivider(@Nullable Drawable divider) {
         if (divider != null) {
             mDividerHeight = divider.getIntrinsicHeight();
         } else {
@@ -3937,5 +3953,13 @@ public class ListView extends AbsListView {
         final CollectionItemInfo itemInfo = CollectionItemInfo.obtain(
                 position, 1, 0, 1, isHeading, isSelected);
         info.setCollectionItemInfo(itemInfo);
+    }
+
+    /** @hide */
+    @Override
+    protected void encodeProperties(@NonNull ViewHierarchyEncoder encoder) {
+        super.encodeProperties(encoder);
+
+        encoder.addProperty("recycleOnMeasure", recycleOnMeasure());
     }
 }

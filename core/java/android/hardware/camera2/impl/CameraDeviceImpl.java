@@ -18,6 +18,7 @@ package android.hardware.camera2.impl;
 
 import static android.hardware.camera2.CameraAccessException.CAMERA_IN_USE;
 
+import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -35,17 +36,23 @@ import android.hardware.camera2.params.StreamConfigurationMap;
 import android.hardware.camera2.utils.CameraBinderDecorator;
 import android.hardware.camera2.utils.CameraRuntimeException;
 import android.hardware.camera2.utils.LongParcelable;
+import android.hardware.camera2.utils.SurfaceUtils;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.util.SparseArray;
 import android.view.Surface;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -58,7 +65,7 @@ import java.util.TreeMap;
  */
 public class CameraDeviceImpl extends CameraDevice {
     private final String TAG;
-    private final boolean DEBUG;
+    private final boolean DEBUG = false;
 
     private static final int REQUEST_ID_NONE = -1;
 
@@ -73,7 +80,7 @@ public class CameraDeviceImpl extends CameraDevice {
     private volatile StateCallbackKK mSessionStateCallback;
     private final Handler mDeviceHandler;
 
-    private volatile boolean mClosing = false;
+    private final AtomicBoolean mClosing = new AtomicBoolean();
     private boolean mInError = false;
     private boolean mIdle = true;
 
@@ -94,11 +101,11 @@ public class CameraDeviceImpl extends CameraDevice {
     private final int mTotalPartialCount;
 
     /**
-     * A list tracking request and its expected last frame.
-     * Updated when calling ICameraDeviceUser methods.
+     * A list tracking request and its expected last regular frame number and last reprocess frame
+     * number. Updated when calling ICameraDeviceUser methods.
      */
-    private final List<SimpleEntry</*frameNumber*/Long, /*requestId*/Integer>>
-            mFrameNumberRequestPairs = new ArrayList<SimpleEntry<Long, Integer>>();
+    private final List<RequestLastFrameNumbersHolder> mRequestLastFrameNumbersList =
+            new ArrayList<>();
 
     /**
      * An object tracking received frame numbers.
@@ -106,7 +113,7 @@ public class CameraDeviceImpl extends CameraDevice {
      */
     private final FrameNumberTracker mFrameNumberTracker = new FrameNumberTracker();
 
-    private CameraCaptureSessionImpl mCurrentSession;
+    private CameraCaptureSessionCore mCurrentSession;
     private int mNextSessionId = 0;
 
     // Runnables for all state transitions, except error, which needs the
@@ -240,7 +247,6 @@ public class CameraDeviceImpl extends CameraDevice {
             tag = tag.substring(0, MAX_TAG_LEN);
         }
         TAG = tag;
-        DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
         Integer partialCount =
                 mCharacteristics.get(CameraCharacteristics.REQUEST_PARTIAL_RESULT_COUNT);
@@ -327,7 +333,8 @@ public class CameraDeviceImpl extends CameraDevice {
         for (Surface s : outputs) {
             outputConfigs.add(new OutputConfiguration(s));
         }
-        configureStreamsChecked(/*inputConfig*/null, outputConfigs);
+        configureStreamsChecked(/*inputConfig*/null, outputConfigs,
+                /*isConstrainedHighSpeed*/false);
 
     }
 
@@ -345,12 +352,14 @@ public class CameraDeviceImpl extends CameraDevice {
      *
      * @param inputConfig input configuration or {@code null} for no input
      * @param outputs a list of one or more surfaces, or {@code null} to unconfigure
+     * @param isConstrainedHighSpeed If the streams configuration is for constrained high speed output.
      * @return whether or not the configuration was successful
      *
      * @throws CameraAccessException if there were any unexpected problems during configuration
      */
     public boolean configureStreamsChecked(InputConfiguration inputConfig,
-            List<OutputConfiguration> outputs) throws CameraAccessException {
+            List<OutputConfiguration> outputs, boolean isConstrainedHighSpeed)
+                    throws CameraAccessException {
         // Treat a null input the same an empty list
         if (outputs == null) {
             outputs = new ArrayList<OutputConfiguration>();
@@ -423,7 +432,7 @@ public class CameraDeviceImpl extends CameraDevice {
                 }
 
                 try {
-                    mRemoteDevice.endConfigure();
+                    mRemoteDevice.endConfigure(isConstrainedHighSpeed);
                 }
                 catch (IllegalArgumentException e) {
                     // OK. camera service can reject stream config if it's not supported by HAL
@@ -464,7 +473,8 @@ public class CameraDeviceImpl extends CameraDevice {
         for (Surface surface : outputs) {
             outConfigurations.add(new OutputConfiguration(surface));
         }
-        createCaptureSessionInternal(null, outConfigurations, callback, handler);
+        createCaptureSessionInternal(null, outConfigurations, callback, handler,
+                /*isConstrainedHighSpeed*/false);
     }
 
     @Override
@@ -476,38 +486,65 @@ public class CameraDeviceImpl extends CameraDevice {
             Log.d(TAG, "createCaptureSessionByOutputConfiguration");
         }
 
-        createCaptureSessionInternal(null, outputConfigurations, callback, handler);
+        createCaptureSessionInternal(null, outputConfigurations, callback, handler,
+                /*isConstrainedHighSpeed*/false);
     }
 
     @Override
-    public void createReprocessibleCaptureSession(InputConfiguration inputConfig,
+    public void createReprocessableCaptureSession(InputConfiguration inputConfig,
             List<Surface> outputs, CameraCaptureSession.StateCallback callback, Handler handler)
             throws CameraAccessException {
         if (DEBUG) {
-            Log.d(TAG, "createReprocessibleCaptureSession");
+            Log.d(TAG, "createReprocessableCaptureSession");
         }
 
         if (inputConfig == null) {
             throw new IllegalArgumentException("inputConfig cannot be null when creating a " +
-                    "reprocessible capture session");
+                    "reprocessable capture session");
         }
         List<OutputConfiguration> outConfigurations = new ArrayList<>(outputs.size());
         for (Surface surface : outputs) {
             outConfigurations.add(new OutputConfiguration(surface));
         }
-        createCaptureSessionInternal(inputConfig, outConfigurations, callback, handler);
+        createCaptureSessionInternal(inputConfig, outConfigurations, callback, handler,
+                /*isConstrainedHighSpeed*/false);
+    }
+
+    @Override
+    public void createConstrainedHighSpeedCaptureSession(List<Surface> outputs,
+            android.hardware.camera2.CameraCaptureSession.StateCallback callback, Handler handler)
+            throws CameraAccessException {
+        if (outputs == null || outputs.size() == 0 || outputs.size() > 2) {
+            throw new IllegalArgumentException(
+                    "Output surface list must not be null and the size must be no more than 2");
+        }
+        StreamConfigurationMap config =
+                getCharacteristics().get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        SurfaceUtils.checkConstrainedHighSpeedSurfaces(outputs, /*fpsRange*/null, config);
+
+        List<OutputConfiguration> outConfigurations = new ArrayList<>(outputs.size());
+        for (Surface surface : outputs) {
+            outConfigurations.add(new OutputConfiguration(surface));
+        }
+        createCaptureSessionInternal(null, outConfigurations, callback, handler,
+                /*isConstrainedHighSpeed*/true);
     }
 
     private void createCaptureSessionInternal(InputConfiguration inputConfig,
             List<OutputConfiguration> outputConfigurations,
-            CameraCaptureSession.StateCallback callback, Handler handler)
-            throws CameraAccessException {
+            CameraCaptureSession.StateCallback callback, Handler handler,
+            boolean isConstrainedHighSpeed) throws CameraAccessException {
         synchronized(mInterfaceLock) {
             if (DEBUG) {
                 Log.d(TAG, "createCaptureSessionInternal");
             }
 
             checkIfCameraClosedOrInError();
+
+            if (isConstrainedHighSpeed && inputConfig != null) {
+                throw new IllegalArgumentException("Constrained high speed session doesn't support"
+                        + " input configuration yet.");
+            }
 
             // Notify current session that it's going away, before starting camera operations
             // After this call completes, the session is not allowed to call into CameraDeviceImpl
@@ -520,11 +557,16 @@ public class CameraDeviceImpl extends CameraDevice {
             CameraAccessException pendingException = null;
             Surface input = null;
             try {
-                 // configure streams and then block until IDLE
-                configureSuccess = configureStreamsChecked(inputConfig, outputConfigurations);
-                if (inputConfig != null) {
+                // configure streams and then block until IDLE
+                configureSuccess = configureStreamsChecked(inputConfig, outputConfigurations,
+                        isConstrainedHighSpeed);
+                if (configureSuccess == true && inputConfig != null) {
                     input = new Surface();
-                    mRemoteDevice.getInputSurface(/*out*/input);
+                    try {
+                        mRemoteDevice.getInputSurface(/*out*/input);
+                    } catch (CameraRuntimeException e) {
+                        e.asChecked();
+                    }
                 }
             } catch (CameraAccessException e) {
                 configureSuccess = false;
@@ -543,10 +585,16 @@ public class CameraDeviceImpl extends CameraDevice {
                 outSurfaces.add(config.getSurface());
             }
             // Fire onConfigured if configureOutputs succeeded, fire onConfigureFailed otherwise.
-            CameraCaptureSessionImpl newSession =
-                    new CameraCaptureSessionImpl(mNextSessionId++, input,
-                            outSurfaces, callback, handler, this, mDeviceHandler,
-                            configureSuccess);
+            CameraCaptureSessionCore newSession = null;
+            if (isConstrainedHighSpeed) {
+                newSession = new CameraConstrainedHighSpeedCaptureSessionImpl(mNextSessionId++,
+                        outSurfaces, callback, handler, this, mDeviceHandler, configureSuccess,
+                        mCharacteristics);
+            } else {
+                newSession = new CameraCaptureSessionImpl(mNextSessionId++, input,
+                        outSurfaces, callback, handler, this, mDeviceHandler,
+                        configureSuccess);
+            }
 
             // TODO: wait until current session closes, then create the new session
             mCurrentSession = newSession;
@@ -607,6 +655,8 @@ public class CameraDeviceImpl extends CameraDevice {
     }
 
     public void prepare(Surface surface) throws CameraAccessException {
+        if (surface == null) throw new IllegalArgumentException("Surface is null");
+
         synchronized(mInterfaceLock) {
             int streamId = -1;
             for (int i = 0; i < mConfiguredOutputs.size(); i++) {
@@ -620,6 +670,58 @@ public class CameraDeviceImpl extends CameraDevice {
             }
             try {
                 mRemoteDevice.prepare(streamId);
+            } catch (CameraRuntimeException e) {
+                throw e.asChecked();
+            } catch (RemoteException e) {
+                // impossible
+                return;
+            }
+        }
+    }
+
+    public void prepare(int maxCount, Surface surface) throws CameraAccessException {
+        if (surface == null) throw new IllegalArgumentException("Surface is null");
+        if (maxCount <= 0) throw new IllegalArgumentException("Invalid maxCount given: " +
+                maxCount);
+
+        synchronized(mInterfaceLock) {
+            int streamId = -1;
+            for (int i = 0; i < mConfiguredOutputs.size(); i++) {
+                if (surface == mConfiguredOutputs.valueAt(i).getSurface()) {
+                    streamId = mConfiguredOutputs.keyAt(i);
+                    break;
+                }
+            }
+            if (streamId == -1) {
+                throw new IllegalArgumentException("Surface is not part of this session");
+            }
+            try {
+                mRemoteDevice.prepare2(maxCount, streamId);
+            } catch (CameraRuntimeException e) {
+                throw e.asChecked();
+            } catch (RemoteException e) {
+                // impossible
+                return;
+            }
+        }
+    }
+
+    public void tearDown(Surface surface) throws CameraAccessException {
+        if (surface == null) throw new IllegalArgumentException("Surface is null");
+
+        synchronized(mInterfaceLock) {
+            int streamId = -1;
+            for (int i = 0; i < mConfiguredOutputs.size(); i++) {
+                if (surface == mConfiguredOutputs.valueAt(i).getSurface()) {
+                    streamId = mConfiguredOutputs.keyAt(i);
+                    break;
+                }
+            }
+            if (streamId == -1) {
+                throw new IllegalArgumentException("Surface is not part of this session");
+            }
+            try {
+                mRemoteDevice.tearDown(streamId);
             } catch (CameraRuntimeException e) {
                 throw e.asChecked();
             } catch (RemoteException e) {
@@ -653,8 +755,8 @@ public class CameraDeviceImpl extends CameraDevice {
      *
      * <p>If lastFrameNumber is NO_FRAMES_CAPTURED, it means that the request was never
      * sent to HAL. Then onCaptureSequenceAborted is immediately triggered.
-     * If lastFrameNumber is non-negative, then the requestId and lastFrameNumber pair
-     * is added to the list mFrameNumberRequestPairs.</p>
+     * If lastFrameNumber is non-negative, then the requestId and lastFrameNumber as the last
+     * regular frame number will be added to the list mRequestLastFrameNumbersList.</p>
      *
      * @param requestId the request ID of the current repeating request.
      *
@@ -693,10 +795,6 @@ public class CameraDeviceImpl extends CameraDevice {
                                         "early trigger sequence complete for request %d",
                                         requestId));
                             }
-                            if (lastFrameNumber < Integer.MIN_VALUE
-                                    || lastFrameNumber > Integer.MAX_VALUE) {
-                                throw new AssertionError(lastFrameNumber + " cannot be cast to int");
-                            }
                             holder.getCallback().onCaptureSequenceAborted(
                                     CameraDeviceImpl.this,
                                     requestId);
@@ -710,9 +808,11 @@ public class CameraDeviceImpl extends CameraDevice {
                         requestId));
             }
         } else {
-            mFrameNumberRequestPairs.add(
-                    new SimpleEntry<Long, Integer>(lastFrameNumber,
-                            requestId));
+            // This function is only called for regular request so lastFrameNumber is the last
+            // regular frame number.
+            mRequestLastFrameNumbersList.add(new RequestLastFrameNumbersHolder(requestId,
+                    lastFrameNumber));
+
             // It is possible that the last frame has already arrived, so we need to check
             // for sequence completion right away
             checkAndFireSequenceComplete();
@@ -779,8 +879,8 @@ public class CameraDeviceImpl extends CameraDevice {
                 }
                 mRepeatingRequestId = requestId;
             } else {
-                mFrameNumberRequestPairs.add(
-                        new SimpleEntry<Long, Integer>(lastFrameNumber, requestId));
+                mRequestLastFrameNumbersList.add(new RequestLastFrameNumbersHolder(requestList,
+                        requestId, lastFrameNumber));
             }
 
             if (mIdle) {
@@ -889,6 +989,10 @@ public class CameraDeviceImpl extends CameraDevice {
     @Override
     public void close() {
         synchronized (mInterfaceLock) {
+            if (mClosing.getAndSet(true)) {
+                return;
+            }
+
             try {
                 if (mRemoteDevice != null) {
                     mRemoteDevice.disconnect();
@@ -907,7 +1011,6 @@ public class CameraDeviceImpl extends CameraDevice {
             }
 
             mRemoteDevice = null;
-            mInError = false;
         }
     }
 
@@ -1146,7 +1249,101 @@ public class CameraDeviceImpl extends CameraDevice {
         public int getSessionId() {
             return mSessionId;
         }
+    }
 
+    /**
+     * This class holds a capture ID and its expected last regular frame number and last reprocess
+     * frame number.
+     */
+    static class RequestLastFrameNumbersHolder {
+        // request ID
+        private final int mRequestId;
+        // The last regular frame number for this request ID. It's
+        // CaptureCallback.NO_FRAMES_CAPTURED if the request ID has no regular request.
+        private final long mLastRegularFrameNumber;
+        // The last reprocess frame number for this request ID. It's
+        // CaptureCallback.NO_FRAMES_CAPTURED if the request ID has no reprocess request.
+        private final long mLastReprocessFrameNumber;
+
+        /**
+         * Create a request-last-frame-numbers holder with a list of requests, request ID, and
+         * the last frame number returned by camera service.
+         */
+        public RequestLastFrameNumbersHolder(List<CaptureRequest> requestList, int requestId,
+                long lastFrameNumber) {
+            long lastRegularFrameNumber = CaptureCallback.NO_FRAMES_CAPTURED;
+            long lastReprocessFrameNumber = CaptureCallback.NO_FRAMES_CAPTURED;
+            long frameNumber = lastFrameNumber;
+
+            if (lastFrameNumber < requestList.size() - 1) {
+                throw new IllegalArgumentException("lastFrameNumber: " + lastFrameNumber +
+                        " should be at least " + (requestList.size() - 1) + " for the number of " +
+                        " requests in the list: " + requestList.size());
+            }
+
+            // find the last regular frame number and the last reprocess frame number
+            for (int i = requestList.size() - 1; i >= 0; i--) {
+                CaptureRequest request = requestList.get(i);
+                if (request.isReprocess() && lastReprocessFrameNumber ==
+                        CaptureCallback.NO_FRAMES_CAPTURED) {
+                    lastReprocessFrameNumber = frameNumber;
+                } else if (!request.isReprocess() && lastRegularFrameNumber ==
+                        CaptureCallback.NO_FRAMES_CAPTURED) {
+                    lastRegularFrameNumber = frameNumber;
+                }
+
+                if (lastReprocessFrameNumber != CaptureCallback.NO_FRAMES_CAPTURED &&
+                        lastRegularFrameNumber != CaptureCallback.NO_FRAMES_CAPTURED) {
+                    break;
+                }
+
+                frameNumber--;
+            }
+
+            mLastRegularFrameNumber = lastRegularFrameNumber;
+            mLastReprocessFrameNumber = lastReprocessFrameNumber;
+            mRequestId = requestId;
+        }
+
+        /**
+         * Create a request-last-frame-numbers holder with a request ID and last regular frame
+         * number.
+         */
+        public RequestLastFrameNumbersHolder(int requestId, long lastRegularFrameNumber) {
+            mLastRegularFrameNumber = lastRegularFrameNumber;
+            mLastReprocessFrameNumber = CaptureCallback.NO_FRAMES_CAPTURED;
+            mRequestId = requestId;
+        }
+
+        /**
+         * Return the last regular frame number. Return CaptureCallback.NO_FRAMES_CAPTURED if
+         * it contains no regular request.
+         */
+        public long getLastRegularFrameNumber() {
+            return mLastRegularFrameNumber;
+        }
+
+        /**
+         * Return the last reprocess frame number. Return CaptureCallback.NO_FRAMES_CAPTURED if
+         * it contains no reprocess request.
+         */
+        public long getLastReprocessFrameNumber() {
+            return mLastReprocessFrameNumber;
+        }
+
+        /**
+         * Return the last frame number overall.
+         */
+        public long getLastFrameNumber() {
+            return Math.max(mLastRegularFrameNumber, mLastReprocessFrameNumber);
+        }
+
+        /**
+         * Return the request ID.
+         */
+        public int getRequestId() {
+            return mRequestId;
+        }
     }
 
     /**
@@ -1154,8 +1351,8 @@ public class CameraDeviceImpl extends CameraDevice {
      */
     public class FrameNumberTracker {
 
-        private long mCompletedFrameNumber = -1;
-        private long mCompletedReprocessFrameNumber = -1;
+        private long mCompletedFrameNumber = CaptureCallback.NO_FRAMES_CAPTURED;
+        private long mCompletedReprocessFrameNumber = CaptureCallback.NO_FRAMES_CAPTURED;
         /** the skipped frame numbers that belong to regular results */
         private final LinkedList<Long> mSkippedRegularFrameNumbers = new LinkedList<Long>();
         /** the skipped frame numbers that belong to reprocess results */
@@ -1360,11 +1557,11 @@ public class CameraDeviceImpl extends CameraDevice {
         long completedFrameNumber = mFrameNumberTracker.getCompletedFrameNumber();
         long completedReprocessFrameNumber = mFrameNumberTracker.getCompletedReprocessFrameNumber();
         boolean isReprocess = false;
-        Iterator<SimpleEntry<Long, Integer> > iter = mFrameNumberRequestPairs.iterator();
+        Iterator<RequestLastFrameNumbersHolder> iter = mRequestLastFrameNumbersList.iterator();
         while (iter.hasNext()) {
-            final SimpleEntry<Long, Integer> frameNumberRequestPair = iter.next();
+            final RequestLastFrameNumbersHolder requestLastFrameNumbers = iter.next();
             boolean sequenceCompleted = false;
-            final int requestId = frameNumberRequestPair.getValue();
+            final int requestId = requestLastFrameNumbers.getRequestId();
             final CaptureCallbackHolder holder;
             synchronized(mInterfaceLock) {
                 if (mRemoteDevice == null) {
@@ -1376,19 +1573,22 @@ public class CameraDeviceImpl extends CameraDevice {
                 holder = (index >= 0) ?
                         mCaptureCallbackMap.valueAt(index) : null;
                 if (holder != null) {
-                    isReprocess = holder.getRequest().isReprocess();
+                    long lastRegularFrameNumber =
+                            requestLastFrameNumbers.getLastRegularFrameNumber();
+                    long lastReprocessFrameNumber =
+                            requestLastFrameNumbers.getLastReprocessFrameNumber();
+
                     // check if it's okay to remove request from mCaptureCallbackMap
-                    if ((isReprocess && frameNumberRequestPair.getKey() <=
-                            completedReprocessFrameNumber) || (!isReprocess &&
-                            frameNumberRequestPair.getKey() <= completedFrameNumber)) {
+                    if (lastRegularFrameNumber <= completedFrameNumber &&
+                            lastReprocessFrameNumber <= completedReprocessFrameNumber) {
                         sequenceCompleted = true;
                         mCaptureCallbackMap.removeAt(index);
                         if (DEBUG) {
                             Log.v(TAG, String.format(
-                                    "remove holder for requestId %d, "
-                                    + "because lastFrame %d is <= %d",
-                                    requestId, frameNumberRequestPair.getKey(),
-                                    completedFrameNumber));
+                                    "Remove holder for requestId %d, because lastRegularFrame %d " +
+                                    "is <= %d and lastReprocessFrame %d is <= %d", requestId,
+                                    lastRegularFrameNumber, completedFrameNumber,
+                                    lastReprocessFrameNumber, completedReprocessFrameNumber));
                         }
                     }
                 }
@@ -1412,16 +1612,10 @@ public class CameraDeviceImpl extends CameraDevice {
                                         requestId));
                             }
 
-                            long lastFrameNumber = frameNumberRequestPair.getKey();
-                            if (lastFrameNumber < Integer.MIN_VALUE
-                                    || lastFrameNumber > Integer.MAX_VALUE) {
-                                throw new AssertionError(lastFrameNumber
-                                        + " cannot be cast to int");
-                            }
                             holder.getCallback().onCaptureSequenceCompleted(
                                 CameraDeviceImpl.this,
                                 requestId,
-                                lastFrameNumber);
+                                requestLastFrameNumbers.getLastFrameNumber());
                         }
                     }
                 };
@@ -1799,21 +1993,22 @@ public class CameraDeviceImpl extends CameraDevice {
     }
 
     private void checkIfCameraClosedOrInError() throws CameraAccessException {
+        if (mRemoteDevice == null) {
+            throw new IllegalStateException("CameraDevice was already closed");
+        }
         if (mInError) {
             throw new CameraAccessException(CameraAccessException.CAMERA_ERROR,
                     "The camera device has encountered a serious error");
-        }
-        if (mRemoteDevice == null) {
-            throw new IllegalStateException("CameraDevice was already closed");
         }
     }
 
     /** Whether the camera device has started to close (may not yet have finished) */
     private boolean isClosed() {
-        return mClosing;
+        return mClosing.get();
     }
 
     private CameraCharacteristics getCharacteristics() {
         return mCharacteristics;
     }
+
 }

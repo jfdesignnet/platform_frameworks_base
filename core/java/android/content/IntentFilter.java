@@ -16,7 +16,6 @@
 
 package android.content;
 
-import android.content.pm.PackageParser;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -254,12 +253,14 @@ public class IntentFilter implements Parcelable {
      * HTTP scheme.
      *
      * @see #addDataScheme(String)
+     * @hide
      */
     public static final String SCHEME_HTTP = "http";
     /**
      * HTTPS scheme.
      *
      * @see #addDataScheme(String)
+     * @hide
      */
     public static final String SCHEME_HTTPS = "https";
 
@@ -517,7 +518,8 @@ public class IntentFilter implements Parcelable {
     }
 
     /**
-     * Return if this filter handle all HTTP or HTTPS data URI or not.
+     * Return if this filter handle all HTTP or HTTPS data URI or not.  This is the
+     * core check for whether a given activity qualifies as a "browser".
      *
      * @return True if the filter handle all HTTP or HTTPS data URI. False otherwise.
      *
@@ -532,24 +534,60 @@ public class IntentFilter implements Parcelable {
      */
     public final boolean handleAllWebDataURI() {
         return hasCategory(Intent.CATEGORY_APP_BROWSER) ||
-                (hasWebDataURI() && countDataAuthorities() == 0);
+                (handlesWebUris(false) && countDataAuthorities() == 0);
     }
 
     /**
-     * Return if this filter has any HTTP or HTTPS data URI or not.
+     * Return if this filter handles HTTP or HTTPS data URIs.
      *
-     * @return True if the filter has any HTTP or HTTPS data URI. False otherwise.
+     * @return True if the filter handles ACTION_VIEW/CATEGORY_BROWSABLE,
+     * has at least one HTTP or HTTPS data URI pattern defined, and optionally
+     * does not define any non-http/https data URI patterns.
      *
      * This will check if if the Intent action is {@link android.content.Intent#ACTION_VIEW} and
      * the Intent category is {@link android.content.Intent#CATEGORY_BROWSABLE} and the Intent
      * data scheme is "http" or "https".
      *
+     * @param onlyWebSchemes When true, requires that the intent filter declare
+     *     that it handles *only* http: or https: schemes.  This is a requirement for
+     *     the intent filter's domain linkage being verifiable.
      * @hide
      */
-    public final boolean hasWebDataURI() {
-        return hasAction(Intent.ACTION_VIEW) &&
-                hasCategory(Intent.CATEGORY_BROWSABLE) &&
-                (hasDataScheme(SCHEME_HTTP) || hasDataScheme(SCHEME_HTTPS));
+    public final boolean handlesWebUris(boolean onlyWebSchemes) {
+        // Require ACTION_VIEW, CATEGORY_BROWSEABLE, and at least one scheme
+        if (!hasAction(Intent.ACTION_VIEW)
+            || !hasCategory(Intent.CATEGORY_BROWSABLE)
+            || mDataSchemes == null
+            || mDataSchemes.size() == 0) {
+            return false;
+        }
+
+        // Now allow only the schemes "http" and "https"
+        final int N = mDataSchemes.size();
+        for (int i = 0; i < N; i++) {
+            final String scheme = mDataSchemes.get(i);
+            final boolean isWebScheme =
+                    SCHEME_HTTP.equals(scheme) || SCHEME_HTTPS.equals(scheme);
+            if (onlyWebSchemes) {
+                // If we're specifically trying to ensure that there are no non-web schemes
+                // declared in this filter, then if we ever see a non-http/https scheme then
+                // we know it's a failure.
+                if (!isWebScheme) {
+                    return false;
+                }
+            } else {
+                // If we see any http/https scheme declaration in this case then the
+                // filter matches what we're looking for.
+                if (isWebScheme) {
+                    return true;
+                }
+            }
+        }
+
+        // We get here if:
+        //   1) onlyWebSchemes and no non-web schemes were found, i.e success; or
+        //   2) !onlyWebSchemes and no http/https schemes were found, i.e. failure.
+        return onlyWebSchemes;
     }
 
     /**
@@ -566,7 +604,7 @@ public class IntentFilter implements Parcelable {
      * @hide
      */
     public final boolean needsVerification() {
-        return hasWebDataURI() && getAutoVerify();
+        return getAutoVerify() && handlesWebUris(true);
     }
 
     /**
@@ -1168,7 +1206,7 @@ public class IntentFilter implements Parcelable {
      * {@link #MATCH_CATEGORY_PORT}, {@link #NO_MATCH_DATA}.
      */
     public final int matchDataAuthority(Uri data) {
-        if (mDataAuthorities == null) {
+        if (mDataAuthorities == null || data == null) {
             return NO_MATCH_DATA;
         }
         final int numDataAuthorities = mDataAuthorities.size();
@@ -1239,7 +1277,7 @@ public class IntentFilter implements Parcelable {
             }
 
             final ArrayList<PatternMatcher> schemeSpecificParts = mDataSchemeSpecificParts;
-            if (schemeSpecificParts != null) {
+            if (schemeSpecificParts != null && data != null) {
                 match = hasDataSchemeSpecificPart(data.getSchemeSpecificPart())
                         ? MATCH_CATEGORY_SCHEME_SPECIFIC_PART : NO_MATCH_DATA;
             }
@@ -1478,7 +1516,11 @@ public class IntentFilter implements Parcelable {
      * Write the contents of the IntentFilter as an XML stream.
      */
     public void writeToXml(XmlSerializer serializer) throws IOException {
-        serializer.attribute(null, AUTO_VERIFY_STR, Boolean.toString(getAutoVerify()));
+
+        if (getAutoVerify()) {
+            serializer.attribute(null, AUTO_VERIFY_STR, Boolean.toString(true));
+        }
+
         int N = countActions();
         for (int i=0; i<N; i++) {
             serializer.startTag(null, ACTION_STR);

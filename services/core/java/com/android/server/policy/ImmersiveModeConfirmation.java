@@ -36,10 +36,10 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
-import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Interpolator;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -60,7 +60,6 @@ public class ImmersiveModeConfirmation {
     private final H mHandler;
     private final long mShowDelayMs;
     private final long mPanicThresholdMs;
-    private final SparseBooleanArray mUserPanicResets = new SparseBooleanArray();
 
     private boolean mConfirmed;
     private ClingWindowView mClingWindow;
@@ -86,8 +85,7 @@ public class ImmersiveModeConfirmation {
     public void loadSetting(int currentUserId) {
         mConfirmed = false;
         mCurrentUserId = currentUserId;
-        if (DEBUG) Slog.d(TAG, String.format("loadSetting() mCurrentUserId=%d resetForPanic=%s",
-                mCurrentUserId, mUserPanicResets.get(mCurrentUserId, false)));
+        if (DEBUG) Slog.d(TAG, String.format("loadSetting() mCurrentUserId=%d", mCurrentUserId));
         String value = null;
         try {
             value = Settings.Secure.getStringForUser(mContext.getContentResolver(),
@@ -132,7 +130,6 @@ public class ImmersiveModeConfirmation {
     public boolean onPowerKeyDown(boolean isScreenOn, long time, boolean inImmersiveMode) {
         if (!isScreenOn && (time - mPanicTime < mPanicThresholdMs)) {
             // turning the screen back on within the panic threshold
-            mHandler.sendEmptyMessage(H.PANIC);
             return mClingWindow == null;
         }
         if (isScreenOn && inImmersiveMode) {
@@ -149,14 +146,6 @@ public class ImmersiveModeConfirmation {
             if (DEBUG) Slog.d(TAG, "confirmCurrentPrompt()");
             mHandler.post(mConfirm);
         }
-    }
-
-    private void handlePanic() {
-        if (DEBUG) Slog.d(TAG, "handlePanic()");
-        if (mUserPanicResets.get(mCurrentUserId, false)) return;  // already reset for panic
-        mUserPanicResets.put(mCurrentUserId, true);
-        mConfirmed = false;
-        saveSetting();
     }
 
     private void handleHide() {
@@ -212,6 +201,25 @@ public class ImmersiveModeConfirmation {
             }
         };
 
+        private ViewTreeObserver.OnComputeInternalInsetsListener mInsetsListener =
+                new ViewTreeObserver.OnComputeInternalInsetsListener() {
+                    private final int[] mTmpInt2 = new int[2];
+
+                    @Override
+                    public void onComputeInternalInsets(
+                            ViewTreeObserver.InternalInsetsInfo inoutInfo) {
+                        // Set touchable region to cover the cling layout.
+                        mClingLayout.getLocationInWindow(mTmpInt2);
+                        inoutInfo.setTouchableInsets(
+                                ViewTreeObserver.InternalInsetsInfo.TOUCHABLE_INSETS_REGION);
+                        inoutInfo.touchableRegion.set(
+                                mTmpInt2[0],
+                                mTmpInt2[1],
+                                mTmpInt2[0] + mClingLayout.getWidth(),
+                                mTmpInt2[1] + mClingLayout.getHeight());
+                    }
+                };
+
         private BroadcastReceiver mReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -237,6 +245,8 @@ public class ImmersiveModeConfirmation {
             DisplayMetrics metrics = new DisplayMetrics();
             mWindowManager.getDefaultDisplay().getMetrics(metrics);
             float density = metrics.density;
+
+            getViewTreeObserver().addOnComputeInternalInsetsListener(mInsetsListener);
 
             // create the confirmation cling
             mClingLayout = (ViewGroup)
@@ -329,7 +339,6 @@ public class ImmersiveModeConfirmation {
     private final class H extends Handler {
         private static final int SHOW = 1;
         private static final int HIDE = 2;
-        private static final int PANIC = 3;
 
         @Override
         public void handleMessage(Message msg) {
@@ -339,9 +348,6 @@ public class ImmersiveModeConfirmation {
                     break;
                 case HIDE:
                     handleHide();
-                    break;
-                case PANIC:
-                    handlePanic();
                     break;
             }
         }

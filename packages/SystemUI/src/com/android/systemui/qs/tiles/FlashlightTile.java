@@ -18,6 +18,7 @@ package com.android.systemui.qs.tiles;
 
 import android.app.ActivityManager;
 
+import com.android.internal.logging.MetricsLogger;
 import com.android.systemui.R;
 import com.android.systemui.qs.QSTile;
 import com.android.systemui.statusbar.policy.FlashlightController;
@@ -62,6 +63,7 @@ public class FlashlightTile extends QSTile<QSTile.BooleanState> implements
         if (ActivityManager.isUserAMonkey()) {
             return;
         }
+        MetricsLogger.action(mContext, getMetricsCategory(), !mState.value);
         boolean newState = !mState.value;
         refreshState(newState ? UserBoolean.USER_TRUE : UserBoolean.USER_FALSE);
         mFlashlightController.setFlashlight(newState);
@@ -72,7 +74,13 @@ public class FlashlightTile extends QSTile<QSTile.BooleanState> implements
         state.visible = mFlashlightController.isAvailable();
         state.label = mHost.getContext().getString(R.string.quick_settings_flashlight_label);
         if (arg instanceof UserBoolean) {
-            state.value = ((UserBoolean) arg).value;
+            boolean value = ((UserBoolean) arg).value;
+            if (value == state.value) {
+                return;
+            }
+            state.value = value;
+        } else {
+            state.value = mFlashlightController.isEnabled();
         }
         final AnimationIcon icon = state.value ? mEnable : mDisable;
         icon.setAllowAnimation(arg instanceof UserBoolean && ((UserBoolean) arg).userInitiated);
@@ -81,6 +89,11 @@ public class FlashlightTile extends QSTile<QSTile.BooleanState> implements
                 ? R.string.accessibility_quick_settings_flashlight_on
                 : R.string.accessibility_quick_settings_flashlight_off;
         state.contentDescription = mContext.getString(onOrOffId);
+    }
+
+    @Override
+    public int getMetricsCategory() {
+        return MetricsLogger.QS_FLASHLIGHT;
     }
 
     @Override

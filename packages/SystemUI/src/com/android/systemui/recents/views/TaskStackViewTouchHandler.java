@@ -23,6 +23,7 @@ import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewParent;
+import com.android.internal.logging.MetricsLogger;
 import com.android.systemui.recents.Constants;
 import com.android.systemui.recents.Recents;
 import com.android.systemui.recents.RecentsConfiguration;
@@ -161,6 +162,14 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                 mVelocityTracker.addMovement(createMotionEventForStackScroll(ev));
                 break;
             }
+            case MotionEvent.ACTION_POINTER_DOWN: {
+                final int index = ev.getActionIndex();
+                mActivePointerId = ev.getPointerId(index);
+                mLastMotionX = (int) ev.getX(index);
+                mLastMotionY = (int) ev.getY(index);
+                mLastP = mSv.mLayoutAlgorithm.screenYToCurveProgress(mLastMotionY);
+                break;
+            }
             case MotionEvent.ACTION_MOVE: {
                 if (mActivePointerId == INACTIVE_POINTER_ID) break;
 
@@ -184,6 +193,20 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                 mLastMotionX = x;
                 mLastMotionY = y;
                 mLastP = mSv.mLayoutAlgorithm.screenYToCurveProgress(mLastMotionY);
+                break;
+            }
+            case MotionEvent.ACTION_POINTER_UP: {
+                int pointerIndex = ev.getActionIndex();
+                int pointerId = ev.getPointerId(pointerIndex);
+                if (pointerId == mActivePointerId) {
+                    // Select a new active pointer id and reset the motion state
+                    final int newPointerIndex = (pointerIndex == 0) ? 1 : 0;
+                    mActivePointerId = ev.getPointerId(newPointerIndex);
+                    mLastMotionX = (int) ev.getX(newPointerIndex);
+                    mLastMotionY = (int) ev.getY(newPointerIndex);
+                    mLastP = mSv.mLayoutAlgorithm.screenYToCurveProgress(mLastMotionY);
+                    mVelocityTracker.clear();
+                }
                 break;
             }
             case MotionEvent.ACTION_CANCEL:
@@ -315,7 +338,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                                     overscrollRange);
                     // Invalidate to kick off computeScroll
                     mSv.invalidate();
-                } else if (mScroller.isScrollOutOfBounds()) {
+                } else if (mIsScrolling && mScroller.isScrollOutOfBounds()) {
                     // Animate the scroll back into bounds
                     mScroller.animateBoundScroll();
                 } else if (mActiveTaskView == null) {
@@ -396,11 +419,11 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                     // Find the front most task and scroll the next task to the front
                     float vScroll = ev.getAxisValue(MotionEvent.AXIS_VSCROLL);
                     if (vScroll > 0) {
-                        if (mSv.ensureFocusedTask()) {
+                        if (mSv.ensureFocusedTask(true)) {
                             mSv.focusNextTask(true, false);
                         }
                     } else {
-                        if (mSv.ensureFocusedTask()) {
+                        if (mSv.ensureFocusedTask(true)) {
                             mSv.focusNextTask(false, false);
                         }
                     }
@@ -452,6 +475,9 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
         tv.setTouchEnabled(true);
         // Remove the task view from the stack
         mSv.onTaskViewDismissed(tv);
+        // Keep track of deletions by keyboard
+        MetricsLogger.histogram(tv.getContext(), "overview_task_dismissed_source",
+                Constants.Metrics.DismissSourceSwipeGesture);
     }
 
     @Override

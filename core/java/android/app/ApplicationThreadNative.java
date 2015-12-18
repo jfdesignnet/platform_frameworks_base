@@ -35,6 +35,9 @@ import android.os.RemoteException;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
+import android.os.TransactionTooLargeException;
+import android.util.Log;
+
 import com.android.internal.app.IVoiceInteractor;
 import com.android.internal.content.ReferrerIntent;
 
@@ -529,10 +532,12 @@ public abstract class ApplicationThreadNative extends Binder
             boolean checkin = data.readInt() != 0;
             boolean dumpInfo = data.readInt() != 0;
             boolean dumpDalvik = data.readInt() != 0;
+            boolean dumpSummaryOnly = data.readInt() != 0;
             String[] args = data.readStringArray();
             if (fd != null) {
                 try {
-                    dumpMemInfo(fd.getFileDescriptor(), mi, checkin, dumpInfo, dumpDalvik, args);
+                    dumpMemInfo(fd.getFileDescriptor(), mi, checkin, dumpInfo,
+                            dumpDalvik, dumpSummaryOnly, args);
                 } finally {
                     try {
                         fd.close();
@@ -919,8 +924,13 @@ class ApplicationThreadProxy implements IApplicationThread {
         info.writeToParcel(data, 0);
         compatInfo.writeToParcel(data, 0);
         data.writeInt(processState);
-        mRemote.transact(SCHEDULE_CREATE_SERVICE_TRANSACTION, data, null,
-                IBinder.FLAG_ONEWAY);
+        try {
+            mRemote.transact(SCHEDULE_CREATE_SERVICE_TRANSACTION, data, null,
+                    IBinder.FLAG_ONEWAY);
+        } catch (TransactionTooLargeException e) {
+            Log.e("CREATE_SERVICE", "Binder failure starting service; service=" + info);
+            throw e;
+        }
         data.recycle();
     }
 
@@ -1248,7 +1258,7 @@ class ApplicationThreadProxy implements IApplicationThread {
     }
 
     public void dumpMemInfo(FileDescriptor fd, Debug.MemoryInfo mem, boolean checkin,
-            boolean dumpInfo, boolean dumpDalvik, String[] args) throws RemoteException {
+            boolean dumpInfo, boolean dumpDalvik, boolean dumpSummaryOnly, String[] args) throws RemoteException {
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
         data.writeInterfaceToken(IApplicationThread.descriptor);
@@ -1257,6 +1267,7 @@ class ApplicationThreadProxy implements IApplicationThread {
         data.writeInt(checkin ? 1 : 0);
         data.writeInt(dumpInfo ? 1 : 0);
         data.writeInt(dumpDalvik ? 1 : 0);
+        data.writeInt(dumpSummaryOnly ? 1 : 0);
         data.writeStringArray(args);
         mRemote.transact(DUMP_MEM_INFO_TRANSACTION, data, reply, 0);
         reply.readException();

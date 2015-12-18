@@ -55,8 +55,6 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     private boolean mWasOpaque;
     private boolean mAreViewsReady;
     private boolean mIsViewsTransitionStarted;
-    private boolean mIsViewsTransitionComplete;
-    private boolean mIsSharedElementTransitionComplete;
     private Transition mEnterViewsTransition;
 
     public EnterTransitionCoordinator(Activity activity, ResultReceiver resultReceiver,
@@ -335,6 +333,7 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         boolean startSharedElementTransition = true;
         setGhostVisibility(View.INVISIBLE);
         scheduleGhostVisibilityChange(View.INVISIBLE);
+        pauseInput();
         Transition transition = beginTransition(decorView, startEnterTransition,
                 startSharedElementTransition);
         scheduleGhostVisibilityChange(View.VISIBLE);
@@ -456,7 +455,7 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
                 }
             }
             if (viewsTransition == null) {
-                viewTransitionComplete();
+                viewsTransitionComplete();
             } else {
                 viewsTransition.forceVisibility(View.INVISIBLE, true);
                 final ArrayList<View> transitioningViews = mTransitioningViews;
@@ -474,7 +473,7 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
                     public void onTransitionEnd(Transition transition) {
                         mEnterViewsTransition = null;
                         transition.removeListener(this);
-                        viewTransitionComplete();
+                        viewsTransitionComplete();
                         super.onTransitionEnd(transition);
                     }
                 });
@@ -497,18 +496,9 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
         return transition;
     }
 
-    private void viewTransitionComplete() {
-        mIsViewsTransitionComplete = true;
-        if (mIsSharedElementTransitionComplete) {
-            moveSharedElementsFromOverlay();
-        }
-    }
-
-    private void sharedElementTransitionComplete() {
-        mIsSharedElementTransitionComplete = true;
-        if (mIsViewsTransitionComplete) {
-            moveSharedElementsFromOverlay();
-        }
+    @Override
+    protected void onTransitionsComplete() {
+        moveSharedElementsFromOverlay();
     }
 
     private void sharedElementTransitionStarted() {
@@ -604,7 +594,7 @@ class EnterTransitionCoordinator extends ActivityTransitionCoordinator {
     }
 
     private boolean allowOverlappingTransitions() {
-        return mIsReturning ? getWindow().getAllowExitTransitionOverlap()
+        return mIsReturning ? getWindow().getAllowReturnTransitionOverlap()
                 : getWindow().getAllowEnterTransitionOverlap();
     }
 

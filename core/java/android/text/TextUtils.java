@@ -465,6 +465,11 @@ public class TextUtils {
             return false;
     }
 
+    /** {@hide} */
+    public static String nullIfEmpty(@Nullable String str) {
+        return isEmpty(str) ? null : str;
+    }
+
     /**
      * Returns the length that the specified CharSequence would have if
      * spaces and control characters were trimmed from the start and end,
@@ -622,8 +627,7 @@ public class TextUtils {
      * Flatten a CharSequence and whatever styles can be copied across processes
      * into the parcel.
      */
-    public static void writeToParcel(CharSequence cs, Parcel p,
-            int parcelableFlags) {
+    public static void writeToParcel(CharSequence cs, Parcel p, int parcelableFlags) {
         if (cs instanceof Spanned) {
             p.writeInt(0);
             p.writeString(cs.toString());
@@ -645,15 +649,15 @@ public class TextUtils {
                 }
 
                 if (prop instanceof ParcelableSpan) {
-                    ParcelableSpan ps = (ParcelableSpan)prop;
-                    int spanTypeId = ps.getSpanTypeId();
+                    final ParcelableSpan ps = (ParcelableSpan) prop;
+                    final int spanTypeId = ps.getSpanTypeIdInternal();
                     if (spanTypeId < FIRST_SPAN || spanTypeId > LAST_SPAN) {
-                        Log.e(TAG, "external class \"" + ps.getClass().getSimpleName()
+                        Log.e(TAG, "External class \"" + ps.getClass().getSimpleName()
                                 + "\" is attempting to use the frameworks-only ParcelableSpan"
                                 + " interface");
                     } else {
                         p.writeInt(spanTypeId);
-                        ps.writeToParcel(p, parcelableFlags);
+                        ps.writeToParcelInternal(p, parcelableFlags);
                         writeWhere(p, sp, o);
                     }
                 }
@@ -1789,6 +1793,15 @@ public class TextUtils {
             default:
                 return View.LAYOUT_DIRECTION_LTR;
         }
+    }
+
+    /**
+     * Return localized string representing the given number of selected items.
+     *
+     * @hide
+     */
+    public static CharSequence formatSelectedCount(int count) {
+        return Resources.getSystem().getQuantityString(R.plurals.selected_count, count, count);
     }
 
     private static Object sLock = new Object();

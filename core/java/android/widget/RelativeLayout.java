@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.annotation.NonNull;
 import android.util.ArrayMap;
 import com.android.internal.R;
 
@@ -36,6 +37,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
+import android.view.ViewHierarchyEncoder;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.RemoteViews.RemoteView;
 
@@ -520,7 +522,7 @@ public class RelativeLayout extends ViewGroup {
         View baselineView = null;
         LayoutParams baselineParams = null;
         for (int i = 0; i < count; i++) {
-            final View child = getChildAt(i);
+            final View child = views[i];
             if (child.getVisibility() != GONE) {
                 final LayoutParams childParams = (LayoutParams) child.getLayoutParams();
                 if (baselineView == null || baselineParams == null
@@ -546,9 +548,9 @@ public class RelativeLayout extends ViewGroup {
 
             if (offsetHorizontalAxis) {
                 for (int i = 0; i < count; i++) {
-                    View child = getChildAt(i);
+                    final View child = views[i];
                     if (child.getVisibility() != GONE) {
-                        LayoutParams params = (LayoutParams) child.getLayoutParams();
+                        final LayoutParams params = (LayoutParams) child.getLayoutParams();
                         final int[] rules = params.getRules(layoutDirection);
                         if (rules[CENTER_IN_PARENT] != 0 || rules[CENTER_HORIZONTAL] != 0) {
                             centerHorizontal(child, params, width);
@@ -576,9 +578,9 @@ public class RelativeLayout extends ViewGroup {
 
             if (offsetVerticalAxis) {
                 for (int i = 0; i < count; i++) {
-                    View child = getChildAt(i);
+                    final View child = views[i];
                     if (child.getVisibility() != GONE) {
-                        LayoutParams params = (LayoutParams) child.getLayoutParams();
+                        final LayoutParams params = (LayoutParams) child.getLayoutParams();
                         final int[] rules = params.getRules(layoutDirection);
                         if (rules[CENTER_IN_PARENT] != 0 || rules[CENTER_VERTICAL] != 0) {
                             centerVertical(child, params, height);
@@ -605,9 +607,9 @@ public class RelativeLayout extends ViewGroup {
             final int verticalOffset = contentBounds.top - top;
             if (horizontalOffset != 0 || verticalOffset != 0) {
                 for (int i = 0; i < count; i++) {
-                    View child = getChildAt(i);
+                    final View child = views[i];
                     if (child.getVisibility() != GONE && child != ignore) {
-                        LayoutParams params = (LayoutParams) child.getLayoutParams();
+                        final LayoutParams params = (LayoutParams) child.getLayoutParams();
                         if (horizontalGravity) {
                             params.mLeft += horizontalOffset;
                             params.mRight += horizontalOffset;
@@ -624,9 +626,9 @@ public class RelativeLayout extends ViewGroup {
         if (isLayoutRtl()) {
             final int offsetWidth = myWidth - width;
             for (int i = 0; i < count; i++) {
-                View child = getChildAt(i);
+                final View child = views[i];
                 if (child.getVisibility() != GONE) {
-                    LayoutParams params = (LayoutParams) child.getLayoutParams();
+                    final LayoutParams params = (LayoutParams) child.getLayoutParams();
                     params.mLeft -= offsetWidth;
                     params.mRight -= offsetWidth;
                 }
@@ -674,33 +676,42 @@ public class RelativeLayout extends ViewGroup {
         child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
     }
 
-    private void measureChildHorizontal(View child, LayoutParams params, int myWidth, int myHeight) {
-        int childWidthMeasureSpec = getChildMeasureSpec(params.mLeft,
-                params.mRight, params.width,
-                params.leftMargin, params.rightMargin,
-                mPaddingLeft, mPaddingRight,
+    private void measureChildHorizontal(
+            View child, LayoutParams params, int myWidth, int myHeight) {
+        final int childWidthMeasureSpec = getChildMeasureSpec(params.mLeft, params.mRight,
+                params.width, params.leftMargin, params.rightMargin, mPaddingLeft, mPaddingRight,
                 myWidth);
-        int maxHeight = myHeight;
-        if (mMeasureVerticalWithPaddingMargin) {
-            maxHeight = Math.max(0, myHeight - mPaddingTop - mPaddingBottom -
-                    params.topMargin - params.bottomMargin);
-        }
-        int childHeightMeasureSpec;
+
+        final int childHeightMeasureSpec;
         if (myHeight < 0 && !mAllowBrokenMeasureSpecs) {
             if (params.height >= 0) {
                 childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(
                         params.height, MeasureSpec.EXACTLY);
             } else {
-                // Negative values in a mySize/myWidth/myWidth value in RelativeLayout measurement
-                // is code for, "we got an unspecified mode in the RelativeLayout's measurespec."
+                // Negative values in a mySize/myWidth/myWidth value in
+                // RelativeLayout measurement is code for, "we got an
+                // unspecified mode in the RelativeLayout's measure spec."
                 // Carry it forward.
                 childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
             }
-        } else if (params.width == LayoutParams.MATCH_PARENT) {
-            childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.EXACTLY);
         } else {
-            childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST);
+            final int maxHeight;
+            if (mMeasureVerticalWithPaddingMargin) {
+                maxHeight = Math.max(0, myHeight - mPaddingTop - mPaddingBottom
+                        - params.topMargin - params.bottomMargin);
+            } else {
+                maxHeight = Math.max(0, myHeight);
+            }
+
+            final int heightMode;
+            if (params.height == LayoutParams.MATCH_PARENT) {
+                heightMode = MeasureSpec.EXACTLY;
+            } else {
+                heightMode = MeasureSpec.AT_MOST;
+            }
+            childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(maxHeight, heightMode);
         }
+
         child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
     }
 
@@ -729,7 +740,8 @@ public class RelativeLayout extends ViewGroup {
         // Negative values in a mySize value in RelativeLayout
         // measurement is code for, "we got an unspecified mode in the
         // RelativeLayout's measure spec."
-        if (mySize < 0 && !mAllowBrokenMeasureSpecs) {
+        final boolean isUnspecified = mySize < 0;
+        if (isUnspecified && !mAllowBrokenMeasureSpecs) {
             if (childStart != VALUE_NOT_SET && childEnd != VALUE_NOT_SET) {
                 // Constraints fixed both edges, so child has an exact size.
                 childSpecSize = Math.max(0, childEnd - childStart);
@@ -761,19 +773,19 @@ public class RelativeLayout extends ViewGroup {
         }
 
         // Figure out maximum size available to this view
-        int maxAvailable = tempEnd - tempStart;
+        final int maxAvailable = tempEnd - tempStart;
 
         if (childStart != VALUE_NOT_SET && childEnd != VALUE_NOT_SET) {
-            // Constraints fixed both edges, so child must be an exact size
-            childSpecMode = MeasureSpec.EXACTLY;
-            childSpecSize = maxAvailable;
+            // Constraints fixed both edges, so child must be an exact size.
+            childSpecMode = isUnspecified ? MeasureSpec.UNSPECIFIED : MeasureSpec.EXACTLY;
+            childSpecSize = Math.max(0, maxAvailable);
         } else {
             if (childSize >= 0) {
-                // Child wanted an exact size. Give as much as possible
+                // Child wanted an exact size. Give as much as possible.
                 childSpecMode = MeasureSpec.EXACTLY;
 
                 if (maxAvailable >= 0) {
-                    // We have a maxmum size in this dimension.
+                    // We have a maximum size in this dimension.
                     childSpecSize = Math.min(maxAvailable, childSize);
                 } else {
                     // We can grow in this dimension.
@@ -781,20 +793,19 @@ public class RelativeLayout extends ViewGroup {
                 }
             } else if (childSize == LayoutParams.MATCH_PARENT) {
                 // Child wanted to be as big as possible. Give all available
-                // space
-                childSpecMode = MeasureSpec.EXACTLY;
-                childSpecSize = maxAvailable;
+                // space.
+                childSpecMode = isUnspecified ? MeasureSpec.UNSPECIFIED : MeasureSpec.EXACTLY;
+                childSpecSize = Math.max(0, maxAvailable);
             } else if (childSize == LayoutParams.WRAP_CONTENT) {
-                // Child wants to wrap content. Use AT_MOST
-                // to communicate available space if we know
-                // our max size
+                // Child wants to wrap content. Use AT_MOST to communicate
+                // available space if we know our max size.
                 if (maxAvailable >= 0) {
                     // We have a maximum size in this dimension.
                     childSpecMode = MeasureSpec.AT_MOST;
                     childSpecSize = maxAvailable;
                 } else {
                     // We can grow in this dimension. Child can be as big as it
-                    // wants
+                    // wants.
                     childSpecMode = MeasureSpec.UNSPECIFIED;
                     childSpecSize = 0;
                 }
@@ -1615,6 +1626,13 @@ public class RelativeLayout extends ViewGroup {
             }
             // This will set the layout direction
             super.resolveLayoutDirection(layoutDirection);
+        }
+
+        /** @hide */
+        @Override
+        protected void encodeProperties(@NonNull ViewHierarchyEncoder encoder) {
+            super.encodeProperties(encoder);
+            encoder.addProperty("layout:alignWithParent", alignWithParent);
         }
     }
 

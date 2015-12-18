@@ -16,11 +16,13 @@
 
 package android.content.pm;
 
+import android.Manifest;
 import android.annotation.CheckResult;
 import android.annotation.DrawableRes;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.StringRes;
@@ -75,6 +77,21 @@ public abstract class PackageManager {
         public NameNotFoundException(String name) {
             super(name);
         }
+    }
+
+    /**
+     * Listener for changes in permissions granted to a UID.
+     *
+     * @hide
+     */
+    @SystemApi
+    public interface OnPermissionsChangedListener {
+
+        /**
+         * Called when the permissions for a UID change.
+         * @param uid The UID with a change.
+         */
+        public void onPermissionsChanged(int uid);
     }
 
     /**
@@ -209,7 +226,14 @@ public abstract class PackageManager {
      * matching.  This is a synonym for including the CATEGORY_DEFAULT in your
      * supplied Intent.
      */
-    public static final int MATCH_DEFAULT_ONLY   = 0x00010000;
+    public static final int MATCH_DEFAULT_ONLY  = 0x00010000;
+
+    /**
+     * Querying flag: if set and if the platform is doing any filtering of the results, then
+     * the filtering will not happen. This is a synonym for saying that all results should
+     * be returned.
+     */
+    public static final int MATCH_ALL = 0x00020000;
 
     /**
      * Flag for {@link addCrossProfileIntentFilter}: if this flag is set:
@@ -393,6 +417,9 @@ public abstract class PackageManager {
      * @hide
      */
     public static final int INSTALL_GRANT_RUNTIME_PERMISSIONS = 0x00000100;
+
+    /** {@hide} */
+    public static final int INSTALL_FORCE_VOLUME_UUID = 0x00000200;
 
     /**
      * Flag parameter for
@@ -644,6 +671,16 @@ public abstract class PackageManager {
      * @hide
      */
     public static final int INSTALL_FAILED_VERSION_DOWNGRADE = -25;
+
+    /**
+     * Installation return code: this is passed to the {@link IPackageInstallObserver} by
+     * {@link #installPackage(android.net.Uri, IPackageInstallObserver, int)} if
+     * the old package has target SDK high enough to support runtime permission and
+     * the new package has target SDK low enough to not support runtime permissions.
+     * @hide
+     */
+    @SystemApi
+    public static final int INSTALL_FAILED_PERMISSION_MODEL_DOWNGRADE = -26;
 
     /**
      * Installation parse return code: this is passed to the {@link IPackageInstallObserver} by
@@ -1036,6 +1073,18 @@ public abstract class PackageManager {
     public static final int INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_NEVER = 3;
 
     /**
+     * Used as the {@code status} argument for {@link PackageManager#updateIntentVerificationStatus}
+     * to indicate that this app should always be considered as an ambiguous candidate for
+     * handling the matching Intent even if there are other candidate apps in the "always"
+     * state.  Put another way: if there are any 'always ask' apps in a set of more than
+     * one candidate app, then a disambiguation is *always* presented even if there is
+     * another candidate app with the 'always' state.
+     *
+     * @hide
+     */
+    public static final int INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ALWAYS_ASK = 4;
+
+    /**
      * Can be used as the {@code millisecondsToDelay} argument for
      * {@link PackageManager#extendVerificationTimeout}. This is the
      * maximum time {@code PackageManager} waits for the verification
@@ -1058,6 +1107,13 @@ public abstract class PackageManager {
      */
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_AUDIO_OUTPUT = "android.hardware.audio.output";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}:
+     * The device has professional audio level of functionality, performance, and acoustics.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_AUDIO_PRO = "android.hardware.audio.pro";
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
@@ -1470,6 +1526,13 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device has biometric hardware to detect a fingerprint.
+      */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_FINGERPRINT = "android.hardware.fingerprint";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: The device supports portrait orientation
      * screens.  For backwards compatibility, you can assume that if neither
      * this nor {@link #FEATURE_SCREEN_LANDSCAPE} is set then the device supports
@@ -1825,14 +1888,6 @@ public abstract class PackageManager {
             "android.content.pm.action.REQUEST_PERMISSIONS";
 
     /**
-     * The component name handling runtime permission grants.
-     *
-     * @hide
-     */
-    public static final String GRANT_PERMISSIONS_PACKAGE_NAME =
-            "com.android.packageinstaller";
-
-    /**
      * The names of the requested permissions.
      * <p>
      * <strong>Type:</strong> String[]
@@ -1873,6 +1928,71 @@ public abstract class PackageManager {
      */
     public static final String EXTRA_FAILURE_EXISTING_PERMISSION
             = "android.content.pm.extra.FAILURE_EXISTING_PERMISSION";
+
+   /**
+    * Permission flag: The permission is set in its current state
+    * by the user and apps can still request it at runtime.
+    *
+    * @hide
+    */
+    public static final int FLAG_PERMISSION_USER_SET = 1 << 0;
+
+    /**
+     * Permission flag: The permission is set in its current state
+     * by the user and it is fixed, i.e. apps can no longer request
+     * this permission.
+     *
+     * @hide
+     */
+    public static final int FLAG_PERMISSION_USER_FIXED =  1 << 1;
+
+    /**
+     * Permission flag: The permission is set in its current state
+     * by device policy and neither apps nor the user can change
+     * its state.
+     *
+     * @hide
+     */
+    public static final int FLAG_PERMISSION_POLICY_FIXED =  1 << 2;
+
+    /**
+     * Permission flag: The permission is set in a granted state but
+     * access to resources it guards is restricted by other means to
+     * enable revoking a permission on legacy apps that do not support
+     * runtime permissions. If this permission is upgraded to runtime
+     * because the app was updated to support runtime permissions, the
+     * the permission will be revoked in the upgrade process.
+     *
+     * @hide
+     */
+    public static final int FLAG_PERMISSION_REVOKE_ON_UPGRADE =  1 << 3;
+
+    /**
+     * Permission flag: The permission is set in its current state
+     * because the app is a component that is a part of the system.
+     *
+     * @hide
+     */
+    public static final int FLAG_PERMISSION_SYSTEM_FIXED =  1 << 4;
+
+
+    /**
+     * Permission flag: The permission is granted by default because it
+     * enables app functionality that is expected to work out-of-the-box
+     * for providing a smooth user experience. For example, the phone app
+     * is expected to have the phone permission.
+     *
+     * @hide
+     */
+    public static final int FLAG_PERMISSION_GRANTED_BY_DEFAULT =  1 << 5;
+
+    /**
+     * Mask for all permission flags.
+     *
+     * @hide
+     */
+    @SystemApi
+    public static final int MASK_PERMISSION_FLAGS = 0xFF;
 
     /**
      * Retrieve overall information about an application package that is
@@ -2289,7 +2409,7 @@ public abstract class PackageManager {
      * Check whether a particular package has been granted a particular
      * permission.
      *
-     * @param permName The name of the permission you are checking for,
+     * @param permName The name of the permission you are checking for.
      * @param pkgName The name of the package you are checking against.
      *
      * @return If the package has the permission, PERMISSION_GRANTED is
@@ -2301,6 +2421,31 @@ public abstract class PackageManager {
      */
     @CheckResult
     public abstract int checkPermission(String permName, String pkgName);
+
+    /**
+     * Checks whether a particular permissions has been revoked for a
+     * package by policy. Typically the device owner or the profile owner
+     * may apply such a policy. The user cannot grant policy revoked
+     * permissions, hence the only way for an app to get such a permission
+     * is by a policy change.
+     *
+     * @param permName The name of the permission you are checking for.
+     * @param pkgName The name of the package you are checking against.
+     *
+     * @return Whether the permission is restricted by policy.
+     */
+    @CheckResult
+    public abstract boolean isPermissionRevokedByPolicy(@NonNull String permName,
+            @NonNull String pkgName);
+
+    /**
+     * Gets the package name of the component controlling runtime permissions.
+     *
+     * @return The package name.
+     *
+     * @hide
+     */
+    public abstract String getPermissionControllerPackageName();
 
     /**
      * Add a new dynamic permission to the system.  For this to work, your
@@ -2360,6 +2505,22 @@ public abstract class PackageManager {
      */
     public abstract void removePermission(String name);
 
+
+    /**
+     * Permission flags set when granting or revoking a permission.
+     *
+     * @hide
+     */
+    @SystemApi
+    @IntDef({FLAG_PERMISSION_USER_SET,
+            FLAG_PERMISSION_USER_FIXED,
+            FLAG_PERMISSION_POLICY_FIXED,
+            FLAG_PERMISSION_REVOKE_ON_UPGRADE,
+            FLAG_PERMISSION_SYSTEM_FIXED,
+            FLAG_PERMISSION_GRANTED_BY_DEFAULT})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PermissionFlags {}
+
     /**
      * Grant a runtime permission to an application which the application does not
      * already have. The permission must have been requested by the application.
@@ -2375,19 +2536,20 @@ public abstract class PackageManager {
      * @param permissionName The permission name to grant.
      * @param user The user for which to grant the permission.
      *
-     * @see #revokePermission(String, String, android.os.UserHandle)
+     * @see #revokeRuntimePermission(String, String, android.os.UserHandle)
+     * @see android.content.pm.PackageManager.PermissionFlags
      *
      * @hide
      */
     @SystemApi
-    public abstract void grantPermission(@NonNull String packageName,
+    public abstract void grantRuntimePermission(@NonNull String packageName,
             @NonNull String permissionName, @NonNull UserHandle user);
 
     /**
      * Revoke a runtime permission that was previously granted by {@link
-     * #grantPermission(String, String, android.os.UserHandle)}. The permission
-     * must have been requested by and granted to the application. If the
-     * application is not allowed to hold the permission, a {@link
+     * #grantRuntimePermission(String, String, android.os.UserHandle)}. The
+     * permission must have been requested by and granted to the application.
+     * If the application is not allowed to hold the permission, a {@link
      * java.lang.SecurityException} is thrown.
      * <p>
      * <strong>Note: </strong>Using this API requires holding
@@ -2399,13 +2561,58 @@ public abstract class PackageManager {
      * @param permissionName The permission name to revoke.
      * @param user The user for which to revoke the permission.
      *
-     * @see #grantPermission(String, String, android.os.UserHandle)
+     * @see #grantRuntimePermission(String, String, android.os.UserHandle)
+     * @see android.content.pm.PackageManager.PermissionFlags
      *
      * @hide
      */
     @SystemApi
-    public abstract void revokePermission(@NonNull String packageName,
+    public abstract void revokeRuntimePermission(@NonNull String packageName,
             @NonNull String permissionName, @NonNull UserHandle user);
+
+    /**
+     * Gets the state flags associated with a permission.
+     *
+     * @param permissionName The permission for which to get the flags.
+     * @param packageName The package name for which to get the flags.
+     * @param user The user for which to get permission flags.
+     * @return The permission flags.
+     *
+     * @hide
+     */
+    @SystemApi
+    public abstract @PermissionFlags int getPermissionFlags(String permissionName,
+            String packageName, @NonNull UserHandle user);
+
+    /**
+     * Updates the flags associated with a permission by replacing the flags in
+     * the specified mask with the provided flag values.
+     *
+     * @param permissionName The permission for which to update the flags.
+     * @param packageName The package name for which to update the flags.
+     * @param flagMask The flags which to replace.
+     * @param flagValues The flags with which to replace.
+     * @param user The user for which to update the permission flags.
+     *
+     * @hide
+     */
+    @SystemApi
+    public abstract void updatePermissionFlags(String permissionName,
+            String packageName, @PermissionFlags int flagMask, int flagValues,
+            @NonNull UserHandle user);
+
+    /**
+     * Gets whether you should show UI with rationale for requesting a permission.
+     * You should do this only if you do not have the permission and the context in
+     * which the permission is requested does not clearly communicate to the user
+     * what would be the benefit from grating this permission.
+     *
+     * @param permission A permission your app wants to request.
+     * @return Whether you can show permission rationale UI.
+     *
+     * @hide
+     */
+    public abstract boolean shouldShowRequestPermissionRationale(String permission);
 
     /**
      * Returns an {@link android.content.Intent} suitable for passing to
@@ -2422,7 +2629,7 @@ public abstract class PackageManager {
         }
         Intent intent = new Intent(ACTION_REQUEST_PERMISSIONS);
         intent.putExtra(EXTRA_REQUEST_PERMISSIONS_NAMES, permissions);
-        intent.setPackage(GRANT_PERMISSIONS_PACKAGE_NAME);
+        intent.setPackage(getPermissionControllerPackageName());
         return intent;
     }
 
@@ -2489,7 +2696,7 @@ public abstract class PackageManager {
 
     /**
      * Retrieve the official name associated with a user id.  This name is
-     * guaranteed to never change, though it is possibly for the underlying
+     * guaranteed to never change, though it is possible for the underlying
      * user id to be changed.  That is, if you are storing information about
      * user ids in persistent storage, you should use the string returned
      * by this function instead of the raw user-id.
@@ -2637,6 +2844,8 @@ public abstract class PackageManager {
      * {@link #MATCH_DEFAULT_ONLY}, to limit the resolution to only
      * those activities that support the {@link android.content.Intent#CATEGORY_DEFAULT}.
      *
+     * You can also set {@link #MATCH_ALL} for preventing the filtering of the results.
+     *
      * @return A List&lt;ResolveInfo&gt; containing one entry for each matching
      *         Activity. These are ordered from best to worst match -- that
      *         is, the first item in the list is what is returned by
@@ -2657,6 +2866,8 @@ public abstract class PackageManager {
      * @param flags Additional option flags.  The most important is
      * {@link #MATCH_DEFAULT_ONLY}, to limit the resolution to only
      * those activities that support the {@link android.content.Intent#CATEGORY_DEFAULT}.
+     *
+     * You can also set {@link #MATCH_ALL} for preventing the filtering of the results.
      *
      * @return A List&lt;ResolveInfo&gt; containing one entry for each matching
      *         Activity. These are ordered from best to worst match -- that
@@ -2732,7 +2943,7 @@ public abstract class PackageManager {
      *
      * @return A List&lt;ResolveInfo&gt; containing one entry for each matching
      *         Receiver. These are ordered from first to last in priority.  If
-     *         there are no matching receivers, an empty list is returned.
+     *         there are no matching receivers, an empty list or {@code null} is returned.
      *
      * @see #MATCH_DEFAULT_ONLY
      * @see #GET_INTENT_FILTERS
@@ -2768,7 +2979,7 @@ public abstract class PackageManager {
      *         ServiceInfo. These are ordered from best to worst match -- that
      *         is, the first item in the list is what is returned by
      *         resolveService().  If there are no matching services, an empty
-     *         list is returned.
+     *         list or {@code null} is returned.
      *
      * @see #GET_INTENT_FILTERS
      * @see #GET_RESOLVED_FILTER
@@ -2787,7 +2998,7 @@ public abstract class PackageManager {
      *         ServiceInfo. These are ordered from best to worst match -- that
      *         is, the first item in the list is what is returned by
      *         resolveService().  If there are no matching services, an empty
-     *         list is returned.
+     *         list or {@code null} is returned.
      *
      * @see #GET_INTENT_FILTERS
      * @see #GET_RESOLVED_FILTER
@@ -2809,7 +3020,7 @@ public abstract class PackageManager {
      * @param flags Additional option flags.
      * @return A List&lt;ResolveInfo&gt; containing one entry for each matching
      *         ProviderInfo. These are ordered from best to worst match. If
-     *         there are no matching providers, an empty list is returned.
+     *         there are no matching providers, an empty list or {@code null} is returned.
      * @see #GET_INTENT_FILTERS
      * @see #GET_RESOLVED_FILTER
      */
@@ -3126,10 +3337,11 @@ public abstract class PackageManager {
             throws NameNotFoundException;
 
     /**
-     * If the target user is a managed profile of the calling user or the caller
-     * is itself a managed profile, then this returns a badged copy of the given
-     * icon to be able to distinguish it from the original icon. For badging an
-     * arbitrary drawable use {@link #getUserBadgedDrawableForDensity(
+     * If the target user is a managed profile of the calling user or if the
+     * target user is the caller and is itself a managed profile, then this
+     * returns a badged copy of the given icon to be able to distinguish it from
+     * the original icon. For badging an arbitrary drawable use
+     * {@link #getUserBadgedDrawableForDensity(
      * android.graphics.drawable.Drawable, UserHandle, android.graphics.Rect, int)}.
      * <p>
      * If the original drawable is a BitmapDrawable and the backing bitmap is
@@ -3614,6 +3826,7 @@ public abstract class PackageManager {
      *
      * @hide
      */
+    @SystemApi
     public abstract void verifyIntentFilter(int verificationId, int verificationCode,
             List<String> outFailedDomains);
 
@@ -4142,6 +4355,27 @@ public abstract class PackageManager {
     public abstract boolean isSafeMode();
 
     /**
+     * Adds a listener for permission changes for installed packages.
+     *
+     * @param listener The listener to add.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(Manifest.permission.OBSERVE_GRANT_REVOKE_PERMISSIONS)
+    public abstract void addOnPermissionsChangeListener(OnPermissionsChangedListener listener);
+
+    /**
+     * Remvoes a listener for permission changes for installed packages.
+     *
+     * @param listener The listener to remove.
+     *
+     * @hide
+     */
+    @SystemApi
+    public abstract void removeOnPermissionsChangeListener(OnPermissionsChangedListener listener);
+
+    /**
      * Return the {@link KeySet} associated with the String alias for this
      * application.
      *
@@ -4201,7 +4435,7 @@ public abstract class PackageManager {
 
     /** {@hide} */
     public static abstract class MoveCallback {
-        public abstract void onStarted(int moveId, String title);
+        public void onCreated(int moveId, Bundle extras) {}
         public abstract void onStatusChanged(int moveId, int status, long estMillis);
     }
 
@@ -4248,22 +4482,6 @@ public abstract class PackageManager {
      * applications on the device.
      */
     public abstract @NonNull PackageInstaller getPackageInstaller();
-
-    /**
-     * Returns the data directory for a particular package and user.
-     *
-     * @hide
-     */
-    public static File getDataDirForUser(String volumeUuid, String packageName, int userId) {
-        // TODO: This should be shared with Installer's knowledge of user directory
-        final File base;
-        if (TextUtils.isEmpty(volumeUuid)) {
-            base = Environment.getDataDirectory();
-        } else {
-            base = new File("/mnt/expand/" + volumeUuid);
-        }
-        return new File(base, "user/" + userId + "/" + packageName);
-    }
 
     /**
      * Adds a {@link CrossProfileIntentFilter}. After calling this method all intents sent from the
@@ -4386,6 +4604,7 @@ public abstract class PackageManager {
             case INSTALL_FAILED_PACKAGE_CHANGED: return PackageInstaller.STATUS_FAILURE_INVALID;
             case INSTALL_FAILED_UID_CHANGED: return PackageInstaller.STATUS_FAILURE_INVALID;
             case INSTALL_FAILED_VERSION_DOWNGRADE: return PackageInstaller.STATUS_FAILURE_INVALID;
+            case INSTALL_FAILED_PERMISSION_MODEL_DOWNGRADE: return PackageInstaller.STATUS_FAILURE_INVALID;
             case INSTALL_PARSE_FAILED_NOT_APK: return PackageInstaller.STATUS_FAILURE_INVALID;
             case INSTALL_PARSE_FAILED_BAD_MANIFEST: return PackageInstaller.STATUS_FAILURE_INVALID;
             case INSTALL_PARSE_FAILED_UNEXPECTED_EXCEPTION: return PackageInstaller.STATUS_FAILURE_INVALID;
@@ -4438,6 +4657,19 @@ public abstract class PackageManager {
             case DELETE_FAILED_OWNER_BLOCKED: return PackageInstaller.STATUS_FAILURE_BLOCKED;
             case DELETE_FAILED_ABORTED: return PackageInstaller.STATUS_FAILURE_ABORTED;
             default: return PackageInstaller.STATUS_FAILURE;
+        }
+    }
+
+    /** {@hide} */
+    public static String permissionFlagToString(int flag) {
+        switch (flag) {
+            case FLAG_PERMISSION_GRANTED_BY_DEFAULT: return "GRANTED_BY_DEFAULT";
+            case FLAG_PERMISSION_POLICY_FIXED: return "POLICY_FIXED";
+            case FLAG_PERMISSION_SYSTEM_FIXED: return "SYSTEM_FIXED";
+            case FLAG_PERMISSION_USER_SET: return "USER_SET";
+            case FLAG_PERMISSION_REVOKE_ON_UPGRADE: return "REVOKE_ON_UPGRADE";
+            case FLAG_PERMISSION_USER_FIXED: return "USER_FIXED";
+            default: return Integer.toString(flag);
         }
     }
 

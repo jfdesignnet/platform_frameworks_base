@@ -20,7 +20,7 @@ LOCAL_SRC_FILES:= \
     android_media_MediaScanner.cpp \
     android_media_MediaSync.cpp \
     android_media_ResampleInputStream.cpp \
-    android_media_SyncSettings.cpp \
+    android_media_SyncParams.cpp \
     android_media_Utils.cpp \
     android_mtp_MtpDatabase.cpp \
     android_mtp_MtpDevice.cpp \
@@ -69,7 +69,7 @@ LOCAL_C_INCLUDES += \
     $(PV_INCLUDES) \
     $(JNI_H_INCLUDE)
 
-LOCAL_CFLAGS += -Wall -Werror -Wunused -Wunreachable-code
+LOCAL_CFLAGS += -Wall -Werror -Wno-error=deprecated-declarations -Wunused -Wunreachable-code
 
 LOCAL_MODULE:= libmedia_jni
 

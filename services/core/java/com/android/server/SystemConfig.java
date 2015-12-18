@@ -84,11 +84,20 @@ public class SystemConfig {
     final ArrayMap<String, PermissionEntry> mPermissions = new ArrayMap<>();
 
     // These are the packages that are white-listed to be able to run in the
+    // background while in power save mode (but not whitelisted from device idle modes),
+    // as read from the configuration files.
+    final ArraySet<String> mAllowInPowerSaveExceptIdle = new ArraySet<>();
+
+    // These are the packages that are white-listed to be able to run in the
     // background while in power save mode, as read from the configuration files.
     final ArraySet<String> mAllowInPowerSave = new ArraySet<>();
 
     // These are the app package names that should not allow IME switching.
     final ArraySet<String> mFixedImeApps = new ArraySet<>();
+
+    // These are the package names of apps which should be in the 'always'
+    // URL-handling state upon factory reset.
+    final ArraySet<String> mLinkedApps = new ArraySet<>();
 
     public static SystemConfig getInstance() {
         synchronized (SystemConfig.class) {
@@ -119,12 +128,20 @@ public class SystemConfig {
         return mPermissions;
     }
 
+    public ArraySet<String> getAllowInPowerSaveExceptIdle() {
+        return mAllowInPowerSaveExceptIdle;
+    }
+
     public ArraySet<String> getAllowInPowerSave() {
         return mAllowInPowerSave;
     }
 
     public ArraySet<String> getFixedImeApps() {
         return mFixedImeApps;
+    }
+
+    public ArraySet<String> getLinkedApps() {
+        return mLinkedApps;
     }
 
     SystemConfig() {
@@ -321,6 +338,17 @@ public class SystemConfig {
                     XmlUtils.skipCurrentTag(parser);
                     continue;
 
+                } else if ("allow-in-power-save-except-idle".equals(name) && !onlyFeatures) {
+                    String pkgname = parser.getAttributeValue(null, "package");
+                    if (pkgname == null) {
+                        Slog.w(TAG, "<allow-in-power-save-except-idle> without package in "
+                                + permFile + " at " + parser.getPositionDescription());
+                    } else {
+                        mAllowInPowerSaveExceptIdle.add(pkgname);
+                    }
+                    XmlUtils.skipCurrentTag(parser);
+                    continue;
+
                 } else if ("allow-in-power-save".equals(name) && !onlyFeatures) {
                     String pkgname = parser.getAttributeValue(null, "package");
                     if (pkgname == null) {
@@ -342,6 +370,16 @@ public class SystemConfig {
                     }
                     XmlUtils.skipCurrentTag(parser);
                     continue;
+
+                } else if ("app-link".equals(name)) {
+                    String pkgname = parser.getAttributeValue(null, "package");
+                    if (pkgname == null) {
+                        Slog.w(TAG, "<app-link> without package in " + permFile + " at "
+                                + parser.getPositionDescription());
+                    } else {
+                        mLinkedApps.add(pkgname);
+                    }
+                    XmlUtils.skipCurrentTag(parser);
 
                 } else {
                     XmlUtils.skipCurrentTag(parser);

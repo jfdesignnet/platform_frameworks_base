@@ -346,6 +346,8 @@ public final class DisplayManagerService extends SystemService {
         synchronized (mTempDisplayStateWorkQueue) {
             try {
                 // Update the display state within the lock.
+                // Note that we do not need to schedule traversals here although it
+                // may happen as a side-effect of displays changing state.
                 synchronized (mSyncRoot) {
                     if (mGlobalDisplayState == state
                             && mGlobalDisplayBrightness == brightness) {
@@ -357,8 +359,7 @@ public final class DisplayManagerService extends SystemService {
                             + ", brightness=" + brightness + ")");
                     mGlobalDisplayState = state;
                     mGlobalDisplayBrightness = brightness;
-                    updateGlobalDisplayStateLocked(mTempDisplayStateWorkQueue);
-                    scheduleTraversalLocked(false);
+                    applyGlobalDisplayStateLocked(mTempDisplayStateWorkQueue);
                 }
 
                 // Setting the display power state can take hundreds of milliseconds
@@ -539,6 +540,17 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
+    private void requestColorTransformInternal(int displayId, int colorTransformId) {
+        synchronized (mSyncRoot) {
+            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            if (display != null &&
+                    display.getRequestedColorTransformIdLocked() != colorTransformId) {
+                display.setRequestedColorTransformIdLocked(colorTransformId);
+                scheduleTraversalLocked(false);
+            }
+        }
+    }
+
     private int createVirtualDisplayInternal(IVirtualDisplayCallback callback,
             IMediaProjection projection, int callingUid, String packageName,
             String name, int width, int height, int densityDpi, Surface surface, int flags) {
@@ -715,6 +727,7 @@ public final class DisplayManagerService extends SystemService {
             handleDisplayDeviceRemovedLocked(device);
         }
     }
+
     private void handleDisplayDeviceRemovedLocked(DisplayDevice device) {
         DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
         if (!mDisplayDevices.remove(device)) {
@@ -729,7 +742,7 @@ public final class DisplayManagerService extends SystemService {
         scheduleTraversalLocked(false);
     }
 
-    private void updateGlobalDisplayStateLocked(List<Runnable> workQueue) {
+    private void applyGlobalDisplayStateLocked(List<Runnable> workQueue) {
         final int count = mDisplayDevices.size();
         for (int i = 0; i < count; i++) {
             DisplayDevice device = mDisplayDevices.get(i);
@@ -842,7 +855,7 @@ public final class DisplayManagerService extends SystemService {
     }
 
     private void setDisplayPropertiesInternal(int displayId, boolean hasContent,
-            float requestedRefreshRate, boolean inTraversal) {
+            float requestedRefreshRate, int requestedModeId, boolean inTraversal) {
         synchronized (mSyncRoot) {
             LogicalDisplay display = mLogicalDisplays.get(displayId);
             if (display == null) {
@@ -857,12 +870,17 @@ public final class DisplayManagerService extends SystemService {
                 display.setHasContentLocked(hasContent);
                 scheduleTraversalLocked(inTraversal);
             }
-            if (display.getRequestedRefreshRateLocked() != requestedRefreshRate) {
+            if (requestedModeId == 0 && requestedRefreshRate != 0) {
+                // Scan supported modes returned by display.getInfo() to find a mode with the same
+                // size as the default display mode but with the specified refresh rate instead.
+                requestedModeId = display.getDisplayInfoLocked().findDefaultModeByRefreshRate(
+                        requestedRefreshRate);
+            }
+            if (display.getRequestedModeIdLocked() != requestedModeId) {
                 if (DEBUG) {
-                    Slog.d(TAG, "Display " + displayId + " has requested a new refresh rate: "
-                            + requestedRefreshRate + "fps");
+                    Slog.d(TAG, "Display " + displayId + " switching to mode " + requestedModeId);
                 }
-                display.setRequestedRefreshRateLocked(requestedRefreshRate);
+                display.setRequestedModeIdLocked(requestedModeId);
                 scheduleTraversalLocked(inTraversal);
             }
         }
@@ -1333,6 +1351,19 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override // Binder call
+        public void requestColorTransform(int displayId, int colorTransformId) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.CONFIGURE_DISPLAY_COLOR_TRANSFORM,
+                    "Permission required to change the display color transform");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                requestColorTransformInternal(displayId, colorTransformId);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
         public int createVirtualDisplay(IVirtualDisplayCallback callback,
                 IMediaProjection projection, String packageName, String name,
                 int width, int height, int densityDpi, Surface surface, int flags) {
@@ -1564,8 +1595,9 @@ public final class DisplayManagerService extends SystemService {
 
         @Override
         public void setDisplayProperties(int displayId, boolean hasContent,
-                float requestedRefreshRate, boolean inTraversal) {
-            setDisplayPropertiesInternal(displayId, hasContent, requestedRefreshRate, inTraversal);
+                float requestedRefreshRate, int requestedMode, boolean inTraversal) {
+            setDisplayPropertiesInternal(displayId, hasContent, requestedRefreshRate,
+                    requestedMode, inTraversal);
         }
 
         @Override

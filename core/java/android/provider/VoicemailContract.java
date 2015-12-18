@@ -19,6 +19,7 @@ package android.provider;
 import android.Manifest;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -27,6 +28,7 @@ import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.CallLog.Calls;
+import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.Voicemail;
 
@@ -211,13 +213,17 @@ public class VoicemailContract {
         // that was encoded into call log databases.
 
         /**
-         * The component name of the account in string form.
+         * The {@link ComponentName} of the {@link PhoneAccount} in string form. The
+         * {@link PhoneAccount} of the voicemail is used to differentiate voicemails from different
+         * sources.
          * <P>Type: TEXT</P>
          */
         public static final String PHONE_ACCOUNT_COMPONENT_NAME = "subscription_component_name";
 
         /**
-         * The identifier of a account that is unique to a specified component.
+         * The identifier of a {@link PhoneAccount} that is unique to a specified
+         * {@link ComponentName}. The {@link PhoneAccount} of the voicemail is used to differentiate
+         * voicemails from different sources.
          * <P>Type: TEXT</P>
          */
         public static final String PHONE_ACCOUNT_ID = "subscription_id";
@@ -306,6 +312,18 @@ public class VoicemailContract {
             contentValues.put(Voicemails.SOURCE_PACKAGE, voicemail.getSourcePackage());
             contentValues.put(Voicemails.SOURCE_DATA, voicemail.getSourceData());
             contentValues.put(Voicemails.IS_READ, voicemail.isRead() ? 1 : 0);
+
+            PhoneAccountHandle phoneAccount = voicemail.getPhoneAccount();
+            if (phoneAccount != null) {
+                contentValues.put(Voicemails.PHONE_ACCOUNT_COMPONENT_NAME,
+                        phoneAccount.getComponentName().flattenToString());
+                contentValues.put(Voicemails.PHONE_ACCOUNT_ID, phoneAccount.getId());
+            }
+
+            if (voicemail.getTranscription() != null) {
+                contentValues.put(Voicemails.TRANSCRIPTION, voicemail.getTranscription());
+            }
+
             return contentValues;
         }
     }
@@ -333,13 +351,15 @@ public class VoicemailContract {
         // PHONE_ACCOUNT_* fields.
 
         /**
-         * The component name of the account in string form.
+         * The {@link ComponentName} of the {@link PhoneAccount} in string form. The
+         * {@link PhoneAccount} differentiates voicemail sources from the same package.
          * <P>Type: TEXT</P>
          */
         public static final String PHONE_ACCOUNT_COMPONENT_NAME = "phone_account_component_name";
 
         /**
-         * The identifier of a account that is unique to a specified component.
+         * The identifier of a {@link PhoneAccount} that is unique to a specified component. The
+         * {@link PhoneAccount} differentiates voicemail sources from the same package.
          * <P>Type: TEXT</P>
          */
         public static final String PHONE_ACCOUNT_ID = "phone_account_id";
@@ -454,7 +474,7 @@ public class VoicemailContract {
             Uri statusUri = buildSourceUri(context.getPackageName());
             ContentValues values = new ContentValues();
             values.put(Status.PHONE_ACCOUNT_COMPONENT_NAME,
-                    accountHandle.getComponentName().toString());
+                    accountHandle.getComponentName().flattenToString());
             values.put(Status.PHONE_ACCOUNT_ID, accountHandle.getId());
             values.put(Status.CONFIGURATION_STATE, configurationState);
             values.put(Status.DATA_CHANNEL_STATE, dataChannelState);

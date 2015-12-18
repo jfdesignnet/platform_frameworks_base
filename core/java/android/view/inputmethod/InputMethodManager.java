@@ -24,6 +24,7 @@ import com.android.internal.view.IInputMethodManager;
 import com.android.internal.view.IInputMethodSession;
 import com.android.internal.view.InputBindResult;
 
+import android.annotation.RequiresPermission;
 import android.content.Context;
 import android.graphics.Matrix;
 import android.graphics.Rect;
@@ -59,6 +60,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import static android.Manifest.permission.WRITE_SECURE_SETTINGS;
 
 /**
  * Central system API to the overall input method framework (IMF) architecture,
@@ -247,6 +250,13 @@ public final class InputMethodManager {
     /** @hide */
     public static final int DISPATCH_HANDLED = 1;
 
+    /** @hide */
+    public static final int SHOW_IM_PICKER_MODE_AUTO = 0;
+    /** @hide */
+    public static final int SHOW_IM_PICKER_MODE_INCLUDE_AUXILIARY_SUBTYPES = 1;
+    /** @hide */
+    public static final int SHOW_IM_PICKER_MODE_EXCLUDE_AUXILIARY_SUBTYPES = 2;
+
     final IInputMethodManager mService;
     final Looper mMainLooper;
     
@@ -342,16 +352,6 @@ public final class InputMethodManager {
      * The instance that has previously been sent to the input method.
      */
     private CursorAnchorInfo mCursorAnchorInfo = null;
-
-    /**
-     * The buffer to retrieve the view location in screen coordinates in {@link #updateCursor}.
-     */
-    private final int[] mViewTopLeft = new int[2];
-
-    /**
-     * The matrix to convert the view location into screen coordinates in {@link #updateCursor}.
-     */
-    private final Matrix mViewToScreenMatrix = new Matrix();
 
     // -----------------------------------------------------------
 
@@ -804,25 +804,21 @@ public final class InputMethodManager {
             mServedInputConnectionWrapper = null;
         }
     }
-    
+
     /**
      * Disconnect any existing input connection, clearing the served view.
      */
     void finishInputLocked() {
-        mCurRootView = null;
         mNextServedView = null;
         if (mServedView != null) {
             if (DEBUG) Log.v(TAG, "FINISH INPUT: " + mServedView);
-            
             if (mCurrentTextBoxAttribute != null) {
                 try {
                     mService.finishInput(mClient);
                 } catch (RemoteException e) {
                 }
             }
-            
             notifyInputConnectionFinished();
-            
             mServedView = null;
             mCompletions = null;
             mServedConnecting = false;
@@ -1173,7 +1169,10 @@ public final class InputMethodManager {
         // do its stuff.
         // Life is good: let's hook everything up!
         EditorInfo tba = new EditorInfo();
-        tba.packageName = view.getContext().getPackageName();
+        // Note: Use Context#getOpPackageName() rather than Context#getPackageName() so that the
+        // system can verify the consistency between the uid of this process and package name passed
+        // from here. See comment of Context#getOpPackageName() for details.
+        tba.packageName = view.getContext().getOpPackageName();
         tba.fieldId = view.getId();
         InputConnection ic = view.onCreateInputConnection(tba);
         if (DEBUG) Log.v(TAG, "Starting input: tba=" + tba + " ic=" + ic);
@@ -1292,14 +1291,14 @@ public final class InputMethodManager {
 
     void focusInLocked(View view) {
         if (DEBUG) Log.v(TAG, "focusIn: " + view);
-        
+
         if (mCurRootView != view.getRootView()) {
             // This is a request from a window that isn't in the window with
             // IME focus, so ignore it.
             if (DEBUG) Log.v(TAG, "Not IME target window, ignoring");
             return;
         }
-        
+
         mNextServedView = view;
         scheduleCheckFocusLocked(view);
     }
@@ -1323,6 +1322,22 @@ public final class InputMethodManager {
                     mNextServedView = null;
                     scheduleCheckFocusLocked(view);
                 }
+            }
+        }
+    }
+
+    /**
+     * Call this when a view is being detached from a {@link android.view.Window}.
+     * @hide
+     */
+    public void onViewDetachedFromWindow(View view) {
+        synchronized (mH) {
+            if (DEBUG) Log.v(TAG, "onViewDetachedFromWindow: " + view
+                    + " mServedView=" + mServedView
+                    + " hasWindowFocus=" + view.hasWindowFocus());
+            if (mServedView == view && view.hasWindowFocus()) {
+                mNextServedView = null;
+                scheduleCheckFocusLocked(view);
             }
         }
     }
@@ -1395,7 +1410,7 @@ public final class InputMethodManager {
      * Called by ViewAncestor when its window gets input focus.
      * @hide
      */
-    public void onWindowFocus(View rootView, View focusedView, int softInputMode,
+    public void onPostWindowFocus(View rootView, View focusedView, int softInputMode,
             boolean first, int windowFlags) {
         boolean forceNewFocus = false;
         synchronized (mH) {
@@ -1444,14 +1459,27 @@ public final class InputMethodManager {
             }
         }
     }
-    
+
     /** @hide */
-    public void startGettingWindowFocus(View rootView) {
+    public void onPreWindowFocus(View rootView, boolean hasWindowFocus) {
         synchronized (mH) {
-            mCurRootView = rootView;
+            if (rootView == null) {
+                mCurRootView = null;
+            } if (hasWindowFocus) {
+                mCurRootView = rootView;
+            } else if (rootView == mCurRootView) {
+                // If the mCurRootView is losing window focus, release the strong reference to it
+                // so as not to prevent it from being garbage-collected.
+                mCurRootView = null;
+            } else {
+                if (DEBUG) {
+                    Log.v(TAG, "Ignoring onPreWindowFocus()."
+                            + " mCurRootView=" + mCurRootView + " rootView=" + rootView);
+                }
+            }
         }
     }
-    
+
     /**
      * Report the current selection range.
      *
@@ -1890,9 +1918,28 @@ public final class InputMethodManager {
         }
     }
 
+    /**
+     * Shows the input method chooser dialog.
+     *
+     * @param showAuxiliarySubtypes Set true to show auxiliary input methods.
+     * @hide
+     */
+    public void showInputMethodPicker(boolean showAuxiliarySubtypes) {
+        synchronized (mH) {
+            try {
+                final int mode = showAuxiliarySubtypes ?
+                        SHOW_IM_PICKER_MODE_INCLUDE_AUXILIARY_SUBTYPES:
+                        SHOW_IM_PICKER_MODE_EXCLUDE_AUXILIARY_SUBTYPES;
+                mService.showInputMethodPickerFromClient(mClient, mode);
+            } catch (RemoteException e) {
+                Log.w(TAG, "IME died: " + mCurId, e);
+            }
+        }
+    }
+
     private void showInputMethodPickerLocked() {
         try {
-            mService.showInputMethodPickerFromClient(mClient);
+            mService.showInputMethodPickerFromClient(mClient, SHOW_IM_PICKER_MODE_AUTO);
         } catch (RemoteException e) {
             Log.w(TAG, "IME died: " + mCurId, e);
         }
@@ -1935,6 +1982,7 @@ public final class InputMethodManager {
      * @return true if the current subtype was successfully switched. When the specified subtype is
      * null, this method returns false.
      */
+    @RequiresPermission(WRITE_SECURE_SETTINGS)
     public boolean setCurrentInputMethodSubtype(InputMethodSubtype subtype) {
         synchronized (mH) {
             try {

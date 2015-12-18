@@ -17,6 +17,7 @@
 package com.android.internal.os;
 
 
+import android.os.Trace;
 import dalvik.system.ZygoteHooks;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -40,11 +41,17 @@ public final class Zygote {
     public static final int DEBUG_ENABLE_JNI_LOGGING = 1 << 4;
     /** enable the JIT compiler */
     public static final int DEBUG_ENABLE_JIT         = 1 << 5;
+    /** Force generation of native debugging information. */
+    public static final int DEBUG_GENERATE_DEBUG_INFO = 1 << 6;
 
     /** No external storage should be mounted. */
     public static final int MOUNT_EXTERNAL_NONE = 0;
-    /** Default user-specific external storage should be mounted. */
+    /** Default external storage should be mounted. */
     public static final int MOUNT_EXTERNAL_DEFAULT = 1;
+    /** Read-only external storage should be mounted. */
+    public static final int MOUNT_EXTERNAL_READ = 2;
+    /** Read-write external storage should be mounted. */
+    public static final int MOUNT_EXTERNAL_WRITE = 3;
 
     private static final ZygoteHooks VM_HOOKS = new ZygoteHooks();
 
@@ -86,6 +93,13 @@ public final class Zygote {
         int pid = nativeForkAndSpecialize(
                   uid, gid, gids, debugFlags, rlimits, mountExternal, seInfo, niceName, fdsToClose,
                   instructionSet, appDataDir);
+        // Enable tracing as soon as possible for the child process.
+        if (pid == 0) {
+            Trace.setTracingEnabled(true);
+
+            // Note that this event ends at the end of handleChildProc,
+            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "PostFork");
+        }
         VM_HOOKS.postForkCommon();
         return pid;
     }
@@ -122,6 +136,10 @@ public final class Zygote {
         VM_HOOKS.preFork();
         int pid = nativeForkSystemServer(
                 uid, gid, gids, debugFlags, rlimits, permittedCapabilities, effectiveCapabilities);
+        // Enable tracing as soon as we enter the system_server.
+        if (pid == 0) {
+            Trace.setTracingEnabled(true);
+        }
         VM_HOOKS.postForkCommon();
         return pid;
     }

@@ -21,6 +21,7 @@
 #include "jni.h"
 #include <nativehelper/JNIHelp.h>
 #include "core_jni_helpers.h"
+#include <GraphicsJNI.h>
 #include <ScopedPrimitiveArray.h>
 
 #include <EGL/egl.h>
@@ -289,12 +290,15 @@ static jboolean android_view_ThreadedRenderer_pauseSurface(JNIEnv* env, jobject 
 }
 
 static void android_view_ThreadedRenderer_setup(JNIEnv* env, jobject clazz, jlong proxyPtr,
-        jint width, jint height,
-        jfloat lightX, jfloat lightY, jfloat lightZ, jfloat lightRadius,
-        jint ambientShadowAlpha, jint spotShadowAlpha, jfloat density) {
+        jint width, jint height, jfloat lightRadius, jint ambientShadowAlpha, jint spotShadowAlpha) {
     RenderProxy* proxy = reinterpret_cast<RenderProxy*>(proxyPtr);
-    proxy->setup(width, height, (Vector3){lightX, lightY, lightZ}, lightRadius,
-            ambientShadowAlpha, spotShadowAlpha);
+    proxy->setup(width, height, lightRadius, ambientShadowAlpha, spotShadowAlpha);
+}
+
+static void android_view_ThreadedRenderer_setLightCenter(JNIEnv* env, jobject clazz,
+        jlong proxyPtr, jfloat lightX, jfloat lightY, jfloat lightZ) {
+    RenderProxy* proxy = reinterpret_cast<RenderProxy*>(proxyPtr);
+    proxy->setLightCenter((Vector3){lightX, lightY, lightZ});
 }
 
 static void android_view_ThreadedRenderer_setOpaque(JNIEnv* env, jobject clazz,
@@ -347,10 +351,11 @@ static void android_view_ThreadedRenderer_buildLayer(JNIEnv* env, jobject clazz,
 }
 
 static jboolean android_view_ThreadedRenderer_copyLayerInto(JNIEnv* env, jobject clazz,
-        jlong proxyPtr, jlong layerPtr, jlong bitmapPtr) {
+        jlong proxyPtr, jlong layerPtr, jobject jbitmap) {
     RenderProxy* proxy = reinterpret_cast<RenderProxy*>(proxyPtr);
     DeferredLayerUpdater* layer = reinterpret_cast<DeferredLayerUpdater*>(layerPtr);
-    SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapPtr);
+    SkBitmap bitmap;
+    GraphicsJNI::getSkBitmap(env, jbitmap, &bitmap);
     return proxy->copyLayerInto(layer, bitmap);
 }
 
@@ -384,6 +389,15 @@ static void android_view_ThreadedRenderer_destroyHardwareResources(JNIEnv* env, 
 static void android_view_ThreadedRenderer_trimMemory(JNIEnv* env, jobject clazz,
         jint level) {
     RenderProxy::trimMemory(level);
+}
+
+static void android_view_ThreadedRenderer_overrideProperty(JNIEnv* env, jobject clazz,
+        jstring name, jstring value) {
+    const char* nameCharArray = env->GetStringUTFChars(name, NULL);
+    const char* valueCharArray = env->GetStringUTFChars(value, NULL);
+    RenderProxy::overrideProperty(nameCharArray, valueCharArray);
+    env->ReleaseStringUTFChars(name, nameCharArray);
+    env->ReleaseStringUTFChars(name, valueCharArray);
 }
 
 static void android_view_ThreadedRenderer_fence(JNIEnv* env, jobject clazz,
@@ -450,7 +464,8 @@ static JNINativeMethod gMethods[] = {
     { "nInitialize", "(JLandroid/view/Surface;)Z", (void*) android_view_ThreadedRenderer_initialize },
     { "nUpdateSurface", "(JLandroid/view/Surface;)V", (void*) android_view_ThreadedRenderer_updateSurface },
     { "nPauseSurface", "(JLandroid/view/Surface;)Z", (void*) android_view_ThreadedRenderer_pauseSurface },
-    { "nSetup", "(JIIFFFFII)V", (void*) android_view_ThreadedRenderer_setup },
+    { "nSetup", "(JIIFII)V", (void*) android_view_ThreadedRenderer_setup },
+    { "nSetLightCenter", "(JFFF)V", (void*) android_view_ThreadedRenderer_setLightCenter },
     { "nSetOpaque", "(JZ)V", (void*) android_view_ThreadedRenderer_setOpaque },
     { "nSyncAndDrawFrame", "(J[JI)I", (void*) android_view_ThreadedRenderer_syncAndDrawFrame },
     { "nDestroy", "(J)V", (void*) android_view_ThreadedRenderer_destroy },
@@ -458,12 +473,13 @@ static JNINativeMethod gMethods[] = {
     { "nInvokeFunctor", "(JZ)V", (void*) android_view_ThreadedRenderer_invokeFunctor },
     { "nCreateTextureLayer", "(J)J", (void*) android_view_ThreadedRenderer_createTextureLayer },
     { "nBuildLayer", "(JJ)V", (void*) android_view_ThreadedRenderer_buildLayer },
-    { "nCopyLayerInto", "(JJJ)Z", (void*) android_view_ThreadedRenderer_copyLayerInto },
+    { "nCopyLayerInto", "(JJLandroid/graphics/Bitmap;)Z", (void*) android_view_ThreadedRenderer_copyLayerInto },
     { "nPushLayerUpdate", "(JJ)V", (void*) android_view_ThreadedRenderer_pushLayerUpdate },
     { "nCancelLayerUpdate", "(JJ)V", (void*) android_view_ThreadedRenderer_cancelLayerUpdate },
     { "nDetachSurfaceTexture", "(JJ)V", (void*) android_view_ThreadedRenderer_detachSurfaceTexture },
     { "nDestroyHardwareResources", "(J)V", (void*) android_view_ThreadedRenderer_destroyHardwareResources },
     { "nTrimMemory", "(I)V", (void*) android_view_ThreadedRenderer_trimMemory },
+    { "nOverrideProperty", "(Ljava/lang/String;Ljava/lang/String;)V",  (void*) android_view_ThreadedRenderer_overrideProperty },
     { "nFence", "(J)V", (void*) android_view_ThreadedRenderer_fence },
     { "nStopDrawing", "(J)V", (void*) android_view_ThreadedRenderer_stopDrawing },
     { "nNotifyFramePending", "(J)V", (void*) android_view_ThreadedRenderer_notifyFramePending },

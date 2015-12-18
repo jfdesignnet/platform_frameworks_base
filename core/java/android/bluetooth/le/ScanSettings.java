@@ -59,17 +59,13 @@ public final class ScanSettings implements Parcelable {
     /**
      * A result callback is only triggered for the first advertisement packet received that matches
      * the filter criteria.
-     * @hide
      */
-    @SystemApi
     public static final int CALLBACK_TYPE_FIRST_MATCH = 2;
 
     /**
      * Receive a callback when advertisements are no longer received from a device that has been
      * previously reported by a first match callback.
-     * @hide
      */
-    @SystemApi
     public static final int CALLBACK_TYPE_MATCH_LOST = 4;
 
 
@@ -78,21 +74,18 @@ public final class ScanSettings implements Parcelable {
      */
     /**
      * Match one advertisement per filter
-     * @hide
      */
     public static final int MATCH_NUM_ONE_ADVERTISEMENT = 1;
 
     /**
      * Match few advertisement per filter, depends on current capability and availibility of
      * the resources in hw
-     * @hide
      */
     public static final int MATCH_NUM_FEW_ADVERTISEMENT = 2;
 
     /**
      * Match as many advertisement per filter as hw could allow, depends on current
      * capability and availibility of the resources in hw
-     * @hide
      */
     public static final int MATCH_NUM_MAX_ADVERTISEMENT = 3;
 
@@ -100,14 +93,12 @@ public final class ScanSettings implements Parcelable {
     /**
      * In Aggressive mode, hw will determine a match sooner even with feeble signal strength
      * and few number of sightings/match in a duration.
-     * @hide
      */
     public static final int MATCH_MODE_AGGRESSIVE = 1;
 
     /**
      * For sticky mode, higher threshold of signal strength and sightings is required
      * before reporting by hw
-     * @hide
      */
     public static final int MATCH_MODE_STICKY = 2;
 
@@ -187,7 +178,7 @@ public final class ScanSettings implements Parcelable {
         mScanResultType = scanResultType;
         mReportDelayMillis = reportDelayMillis;
         mNumOfMatchesPerFilter = numOfMatchesPerFilter;
-        mMatchMode = numOfMatchesPerFilter;
+        mMatchMode = matchMode;
     }
 
     private ScanSettings(Parcel in) {
@@ -236,7 +227,7 @@ public final class ScanSettings implements Parcelable {
         private int mScanResultType = SCAN_RESULT_TYPE_FULL;
         private long mReportDelayMillis = 0;
         private int mMatchMode = MATCH_MODE_AGGRESSIVE;
-        private int mNumOfMatchesPerFilter  = MATCH_NUM_ONE_ADVERTISEMENT;
+        private int mNumOfMatchesPerFilter  = MATCH_NUM_MAX_ADVERTISEMENT;
         /**
          * Set scan mode for Bluetooth LE scan.
          *
@@ -258,9 +249,7 @@ public final class ScanSettings implements Parcelable {
          *
          * @param callbackType The callback type flags for the scan.
          * @throws IllegalArgumentException If the {@code callbackType} is invalid.
-         * @hide
          */
-        @SystemApi
         public Builder setCallbackType(int callbackType) {
 
             if (!isValidCallbackType(callbackType)) {
@@ -324,7 +313,6 @@ public final class ScanSettings implements Parcelable {
          *              {@link ScanSettings#MATCH_NUM_FEW_ADVERTISEMENT} or
          *              {@link ScanSettings#MATCH_NUM_MAX_ADVERTISEMENT}
          * @throws IllegalArgumentException If the {@code matchMode} is invalid.
-         * @hide
          */
         public Builder setNumOfMatches(int numOfMatches) {
             if (numOfMatches < MATCH_NUM_ONE_ADVERTISEMENT
@@ -342,7 +330,6 @@ public final class ScanSettings implements Parcelable {
          *              {@link ScanSettings#MATCH_MODE_AGGRESSIVE} or
          *              {@link ScanSettings#MATCH_MODE_STICKY}
          * @throws IllegalArgumentException If the {@code matchMode} is invalid.
-         * @hide
          */
         public Builder setMatchMode(int matchMode) {
             if (matchMode < MATCH_MODE_AGGRESSIVE

@@ -14,12 +14,13 @@
 
 package android.telecom;
 
-import android.content.ComponentName;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.net.Uri;
 import android.provider.Settings;
 import android.text.TextUtils;
 
@@ -36,66 +37,106 @@ public class DefaultDialerManager {
     private static final String TAG = "DefaultDialerManager";
 
     /**
-     * Sets the specified package name as the default dialer application. The caller of this method
-     * needs to have permission to write to secure settings.
+     * Sets the specified package name as the default dialer application for the current user.
+     * The caller of this method needs to have permission to write to secure settings and
+     * manage users on the device.
+     *
+     * @return {@code true} if the default dialer application was successfully changed,
+     *         {@code false} otherwise.
      *
      * @hide
      * */
-    public static void setDefaultPhoneApplication(Context context, String packageName) {
-        // Get old package name
-        String oldPackageName = Settings.Secure.getString(context.getContentResolver(),
-                Settings.Secure.DIALER_DEFAULT_APPLICATION);
-
-        if (packageName != null && oldPackageName != null && packageName.equals(oldPackageName)) {
-            // No change
-            return;
-        }
-
-        // Only make the change if the new package belongs to a valid phone application
-        List<ComponentName> componentNames = getInstalledDialerApplications(context);
-        final ComponentName foundComponent = getComponentName(componentNames, packageName);
-
-        if (foundComponent != null) {
-            // Update the secure setting.
-            Settings.Secure.putString(context.getContentResolver(),
-                    Settings.Secure.DIALER_DEFAULT_APPLICATION, foundComponent.getPackageName());
-        }
+    public static boolean setDefaultDialerApplication(Context context, String packageName) {
+        return setDefaultDialerApplication(context, packageName, ActivityManager.getCurrentUser());
     }
 
     /**
-     * Returns the installed dialer application that will be used to receive incoming calls, and is
-     * allowed to make emergency calls.
+     * Sets the specified package name as the default dialer application for the specified user.
+     * The caller of this method needs to have permission to write to secure settings and
+     * manage users on the device.
+     *
+     * @return {@code true} if the default dialer application was successfully changed,
+     *         {@code false} otherwise.
+     *
+     * @hide
+     * */
+    public static boolean setDefaultDialerApplication(Context context, String packageName,
+            int user) {
+        // Get old package name
+        String oldPackageName = Settings.Secure.getStringForUser(context.getContentResolver(),
+                Settings.Secure.DIALER_DEFAULT_APPLICATION, user);
+
+        if (packageName != null && oldPackageName != null && packageName.equals(oldPackageName)) {
+            // No change
+            return false;
+        }
+
+        // Only make the change if the new package belongs to a valid phone application
+        List<String> packageNames = getInstalledDialerApplications(context);
+
+        if (packageNames.contains(packageName)) {
+            // Update the secure setting.
+            Settings.Secure.putStringForUser(context.getContentResolver(),
+                    Settings.Secure.DIALER_DEFAULT_APPLICATION, packageName, user);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns the installed dialer application for the current user that will be used to receive
+     * incoming calls, and is allowed to make emergency calls.
      *
      * The application will be returned in order of preference:
      * 1) User selected phone application (if still installed)
      * 2) Pre-installed system dialer (if not disabled)
      * 3) Null
      *
+     * The caller of this method needs to have permission to manage users on the device.
+     *
      * @hide
      * */
-    public static ComponentName getDefaultDialerApplication(Context context) {
-        String defaultPackageName = Settings.Secure.getString(context.getContentResolver(),
-                Settings.Secure.DIALER_DEFAULT_APPLICATION);
+    public static String getDefaultDialerApplication(Context context) {
+        return getDefaultDialerApplication(context, context.getUserId());
+    }
 
-        final List<ComponentName> componentNames = getInstalledDialerApplications(context);
-        if (!TextUtils.isEmpty(defaultPackageName)) {
-            final ComponentName defaultDialer =
-                    getComponentName(componentNames, defaultPackageName);
-            if (defaultDialer != null) {
-                return defaultDialer;
-            }
+    /**
+     * Returns the installed dialer application for the specified user that will be used to receive
+     * incoming calls, and is allowed to make emergency calls.
+     *
+     * The application will be returned in order of preference:
+     * 1) User selected phone application (if still installed)
+     * 2) Pre-installed system dialer (if not disabled)
+     * 3) Null
+     *
+     * The caller of this method needs to have permission to manage users on the device.
+     *
+     * @hide
+     * */
+    public static String getDefaultDialerApplication(Context context, int user) {
+        String defaultPackageName = Settings.Secure.getStringForUser(context.getContentResolver(),
+                Settings.Secure.DIALER_DEFAULT_APPLICATION, user);
+
+        final List<String> packageNames = getInstalledDialerApplications(context);
+
+        // Verify that the default dialer has not been disabled or uninstalled.
+        if (packageNames.contains(defaultPackageName)) {
+            return defaultPackageName;
         }
 
         // No user-set dialer found, fallback to system dialer
-        String systemDialer = getTelecomManager(context).getSystemDialerPackage();
+        String systemDialerPackageName = getTelecomManager(context).getSystemDialerPackage();
 
-        if (TextUtils.isEmpty(systemDialer)) {
+        if (TextUtils.isEmpty(systemDialerPackageName)) {
             // No system dialer configured at build time
             return null;
         }
 
-        // Verify that the system dialer has not been disabled.
-        return getComponentName(componentNames, systemDialer);
+        if (packageNames.contains(systemDialerPackageName)) {
+            return systemDialerPackageName;
+        } else {
+            return null;
+        }
     }
 
     /**
@@ -109,44 +150,25 @@ public class DefaultDialerManager {
      *
      * @hide
      **/
-    public static List<ComponentName> getInstalledDialerApplications(Context context) {
+    public static List<String> getInstalledDialerApplications(Context context) {
         PackageManager packageManager = context.getPackageManager();
 
         // Get the list of apps registered for the DIAL intent with empty scheme
         Intent intent = new Intent(Intent.ACTION_DIAL);
         List<ResolveInfo> resolveInfoList = packageManager.queryIntentActivities(intent, 0);
 
-        List<ComponentName> componentNames = new ArrayList<ComponentName> ();
+        List<String> packageNames = new ArrayList<>();
 
         for (ResolveInfo resolveInfo : resolveInfoList) {
             final ActivityInfo activityInfo = resolveInfo.activityInfo;
-            if (activityInfo == null) {
-                continue;
+            if (activityInfo != null && !packageNames.contains(activityInfo.packageName)) {
+                packageNames.add(activityInfo.packageName);
             }
-            final ComponentName componentName =
-                    new ComponentName(activityInfo.packageName, activityInfo.name);
-            componentNames.add(componentName);
         }
 
-        // TODO: Filter for apps that don't handle DIAL intent with tel scheme
-        return componentNames;
-    }
-
-    /**
-     * Returns the {@link ComponentName} for the installed dialer application for a given package
-     * name.
-     *
-     * @param context A valid context.
-     * @param packageName to retrieve the {@link ComponentName} for.
-     *
-     * @return The {@link ComponentName} for the installed dialer application corresponding to the
-     * package name, or null if none is found.
-     *
-     * @hide
-     */
-    public static ComponentName getDialerApplicationForPackageName(Context context,
-            String packageName) {
-        return getComponentName(getInstalledDialerApplications(context), packageName);
+        final Intent dialIntentWithTelScheme = new Intent(Intent.ACTION_DIAL);
+        dialIntentWithTelScheme.setData(Uri.fromParts(PhoneAccount.SCHEME_TEL, "", null));
+        return filterByIntent(context, packageNames, dialIntentWithTelScheme);
     }
 
     /**
@@ -171,23 +193,34 @@ public class DefaultDialerManager {
     }
 
     /**
-     * Returns the component from a list of application components that corresponds to the package
-     * name.
+     * Filter a given list of package names for those packages that contain an activity that has
+     * an intent filter for a given intent.
      *
-     * @param componentNames A list of component names
-     * @param packageName The package name to look for
-     * @return The {@link ComponentName} that matches the provided packageName, or null if not
-     *         found.
+     * @param context A valid context
+     * @param packageNames List of package names to filter.
+     * @return The filtered list.
      */
-    private static ComponentName getComponentName(List<ComponentName> componentNames,
-            String packageName) {
-        for (ComponentName componentName : componentNames) {
-            if (TextUtils.equals(packageName, componentName.getPackageName())) {
-                return componentName;
+    private static List<String> filterByIntent(Context context, List<String> packageNames,
+            Intent intent) {
+        if (packageNames == null || packageNames.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        final List<String> result = new ArrayList<>();
+        final List<ResolveInfo> resolveInfoList =
+                context.getPackageManager().queryIntentActivities(intent, 0);
+        final int length = resolveInfoList.size();
+        for (int i = 0; i < length; i++) {
+            final ActivityInfo info = resolveInfoList.get(i).activityInfo;
+            if (info != null && packageNames.contains(info.packageName)
+                    && !result.contains(info.packageName)) {
+                result.add(info.packageName);
             }
         }
-        return null;
+
+        return result;
     }
+
 
     private static TelecomManager getTelecomManager(Context context) {
         return (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);

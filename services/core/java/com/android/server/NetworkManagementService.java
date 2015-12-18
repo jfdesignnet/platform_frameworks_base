@@ -19,6 +19,15 @@ package com.android.server;
 import static android.Manifest.permission.CONNECTIVITY_INTERNAL;
 import static android.Manifest.permission.DUMP;
 import static android.Manifest.permission.SHUTDOWN;
+import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_DOZABLE;
+import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NAME_DOZABLE;
+import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NAME_NONE;
+import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NAME_STANDBY;
+import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NONE;
+import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_STANDBY;
+import static android.net.NetworkPolicyManager.FIREWALL_RULE_DEFAULT;
+import static android.net.NetworkPolicyManager.FIREWALL_TYPE_BLACKLIST;
+import static android.net.NetworkPolicyManager.FIREWALL_TYPE_WHITELIST;
 import static android.net.NetworkStats.SET_DEFAULT;
 import static android.net.NetworkStats.TAG_ALL;
 import static android.net.NetworkStats.TAG_NONE;
@@ -35,6 +44,7 @@ import static com.android.server.NetworkManagementService.NetdResponseCode.Tethe
 import static com.android.server.NetworkManagementService.NetdResponseCode.TtyListResult;
 import static com.android.server.NetworkManagementSocketTagger.PROP_QTAGUID_ENABLED;
 
+import android.annotation.NonNull;
 import android.app.ActivityManagerNative;
 import android.content.Context;
 import android.net.ConnectivityManager;
@@ -43,6 +53,7 @@ import android.net.InterfaceConfiguration;
 import android.net.IpPrefix;
 import android.net.LinkAddress;
 import android.net.Network;
+import android.net.NetworkPolicyManager;
 import android.net.NetworkStats;
 import android.net.NetworkUtils;
 import android.net.RouteInfo;
@@ -107,8 +118,8 @@ import java.util.concurrent.CountDownLatch;
  */
 public class NetworkManagementService extends INetworkManagementService.Stub
         implements Watchdog.Monitor {
-    private static final String TAG = "NetworkManagementService";
-    private static final boolean DBG = false;
+    private static final String TAG = "NetworkManagement";
+    private static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
     private static final String NETD_TAG = "NetdConnector";
     private static final String NETD_SOCKET_NAME = "netd";
 
@@ -119,6 +130,19 @@ public class NetworkManagementService extends INetworkManagementService.Stub
      * {@link INetworkManagementEventObserver#limitReached(String, String)}.
      */
     public static final String LIMIT_GLOBAL_ALERT = "globalAlert";
+
+    /**
+     * String to pass to netd to indicate that a network is only accessible
+     * to apps that have the CHANGE_NETWORK_STATE permission.
+     */
+    public static final String PERMISSION_NETWORK = "NETWORK";
+
+    /**
+     * String to pass to netd to indicate that a network is only
+     * accessible to system apps and those with the CONNECTIVITY_INTERNAL
+     * permission.
+     */
+    public static final String PERMISSION_SYSTEM = "SYSTEM";
 
     class NetdResponseCode {
         /* Keep in sync with system/netd/server/ResponseCode.h */
@@ -188,6 +212,24 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     /** Set of UIDs with cleartext penalties. */
     @GuardedBy("mQuotaLock")
     private SparseIntArray mUidCleartextPolicy = new SparseIntArray();
+    /** Set of UIDs that are to be blocked/allowed by firewall controller. */
+    @GuardedBy("mQuotaLock")
+    private SparseIntArray mUidFirewallRules = new SparseIntArray();
+    /**
+     * Set of UIDs that are to be blocked/allowed by firewall controller.  This set of Ids matches
+     * to application idles.
+     */
+    @GuardedBy("mQuotaLock")
+    private SparseIntArray mUidFirewallStandbyRules = new SparseIntArray();
+    /**
+     * Set of UIDs that are to be blocked/allowed by firewall controller.  This set of Ids matches
+     * to device idles.
+     */
+    @GuardedBy("mQuotaLock")
+    private SparseIntArray mUidFirewallDozableRules = new SparseIntArray();
+    /** Set of states for the child firewall chains. True if the chain is active. */
+    @GuardedBy("mQuotaLock")
+    final SparseBooleanArray mFirewallChainStates = new SparseBooleanArray();
 
     private Object mIdleTimerLock = new Object();
     /** Set of interfaces with active idle timers. */
@@ -226,14 +268,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
 
         // make sure this is on the same looper as our NativeDaemonConnector for sync purposes
         mFgHandler = new Handler(FgThread.get().getLooper());
-
-        if ("simulator".equals(SystemProperties.get("ro.product.device"))) {
-            mConnector = null;
-            mThread = null;
-            mDaemonHandler = null;
-            mPhoneStateListener = null;
-            return;
-        }
 
         // Don't need this wake lock, since we now have a time stamp for when
         // the network actually went inactive.  (It might be nice to still do this,
@@ -563,10 +597,48 @@ public class NetworkManagementService extends INetworkManagementService.Stub
                     setUidCleartextNetworkPolicy(local.keyAt(i), local.valueAt(i));
                 }
             }
-        }
 
-        // TODO: Push any existing firewall state
-        setFirewallEnabled(mFirewallEnabled || LockdownVpnTracker.isEnabled());
+            setFirewallEnabled(mFirewallEnabled || LockdownVpnTracker.isEnabled());
+
+            size = mUidFirewallRules.size();
+            if (size > 0) {
+                Slog.d(TAG, "Pushing " + size + " active firewall UID rules");
+                final SparseIntArray uidFirewallRules = mUidFirewallRules;
+                mUidFirewallRules = new SparseIntArray();
+                for (int i = 0; i < uidFirewallRules.size(); i++) {
+                    setFirewallUidRuleInternal(FIREWALL_CHAIN_NONE, uidFirewallRules.keyAt(i),
+                            uidFirewallRules.valueAt(i));
+                }
+            }
+
+            size = mUidFirewallStandbyRules.size();
+            if (size > 0) {
+                Slog.d(TAG, "Pushing " + size + " active firewall standby UID rules");
+                final SparseIntArray uidFirewallRules = mUidFirewallStandbyRules;
+                mUidFirewallStandbyRules = new SparseIntArray();
+                for (int i = 0; i < uidFirewallRules.size(); i++) {
+                    setFirewallUidRuleInternal(FIREWALL_CHAIN_STANDBY, uidFirewallRules.keyAt(i),
+                            uidFirewallRules.valueAt(i));
+                }
+            }
+            if (mFirewallChainStates.get(FIREWALL_CHAIN_STANDBY)) {
+                setFirewallChainEnabled(FIREWALL_CHAIN_STANDBY, true);
+            }
+
+            size = mUidFirewallDozableRules.size();
+            if (size > 0) {
+                Slog.d(TAG, "Pushing " + size + " active firewall dozable UID rules");
+                final SparseIntArray uidFirewallRules = mUidFirewallDozableRules;
+                mUidFirewallDozableRules = new SparseIntArray();
+                for (int i = 0; i < uidFirewallRules.size(); i++) {
+                    setFirewallUidRuleInternal(FIREWALL_CHAIN_DOZABLE, uidFirewallRules.keyAt(i),
+                            uidFirewallRules.valueAt(i));
+                }
+            }
+            if (mFirewallChainStates.get(FIREWALL_CHAIN_DOZABLE)) {
+                setFirewallChainEnabled(FIREWALL_CHAIN_DOZABLE, true);
+            }
+        }
     }
 
     /**
@@ -1414,7 +1486,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             WifiConfiguration wifiConfig, String wlanIface) {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
         try {
-            wifiFirmwareReload(wlanIface, "AP");
             if (wifiConfig == null) {
                 mConnector.execute("softap", "set", wlanIface);
             } else {
@@ -1899,7 +1970,7 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     public void setFirewallEnabled(boolean enabled) {
         enforceSystemUid();
         try {
-            mConnector.execute("firewall", enabled ? "enable" : "disable");
+            mConnector.execute("firewall", "enable", enabled ? "whitelist" : "blacklist");
             mFirewallEnabled = enabled;
         } catch (NativeDaemonConnectorException e) {
             throw e.rethrowAsParcelableException();
@@ -1949,14 +2020,158 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     @Override
-    public void setFirewallUidRule(int uid, boolean allow) {
+    public void setFirewallChainEnabled(int chain, boolean enable) {
         enforceSystemUid();
-        Preconditions.checkState(mFirewallEnabled);
-        final String rule = allow ? "allow" : "deny";
-        try {
-            mConnector.execute("firewall", "set_uid_rule", uid, rule);
-        } catch (NativeDaemonConnectorException e) {
-            throw e.rethrowAsParcelableException();
+        synchronized (mQuotaLock) {
+            if (mFirewallChainStates.get(chain, false) == enable) {
+                // All is the same, nothing to do.  This relies on the fact that netd has child
+                // chains default detached.
+                return;
+            }
+            mFirewallChainStates.put(chain, enable);
+
+            final String operation = enable ? "enable_chain" : "disable_chain";
+            try {
+                String chainName;
+                switch(chain) {
+                    case FIREWALL_CHAIN_STANDBY:
+                        chainName = FIREWALL_CHAIN_NAME_STANDBY;
+                        break;
+                    case FIREWALL_CHAIN_DOZABLE:
+                        chainName = FIREWALL_CHAIN_NAME_DOZABLE;
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Bad child chain: " + chain);
+                }
+                mConnector.execute("firewall", operation, chainName);
+            } catch (NativeDaemonConnectorException e) {
+                throw e.rethrowAsParcelableException();
+            }
+        }
+    }
+
+    private int getFirewallType(int chain) {
+        switch (chain) {
+            case FIREWALL_CHAIN_STANDBY:
+                return FIREWALL_TYPE_BLACKLIST;
+            case FIREWALL_CHAIN_DOZABLE:
+                return FIREWALL_TYPE_WHITELIST;
+            default:
+                return isFirewallEnabled() ? FIREWALL_TYPE_WHITELIST : FIREWALL_TYPE_BLACKLIST;
+        }
+    }
+
+    @Override
+    public void setFirewallUidRules(int chain, int[] uids, int[] rules) {
+        enforceSystemUid();
+        synchronized (mQuotaLock) {
+            SparseIntArray uidFirewallRules = getUidFirewallRules(chain);
+            SparseIntArray newRules = new SparseIntArray();
+            // apply new set of rules
+            for (int index = uids.length - 1; index >= 0; --index) {
+                int uid = uids[index];
+                int rule = rules[index];
+                setFirewallUidRule(chain, uid, rule);
+                newRules.put(uid, rule);
+            }
+            // collect the rules to remove.
+            SparseIntArray rulesToRemove = new SparseIntArray();
+            for (int index = uidFirewallRules.size() - 1; index >= 0; --index) {
+                int uid = uidFirewallRules.keyAt(index);
+                if (newRules.indexOfKey(uid) < 0) {
+                    rulesToRemove.put(uid, FIREWALL_RULE_DEFAULT);
+                }
+            }
+            // remove dead rules
+            for (int index = rulesToRemove.size() - 1; index >= 0; --index) {
+                int uid = rulesToRemove.keyAt(index);
+                setFirewallUidRuleInternal(chain, uid, FIREWALL_RULE_DEFAULT);
+            }
+        }
+    }
+
+    @Override
+    public void setFirewallUidRule(int chain, int uid, int rule) {
+        enforceSystemUid();
+        setFirewallUidRuleInternal(chain, uid, rule);
+    }
+
+    private void setFirewallUidRuleInternal(int chain, int uid, int rule) {
+        synchronized (mQuotaLock) {
+            SparseIntArray uidFirewallRules = getUidFirewallRules(chain);
+
+            final int oldUidFirewallRule = uidFirewallRules.get(uid, FIREWALL_RULE_DEFAULT);
+            if (DBG) {
+                Slog.d(TAG, "oldRule = " + oldUidFirewallRule
+                        + ", newRule=" + rule + " for uid=" + uid);
+            }
+            if (oldUidFirewallRule == rule) {
+                if (DBG) Slog.d(TAG, "!!!!! Skipping change");
+                // TODO: eventually consider throwing
+                return;
+            }
+
+            try {
+                String ruleName = getFirewallRuleName(chain, rule);
+                String oldRuleName = getFirewallRuleName(chain, oldUidFirewallRule);
+
+                if (rule == NetworkPolicyManager.FIREWALL_RULE_DEFAULT) {
+                    uidFirewallRules.delete(uid);
+                } else {
+                    uidFirewallRules.put(uid, rule);
+                }
+
+                if (!ruleName.equals(oldRuleName)) {
+                    mConnector.execute("firewall", "set_uid_rule", getFirewallChainName(chain), uid,
+                            ruleName);
+                }
+            } catch (NativeDaemonConnectorException e) {
+                throw e.rethrowAsParcelableException();
+            }
+        }
+    }
+
+    private @NonNull String getFirewallRuleName(int chain, int rule) {
+        String ruleName;
+        if (getFirewallType(chain) == FIREWALL_TYPE_WHITELIST) {
+            if (rule == NetworkPolicyManager.FIREWALL_RULE_ALLOW) {
+                ruleName = "allow";
+            } else {
+                ruleName = "deny";
+            }
+        } else { // Blacklist mode
+            if (rule == NetworkPolicyManager.FIREWALL_RULE_DENY) {
+                ruleName = "deny";
+            } else {
+                ruleName = "allow";
+            }
+        }
+        return ruleName;
+    }
+
+    private @NonNull SparseIntArray getUidFirewallRules(int chain) {
+        switch (chain) {
+            case FIREWALL_CHAIN_STANDBY:
+                return mUidFirewallStandbyRules;
+            case FIREWALL_CHAIN_DOZABLE:
+                return mUidFirewallDozableRules;
+            case FIREWALL_CHAIN_NONE:
+                return mUidFirewallRules;
+            default:
+                throw new IllegalArgumentException("Unknown chain:" + chain);
+        }
+    }
+
+    public @NonNull String getFirewallChainName(int chain) {
+        switch (chain) {
+            case FIREWALL_CHAIN_STANDBY:
+                return FIREWALL_CHAIN_NAME_STANDBY;
+            case FIREWALL_CHAIN_DOZABLE:
+                return FIREWALL_CHAIN_NAME_DOZABLE;
+            case FIREWALL_CHAIN_NONE:
+                return FIREWALL_CHAIN_NAME_NONE;
+            default:
+                throw new IllegalArgumentException("Unknown chain:" + chain);
         }
     }
 
@@ -2072,6 +2287,46 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             pw.println("]");
         }
 
+        synchronized (mUidFirewallRules) {
+            pw.print("UID firewall rule: [");
+            final int size = mUidFirewallRules.size();
+            for (int i = 0; i < size; i++) {
+                pw.print(mUidFirewallRules.keyAt(i));
+                pw.print(":");
+                pw.print(mUidFirewallRules.valueAt(i));
+                if (i < size - 1) pw.print(",");
+            }
+            pw.println("]");
+        }
+
+        pw.println("UID firewall standby chain enabled: " +
+                mFirewallChainStates.get(FIREWALL_CHAIN_STANDBY));
+        synchronized (mUidFirewallStandbyRules) {
+            pw.print("UID firewall standby rule: [");
+            final int size = mUidFirewallStandbyRules.size();
+            for (int i = 0; i < size; i++) {
+                pw.print(mUidFirewallStandbyRules.keyAt(i));
+                pw.print(":");
+                pw.print(mUidFirewallStandbyRules.valueAt(i));
+                if (i < size - 1) pw.print(",");
+            }
+            pw.println("]");
+        }
+
+        pw.println("UID firewall dozable chain enabled: " +
+                mFirewallChainStates.get(FIREWALL_CHAIN_DOZABLE));
+        synchronized (mUidFirewallDozableRules) {
+            pw.print("UID firewall dozable rule: [");
+            final int size = mUidFirewallDozableRules.size();
+            for (int i = 0; i < size; i++) {
+                pw.print(mUidFirewallDozableRules.keyAt(i));
+                pw.print(":");
+                pw.print(mUidFirewallDozableRules.valueAt(i));
+                if (i < size - 1) pw.print(",");
+            }
+            pw.println("]");
+        }
+
         synchronized (mIdleTimerLock) {
             pw.println("Idle timers:");
             for (HashMap.Entry<String, IdleTimerParams> ent : mActiveIdleTimers.entrySet()) {
@@ -2087,11 +2342,15 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     @Override
-    public void createPhysicalNetwork(int netId) {
+    public void createPhysicalNetwork(int netId, String permission) {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
 
         try {
-            mConnector.execute("network", "create", netId);
+            if (permission != null) {
+                mConnector.execute("network", "create", netId, permission);
+            } else {
+                mConnector.execute("network", "create", netId);
+            }
         } catch (NativeDaemonConnectorException e) {
             throw e.rethrowAsParcelableException();
         }
@@ -2181,6 +2440,22 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             throw e.rethrowAsParcelableException();
         }
     }
+
+    @Override
+    public void setNetworkPermission(int netId, String permission) {
+        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
+
+        try {
+            if (permission != null) {
+                mConnector.execute("network", "permission", "network", "set", permission, netId);
+            } else {
+                mConnector.execute("network", "permission", "network", "clear", netId);
+            }
+        } catch (NativeDaemonConnectorException e) {
+            throw e.rethrowAsParcelableException();
+        }
+    }
+
 
     @Override
     public void setPermission(String permission, int[] uids) {

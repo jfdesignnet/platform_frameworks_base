@@ -31,7 +31,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.ColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Outline;
 import android.graphics.Paint;
@@ -53,8 +52,11 @@ import java.util.Arrays;
  * attribute identifier.
  * <p>
  * A touch feedback drawable may contain multiple child layers, including a
- * special mask layer that is not drawn to the screen. A single layer may be set
- * as the mask by specifying its android:id value as {@link android.R.id#mask}.
+ * special mask layer that is not drawn to the screen. A single layer may be
+ * set as the mask from XML by specifying its {@code android:id} value as
+ * {@link android.R.id#mask}. At run time, a single layer may be set as the
+ * mask using {@code setId(..., android.R.id.mask)} or an existing mask layer
+ * may be replaced using {@code setDrawableByLayerId(android.R.id.mask, ...)}.
  * <pre>
  * <code>&lt!-- A red ripple masked against an opaque rectangle. --/>
  * &ltripple android:color="#ffff0000">
@@ -164,6 +166,12 @@ public class RippleDrawable extends LayerDrawable {
     private boolean mOverrideBounds;
 
     /**
+     * If set, force all ripple animations to not run on RenderThread, even if it would be
+     * available.
+     */
+    private boolean mForceSoftware;
+
+    /**
      * Constructor used for drawable inflation.
      */
     RippleDrawable() {
@@ -196,6 +204,7 @@ public class RippleDrawable extends LayerDrawable {
 
         setColor(color);
         ensurePadding();
+        refreshPadding();
         updateLocalState();
     }
 
@@ -227,7 +236,7 @@ public class RippleDrawable extends LayerDrawable {
         mExitingRipplesCount = 0;
 
         // Always draw an additional "clean" frame after canceling animations.
-        invalidateSelf();
+        invalidateSelf(false);
     }
 
     @Override
@@ -291,6 +300,14 @@ public class RippleDrawable extends LayerDrawable {
             onHotspotBoundsChanged();
         }
 
+        if (mBackground != null) {
+            mBackground.onBoundsChange();
+        }
+
+        if (mRipple != null) {
+            mRipple.onBoundsChange();
+        }
+
         invalidateSelf();
     }
 
@@ -323,17 +340,29 @@ public class RippleDrawable extends LayerDrawable {
      */
     @Override
     public boolean isProjected() {
-        // If the maximum radius is contained entirely within the bounds, we
-        // don't need to project this ripple.
-        final int radius = mState.mMaxRadius;
-        final Rect bounds = getBounds();
-        if (radius != RADIUS_AUTO && radius <= bounds.width() / 2
-                && radius <= bounds.height() / 2) {
+        // If the layer is bounded, then we don't need to project.
+        if (isBounded()) {
             return false;
         }
 
-        // Otherwise, if the layer is bounded then we don't need to project.
-        return !isBounded();
+        // Otherwise, if the maximum radius is contained entirely within the
+        // bounds then we don't need to project. This is sort of a hack to
+        // prevent check box ripples from being projected across the edges of
+        // scroll views. It does not impact rendering performance, and it can
+        // be removed once we have better handling of projection in scrollable
+        // views.
+        final int radius = mState.mMaxRadius;
+        final Rect drawableBounds = getBounds();
+        final Rect hotspotBounds = mHotspotBounds;
+        if (radius != RADIUS_AUTO
+                && radius <= hotspotBounds.width() / 2
+                && radius <= hotspotBounds.height() / 2
+                && (drawableBounds.equals(hotspotBounds)
+                        || drawableBounds.contains(hotspotBounds))) {
+            return false;
+        }
+
+        return true;
     }
 
     private boolean isBounded() {
@@ -354,7 +383,7 @@ public class RippleDrawable extends LayerDrawable {
      */
     public void setColor(ColorStateList color) {
         mState.mColor = color;
-        invalidateSelf();
+        invalidateSelf(false);
     }
 
     /**
@@ -366,7 +395,7 @@ public class RippleDrawable extends LayerDrawable {
      */
     public void setRadius(int radius) {
         mState.mMaxRadius = radius;
-        invalidateSelf();
+        invalidateSelf(false);
     }
 
     /**
@@ -401,6 +430,7 @@ public class RippleDrawable extends LayerDrawable {
         if (super.setDrawableByLayerId(id, drawable)) {
             if (id == R.id.mask) {
                 mMask = drawable;
+                mHasValidMask = false;
             }
 
             return true;
@@ -467,7 +497,7 @@ public class RippleDrawable extends LayerDrawable {
     private void setTargetDensity(DisplayMetrics metrics) {
         if (mDensity != metrics.density) {
             mDensity = metrics.density;
-            invalidateSelf();
+            invalidateSelf(false);
         }
     }
 
@@ -522,7 +552,7 @@ public class RippleDrawable extends LayerDrawable {
      */
     private void tryBackgroundEnter(boolean focused) {
         if (mBackground == null) {
-            mBackground = new RippleBackground(this, mHotspotBounds);
+            mBackground = new RippleBackground(this, mHotspotBounds, mForceSoftware);
         }
 
         mBackground.setup(mState.mMaxRadius, mDensity);
@@ -560,7 +590,7 @@ public class RippleDrawable extends LayerDrawable {
             }
 
             final boolean isBounded = isBounded();
-            mRipple = new RippleForeground(this, mHotspotBounds, x, y, isBounded);
+            mRipple = new RippleForeground(this, mHotspotBounds, x, y, isBounded, mForceSoftware);
         }
 
         mRipple.setup(mState.mMaxRadius, mDensity);
@@ -674,10 +704,17 @@ public class RippleDrawable extends LayerDrawable {
 
     @Override
     public void invalidateSelf() {
+        invalidateSelf(true);
+    }
+
+    void invalidateSelf(boolean invalidateMask) {
         super.invalidateSelf();
 
-        // Force the mask to update on the next draw().
-        mHasValidMask = false;
+        if (invalidateMask) {
+            // Force the mask to update on the next draw().
+            mHasValidMask = false;
+        }
+
     }
 
     private void pruneRipples() {
@@ -755,12 +792,16 @@ public class RippleDrawable extends LayerDrawable {
             mMaskColorFilter = new PorterDuffColorFilter(0, PorterDuff.Mode.SRC_IN);
         }
 
-        // Draw the appropriate mask.
+        // Draw the appropriate mask anchored to (0,0).
+        final int left = bounds.left;
+        final int top = bounds.top;
+        mMaskCanvas.translate(-left, -top);
         if (maskType == MASK_EXPLICIT) {
             drawMask(mMaskCanvas);
         } else if (maskType == MASK_CONTENT) {
             drawContent(mMaskCanvas);
         }
+        mMaskCanvas.translate(left, top);
     }
 
     private int getMaskType() {
@@ -820,7 +861,8 @@ public class RippleDrawable extends LayerDrawable {
 
         // Position the shader to account for canvas translation.
         if (mMaskShader != null) {
-            mMaskMatrix.setTranslate(-x, -y);
+            final Rect bounds = getBounds();
+            mMaskMatrix.setTranslate(bounds.left - x, bounds.top - y);
             mMaskShader.setLocalMatrix(mMaskMatrix);
         }
 
@@ -913,6 +955,16 @@ public class RippleDrawable extends LayerDrawable {
         }
     }
 
+    /**
+     * Sets whether to disable RenderThread animations for this ripple.
+     *
+     * @param forceSoftware true if RenderThread animations should be disabled, false otherwise
+     * @hide
+     */
+    public void setForceSoftware(boolean forceSoftware) {
+        mForceSoftware = forceSoftware;
+    }
+
     @Override
     public ConstantState getConstantState() {
         return mState;
@@ -983,6 +1035,7 @@ public class RippleDrawable extends LayerDrawable {
 
         if (mState.mNum > 0) {
             ensurePadding();
+            refreshPadding();
         }
 
         if (res != null) {

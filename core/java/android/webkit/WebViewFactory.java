@@ -40,7 +40,10 @@ import com.android.server.LocalServices;
 import dalvik.system.VMRuntime;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * Top level factory, used creating all the main WebView implementation classes.
@@ -93,49 +96,27 @@ public final class WebViewFactory {
         public MissingWebViewPackageException(Exception e) { super(e); }
     }
 
-    /** @hide */
-    public static String[] getWebViewPackageNames() {
-        return AppGlobals.getInitialApplication().getResources().getStringArray(
-                com.android.internal.R.array.config_webViewPackageNames);
-    }
-
-    // TODO (gsennton) remove when committing webview xts test change
     public static String getWebViewPackageName() {
-        String[] webViewPackageNames = getWebViewPackageNames();
-        return webViewPackageNames[webViewPackageNames.length-1];
+        return AppGlobals.getInitialApplication().getString(
+                com.android.internal.R.string.config_webViewPackageName);
     }
 
-    /**
-     * Return the package info of the first package in the webview priority list that contains
-     * webview.
-     *
-     * @hide
-     */
-    public static PackageInfo findPreferredWebViewPackage() {
+    private static PackageInfo fetchPackageInfo() {
         PackageManager pm = AppGlobals.getInitialApplication().getPackageManager();
-
-        for (String packageName : getWebViewPackageNames()) {
-            try {
-                PackageInfo packageInfo = pm.getPackageInfo(packageName,
-                    PackageManager.GET_META_DATA);
-                ApplicationInfo applicationInfo = packageInfo.applicationInfo;
-
-                // If the correct flag is set the package contains webview.
-                if (getWebViewLibrary(applicationInfo) != null) {
-                    return packageInfo;
-                }
-            } catch (PackageManager.NameNotFoundException e) {
-            }
+        try {
+            return pm.getPackageInfo(getWebViewPackageName(), PackageManager.GET_META_DATA);
+        } catch (PackageManager.NameNotFoundException e) {
+            throw new MissingWebViewPackageException(e);
         }
-        throw new MissingWebViewPackageException("Could not find a loadable WebView package");
     }
 
     // throws MissingWebViewPackageException
     private static ApplicationInfo getWebViewApplicationInfo() {
-        if (sPackageInfo == null)
-            return findPreferredWebViewPackage().applicationInfo;
-        else
+        if (sPackageInfo == null) {
+            return fetchPackageInfo().applicationInfo;
+        } else {
             return sPackageInfo.applicationInfo;
+        }
     }
 
     private static String getWebViewLibrary(ApplicationInfo ai) {
@@ -150,10 +131,10 @@ public final class WebViewFactory {
 
     /**
      * Load the native library for the given package name iff that package
-     * name is the same as the one providing the current webview.
+     * name is the same as the one providing the webview.
      */
     public static int loadWebViewNativeLibraryFromPackage(String packageName) {
-        sPackageInfo = findPreferredWebViewPackage();
+        sPackageInfo = fetchPackageInfo();
         if (packageName != null && packageName.equals(sPackageInfo.packageName)) {
             return loadNativeLibrary();
         }
@@ -199,7 +180,7 @@ public final class WebViewFactory {
     private static Class<WebViewFactoryProvider> getProviderClass() {
         try {
             // First fetch the package info so we can log the webview package version.
-            sPackageInfo = findPreferredWebViewPackage();
+            sPackageInfo = fetchPackageInfo();
             Log.i(LOGTAG, "Loading " + sPackageInfo.packageName + " version " +
                 sPackageInfo.versionName + " (code " + sPackageInfo.versionCode + ")");
 
@@ -238,8 +219,8 @@ public final class WebViewFactory {
         try {
             // Construct a package context to load the Java code into the current app.
             Context webViewContext = initialApplication.createPackageContext(
-                sPackageInfo.packageName,
-                Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
+                    sPackageInfo.packageName,
+                    Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
             initialApplication.getAssets().addAssetPath(
                     webViewContext.getApplicationInfo().sourceDir);
             ClassLoader clazzLoader = webViewContext.getClassLoader();
@@ -323,15 +304,29 @@ public final class WebViewFactory {
                 long newVmSize = 0L;
 
                 for (String path : nativeLibs) {
+                    if (path == null || TextUtils.isEmpty(path)) continue;
                     if (DEBUG) Log.d(LOGTAG, "Checking file size of " + path);
-                    if (path == null) continue;
                     File f = new File(path);
                     if (f.exists()) {
-                        long length = f.length();
-                        if (length > newVmSize) {
-                            newVmSize = length;
+                        newVmSize = Math.max(newVmSize, f.length());
+                        continue;
+                    }
+                    if (path.contains("!/")) {
+                        String[] split = TextUtils.split(path, "!/");
+                        if (split.length == 2) {
+                            try (ZipFile z = new ZipFile(split[0])) {
+                                ZipEntry e = z.getEntry(split[1]);
+                                if (e != null && e.getMethod() == ZipEntry.STORED) {
+                                    newVmSize = Math.max(newVmSize, e.getSize());
+                                    continue;
+                                }
+                            }
+                            catch (IOException e) {
+                                Log.e(LOGTAG, "error reading APK file " + split[0] + ", ", e);
+                            }
                         }
                     }
+                    Log.e(LOGTAG, "error sizing load for " + path);
                 }
 
                 if (DEBUG) {
@@ -352,6 +347,26 @@ public final class WebViewFactory {
             Log.e(LOGTAG, "error preparing webview native library", t);
         }
         prepareWebViewInSystemServer(nativeLibs);
+    }
+
+    // throws MissingWebViewPackageException
+    private static String getLoadFromApkPath(String apkPath,
+                                             String[] abiList,
+                                             String nativeLibFileName) {
+        // Search the APK for a native library conforming to a listed ABI.
+        try (ZipFile z = new ZipFile(apkPath)) {
+            for (String abi : abiList) {
+                final String entry = "lib/" + abi + "/" + nativeLibFileName;
+                ZipEntry e = z.getEntry(entry);
+                if (e != null && e.getMethod() == ZipEntry.STORED) {
+                    // Return a path formatted for dlopen() load from APK.
+                    return apkPath + "!/" + entry;
+                }
+            }
+        } catch (IOException e) {
+            throw new MissingWebViewPackageException(e);
+        }
+        return "";
     }
 
     // throws MissingWebViewPackageException
@@ -382,8 +397,29 @@ public final class WebViewFactory {
             path32 = ai.nativeLibraryDir;
             path64 = "";
         }
-        if (!TextUtils.isEmpty(path32)) path32 += "/" + NATIVE_LIB_FILE_NAME;
-        if (!TextUtils.isEmpty(path64)) path64 += "/" + NATIVE_LIB_FILE_NAME;
+
+        // Form the full paths to the extracted native libraries.
+        // If libraries were not extracted, try load from APK paths instead.
+        if (!TextUtils.isEmpty(path32)) {
+            path32 += "/" + NATIVE_LIB_FILE_NAME;
+            File f = new File(path32);
+            if (!f.exists()) {
+                path32 = getLoadFromApkPath(ai.sourceDir,
+                                            Build.SUPPORTED_32_BIT_ABIS,
+                                            NATIVE_LIB_FILE_NAME);
+            }
+        }
+        if (!TextUtils.isEmpty(path64)) {
+            path64 += "/" + NATIVE_LIB_FILE_NAME;
+            File f = new File(path64);
+            if (!f.exists()) {
+                path64 = getLoadFromApkPath(ai.sourceDir,
+                                            Build.SUPPORTED_64_BIT_ABIS,
+                                            NATIVE_LIB_FILE_NAME);
+            }
+        }
+
+        if (DEBUG) Log.v(LOGTAG, "Native 32-bit lib: " + path32 + ", 64-bit lib: " + path64);
         return new String[] { path32, path64 };
     }
 

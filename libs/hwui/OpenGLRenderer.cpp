@@ -40,6 +40,7 @@
 
 #include <SkCanvas.h>
 #include <SkColor.h>
+#include <SkPathOps.h>
 #include <SkShader.h>
 #include <SkTypeface.h>
 
@@ -76,9 +77,6 @@ OpenGLRenderer::OpenGLRenderer(RenderState& renderState)
         , mLightRadius(FLT_MIN)
         , mAmbientShadowAlpha(0)
         , mSpotShadowAlpha(0) {
-    // *set* draw modifiers to be 0
-    memset(&mDrawModifiers, 0, sizeof(mDrawModifiers));
-    mDrawModifiers.mOverrideLayerAlpha = 1.0f;
 }
 
 OpenGLRenderer::~OpenGLRenderer() {
@@ -97,12 +95,15 @@ void OpenGLRenderer::initProperties() {
     }
 }
 
-void OpenGLRenderer::initLight(const Vector3& lightCenter, float lightRadius,
-        uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha) {
-    mLightCenter = lightCenter;
+void OpenGLRenderer::initLight(float lightRadius, uint8_t ambientShadowAlpha,
+        uint8_t spotShadowAlpha) {
     mLightRadius = lightRadius;
     mAmbientShadowAlpha = ambientShadowAlpha;
     mSpotShadowAlpha = spotShadowAlpha;
+}
+
+void OpenGLRenderer::setLightCenter(const Vector3& lightCenter) {
+    mLightCenter = lightCenter;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -248,7 +249,7 @@ bool OpenGLRenderer::finish() {
 #if DEBUG_MEMORY_USAGE
         mCaches.dumpMemoryUsage();
 #else
-        if (mCaches.getDebugLevel() & kDebugMemory) {
+        if (Properties::debugLevel & kDebugMemory) {
             mCaches.dumpMemoryUsage();
         }
 #endif
@@ -342,7 +343,7 @@ void OpenGLRenderer::debugOverdraw(bool enable, bool clear) {
 }
 
 void OpenGLRenderer::renderOverdraw() {
-    if (mCaches.debugOverdraw && getTargetFbo() == 0) {
+    if (Properties::debugOverdraw && getTargetFbo() == 0) {
         const Rect* clip = &mTilingClip;
 
         mRenderState.scissor().setEnabled(true);
@@ -384,7 +385,7 @@ bool OpenGLRenderer::updateLayer(Layer* layer, bool inFrame) {
             debugOverdraw(false, false);
         }
 
-        if (CC_UNLIKELY(inFrame || mCaches.drawDeferDisabled)) {
+        if (CC_UNLIKELY(inFrame || Properties::drawDeferDisabled)) {
             layer->render(*this);
         } else {
             layer->defer(*this);
@@ -395,7 +396,7 @@ bool OpenGLRenderer::updateLayer(Layer* layer, bool inFrame) {
             startTilingCurrentClip();
         }
 
-        layer->debugDrawUpdate = mCaches.debugLayersUpdates;
+        layer->debugDrawUpdate = Properties::debugLayersUpdates;
         layer->hasDrawnSinceUpdate = false;
 
         return true;
@@ -410,7 +411,7 @@ void OpenGLRenderer::updateLayers() {
     // in the layer updates list which will be cleared by flushLayers().
     int count = mLayerUpdates.size();
     if (count > 0) {
-        if (CC_UNLIKELY(mCaches.drawDeferDisabled)) {
+        if (CC_UNLIKELY(Properties::drawDeferDisabled)) {
             startMark("Layer Updates");
         } else {
             startMark("Defer Layer Updates");
@@ -422,7 +423,7 @@ void OpenGLRenderer::updateLayers() {
             updateLayer(layer, false);
         }
 
-        if (CC_UNLIKELY(mCaches.drawDeferDisabled)) {
+        if (CC_UNLIKELY(Properties::drawDeferDisabled)) {
             mLayerUpdates.clear();
             mRenderState.bindFramebuffer(getTargetFbo());
         }
@@ -826,7 +827,7 @@ void OpenGLRenderer::composeLayer(const Snapshot& removed, const Snapshot& resto
         // the layer contains screen buffer content that shouldn't be alpha modulated
         // (and any necessary alpha modulation was handled drawing into the layer)
         writableSnapshot()->alpha = 1.0f;
-        composeLayerRect(layer, rect, true);
+        composeLayerRectSwapped(layer, rect);
         restore();
     }
 
@@ -841,40 +842,49 @@ void OpenGLRenderer::composeLayer(const Snapshot& removed, const Snapshot& resto
 }
 
 void OpenGLRenderer::drawTextureLayer(Layer* layer, const Rect& rect) {
-    bool snap = !layer->getForceFilter()
+    const bool tryToSnap = !layer->getForceFilter()
             && layer->getWidth() == (uint32_t) rect.getWidth()
             && layer->getHeight() == (uint32_t) rect.getHeight();
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedUvQuad(nullptr, Rect(0, 1, 1, 0)) // TODO: simplify with VBO
             .setFillTextureLayer(*layer, getLayerAlpha(layer))
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
-            .setModelViewMapUnitToRectOptionalSnap(snap, rect)
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
+            .setTransform(*currentSnapshot(), TransformFlags::None)
+            .setModelViewMapUnitToRectOptionalSnap(tryToSnap, rect)
             .build();
     renderGlop(glop);
 }
 
-void OpenGLRenderer::composeLayerRect(Layer* layer, const Rect& rect, bool swap) {
+void OpenGLRenderer::composeLayerRectSwapped(Layer* layer, const Rect& rect) {
+    Glop glop;
+    GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
+            .setMeshTexturedUvQuad(nullptr, layer->texCoords)
+            .setFillLayer(layer->getTexture(), layer->getColorFilter(),
+                    getLayerAlpha(layer), layer->getMode(), Blend::ModeOrderSwap::Swap)
+            .setTransform(*currentSnapshot(), TransformFlags::MeshIgnoresCanvasTransform)
+            .setModelViewMapUnitToRect(rect)
+            .build();
+    renderGlop(glop);
+}
+
+void OpenGLRenderer::composeLayerRect(Layer* layer, const Rect& rect) {
     if (layer->isTextureLayer()) {
         EVENT_LOGD("composeTextureLayerRect");
         drawTextureLayer(layer, rect);
     } else {
         EVENT_LOGD("composeHardwareLayerRect");
 
-        Blend::ModeOrderSwap modeUsage = swap ?
-                Blend::ModeOrderSwap::Swap : Blend::ModeOrderSwap::NoSwap;
-        const Matrix4& transform = swap ? Matrix4::identity() : *currentTransform();
-        bool snap = !swap
-                && layer->getWidth() == static_cast<uint32_t>(rect.getWidth())
+        const bool tryToSnap = layer->getWidth() == static_cast<uint32_t>(rect.getWidth())
                 && layer->getHeight() == static_cast<uint32_t>(rect.getHeight());
         Glop glop;
         GlopBuilder(mRenderState, mCaches, &glop)
-                .setMeshTexturedUvQuad(nullptr, layer->texCoords)
-                .setFillLayer(layer->getTexture(), layer->getColorFilter(), getLayerAlpha(layer), layer->getMode(), modeUsage)
-                .setTransform(currentSnapshot()->getOrthoMatrix(), transform, false)
-                .setModelViewMapUnitToRectOptionalSnap(snap, rect)
                 .setRoundRectClipState(currentSnapshot()->roundRectClipState)
+                .setMeshTexturedUvQuad(nullptr, layer->texCoords)
+                .setFillLayer(layer->getTexture(), layer->getColorFilter(), getLayerAlpha(layer), layer->getMode(), Blend::ModeOrderSwap::NoSwap)
+                .setTransform(*currentSnapshot(), TransformFlags::None)
+                .setModelViewMapUnitToRectOptionalSnap(tryToSnap, rect)
                 .build();
         renderGlop(glop);
     }
@@ -886,13 +896,13 @@ void OpenGLRenderer::composeLayerRect(Layer* layer, const Rect& rect, bool swap)
  * operations are correctly counted twice for overdraw. NOTE: assumes composeLayerRegion only used
  * by saveLayer's restore
  */
-#define DRAW_DOUBLE_STENCIL_IF(COND, DRAW_COMMAND) {                             \
-        DRAW_COMMAND;                                                            \
-        if (CC_UNLIKELY(mCaches.debugOverdraw && getTargetFbo() == 0 && COND)) { \
-            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);                 \
-            DRAW_COMMAND;                                                        \
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);                     \
-        }                                                                        \
+#define DRAW_DOUBLE_STENCIL_IF(COND, DRAW_COMMAND) { \
+        DRAW_COMMAND; \
+        if (CC_UNLIKELY(Properties::debugOverdraw && getTargetFbo() == 0 && COND)) { \
+            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); \
+            DRAW_COMMAND; \
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); \
+        } \
     }
 
 #define DRAW_DOUBLE_STENCIL(DRAW_COMMAND) DRAW_DOUBLE_STENCIL_IF(true, DRAW_COMMAND)
@@ -1011,11 +1021,11 @@ void OpenGLRenderer::composeLayerRegion(Layer* layer, const Rect& rect) {
     Rect modelRect = Rect(rect.getWidth(), rect.getHeight());
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedIndexedQuads(&quadVertices[0], count * 6)
             .setFillLayer(layer->getTexture(), layer->getColorFilter(), getLayerAlpha(layer), layer->getMode(), Blend::ModeOrderSwap::NoSwap)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
+            .setTransform(*currentSnapshot(),  TransformFlags::None)
             .setModelViewOffsetRectSnap(rect.left, rect.top, modelRect)
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     DRAW_DOUBLE_STENCIL_IF(!layer->hasDrawnSinceUpdate, renderGlop(glop));
 
@@ -1087,7 +1097,7 @@ void OpenGLRenderer::dirtyLayer(const float left, const float top,
 }
 
 void OpenGLRenderer::dirtyLayerUnchecked(Rect& bounds, Region* region) {
-    if (bounds.intersect(mState.currentClipRect())) {
+    if (CC_LIKELY(!bounds.isEmpty() && bounds.intersect(mState.currentClipRect()))) {
         bounds.snapToPixelBoundaries();
         android::Rect dirty(bounds.left, bounds.top, bounds.right, bounds.bottom);
         if (!dirty.isEmpty()) {
@@ -1127,15 +1137,16 @@ void OpenGLRenderer::clearLayerRegions() {
         // stencil setup from doing the same thing again
         mLayers.clear();
 
+        const int transformFlags = TransformFlags::MeshIgnoresCanvasTransform;
         Glop glop;
         GlopBuilder(mRenderState, mCaches, &glop)
+                .setRoundRectClipState(nullptr) // clear ignores clip state
                 .setMeshIndexedQuads(&mesh[0], quadCount)
                 .setFillClear()
-                .setTransform(currentSnapshot()->getOrthoMatrix(), Matrix4::identity(), false)
+                .setTransform(*currentSnapshot(), transformFlags)
                 .setModelViewOffsetRect(0, 0, Rect(currentSnapshot()->getClipRect()))
-                .setRoundRectClipState(currentSnapshot()->roundRectClipState)
                 .build();
-        renderGlop(glop, false);
+        renderGlop(glop, GlopRenderType::LayerClear);
 
         if (scissorChanged) mRenderState.scissor().setEnabled(true);
     } else {
@@ -1188,22 +1199,22 @@ bool OpenGLRenderer::storeDisplayState(DeferredDisplayState& state, int stateDef
         state.mClip.set(currentClip);
     }
 
-    // Transform, drawModifiers, and alpha always deferred, since they are used by state operations
+    // Transform and alpha always deferred, since they are used by state operations
     // (Note: saveLayer/restore use colorFilter and alpha, so we just save restore everything)
     state.mMatrix.load(*currentMatrix);
-    state.mDrawModifiers = mDrawModifiers;
     state.mAlpha = currentSnapshot()->alpha;
 
-    // always store/restore, since it's just a pointer
+    // always store/restore, since these are just pointers
     state.mRoundRectClipState = currentSnapshot()->roundRectClipState;
+    state.mProjectionPathMask = currentSnapshot()->projectionPathMask;
     return false;
 }
 
 void OpenGLRenderer::restoreDisplayState(const DeferredDisplayState& state, bool skipClipRestore) {
     setMatrix(state.mMatrix);
     writableSnapshot()->alpha = state.mAlpha;
-    mDrawModifiers = state.mDrawModifiers;
     writableSnapshot()->roundRectClipState = state.mRoundRectClipState;
+    writableSnapshot()->projectionPathMask = state.mProjectionPathMask;
 
     if (state.mClipValid && !skipClipRestore) {
         writableSnapshot()->setClip(state.mClip.left, state.mClip.top,
@@ -1262,7 +1273,7 @@ void OpenGLRenderer::attachStencilBufferToLayer(Layer* layer) {
         endTiling();
 
         RenderBuffer* buffer = mCaches.renderBufferCache.get(
-                Stencil::getSmallestStencilFormat(),
+                Stencil::getLayerStencilFormat(),
                 layer->getWidth(), layer->getHeight());
         layer->setStencilRenderBuffer(buffer);
 
@@ -1315,21 +1326,21 @@ void OpenGLRenderer::drawRectangleList(const RectangleList& rectangleList) {
 
     mRenderState.scissor().set(scissorBox.left, getViewportHeight() - scissorBox.bottom,
             scissorBox.getWidth(), scissorBox.getHeight());
-
+    const int transformFlags = TransformFlags::MeshIgnoresCanvasTransform;
     Glop glop;
     Vertex* vertices = &rectangleVertices[0];
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshIndexedQuads(vertices, rectangleVertices.size() / 4)
             .setFillBlack()
-            .setTransform(currentSnapshot()->getOrthoMatrix(), Matrix4::identity(), false)
+            .setTransform(*currentSnapshot(), transformFlags)
             .setModelViewOffsetRect(0, 0, scissorBox)
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
 
 void OpenGLRenderer::setStencilFromClip() {
-    if (!mCaches.debugOverdraw) {
+    if (!Properties::debugOverdraw) {
         if (!currentSnapshot()->clipIsSimple()) {
             int incrementThreshold;
             EVENT_LOGD("setStencilFromClip - enabling");
@@ -1388,8 +1399,8 @@ void OpenGLRenderer::setStencilFromClip() {
             // Draw the region used to generate the stencil if the appropriate debug
             // mode is enabled
             // TODO: Implement for rectangle list clip areas
-            if (mCaches.debugStencilClip == Caches::kStencilShowRegion &&
-                    !clipArea.isRectangleList()) {
+            if (Properties::debugStencilClip == StencilClipDebug::ShowRegion
+                    && !clipArea.isRectangleList()) {
                 paint.setColor(0x7f0000ff);
                 paint.setXfermodeMode(SkXfermode::kSrcOver_Mode);
                 drawRegionRects(currentSnapshot()->getClipRegion(), paint);
@@ -1443,10 +1454,15 @@ void OpenGLRenderer::debugClip() {
 #endif
 }
 
-void OpenGLRenderer::renderGlop(const Glop& glop, bool clearLayer) {
+void OpenGLRenderer::renderGlop(const Glop& glop, GlopRenderType type) {
     // TODO: It would be best if we could do this before quickRejectSetupScissor()
     //       changes the scissor test state
-    if (clearLayer) clearLayerRegions();
+    if (type != GlopRenderType::LayerClear) {
+        // Regular draws need to clear the dirty area on the layer before they start drawing on top
+        // of it. If this draw *is* a layer clear, it skips the clear step (since it would
+        // infinitely recurse)
+        clearLayerRegions();
+    }
 
     if (mState.getDirtyClip()) {
         if (mRenderState.scissor().isEnabled()) {
@@ -1456,7 +1472,7 @@ void OpenGLRenderer::renderGlop(const Glop& glop, bool clearLayer) {
         setStencilFromClip();
     }
     mRenderState.render(glop);
-    if (!mRenderState.stencil().isWriteEnabled()) {
+    if (type == GlopRenderType::Standard && !mRenderState.stencil().isWriteEnabled()) {
         // TODO: specify more clearly when a draw should dirty the layer.
         // is writing to the stencil the only time we should ignore this?
         dirtyLayer(glop.bounds.left, glop.bounds.top, glop.bounds.right, glop.bounds.bottom);
@@ -1474,7 +1490,7 @@ void OpenGLRenderer::drawRenderNode(RenderNode* renderNode, Rect& dirty, int32_t
     if (renderNode && renderNode->isRenderable()) {
         // compute 3d ordering
         renderNode->computeOrdering();
-        if (CC_UNLIKELY(mCaches.drawDeferDisabled)) {
+        if (CC_UNLIKELY(Properties::drawDeferDisabled)) {
             startFrame();
             ReplayStateStruct replayStruct(*this, dirty, replayFlags);
             renderNode->replay(replayStruct, 0);
@@ -1483,7 +1499,7 @@ void OpenGLRenderer::drawRenderNode(RenderNode* renderNode, Rect& dirty, int32_t
 
         // Don't avoid overdraw when visualizing, since that makes it harder to
         // debug where it's coming from, and when the problem occurs.
-        bool avoidOverdraw = !mCaches.debugOverdraw;
+        bool avoidOverdraw = !Properties::debugOverdraw;
         DeferredDisplayList deferredList(mState.currentClipRect(), avoidOverdraw);
         DeferStateStruct deferStruct(deferredList, *this, replayFlags);
         renderNode->defer(deferStruct, 0);
@@ -1517,17 +1533,19 @@ void OpenGLRenderer::drawBitmaps(const SkBitmap* bitmap, AssetAtlas::Entry* entr
     bool snap = pureTranslate;
     const float x = floorf(bounds.left + 0.5f);
     const float y = floorf(bounds.top + 0.5f);
-    int textureFillFlags = static_cast<int>((bitmap->colorType() == kAlpha_8_SkColorType)
-            ? TextureFillFlags::kIsAlphaMaskTexture : TextureFillFlags::kNone);
+
+    const int textureFillFlags = (bitmap->colorType() == kAlpha_8_SkColorType)
+            ? TextureFillFlags::IsAlphaMaskTexture : TextureFillFlags::None;
+    const int transformFlags = TransformFlags::MeshIgnoresCanvasTransform;
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedMesh(vertices, bitmapCount * 6)
             .setFillTexturePaint(*texture, textureFillFlags, paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), Matrix4::identity(), false)
+            .setTransform(*currentSnapshot(), transformFlags)
             .setModelViewOffsetRectOptionalSnap(snap, x, y, Rect(0, 0, bounds.getWidth(), bounds.getHeight()))
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
-    renderGlop(glop);
+    renderGlop(glop, GlopRenderType::Multi);
 }
 
 void OpenGLRenderer::drawBitmap(const SkBitmap* bitmap, const SkPaint* paint) {
@@ -1540,15 +1558,15 @@ void OpenGLRenderer::drawBitmap(const SkBitmap* bitmap, const SkPaint* paint) {
     if (!texture) return;
     const AutoTexture autoCleanup(texture);
 
-    int textureFillFlags = static_cast<int>((bitmap->colorType() == kAlpha_8_SkColorType)
-            ? TextureFillFlags::kIsAlphaMaskTexture : TextureFillFlags::kNone);
+    const int textureFillFlags = (bitmap->colorType() == kAlpha_8_SkColorType)
+            ? TextureFillFlags::IsAlphaMaskTexture : TextureFillFlags::None;
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedUnitQuad(texture->uvMapper)
             .setFillTexturePaint(*texture, textureFillFlags, paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
+            .setTransform(*currentSnapshot(),  TransformFlags::None)
             .setModelViewMapUnitToRectSnap(Rect(0, 0, texture->width, texture->height))
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
@@ -1608,10 +1626,10 @@ void OpenGLRenderer::drawBitmapMesh(const SkBitmap* bitmap, int meshWidth, int m
             ColorTextureVertex::set(vertex++, vertices[bx], vertices[by], u1, v1, colors[bx / 2]);
             ColorTextureVertex::set(vertex++, vertices[cx], vertices[cy], u2, v1, colors[cx / 2]);
 
-            left = fminf(left, fminf(vertices[ax], fminf(vertices[bx], vertices[cx])));
-            top = fminf(top, fminf(vertices[ay], fminf(vertices[by], vertices[cy])));
-            right = fmaxf(right, fmaxf(vertices[ax], fmaxf(vertices[bx], vertices[cx])));
-            bottom = fmaxf(bottom, fmaxf(vertices[ay], fmaxf(vertices[by], vertices[cy])));
+            left = std::min(left, std::min(vertices[ax], std::min(vertices[bx], vertices[cx])));
+            top = std::min(top, std::min(vertices[ay], std::min(vertices[by], vertices[cy])));
+            right = std::max(right, std::max(vertices[ax], std::max(vertices[bx], vertices[cx])));
+            bottom = std::max(bottom, std::max(vertices[ay], std::max(vertices[by], vertices[cy])));
         }
     }
 
@@ -1631,13 +1649,14 @@ void OpenGLRenderer::drawBitmapMesh(const SkBitmap* bitmap, int meshWidth, int m
      * TODO: handle alpha_8 textures correctly by applying paint color, but *not*
      * shader in that case to mimic the behavior in SkiaCanvas::drawBitmapMesh.
      */
+    const int textureFillFlags = TextureFillFlags::None;
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
-            .setMeshColoredTexturedMesh(mesh.get(), elementCount)
-            .setFillTexturePaint(*texture, static_cast<int>(TextureFillFlags::kNone), paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
-            .setModelViewOffsetRect(0, 0, Rect(left, top, right, bottom))
             .setRoundRectClipState(currentSnapshot()->roundRectClipState)
+            .setMeshColoredTexturedMesh(mesh.get(), elementCount)
+            .setFillTexturePaint(*texture, textureFillFlags, paint, currentSnapshot()->alpha)
+            .setTransform(*currentSnapshot(),  TransformFlags::None)
+            .setModelViewOffsetRect(0, 0, Rect(left, top, right, bottom))
             .build();
     renderGlop(glop);
 }
@@ -1651,20 +1670,22 @@ void OpenGLRenderer::drawBitmap(const SkBitmap* bitmap, Rect src, Rect dst, cons
     if (!texture) return;
     const AutoTexture autoCleanup(texture);
 
-    Rect uv(fmax(0.0f, src.left / texture->width),
-            fmax(0.0f, src.top / texture->height),
-            fmin(1.0f, src.right / texture->width),
-            fmin(1.0f, src.bottom / texture->height));
+    Rect uv(std::max(0.0f, src.left / texture->width),
+            std::max(0.0f, src.top / texture->height),
+            std::min(1.0f, src.right / texture->width),
+            std::min(1.0f, src.bottom / texture->height));
 
-    int textureFillFlags = static_cast<int>((bitmap->colorType() == kAlpha_8_SkColorType)
-            ? TextureFillFlags::kIsAlphaMaskTexture : TextureFillFlags::kNone);
+    const int textureFillFlags = (bitmap->colorType() == kAlpha_8_SkColorType)
+            ? TextureFillFlags::IsAlphaMaskTexture : TextureFillFlags::None;
+    const bool tryToSnap = MathUtils::areEqual(src.getWidth(), dst.getWidth())
+            && MathUtils::areEqual(src.getHeight(), dst.getHeight());
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedUvQuad(texture->uvMapper, uv)
             .setFillTexturePaint(*texture, textureFillFlags, paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
-            .setModelViewMapUnitToRectSnap(dst)
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
+            .setTransform(*currentSnapshot(),  TransformFlags::None)
+            .setModelViewMapUnitToRectOptionalSnap(tryToSnap, dst)
             .build();
     renderGlop(glop);
 }
@@ -1680,17 +1701,17 @@ void OpenGLRenderer::drawPatch(const SkBitmap* bitmap, const Patch* mesh,
     if (!texture) return;
 
     // 9 patches are built for stretching - always filter
-    int textureFillFlags = static_cast<int>(TextureFillFlags::kForceFilter);
+    int textureFillFlags = TextureFillFlags::ForceFilter;
     if (bitmap->colorType() == kAlpha_8_SkColorType) {
-        textureFillFlags |= TextureFillFlags::kIsAlphaMaskTexture;
+        textureFillFlags |= TextureFillFlags::IsAlphaMaskTexture;
     }
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshPatchQuads(*mesh)
             .setFillTexturePaint(*texture, textureFillFlags, paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
+            .setTransform(*currentSnapshot(),  TransformFlags::None)
             .setModelViewOffsetRectSnap(left, top, Rect(0, 0, right - left, bottom - top)) // TODO: get minimal bounds from patch
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
@@ -1708,20 +1729,21 @@ void OpenGLRenderer::drawPatches(const SkBitmap* bitmap, AssetAtlas::Entry* entr
     const AutoTexture autoCleanup(texture);
 
     // TODO: get correct bounds from caller
+    const int transformFlags = TransformFlags::MeshIgnoresCanvasTransform;
     // 9 patches are built for stretching - always filter
-    int textureFillFlags = static_cast<int>(TextureFillFlags::kForceFilter);
+    int textureFillFlags = TextureFillFlags::ForceFilter;
     if (bitmap->colorType() == kAlpha_8_SkColorType) {
-        textureFillFlags |= TextureFillFlags::kIsAlphaMaskTexture;
+        textureFillFlags |= TextureFillFlags::IsAlphaMaskTexture;
     }
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedIndexedQuads(vertices, elementCount)
             .setFillTexturePaint(*texture, textureFillFlags, paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), Matrix4::identity(), false)
+            .setTransform(*currentSnapshot(), transformFlags)
             .setModelViewOffsetRect(0, 0, Rect(0, 0, 0, 0))
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
-    renderGlop(glop);
+    renderGlop(glop, GlopRenderType::Multi);
 }
 
 void OpenGLRenderer::drawVertexBuffer(float translateX, float translateY,
@@ -1732,15 +1754,15 @@ void OpenGLRenderer::drawVertexBuffer(float translateX, float translateY,
         return;
     }
 
-    bool fudgeOffset = displayFlags & kVertexBuffer_Offset;
     bool shadowInterp = displayFlags & kVertexBuffer_ShadowInterp;
+    const int transformFlags = TransformFlags::OffsetByFudgeFactor;
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshVertexBuffer(vertexBuffer, shadowInterp)
             .setFillPaint(*paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), fudgeOffset)
+            .setTransform(*currentSnapshot(), transformFlags)
             .setModelViewOffsetRect(translateX, translateY, vertexBuffer.getBounds())
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
@@ -1757,6 +1779,7 @@ void OpenGLRenderer::drawVertexBuffer(float translateX, float translateY,
 void OpenGLRenderer::drawConvexPath(const SkPath& path, const SkPaint* paint) {
     VertexBuffer vertexBuffer;
     // TODO: try clipping large paths to viewport
+
     PathTessellator::tessellatePath(path, paint, *currentTransform(), vertexBuffer);
     drawVertexBuffer(vertexBuffer, paint);
 }
@@ -1863,19 +1886,41 @@ void OpenGLRenderer::drawCircle(float x, float y, float radius, const SkPaint* p
             || PaintUtils::paintWillNotDraw(*p)) {
         return;
     }
+
     if (p->getPathEffect() != nullptr) {
         mCaches.textureState().activateTexture(0);
         PathTexture* texture = mCaches.pathCache.getCircle(radius, p);
         drawShape(x - radius, y - radius, texture, p);
-    } else {
-        SkPath path;
-        if (p->getStyle() == SkPaint::kStrokeAndFill_Style) {
-            path.addCircle(x, y, radius + p->getStrokeWidth() / 2);
-        } else {
-            path.addCircle(x, y, radius);
-        }
-        drawConvexPath(path, p);
+        return;
     }
+
+    SkPath path;
+    if (p->getStyle() == SkPaint::kStrokeAndFill_Style) {
+        path.addCircle(x, y, radius + p->getStrokeWidth() / 2);
+    } else {
+        path.addCircle(x, y, radius);
+    }
+
+    if (CC_UNLIKELY(currentSnapshot()->projectionPathMask != nullptr)) {
+        // mask ripples with projection mask
+        SkPath maskPath = *(currentSnapshot()->projectionPathMask->projectionMask);
+
+        Matrix4 screenSpaceTransform;
+        currentSnapshot()->buildScreenSpaceTransform(&screenSpaceTransform);
+
+        Matrix4 totalTransform;
+        totalTransform.loadInverse(screenSpaceTransform);
+        totalTransform.multiply(currentSnapshot()->projectionPathMask->projectionMaskTransform);
+
+        SkMatrix skTotalTransform;
+        totalTransform.copyTo(skTotalTransform);
+        maskPath.transform(skTotalTransform);
+
+        // Mask the ripple path by the projection mask, now that it's
+        // in local space. Note that this can create CCW paths.
+        Op(path, maskPath, kIntersect_PathOp, &path);
+    }
+    drawConvexPath(path, p);
 }
 
 void OpenGLRenderer::drawOval(float left, float top, float right, float bottom,
@@ -1999,11 +2044,11 @@ void OpenGLRenderer::drawTextShadow(const SkPaint* paint, const char* text,
 
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedUnitQuad(nullptr)
             .setFillShadowTexturePaint(*texture, textShadow.color, *paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
+            .setTransform(*currentSnapshot(),  TransformFlags::None)
             .setModelViewMapUnitToRect(Rect(sx, sy, sx + texture->width, sy + texture->height))
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
@@ -2082,8 +2127,8 @@ bool OpenGLRenderer::findBestFontTransform(const mat4& transform, SkMatrix* outM
     float sx, sy;
     transform.decomposeScale(sx, sy);
     outMatrix->setScale(
-            roundf(fmaxf(1.0f, sx)),
-            roundf(fmaxf(1.0f, sy)));
+            roundf(std::max(1.0f, sx)),
+            roundf(std::max(1.0f, sy)));
     return true;
 }
 
@@ -2103,6 +2148,7 @@ void OpenGLRenderer::restoreToCount(int saveCount) {
     mState.restoreToCount(saveCount);
 }
 
+
 void OpenGLRenderer::translate(float dx, float dy, float dz) {
     mState.translate(dx, dy, dz);
 }
@@ -2121,6 +2167,11 @@ void OpenGLRenderer::skew(float sx, float sy) {
 
 void OpenGLRenderer::setMatrix(const Matrix4& matrix) {
     mState.setMatrix(matrix);
+}
+
+void OpenGLRenderer::setLocalMatrix(const SkMatrix& matrix) {
+    mState.setMatrix(mBaseTransform);
+    mState.concatMatrix(matrix);
 }
 
 void OpenGLRenderer::concatMatrix(const Matrix4& matrix) {
@@ -2146,6 +2197,10 @@ void OpenGLRenderer::setClippingOutline(LinearAllocator& allocator, const Outlin
 void OpenGLRenderer::setClippingRoundRect(LinearAllocator& allocator,
         const Rect& rect, float radius, bool highPriority) {
     mState.setClippingRoundRect(allocator, rect, radius, highPriority);
+}
+
+void OpenGLRenderer::setProjectionPathMask(LinearAllocator& allocator, const SkPath* path) {
+    mState.setProjectionPathMask(allocator, path);
 }
 
 void OpenGLRenderer::drawText(const char* text, int bytesCount, int count, float x, float y,
@@ -2320,11 +2375,11 @@ void OpenGLRenderer::drawLayer(Layer* layer, float x, float y) {
         } else if (layer->mesh) {
             Glop glop;
             GlopBuilder(mRenderState, mCaches, &glop)
+                    .setRoundRectClipState(currentSnapshot()->roundRectClipState)
                     .setMeshTexturedIndexedQuads(layer->mesh, layer->meshElementCount)
                     .setFillLayer(layer->getTexture(), layer->getColorFilter(), getLayerAlpha(layer), layer->getMode(), Blend::ModeOrderSwap::NoSwap)
-                    .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
+                    .setTransform(*currentSnapshot(),  TransformFlags::None)
                     .setModelViewOffsetRectSnap(x, y, Rect(0, 0, layer->layer.getWidth(), layer->layer.getHeight()))
-                    .setRoundRectClipState(currentSnapshot()->roundRectClipState)
                     .build();
             DRAW_DOUBLE_STENCIL_IF(!layer->hasDrawnSinceUpdate, renderGlop(glop));
 #if DEBUG_LAYERS_AS_REGIONS
@@ -2378,11 +2433,11 @@ void OpenGLRenderer::drawPathTexture(PathTexture* texture, float x, float y,
 
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshTexturedUnitQuad(nullptr)
             .setFillPathTexturePaint(*texture, *paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), *currentTransform(), false)
+            .setTransform(*currentSnapshot(),  TransformFlags::None)
             .setModelViewMapUnitToRect(Rect(x, y, x + texture->width, y + texture->height))
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
@@ -2401,7 +2456,7 @@ void OpenGLRenderer::drawTextDecorations(float underlineWidth, float x, float y,
 
         if (CC_LIKELY(underlineWidth > 0.0f)) {
             const float textSize = paintCopy.getTextSize();
-            const float strokeWidth = fmax(textSize * kStdUnderline_Thickness, 1.0f);
+            const float strokeWidth = std::max(textSize * kStdUnderline_Thickness, 1.0f);
 
             const float left = x;
             float top = 0.0f;
@@ -2457,8 +2512,8 @@ void OpenGLRenderer::drawShadow(float casterAlpha,
 
     // The caller has made sure casterAlpha > 0.
     float ambientShadowAlpha = mAmbientShadowAlpha;
-    if (CC_UNLIKELY(mCaches.propertyAmbientShadowStrength >= 0)) {
-        ambientShadowAlpha = mCaches.propertyAmbientShadowStrength;
+    if (CC_UNLIKELY(Properties::overrideAmbientShadowStrength >= 0)) {
+        ambientShadowAlpha = Properties::overrideAmbientShadowStrength;
     }
     if (ambientShadowVertexBuffer && ambientShadowAlpha > 0) {
         paint.setARGB(casterAlpha * ambientShadowAlpha, 0, 0, 0);
@@ -2466,8 +2521,8 @@ void OpenGLRenderer::drawShadow(float casterAlpha,
     }
 
     float spotShadowAlpha = mSpotShadowAlpha;
-    if (CC_UNLIKELY(mCaches.propertySpotShadowStrength >= 0)) {
-        spotShadowAlpha = mCaches.propertySpotShadowStrength;
+    if (CC_UNLIKELY(Properties::overrideSpotShadowStrength >= 0)) {
+        spotShadowAlpha = Properties::overrideSpotShadowStrength;
     }
     if (spotShadowVertexBuffer && spotShadowAlpha > 0) {
         paint.setARGB(casterAlpha * spotShadowAlpha, 0, 0, 0);
@@ -2502,38 +2557,40 @@ void OpenGLRenderer::drawColorRects(const float* rects, int count, const SkPaint
         Vertex::set(vertex++, l, b);
         Vertex::set(vertex++, r, b);
 
-        left = fminf(left, l);
-        top = fminf(top, t);
-        right = fmaxf(right, r);
-        bottom = fmaxf(bottom, b);
+        left = std::min(left, l);
+        top = std::min(top, t);
+        right = std::max(right, r);
+        bottom = std::max(bottom, b);
     }
 
     if (clip && quickRejectSetupScissor(left, top, right, bottom)) {
         return;
     }
 
-    const Matrix4& transform = ignoreTransform ? Matrix4::identity() : *currentTransform();
+    const int transformFlags = ignoreTransform
+            ? TransformFlags::MeshIgnoresCanvasTransform : TransformFlags::None;
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshIndexedQuads(&mesh[0], count / 4)
             .setFillPaint(*paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), transform, false)
+            .setTransform(*currentSnapshot(), transformFlags)
             .setModelViewOffsetRect(0, 0, Rect(left, top, right, bottom))
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
 
 void OpenGLRenderer::drawColorRect(float left, float top, float right, float bottom,
         const SkPaint* paint, bool ignoreTransform) {
-    const Matrix4& transform = ignoreTransform ? Matrix4::identity() : *currentTransform();
+    const int transformFlags = ignoreTransform
+            ? TransformFlags::MeshIgnoresCanvasTransform : TransformFlags::None;
     Glop glop;
     GlopBuilder(mRenderState, mCaches, &glop)
+            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .setMeshUnitQuad()
             .setFillPaint(*paint, currentSnapshot()->alpha)
-            .setTransform(currentSnapshot()->getOrthoMatrix(), transform, false)
+            .setTransform(*currentSnapshot(), transformFlags)
             .setModelViewMapUnitToRect(Rect(left, top, right, bottom))
-            .setRoundRectClipState(currentSnapshot()->roundRectClipState)
             .build();
     renderGlop(glop);
 }
@@ -2541,21 +2598,11 @@ void OpenGLRenderer::drawColorRect(float left, float top, float right, float bot
 void OpenGLRenderer::getAlphaAndMode(const SkPaint* paint, int* alpha,
         SkXfermode::Mode* mode) const {
     getAlphaAndModeDirect(paint, alpha,  mode);
-    if (mDrawModifiers.mOverrideLayerAlpha < 1.0f) {
-        // if drawing a layer, ignore the paint's alpha
-        *alpha = mDrawModifiers.mOverrideLayerAlpha * 255;
-    }
     *alpha *= currentSnapshot()->alpha;
 }
 
 float OpenGLRenderer::getLayerAlpha(const Layer* layer) const {
-    float alpha;
-    if (mDrawModifiers.mOverrideLayerAlpha < 1.0f) {
-        alpha = mDrawModifiers.mOverrideLayerAlpha;
-    } else {
-        alpha = layer->getAlpha() / 255.0f;
-    }
-    return alpha * currentSnapshot()->alpha;
+    return (layer->getAlpha() / 255.0f) * currentSnapshot()->alpha;
 }
 
 }; // namespace uirenderer

@@ -29,6 +29,8 @@
 #include "utils/LinearAllocator.h"
 #include "utils/PaintUtils.h"
 
+#include <algorithm>
+
 #include <SkColor.h>
 #include <SkPath.h>
 #include <SkPathOps.h>
@@ -184,7 +186,7 @@ public:
 
         // TODO: it would be nice if this could take scale into account, but scale isn't stable
         // since higher levels of the view hierarchy can change scale out from underneath it.
-        return fmaxf(mPaint->getStrokeWidth(), 1) * 0.5f;
+        return std::max(mPaint->getStrokeWidth(), 1.0f) * 0.5f;
     }
 
 protected:
@@ -235,10 +237,10 @@ public:
     DrawBoundedOp(const float* points, int count, const SkPaint* paint)
             : DrawOp(paint), mLocalBounds(points[0], points[1], points[0], points[1]) {
         for (int i = 2; i < count; i += 2) {
-            mLocalBounds.left = fminf(mLocalBounds.left, points[i]);
-            mLocalBounds.right = fmaxf(mLocalBounds.right, points[i]);
-            mLocalBounds.top = fminf(mLocalBounds.top, points[i + 1]);
-            mLocalBounds.bottom = fmaxf(mLocalBounds.bottom, points[i + 1]);
+            mLocalBounds.left = std::min(mLocalBounds.left, points[i]);
+            mLocalBounds.right = std::max(mLocalBounds.right, points[i]);
+            mLocalBounds.top = std::min(mLocalBounds.top, points[i + 1]);
+            mLocalBounds.bottom = std::max(mLocalBounds.bottom, points[i + 1]);
         }
     }
 
@@ -482,6 +484,25 @@ public:
     }
 
     virtual const char* name() override { return "SetMatrix"; }
+
+private:
+    const SkMatrix mMatrix;
+};
+
+class SetLocalMatrixOp : public StateOp {
+public:
+    SetLocalMatrixOp(const SkMatrix& matrix)
+            : mMatrix(matrix) {}
+
+    virtual void applyState(OpenGLRenderer& renderer, int saveCount) const override {
+        renderer.setLocalMatrix(mMatrix);
+    }
+
+    virtual void output(int level, uint32_t logFlags) const override {
+        OP_LOG("SetLocalMatrix " SK_MATRIX_STRING, SK_MATRIX_ARGS(&mMatrix));
+    }
+
+    virtual const char* name() override { return "SetLocalMatrix"; }
 
 private:
     const SkMatrix mMatrix;
@@ -1398,10 +1419,10 @@ class DrawRenderNodeOp : public DrawBoundedOp {
     friend class RenderNode; // grant RenderNode access to info of child
     friend class DisplayListData; // grant DisplayListData access to info of child
 public:
-    DrawRenderNodeOp(RenderNode* renderNode, int flags, const mat4& transformFromParent)
+    DrawRenderNodeOp(RenderNode* renderNode, const mat4& transformFromParent, bool clipIsSimple)
             : DrawBoundedOp(0, 0, renderNode->getWidth(), renderNode->getHeight(), nullptr)
             , mRenderNode(renderNode)
-            , mFlags(flags)
+            , mRecordedWithPotentialStencilClip(!clipIsSimple || !transformFromParent.isSimple())
             , mTransformFromParent(transformFromParent)
             , mSkipInOrderDraw(false) {}
 
@@ -1424,7 +1445,7 @@ public:
     }
 
     virtual void output(int level, uint32_t logFlags) const override {
-        OP_LOG("Draw RenderNode %p %s, flags %#x", mRenderNode, mRenderNode->getName(), mFlags);
+        OP_LOG("Draw RenderNode %p %s", mRenderNode, mRenderNode->getName());
         if (mRenderNode && (logFlags & kOpLogFlag_Recurse)) {
             mRenderNode->output(level + 1);
         }
@@ -1436,7 +1457,20 @@ public:
 
 private:
     RenderNode* mRenderNode;
-    const int mFlags;
+
+    /**
+     * This RenderNode was drawn into a DisplayList with the canvas in a state that will likely
+     * require rendering with stencil clipping. Either:
+     *
+     * 1) A path clip or rotated rect clip was in effect on the canvas at record time
+     * 2) The RenderNode was recorded with a non-simple canvas transform (e.g. rotation)
+     *
+     * Note: even if this is false, non-rect clipping may still be applied applied either due to
+     * property-driven rotation (either in this RenderNode, or any ancestor), or record time
+     * clipping in an ancestor. These are handled in RenderNode::prepareTreeImpl since they are
+     * dynamic (relative to a static DisplayList of a parent), and don't affect this flag.
+     */
+    bool mRecordedWithPotentialStencilClip;
 
     ///////////////////////////
     // Properties below are used by RenderNode::computeOrderingImpl() and issueOperations()

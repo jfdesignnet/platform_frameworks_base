@@ -21,6 +21,7 @@ import static android.media.AudioAttributes.USAGE_NOTIFICATION;
 import static android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE;
 
 import android.app.AppOpsManager;
+import android.app.NotificationManager;
 import android.app.NotificationManager.Policy;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -30,23 +31,27 @@ import android.content.res.XmlResourceParser;
 import android.database.ContentObserver;
 import android.media.AudioManager;
 import android.media.AudioManagerInternal;
+import android.media.AudioSystem;
 import android.media.VolumePolicy;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings.Global;
 import android.service.notification.IConditionListener;
-import android.service.notification.NotificationListenerService;
 import android.service.notification.ZenModeConfig;
+import android.service.notification.ZenModeConfig.EventInfo;
 import android.service.notification.ZenModeConfig.ScheduleInfo;
 import android.service.notification.ZenModeConfig.ZenRule;
 import android.util.ArraySet;
 import android.util.Log;
+import android.util.SparseArray;
 
 import com.android.internal.R;
+import com.android.internal.logging.MetricsLogger;
 import com.android.server.LocalServices;
 
 import libcore.io.IoUtils;
@@ -76,24 +81,33 @@ public class ZenModeHelper {
     private final ZenModeFiltering mFiltering;
     private final RingerModeDelegate mRingerModeDelegate = new RingerModeDelegate();
     private final ZenModeConditions mConditions;
+    private final SparseArray<ZenModeConfig> mConfigs = new SparseArray<>();
+    private final Metrics mMetrics = new Metrics();
 
     private int mZenMode;
+    private int mUser = UserHandle.USER_OWNER;
     private ZenModeConfig mConfig;
     private AudioManagerInternal mAudioManager;
-    private int mPreviousRingerMode = -1;
     private boolean mEffectsSuppressed;
 
     public ZenModeHelper(Context context, Looper looper, ConditionProviders conditionProviders) {
         mContext = context;
         mHandler = new H(looper);
+        addCallback(mMetrics);
         mAppOps = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
         mDefaultConfig = readDefaultConfig(context.getResources());
         appendDefaultScheduleRules(mDefaultConfig);
+        appendDefaultEventRules(mDefaultConfig);
         mConfig = mDefaultConfig;
+        mConfigs.put(UserHandle.USER_OWNER, mConfig);
         mSettingsObserver = new SettingsObserver(mHandler);
         mSettingsObserver.observe();
         mFiltering = new ZenModeFiltering(mContext);
         mConditions = new ZenModeConditions(this, conditionProviders);
+    }
+
+    public Looper getLooper() {
+        return mHandler.getLooper();
     }
 
     @Override
@@ -134,6 +148,26 @@ public class ZenModeHelper {
         if (mAudioManager != null) {
             mAudioManager.setRingerModeDelegate(mRingerModeDelegate);
         }
+        mHandler.postMetricsTimer();
+    }
+
+    public void onUserSwitched(int user) {
+        if (mUser == user || user < UserHandle.USER_OWNER) return;
+        mUser = user;
+        if (DEBUG) Log.d(TAG, "onUserSwitched u=" + user);
+        ZenModeConfig config = mConfigs.get(user);
+        if (config == null) {
+            if (DEBUG) Log.d(TAG, "onUserSwitched: generating default config for user " + user);
+            config = mDefaultConfig.copy();
+            config.user = user;
+        }
+        setConfig(config, "onUserSwitched");
+    }
+
+    public void onUserRemoved(int user) {
+        if (user < UserHandle.USER_OWNER) return;
+        if (DEBUG) Log.d(TAG, "onUserRemoved u=" + user);
+        mConfigs.remove(user);
     }
 
     public void requestZenModeConditions(IConditionListener callback, int relevance) {
@@ -141,11 +175,11 @@ public class ZenModeHelper {
     }
 
     public int getZenModeListenerInterruptionFilter() {
-        return getZenModeListenerInterruptionFilter(mZenMode);
+        return NotificationManager.zenModeToInterruptionFilter(mZenMode);
     }
 
-    public void requestFromListener(ComponentName name, int interruptionFilter) {
-        final int newZen = zenModeFromListenerInterruptionFilter(interruptionFilter, -1);
+    public void requestFromListener(ComponentName name, int filter) {
+        final int newZen = NotificationManager.zenModeFromInterruptionFilter(filter, -1);
         if (newZen != -1) {
             setManualZenMode(newZen, null,
                     "listener:" + (name != null ? name.flattenToShortString() : null));
@@ -194,9 +228,13 @@ public class ZenModeHelper {
     public void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("mZenMode=");
         pw.println(Global.zenModeToString(mZenMode));
-        dump(pw, prefix, "mConfig", mConfig);
         dump(pw, prefix, "mDefaultConfig", mDefaultConfig);
-        pw.print(prefix); pw.print("mPreviousRingerMode="); pw.println(mPreviousRingerMode);
+        final int N = mConfigs.size();
+        for (int i = 0; i < N; i++) {
+            dump(pw, prefix, "mConfigs[u=" + mConfigs.keyAt(i) + "]", mConfigs.valueAt(i));
+        }
+        pw.print(prefix); pw.print("mUser="); pw.println(mUser);
+        dump(pw, prefix, "mConfig", mConfig);
         pw.print(prefix); pw.print("mEffectsSuppressed="); pw.println(mEffectsSuppressed);
         mFiltering.dump(pw, prefix);
         mConditions.dump(pw, prefix);
@@ -208,9 +246,11 @@ public class ZenModeHelper {
             pw.println(config);
             return;
         }
-        pw.printf("allow(calls=%s,repeatCallers=%s,events=%s,from=%s,messages=%s,reminders=%s)\n",
-                config.allowCalls, config.allowRepeatCallers, config.allowEvents, config.allowFrom,
-                config.allowMessages, config.allowReminders);
+        pw.printf("allow(calls=%s,callsFrom=%s,repeatCallers=%s,messages=%s,messagesFrom=%s,"
+                + "events=%s,reminders=%s)\n",
+                config.allowCalls, config.allowCallsFrom, config.allowRepeatCallers,
+                config.allowMessages, config.allowMessagesFrom,
+                config.allowEvents, config.allowReminders);
         pw.print(prefix); pw.print("  manualRule="); pw.println(config.manualRule);
         if (config.automaticRules.isEmpty()) return;
         final int N = config.automaticRules.size();
@@ -220,16 +260,36 @@ public class ZenModeHelper {
         }
     }
 
-    public void readXml(XmlPullParser parser) throws XmlPullParserException, IOException {
+    public void readXml(XmlPullParser parser, boolean forRestore)
+            throws XmlPullParserException, IOException {
         final ZenModeConfig config = ZenModeConfig.readXml(parser, mConfigMigration);
         if (config != null) {
+            if (forRestore) {
+                if (config.user != UserHandle.USER_OWNER) {
+                    return;
+                }
+                config.manualRule = null;  // don't restore the manual rule
+                if (config.automaticRules != null) {
+                    for (ZenModeConfig.ZenRule automaticRule : config.automaticRules.values()) {
+                        // don't restore transient state from restored automatic rules
+                        automaticRule.snoozing = false;
+                        automaticRule.condition = null;
+                    }
+                }
+            }
             if (DEBUG) Log.d(TAG, "readXml");
             setConfig(config, "readXml");
         }
     }
 
-    public void writeXml(XmlSerializer out) throws IOException {
-        mConfig.writeXml(out);
+    public void writeXml(XmlSerializer out, boolean forBackup) throws IOException {
+        final int N = mConfigs.size();
+        for (int i = 0; i < N; i++) {
+            if (forBackup && mConfigs.keyAt(i) != UserHandle.USER_OWNER) {
+                continue;
+            }
+            mConfigs.valueAt(i).writeXml(out);
+        }
     }
 
     public Policy getNotificationPolicy() {
@@ -255,15 +315,26 @@ public class ZenModeHelper {
         return setConfig(config, reason, true /*setRingerMode*/);
     }
 
+    public void setConfigAsync(ZenModeConfig config, String reason) {
+        mHandler.postSetConfig(config, reason);
+    }
+
     private boolean setConfig(ZenModeConfig config, String reason, boolean setRingerMode) {
         if (config == null || !config.isValid()) {
             Log.w(TAG, "Invalid config in setConfig; " + config);
             return false;
         }
-        mConditions.evaluateConfig(config);  // may modify config
+        if (config.user != mUser) {
+            // simply store away for background users
+            mConfigs.put(config.user, config);
+            if (DEBUG) Log.d(TAG, "setConfig: store config for user " + config.user);
+            return true;
+        }
+        mConditions.evaluateConfig(config, false /*processSubscriptions*/);  // may modify config
+        mConfigs.put(config.user, config);
         if (config.equals(mConfig)) return true;
-        if (DEBUG) Log.d(TAG, "setConfig reason=" + reason);
-        ZenLog.traceConfig(mConfig, config);
+        if (DEBUG) Log.d(TAG, "setConfig reason=" + reason, new Throwable());
+        ZenLog.traceConfig(reason, mConfig, config);
         final boolean policyChanged = !Objects.equals(getNotificationPolicy(mConfig),
                 getNotificationPolicy(config));
         mConfig = config;
@@ -276,6 +347,7 @@ public class ZenModeHelper {
         if (!evaluateZenMode(reason, setRingerMode)) {
             applyRestrictions();  // evaluateZenMode will also apply restrictions if changed
         }
+        mConditions.evaluateConfig(config, true /*processSubscriptions*/);
         return true;
     }
 
@@ -287,6 +359,17 @@ public class ZenModeHelper {
         Global.putInt(mContext.getContentResolver(), Global.ZEN_MODE, zen);
     }
 
+    private int getPreviousRingerModeSetting() {
+        return Global.getInt(mContext.getContentResolver(),
+                Global.ZEN_MODE_RINGER_LEVEL, AudioManager.RINGER_MODE_NORMAL);
+    }
+
+    private void setPreviousRingerModeSetting(Integer previousRingerLevel) {
+        Global.putString(
+                mContext.getContentResolver(), Global.ZEN_MODE_RINGER_LEVEL,
+                previousRingerLevel == null ? null : Integer.toString(previousRingerLevel));
+    }
+
     private boolean evaluateZenMode(String reason, boolean setRingerMode) {
         if (DEBUG) Log.d(TAG, "evaluateZenMode");
         final ArraySet<ZenRule> automaticRules = new ArraySet<ZenRule>();
@@ -294,6 +377,7 @@ public class ZenModeHelper {
         if (zen == mZenMode) return false;
         ZenLog.traceSetZenMode(zen, reason);
         mZenMode = zen;
+        updateRingerModeAffectedStreams();
         setZenModeSetting(mZenMode);
         if (setRingerMode) {
             applyZenToRingerMode();
@@ -301,6 +385,12 @@ public class ZenModeHelper {
         applyRestrictions();
         mHandler.postDispatchOnZenModeChanged();
         return true;
+    }
+
+    private void updateRingerModeAffectedStreams() {
+        if (mAudioManager != null) {
+            mAudioManager.updateRingerModeAffectedStreamsInternal();
+        }
     }
 
     private int computeZenMode(ArraySet<ZenRule> automaticRulesOut) {
@@ -353,16 +443,15 @@ public class ZenModeHelper {
             case Global.ZEN_MODE_NO_INTERRUPTIONS:
             case Global.ZEN_MODE_ALARMS:
                 if (ringerModeInternal != AudioManager.RINGER_MODE_SILENT) {
-                    mPreviousRingerMode = ringerModeInternal;
+                    setPreviousRingerModeSetting(ringerModeInternal);
                     newRingerModeInternal = AudioManager.RINGER_MODE_SILENT;
                 }
                 break;
             case Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS:
             case Global.ZEN_MODE_OFF:
                 if (ringerModeInternal == AudioManager.RINGER_MODE_SILENT) {
-                    newRingerModeInternal = mPreviousRingerMode != -1 ? mPreviousRingerMode
-                            : AudioManager.RINGER_MODE_NORMAL;
-                    mPreviousRingerMode = -1;
+                    newRingerModeInternal = getPreviousRingerModeSetting();
+                    setPreviousRingerModeSetting(null);
                 }
                 break;
         }
@@ -386,37 +475,6 @@ public class ZenModeHelper {
     private void dispatchOnZenModeChanged() {
         for (Callback callback : mCallbacks) {
             callback.onZenModeChanged();
-        }
-    }
-
-    private static int getZenModeListenerInterruptionFilter(int zen) {
-        switch (zen) {
-            case Global.ZEN_MODE_OFF:
-                return NotificationListenerService.INTERRUPTION_FILTER_ALL;
-            case Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS:
-                return NotificationListenerService.INTERRUPTION_FILTER_PRIORITY;
-            case Global.ZEN_MODE_ALARMS:
-                return NotificationListenerService.INTERRUPTION_FILTER_ALARMS;
-            case Global.ZEN_MODE_NO_INTERRUPTIONS:
-                return NotificationListenerService.INTERRUPTION_FILTER_NONE;
-            default:
-                return 0;
-        }
-    }
-
-    private static int zenModeFromListenerInterruptionFilter(int listenerInterruptionFilter,
-            int defValue) {
-        switch (listenerInterruptionFilter) {
-            case NotificationListenerService.INTERRUPTION_FILTER_ALL:
-                return Global.ZEN_MODE_OFF;
-            case NotificationListenerService.INTERRUPTION_FILTER_PRIORITY:
-                return Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS;
-            case NotificationListenerService.INTERRUPTION_FILTER_ALARMS:
-                return Global.ZEN_MODE_ALARMS;
-            case NotificationListenerService.INTERRUPTION_FILTER_NONE:
-                return Global.ZEN_MODE_NO_INTERRUPTIONS;
-            default:
-                return defValue;
         }
     }
 
@@ -465,6 +523,20 @@ public class ZenModeHelper {
         config.automaticRules.put(config.newRuleId(), rule2);
     }
 
+    private void appendDefaultEventRules(ZenModeConfig config) {
+        if (config == null) return;
+
+        final EventInfo events = new EventInfo();
+        events.calendar = null; // any calendar
+        events.reply = EventInfo.REPLY_YES_OR_MAYBE;
+        final ZenRule rule = new ZenRule();
+        rule.enabled = false;
+        rule.name = mContext.getResources().getString(R.string.zen_mode_default_events_name);
+        rule.conditionId = ZenModeConfig.toEventConditionId(events);
+        rule.zenMode = Global.ZEN_MODE_ALARMS;
+        config.automaticRules.put(config.newRuleId(), rule);
+    }
+
     private static int zenSeverity(int zen) {
         switch (zen) {
             case Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS: return 1;
@@ -481,8 +553,9 @@ public class ZenModeHelper {
             final ZenModeConfig rt = new ZenModeConfig();
             rt.allowCalls = v1.allowCalls;
             rt.allowEvents = v1.allowEvents;
-            rt.allowFrom = v1.allowFrom;
+            rt.allowCallsFrom = v1.allowFrom;
             rt.allowMessages = v1.allowMessages;
+            rt.allowMessagesFrom = v1.allowFrom;
             rt.allowReminders = v1.allowReminders;
             // don't migrate current exit condition
             final int[] days = ZenModeConfig.XmlV1.tryParseDays(v1.sleepMode);
@@ -506,6 +579,7 @@ public class ZenModeHelper {
                 Log.i(TAG, "No existing V1 downtime found, generating default schedules");
                 appendDefaultScheduleRules(rt);
             }
+            appendDefaultEventRules(rt);
             return rt;
         }
     };
@@ -531,6 +605,7 @@ public class ZenModeHelper {
                                 && mZenMode != Global.ZEN_MODE_ALARMS) {
                             newZen = Global.ZEN_MODE_ALARMS;
                         }
+                        setPreviousRingerModeSetting(ringerModeOld);
                     }
                     break;
                 case AudioManager.RINGER_MODE_VIBRATE:
@@ -567,10 +642,10 @@ public class ZenModeHelper {
                 case AudioManager.RINGER_MODE_SILENT:
                     if (isChange) {
                         if (mZenMode == Global.ZEN_MODE_OFF) {
-                            newZen = Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS;
+                            newZen = Global.ZEN_MODE_ALARMS;
                         }
                         ringerModeInternalOut = isVibrate ? AudioManager.RINGER_MODE_VIBRATE
-                                : AudioManager.RINGER_MODE_NORMAL;
+                                : AudioManager.RINGER_MODE_SILENT;
                     } else {
                         ringerModeInternalOut = ringerModeInternal;
                     }
@@ -589,6 +664,29 @@ public class ZenModeHelper {
             ZenLog.traceSetRingerModeExternal(ringerModeOld, ringerModeNew, caller,
                     ringerModeInternal, ringerModeInternalOut);
             return ringerModeInternalOut;
+        }
+
+        @Override
+        public boolean canVolumeDownEnterSilent() {
+            return mZenMode == Global.ZEN_MODE_OFF;
+        }
+
+        @Override
+        public int getRingerModeAffectedStreams(int streams) {
+            // ringtone, notification and system streams are always affected by ringer mode
+            streams |= (1 << AudioSystem.STREAM_RING) |
+                       (1 << AudioSystem.STREAM_NOTIFICATION) |
+                       (1 << AudioSystem.STREAM_SYSTEM);
+
+            // alarm and music streams are only affected by ringer mode when in total silence
+            if (mZenMode == Global.ZEN_MODE_NO_INTERRUPTIONS) {
+                streams |= (1 << AudioSystem.STREAM_ALARM) |
+                           (1 << AudioSystem.STREAM_MUSIC);
+            } else {
+                streams &= ~((1 << AudioSystem.STREAM_ALARM) |
+                             (1 << AudioSystem.STREAM_MUSIC));
+            }
+            return streams;
         }
     }
 
@@ -620,8 +718,48 @@ public class ZenModeHelper {
         }
     }
 
+    private final class Metrics extends Callback {
+        private static final String COUNTER_PREFIX = "dnd_mode_";
+        private static final long MINIMUM_LOG_PERIOD_MS = 60 * 1000;
+
+        private int mPreviousZenMode = -1;
+        private long mBeginningMs = 0L;
+
+        @Override
+        void onZenModeChanged() {
+            emit();
+        }
+
+        private void emit() {
+            mHandler.postMetricsTimer();
+            final long now = SystemClock.elapsedRealtime();
+            final long since = (now - mBeginningMs);
+            if (mPreviousZenMode != mZenMode || since > MINIMUM_LOG_PERIOD_MS) {
+                if (mPreviousZenMode != -1) {
+                    MetricsLogger.count(mContext, COUNTER_PREFIX + mPreviousZenMode, (int) since);
+                }
+                mPreviousZenMode = mZenMode;
+                mBeginningMs = now;
+            }
+        }
+    }
+
     private final class H extends Handler {
         private static final int MSG_DISPATCH = 1;
+        private static final int MSG_METRICS = 2;
+        private static final int MSG_SET_CONFIG = 3;
+
+        private final class ConfigMessageData {
+            public final ZenModeConfig config;
+            public final String reason;
+
+            ConfigMessageData(ZenModeConfig config, String reason) {
+                this.config = config;
+                this.reason = reason;
+            }
+        }
+
+        private static final long METRICS_PERIOD_MS = 6 * 60 * 60 * 1000;
 
         private H(Looper looper) {
             super(looper);
@@ -632,11 +770,27 @@ public class ZenModeHelper {
             sendEmptyMessage(MSG_DISPATCH);
         }
 
+        private void postMetricsTimer() {
+            removeMessages(MSG_METRICS);
+            sendEmptyMessageDelayed(MSG_METRICS, METRICS_PERIOD_MS);
+        }
+
+        private void postSetConfig(ZenModeConfig config, String reason) {
+            sendMessage(obtainMessage(MSG_SET_CONFIG, new ConfigMessageData(config, reason)));
+        }
+
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_DISPATCH:
                     dispatchOnZenModeChanged();
+                    break;
+                case MSG_METRICS:
+                    mMetrics.emit();
+                    break;
+                case MSG_SET_CONFIG:
+                    ConfigMessageData configData = (ConfigMessageData)msg.obj;
+                    setConfig(configData.config, configData.reason);
                     break;
             }
         }

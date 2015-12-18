@@ -20,12 +20,14 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
+import android.app.ActivityManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.hdmi.HdmiDeviceInfo;
+import android.media.PlaybackParams;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -96,7 +98,7 @@ public abstract class TvInputService extends Service {
      */
     private final Handler mServiceHandler = new ServiceHandler();
     private final RemoteCallbackList<ITvInputServiceCallback> mCallbacks =
-            new RemoteCallbackList<ITvInputServiceCallback>();
+            new RemoteCallbackList<>();
 
     private TvInputManager mTvInputManager;
 
@@ -232,10 +234,7 @@ public abstract class TvInputService extends Service {
             mTvInputManager = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
         }
         TvInputInfo info = mTvInputManager.getTvInputInfo(inputId);
-        if (info != null && info.isPassthroughInput()) {
-            return true;
-        }
-        return false;
+        return info != null && info.isPassthroughInput();
     }
 
     /**
@@ -281,8 +280,15 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Enables or disables the overlay view. By default, the overlay view is disabled. Must be
-         * called explicitly after the session is created to enable the overlay view.
+         * Enables or disables the overlay view.
+         *
+         * <p>By default, the overlay view is disabled. Must be called explicitly after the
+         * session is created to enable the overlay view.
+         *
+         * <p>The TV input service can disable its overlay view when the size of the overlay view is
+         * insufficient to display the whole information, such as when used in Picture-in-picture.
+         * Override {@link #onOverlayViewSizeChanged} to get the size of the overlay view, which
+         * then can be used to determine whether to enable/disable the overlay view.
          *
          * @param enable {@code true} if you want to enable the overlay view. {@code false}
          *            otherwise.
@@ -332,9 +338,13 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Notifies the channel of the session is retuned by TV input.
+         * Informs the application that the current channel is re-tuned for some reason and the
+         * session now displays the content from a new channel. This is used to handle special cases
+         * such as when the current channel becomes unavailable, it is necessary to send the user to
+         * a certain channel or the user changes channel in some other way (e.g. by using a
+         * dedicated remote).
          *
-         * @param channelUri The URI of a channel.
+         * @param channelUri The URI of the new channel.
          */
         public void notifyChannelRetuned(final Uri channelUri) {
             executeOrPostRunnable(new Runnable() {
@@ -365,7 +375,7 @@ public abstract class TvInputService extends Service {
          * @throws IllegalArgumentException if {@code tracks} contains redundant tracks.
          */
         public void notifyTracksChanged(final List<TvTrackInfo> tracks) {
-            Set<String> trackIdSet = new HashSet<String>();
+            Set<String> trackIdSet = new HashSet<>();
             for (TvTrackInfo track : tracks) {
                 String trackId = track.getId();
                 if (trackIdSet.contains(trackId)) {
@@ -376,13 +386,14 @@ public abstract class TvInputService extends Service {
             trackIdSet.clear();
 
             // TODO: Validate the track list.
+            final List<TvTrackInfo> tracksCopy = new ArrayList<>(tracks);
             executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
                         if (DEBUG) Log.d(TAG, "notifyTracksChanged");
                         if (mSessionCallback != null) {
-                            mSessionCallback.onTracksChanged(tracks);
+                            mSessionCallback.onTracksChanged(tracksCopy);
                         }
                     } catch (RemoteException e) {
                         Log.w(TAG, "error in notifyTracksChanged", e);
@@ -422,9 +433,12 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Informs the application that the video is now available for watching. This is primarily
-         * used to signal the application to unblock the screen. The TV input service must call this
-         * method as soon as the content rendered onto its surface gets ready for viewing.
+         * Informs the application that the video is now available for watching. Video is blocked
+         * until this method is called.
+         *
+         * <p>The TV input service must call this method as soon as the content rendered onto its
+         * surface is ready for viewing. This method must be called each time {@link #onTune(Uri)}
+         * is called.
          *
          * @see #notifyVideoUnavailable
          */
@@ -528,11 +542,12 @@ public abstract class TvInputService extends Service {
          * TvInputManager.isParentalControlsEnabled()} returns {@code true}). Whether the TV input
          * service should block the content or not is determined by invoking
          * {@link TvInputManager#isRatingBlocked TvInputManager.isRatingBlocked(TvContentRating)}
-         * with the content rating for the current program. Then the {@link TvInputManager} makes a
-         * judgment based on the user blocked ratings stored in the secure settings and returns the
-         * result. If the rating in question turns out to be blocked, the TV input service must
-         * immediately block the content and call this method with the content rating of the current
-         * program to prompt the PIN verification screen.
+         * with the content rating for the current program or {@link TvContentRating#UNRATED} in
+         * case the rating information is missing. Then the {@link TvInputManager} makes a judgment
+         * based on the user blocked ratings stored in the secure settings and returns the result.
+         * If the rating in question turns out to be blocked, the TV input service must immediately
+         * block the content and call this method with the content rating of the current program to
+         * prompt the PIN verification screen.
          *
          * <p>Each TV input service also needs to continuously listen to any changes made to the
          * parental controls settings by registering a broadcast receiver to receive
@@ -540,7 +555,8 @@ public abstract class TvInputService extends Service {
          * {@link TvInputManager#ACTION_PARENTAL_CONTROLS_ENABLED_CHANGED} and immediately
          * reevaluate the current program with the new parental controls settings.
          *
-         * @param rating The content rating for the current TV program.
+         * @param rating The content rating for the current TV program. Can be
+         *            {@link TvContentRating#UNRATED}.
          * @see #notifyContentAllowed
          * @see TvInputManager
          */
@@ -577,7 +593,7 @@ public abstract class TvInputService extends Service {
          * set playback rate and audio mode. The implementation should override
          * {@link #onTimeShiftPause}, {@link #onTimeShiftResume}, {@link #onTimeShiftSeekTo},
          * {@link #onTimeShiftGetStartPosition}, {@link #onTimeShiftGetCurrentPosition} and
-         * {@link #onTimeShiftSetPlaybackRate}.
+         * {@link #onTimeShiftSetPlaybackParams}.
          *
          * @param status The current time shift status. Should be one of the followings.
          * <ul>
@@ -635,17 +651,15 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Assigns a position of the {@link Surface} passed by {@link #onSetSurface}. The position
-         * is relative to an overlay view.
+         * Assigns a size and position to the surface passed in {@link #onSetSurface}. The position
+         * is relative to the overlay view that sits on top of this surface.
          *
          * @param left Left position in pixels, relative to the overlay view.
          * @param top Top position in pixels, relative to the overlay view.
          * @param right Right position in pixels, relative to the overlay view.
          * @param bottom Bottom position in pixels, relative to the overlay view.
          * @see #onOverlayViewSizeChanged
-         * @hide
          */
-        @SystemApi
         public void layoutSurface(final int left, final int top, final int right,
                 final int bottom) {
             if (left > right || top > bottom) {
@@ -699,41 +713,40 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Sets the {@link Surface} for the current input session on which the TV input renders
-         * video.
+         * Called when the application sets the surface.
          *
-         * <p>When {@code setSurface(null)} is called, the implementation should stop using the
-         * Surface object previously given and release any references to it.
+         * <p>The TV input service should render video onto the given surface. When called with
+         * {@code null}, the input service should immediately release any references to the
+         * currently set surface and stop using it.
          *
-         * @param surface possibly {@code null} {@link Surface} the application passes to this TV
-         *            input session.
-         * @return {@code true} if the surface was set, {@code false} otherwise.
+         * @param surface The surface to be used for video rendering. Can be {@code null}.
+         * @return {@code true} if the surface was set successfully, {@code false} otherwise.
          */
         public abstract boolean onSetSurface(@Nullable Surface surface);
 
         /**
-         * Called after any structural changes (format or size) have been made to the
-         * {@link Surface} passed by {@link #onSetSurface}. This method is always called
-         * at least once, after {@link #onSetSurface} with non-null {@link Surface} is called.
+         * Called after any structural changes (format or size) have been made to the surface passed
+         * in {@link #onSetSurface}. This method is always called at least once, after
+         * {@link #onSetSurface} is called with non-null surface.
          *
-         * @param format The new PixelFormat of the {@link Surface}.
-         * @param width The new width of the {@link Surface}.
-         * @param height The new height of the {@link Surface}.
+         * @param format The new PixelFormat of the surface.
+         * @param width The new width of the surface.
+         * @param height The new height of the surface.
          */
         public void onSurfaceChanged(int format, int width, int height) {
         }
 
         /**
-         * Called when a size of an overlay view is changed by the application. Even when the
-         * overlay view is disabled by {@link #setOverlayViewEnabled}, this is called. The size is
-         * same as the size of {@link Surface} in general. Once {@link #layoutSurface} is called,
-         * the sizes of {@link Surface} and the overlay view can be different.
+         * Called when the size of the overlay view is changed by the application.
+         *
+         * <p>This is always called at least once when the session is created regardless of whether
+         * the overlay view is enabled or not. The overlay view size is the same as the containing
+         * {@link TvView}. Note that the size of the underlying surface can be different if the
+         * surface was changed by calling {@link #layoutSurface}.
          *
          * @param width The width of the overlay view.
          * @param height The height of the overlay view.
-         * @hide
          */
-        @SystemApi
         public void onOverlayViewSizeChanged(int width, int height) {
         }
 
@@ -750,9 +763,11 @@ public abstract class TvInputService extends Service {
         public abstract void onSetStreamVolume(float volume);
 
         /**
-         * Tunes to a given channel. When the video is available, {@link #notifyVideoAvailable()}
-         * should be called. Also, {@link #notifyVideoUnavailable(int)} should be called when the TV
-         * input cannot continue playing the given channel.
+         * Tunes to a given channel.
+         *
+         * <p>No video will be displayed until {@link #notifyVideoAvailable()} is called.
+         * Also, {@link #notifyVideoUnavailable(int)} should be called when the TV input cannot
+         * continue playing the given channel.
          *
          * @param channelUri The URI of the channel.
          * @return {@code true} if the tuning was successful, {@code false} otherwise.
@@ -847,7 +862,7 @@ public abstract class TvInputService extends Service {
          *
          * @see #onTimeShiftResume
          * @see #onTimeShiftSeekTo
-         * @see #onTimeShiftSetPlaybackRate
+         * @see #onTimeShiftSetPlaybackParams
          * @see #onTimeShiftGetStartPosition
          * @see #onTimeShiftGetCurrentPosition
          */
@@ -859,7 +874,7 @@ public abstract class TvInputService extends Service {
          *
          * @see #onTimeShiftPause
          * @see #onTimeShiftSeekTo
-         * @see #onTimeShiftSetPlaybackRate
+         * @see #onTimeShiftSetPlaybackParams
          * @see #onTimeShiftGetStartPosition
          * @see #onTimeShiftGetCurrentPosition
          */
@@ -875,7 +890,7 @@ public abstract class TvInputService extends Service {
          * @param timeMs The time position to seek to, in milliseconds since the epoch.
          * @see #onTimeShiftResume
          * @see #onTimeShiftPause
-         * @see #onTimeShiftSetPlaybackRate
+         * @see #onTimeShiftSetPlaybackParams
          * @see #onTimeShiftGetStartPosition
          * @see #onTimeShiftGetCurrentPosition
          */
@@ -883,23 +898,20 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Called when the application sets playback rate and audio mode.
+         * Called when the application sets playback parameters containing the speed and audio mode.
          *
-         * <p>Once a playback rate is set, the implementation should honor the value until a new
-         * tune request. Pause/resume/seek request does not reset the playback rate previously set.
+         * <p>Once the playback parameters are set, the implementation should honor the current
+         * settings until the next tune request. Pause/resume/seek request does not reset the
+         * parameters previously set.
          *
-         * @param rate The ratio between desired playback rate and normal one.
-         * @param audioMode Audio playback mode. Must be one of the supported audio modes:
-         * <ul>
-         * <li> {@link android.media.MediaPlayer#PLAYBACK_RATE_AUDIO_MODE_RESAMPLE}
-         * </ul>
+         * @param params The playback params.
          * @see #onTimeShiftResume
          * @see #onTimeShiftPause
          * @see #onTimeShiftSeekTo
          * @see #onTimeShiftGetStartPosition
          * @see #onTimeShiftGetCurrentPosition
          */
-        public void onTimeShiftSetPlaybackRate(float rate, int audioMode) {
+        public void onTimeShiftSetPlaybackParams(PlaybackParams params) {
         }
 
         /**
@@ -916,7 +928,7 @@ public abstract class TvInputService extends Service {
          * @see #onTimeShiftResume
          * @see #onTimeShiftPause
          * @see #onTimeShiftSeekTo
-         * @see #onTimeShiftSetPlaybackRate
+         * @see #onTimeShiftSetPlaybackParams
          * @see #onTimeShiftGetCurrentPosition
          */
         public long onTimeShiftGetStartPosition() {
@@ -928,10 +940,14 @@ public abstract class TvInputService extends Service {
          * Returns {@link TvInputManager#TIME_SHIFT_INVALID_TIME} if the position is unknown at the
          * moment.
          *
+         * <p>Note that the current playback position should be equal to or greater than the start
+         * playback position reported by {@link #onTimeShiftGetStartPosition}. Failure to notifying
+         * the correct current position might lead to bad user experience.
+         *
          * @see #onTimeShiftResume
          * @see #onTimeShiftPause
          * @see #onTimeShiftSeekTo
-         * @see #onTimeShiftSetPlaybackRate
+         * @see #onTimeShiftSetPlaybackParams
          * @see #onTimeShiftGetStartPosition
          */
         public long onTimeShiftGetCurrentPosition() {
@@ -1185,12 +1201,15 @@ public abstract class TvInputService extends Service {
             // We make the overlay view non-focusable and non-touchable so that
             // the application that owns the window token can decide whether to consume or
             // dispatch the input events.
-            int flag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                    | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                    | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+            if (ActivityManager.isHighEndGfx()) {
+                flags |= WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
+            }
             mWindowParams = new WindowManager.LayoutParams(
                     frame.right - frame.left, frame.bottom - frame.top,
-                    frame.left, frame.top, type, flag, PixelFormat.TRANSPARENT);
+                    frame.left, frame.top, type, flags, PixelFormat.TRANSPARENT);
             mWindowParams.privateFlags |=
                     WindowManager.LayoutParams.PRIVATE_FLAG_NO_MOVE_ANIMATION;
             mWindowParams.gravity = Gravity.START | Gravity.TOP;
@@ -1265,10 +1284,10 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Calls {@link #onTimeShiftSetPlaybackRate}.
+         * Calls {@link #onTimeShiftSetPlaybackParams}.
          */
-        void timeShiftSetPlaybackRate(float rate, int audioMode) {
-            onTimeShiftSetPlaybackRate(rate, audioMode);
+        void timeShiftSetPlaybackParams(PlaybackParams params) {
+            onTimeShiftSetPlaybackParams(params);
         }
 
         /**
@@ -1366,7 +1385,7 @@ public abstract class TvInputService extends Service {
             }
         }
 
-        private final void executeOrPostRunnable(Runnable action) {
+        private void executeOrPostRunnable(Runnable action) {
             synchronized(mLock) {
                 if (mSessionCallback == null) {
                     // The session is not initialized yet.
@@ -1391,6 +1410,12 @@ public abstract class TvInputService extends Service {
                     notifyTimeShiftStartPositionChanged(startPositionMs);
                 }
                 long currentPositionMs = onTimeShiftGetCurrentPosition();
+                if (currentPositionMs < mStartPositionMs) {
+                    Log.w(TAG, "Current position (" + currentPositionMs + ") cannot be earlier than"
+                            + " start position (" + mStartPositionMs + "). Reset to the start "
+                            + "position.");
+                    currentPositionMs = mStartPositionMs;
+                }
                 if (mCurrentPositionMs != currentPositionMs) {
                     mCurrentPositionMs = currentPositionMs;
                     notifyTimeShiftCurrentPositionChanged(currentPositionMs);
@@ -1628,13 +1653,13 @@ public abstract class TvInputService extends Service {
                     if (sessionImpl instanceof HardwareSession) {
                         HardwareSession proxySession =
                                 ((HardwareSession) sessionImpl);
-                        String harewareInputId = proxySession.getHardwareInputId();
-                        if (TextUtils.isEmpty(harewareInputId) ||
-                                !isPassthroughInput(harewareInputId)) {
-                            if (TextUtils.isEmpty(harewareInputId)) {
+                        String hardwareInputId = proxySession.getHardwareInputId();
+                        if (TextUtils.isEmpty(hardwareInputId) ||
+                                !isPassthroughInput(hardwareInputId)) {
+                            if (TextUtils.isEmpty(hardwareInputId)) {
                                 Log.w(TAG, "Hardware input id is not setup yet.");
                             } else {
-                                Log.w(TAG, "Invalid hardware input id : " + harewareInputId);
+                                Log.w(TAG, "Invalid hardware input id : " + hardwareInputId);
                             }
                             sessionImpl.onRelease();
                             try {
@@ -1649,7 +1674,7 @@ public abstract class TvInputService extends Service {
                         proxySession.mServiceHandler = mServiceHandler;
                         TvInputManager manager = (TvInputManager) getSystemService(
                                 Context.TV_INPUT_SERVICE);
-                        manager.createSession(harewareInputId,
+                        manager.createSession(hardwareInputId,
                                 proxySession.mHardwareSessionCallback, mServiceHandler);
                     } else {
                         SomeArgs someArgs = SomeArgs.obtain();

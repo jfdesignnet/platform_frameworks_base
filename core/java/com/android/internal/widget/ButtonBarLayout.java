@@ -17,6 +17,7 @@
 package com.android.internal.widget;
 
 import android.content.Context;
+import android.content.res.TypedArray;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.View;
@@ -29,45 +30,72 @@ import com.android.internal.R;
  * orientation when it can't fit its child views horizontally.
  */
 public class ButtonBarLayout extends LinearLayout {
-    /** Spacer used in horizontal orientation. */
-    private final View mSpacer;
-
     /** Whether the current configuration allows stacking. */
-    private final boolean mAllowStacked;
+    private boolean mAllowStacking;
 
-    /** Whether the layout is currently stacked. */
-    private boolean mStacked;
+    private int mLastWidthSize = -1;
 
     public ButtonBarLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
 
-        mAllowStacked = context.getResources().getBoolean(R.bool.allow_stacked_button_bar);
-        mSpacer = findViewById(R.id.spacer);
+        final TypedArray ta = context.obtainStyledAttributes(attrs, R.styleable.ButtonBarLayout);
+        mAllowStacking = ta.getBoolean(R.styleable.ButtonBarLayout_allowStacking, false);
+        ta.recycle();
     }
 
-    @Override
-    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh);
-
-        // Maybe we can fit the content now?
-        if (w > oldw && mStacked) {
-            setStacked(false);
+    public void setAllowStacking(boolean allowStacking) {
+        if (mAllowStacking != allowStacking) {
+            mAllowStacking = allowStacking;
+            if (!mAllowStacking && getOrientation() == LinearLayout.VERTICAL) {
+                setStacked(false);
+            }
+            requestLayout();
         }
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        final int widthSize = MeasureSpec.getSize(widthMeasureSpec);
 
-        if (mAllowStacked && getOrientation() == LinearLayout.HORIZONTAL) {
+        if (mAllowStacking) {
+            if (widthSize > mLastWidthSize && isStacked()) {
+                // We're being measured wider this time, try un-stacking.
+                setStacked(false);
+            }
+
+            mLastWidthSize = widthSize;
+        }
+
+        boolean needsRemeasure = false;
+
+        // If we're not stacked, make sure the measure spec is AT_MOST rather
+        // than EXACTLY. This ensures that we'll still get TOO_SMALL so that we
+        // know to stack the buttons.
+        final int initialWidthMeasureSpec;
+        if (!isStacked() && MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY) {
+            initialWidthMeasureSpec = MeasureSpec.makeMeasureSpec(widthSize, MeasureSpec.AT_MOST);
+
+            // We'll need to remeasure again to fill excess space.
+            needsRemeasure = true;
+        } else {
+            initialWidthMeasureSpec = widthMeasureSpec;
+        }
+
+        super.onMeasure(initialWidthMeasureSpec, heightMeasureSpec);
+
+        if (mAllowStacking && !isStacked()) {
             final int measuredWidth = getMeasuredWidthAndState();
             final int measuredWidthState = measuredWidth & MEASURED_STATE_MASK;
             if (measuredWidthState == MEASURED_STATE_TOO_SMALL) {
                 setStacked(true);
 
                 // Measure again in the new orientation.
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                needsRemeasure = true;
             }
+        }
+
+        if (needsRemeasure) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         }
     }
 
@@ -75,8 +103,9 @@ public class ButtonBarLayout extends LinearLayout {
         setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         setGravity(stacked ? Gravity.RIGHT : Gravity.BOTTOM);
 
-        if (mSpacer != null) {
-            mSpacer.setVisibility(stacked ? View.GONE : View.INVISIBLE);
+        final View spacer = findViewById(R.id.spacer);
+        if (spacer != null) {
+            spacer.setVisibility(stacked ? View.GONE : View.INVISIBLE);
         }
 
         // Reverse the child order. This is specific to the Material button
@@ -85,7 +114,9 @@ public class ButtonBarLayout extends LinearLayout {
         for (int i = childCount - 2; i >= 0; i--) {
             bringChildToFront(getChildAt(i));
         }
+    }
 
-        mStacked = stacked;
+    private boolean isStacked() {
+        return getOrientation() == LinearLayout.VERTICAL;
     }
 }

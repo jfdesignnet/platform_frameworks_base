@@ -21,11 +21,8 @@ import android.content.Context;
 import android.text.format.DateFormat;
 import android.util.Log;
 
-import com.android.systemui.statusbar.policy.NetworkController.NetworkSignalChangedCallback;
-import com.android.systemui.statusbar.policy.NetworkControllerImpl.SignalCluster;
-
 import java.io.PrintWriter;
-import java.util.List;
+import java.util.BitSet;
 
 
 /**
@@ -49,24 +46,22 @@ public abstract class SignalController<T extends SignalController.State,
     // The owner of the SignalController (i.e. NetworkController will maintain the following
     // lists and call notifyListeners whenever the list has changed to ensure everyone
     // is aware of current state.
-    protected final List<NetworkSignalChangedCallback> mSignalsChangedCallbacks;
-    protected final List<SignalCluster> mSignalClusters;
     protected final NetworkControllerImpl mNetworkController;
+
+    protected final CallbackHandler mCallbackHandler;
 
     // Save the previous HISTORY_SIZE states for logging.
     private final State[] mHistory;
     // Where to copy the next state into.
     private int mHistoryIndex;
 
-    public SignalController(String tag, Context context, int type,
-            List<NetworkSignalChangedCallback> signalCallbacks,
-            List<SignalCluster> signalClusters, NetworkControllerImpl networkController) {
+    public SignalController(String tag, Context context, int type, CallbackHandler callbackHandler,
+            NetworkControllerImpl networkController) {
         mTag = TAG + "." + tag;
         mNetworkController = networkController;
         mTransportType = type;
         mContext = context;
-        mSignalsChangedCallbacks = signalCallbacks;
-        mSignalClusters = signalClusters;
+        mCallbackHandler = callbackHandler;
         mCurrentState = cleanState();
         mLastState = cleanState();
         if (RECORD_HISTORY) {
@@ -81,12 +76,8 @@ public abstract class SignalController<T extends SignalController.State,
         return mCurrentState;
     }
 
-    public int getTransportType() {
-        return mTransportType;
-    }
-
-    public void setInetCondition(int inetCondition) {
-        mCurrentState.inetCondition = inetCondition;
+    public void updateConnectivity(BitSet connectedTransports, BitSet validatedTransports) {
+        mCurrentState.inetCondition = validatedTransports.get(mTransportType) ? 1 : 0;
         notifyListenersIfNecessary();
     }
 
@@ -142,16 +133,8 @@ public abstract class SignalController<T extends SignalController.State,
      * Gets the signal icon for SB based on current state of connected, enabled, and level.
      */
     public int getCurrentIconId() {
-        return getCurrentIconId(true /* light */);
-    }
-
-    protected int getCurrentIconId(boolean light) {
         if (mCurrentState.connected) {
-            if (light) {
-                return getIcons().mSbIcons[mCurrentState.inetCondition][mCurrentState.level];
-            } else {
-                return getIcons().mSbDarkIcons[mCurrentState.inetCondition][mCurrentState.level];
-            }
+            return getIcons().mSbIcons[mCurrentState.inetCondition][mCurrentState.level];
         } else if (mCurrentState.enabled) {
             return getIcons().mSbDiscState;
         } else {
@@ -234,13 +217,11 @@ public abstract class SignalController<T extends SignalController.State,
      */
     static class IconGroup {
         final int[][] mSbIcons;
-        final int[][] mSbDarkIcons;
         final int[][] mQsIcons;
         final int[] mContentDesc;
         final int mSbNullState;
         final int mQsNullState;
         final int mSbDiscState;
-        final int mSbDarkDiscState;
         final int mQsDiscState;
         final int mDiscContentDesc;
         // For logging.
@@ -249,22 +230,13 @@ public abstract class SignalController<T extends SignalController.State,
         public IconGroup(String name, int[][] sbIcons, int[][] qsIcons, int[] contentDesc,
                 int sbNullState, int qsNullState, int sbDiscState, int qsDiscState,
                 int discContentDesc) {
-            this(name, sbIcons, sbIcons, qsIcons, contentDesc, sbNullState, qsNullState,
-                    sbDiscState, sbDiscState, qsDiscState, discContentDesc);
-        }
-
-        public IconGroup(String name, int[][] sbIcons, int[][] sbDarkIcons, int[][] qsIcons,
-                int[] contentDesc, int sbNullState, int qsNullState, int sbDiscState,
-                int sbDarkDiscState, int qsDiscState, int discContentDesc) {
             mName = name;
             mSbIcons = sbIcons;
-            mSbDarkIcons = sbDarkIcons;
             mQsIcons = qsIcons;
             mContentDesc = contentDesc;
             mSbNullState = sbNullState;
             mQsNullState = qsNullState;
             mSbDiscState = sbDiscState;
-            mSbDarkDiscState = sbDarkDiscState;
             mQsDiscState = qsDiscState;
             mDiscContentDesc = discContentDesc;
         }

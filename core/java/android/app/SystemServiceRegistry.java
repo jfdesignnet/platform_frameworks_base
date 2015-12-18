@@ -55,7 +55,6 @@ import android.location.CountryDetector;
 import android.location.ICountryDetector;
 import android.location.ILocationManager;
 import android.location.LocationManager;
-import android.media.AudioDevicesManager;
 import android.media.AudioManager;
 import android.media.MediaRouter;
 import android.media.midi.IMidiManager;
@@ -91,7 +90,6 @@ import android.os.IPowerManager;
 import android.os.IUserManager;
 import android.os.PowerManager;
 import android.os.Process;
-import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemVibrator;
 import android.os.UserHandle;
@@ -111,7 +109,7 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
-import android.view.PhoneLayoutInflater;
+import com.android.internal.policy.PhoneLayoutInflater;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
 import android.view.accessibility.AccessibilityManager;
@@ -222,11 +220,12 @@ final class SystemServiceRegistry {
         SYSTEM_SERVICE_NAMES.put(android.text.ClipboardManager.class, Context.CLIPBOARD_SERVICE);
 
         registerService(Context.CONNECTIVITY_SERVICE, ConnectivityManager.class,
-                new StaticServiceFetcher<ConnectivityManager>() {
+                new StaticOuterContextServiceFetcher<ConnectivityManager>() {
             @Override
-            public ConnectivityManager createService() {
+            public ConnectivityManager createService(Context context) {
                 IBinder b = ServiceManager.getService(Context.CONNECTIVITY_SERVICE);
-                return new ConnectivityManager(IConnectivityManager.Stub.asInterface(b));
+                IConnectivityManager service = IConnectivityManager.Stub.asInterface(b);
+                return new ConnectivityManager(context, service);
             }});
 
         registerService(Context.COUNTRY_DETECTOR, CountryDetector.class,
@@ -693,7 +692,10 @@ final class SystemServiceRegistry {
             @Override
             public MidiManager createService(ContextImpl ctx) {
                 IBinder b = ServiceManager.getService(Context.MIDI_SERVICE);
-                return new MidiManager(ctx, IMidiManager.Stub.asInterface(b));
+                if (b == null) {
+                    return null;
+                }
+                return new MidiManager(IMidiManager.Stub.asInterface(b));
             }});
 
         registerService(Context.RADIO_SERVICE, RadioManager.class,
@@ -701,13 +703,6 @@ final class SystemServiceRegistry {
             @Override
             public RadioManager createService(ContextImpl ctx) {
                 return new RadioManager(ctx);
-            }});
-
-        registerService(Context.AUDIO_DEVICES_SERVICE, AudioDevicesManager.class,
-                new CachedServiceFetcher<AudioDevicesManager>() {
-            @Override
-            public AudioDevicesManager createService(ContextImpl ctx) {
-                return new AudioDevicesManager(ctx);
             }});
     }
 
@@ -727,7 +722,7 @@ final class SystemServiceRegistry {
     }
 
     /**
-     * Gets the name of the system-level service that is represented by the specified class. 
+     * Gets the name of the system-level service that is represented by the specified class.
      */
     public static String getSystemServiceName(Class<?> serviceClass) {
         return SYSTEM_SERVICE_NAMES.get(serviceClass);
@@ -799,4 +794,30 @@ final class SystemServiceRegistry {
 
         public abstract T createService();
     }
+
+    /**
+     * Like StaticServiceFetcher, creates only one instance of the service per process, but when
+     * creating the service for the first time, passes it the outer context of the creating
+     * component.
+     *
+     * TODO: Is this safe in the case where multiple applications share the same process?
+     * TODO: Delete this once its only user (ConnectivityManager) is known to work well in the
+     * case where multiple application components each have their own ConnectivityManager object.
+     */
+    static abstract class StaticOuterContextServiceFetcher<T> implements ServiceFetcher<T> {
+        private T mCachedInstance;
+
+        @Override
+        public final T getService(ContextImpl ctx) {
+            synchronized (StaticOuterContextServiceFetcher.this) {
+                if (mCachedInstance == null) {
+                    mCachedInstance = createService(ctx.getOuterContext());
+                }
+                return mCachedInstance;
+            }
+        }
+
+        public abstract T createService(Context applicationContext);
+    }
+
 }

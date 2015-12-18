@@ -67,6 +67,7 @@ public:
 
     virtual void getMatrix(SkMatrix* outMatrix) const override;
     virtual void setMatrix(const SkMatrix& matrix) override;
+    virtual void setLocalMatrix(const SkMatrix& matrix) override { this->setMatrix(matrix); }
     virtual void concat(const SkMatrix& matrix) override;
     virtual void rotate(float degrees) override;
     virtual void scale(float sx, float sy) override;
@@ -419,12 +420,12 @@ bool SkiaCanvas::quickRejectPath(const SkPath& path) const {
 bool SkiaCanvas::clipRect(float left, float top, float right, float bottom, SkRegion::Op op) {
     SkRect rect = SkRect::MakeLTRB(left, top, right, bottom);
     mCanvas->clipRect(rect, op);
-    return mCanvas->isClipEmpty();
+    return !mCanvas->isClipEmpty();
 }
 
 bool SkiaCanvas::clipPath(const SkPath* path, SkRegion::Op op) {
     mCanvas->clipPath(*path, op);
-    return mCanvas->isClipEmpty();
+    return !mCanvas->isClipEmpty();
 }
 
 bool SkiaCanvas::clipRegion(const SkRegion* region, SkRegion::Op op) {
@@ -438,7 +439,7 @@ bool SkiaCanvas::clipRegion(const SkRegion* region, SkRegion::Op op) {
     } else {
         mCanvas->clipRect(SkRect::MakeEmpty(), op);
     }
-    return mCanvas->isClipEmpty();
+    return !mCanvas->isClipEmpty();
 }
 
 // ----------------------------------------------------------------------------

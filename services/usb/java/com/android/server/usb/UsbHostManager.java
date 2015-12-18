@@ -27,6 +27,7 @@ import android.os.ParcelFileDescriptor;
 import android.util.Slog;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -112,7 +113,7 @@ public class UsbHostManager {
      */
     private boolean beginUsbDeviceAdded(String deviceName, int vendorID, int productID,
             int deviceClass, int deviceSubclass, int deviceProtocol,
-            String manufacturerName, String productName, String serialNumber) {
+            String manufacturerName, String productName, int version, String serialNumber) {
 
         if (DEBUG) {
             Slog.d(TAG, "usb:UsbHostManager.beginUsbDeviceAdded(" + deviceName + ")");
@@ -149,9 +150,12 @@ public class UsbHostManager {
                 return false;
             }
 
+            // Create version string in "%.%" format
+            String versionString = Integer.toString(version >> 8) + "." + (version & 0xFF);
+
             mNewDevice = new UsbDevice(deviceName, vendorID, productID,
                     deviceClass, deviceSubclass, deviceProtocol,
-                    manufacturerName, productName, serialNumber);
+                    manufacturerName, productName, versionString, serialNumber);
 
             mNewConfigurations = new ArrayList<UsbConfiguration>();
             mNewInterfaces = new ArrayList<UsbInterface>();
@@ -227,6 +231,8 @@ public class UsbHostManager {
             mNewConfigurations = null;
             mNewInterfaces = null;
             mNewEndpoints = null;
+            mNewConfiguration = null;
+            mNewInterface = null;
         }
     }
 
@@ -280,11 +286,11 @@ public class UsbHostManager {
         }
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw) {
+    public void dump(IndentingPrintWriter pw) {
         synchronized (mLock) {
-            pw.println("  USB Host State:");
+            pw.println("USB Host State:");
             for (String name : mDevices.keySet()) {
-                pw.println("    " + name + ": " + mDevices.get(name));
+                pw.println("  " + name + ": " + mDevices.get(name));
             }
         }
     }

@@ -44,14 +44,12 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.VerificationParams;
 import android.content.pm.VerifierDeviceIdentity;
-import android.content.pm.PackageManager.MoveCallback;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Handler;
-import android.os.ResultReceiver;
 import android.os.UserHandle;
 import android.os.storage.VolumeInfo;
 
@@ -179,6 +177,17 @@ public class MockPackageManager extends PackageManager {
     }
 
     @Override
+    public boolean isPermissionRevokedByPolicy(String permName, String pkgName) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public String getPermissionControllerPackageName() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean addPermission(PermissionInfo info) {
         throw new UnsupportedOperationException();
     }
@@ -195,13 +204,46 @@ public class MockPackageManager extends PackageManager {
 
     /** @hide */
     @Override
-    public void grantPermission(String packageName, String permissionName, UserHandle user) {
+    public void grantRuntimePermission(String packageName, String permissionName,
+            UserHandle user) {
         throw new UnsupportedOperationException();
     }
 
     /** @hide */
     @Override
-    public void revokePermission(String packageName, String permissionName, UserHandle user) {
+    public void revokeRuntimePermission(String packageName, String permissionName,
+            UserHandle user) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public int getPermissionFlags(String permissionName, String packageName, UserHandle user) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public void updatePermissionFlags(String permissionName, String packageName,
+            int flagMask, int flagValues, UserHandle user) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public boolean shouldShowRequestPermissionRationale(String permission) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public void addOnPermissionsChangeListener(OnPermissionsChangedListener listener) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public void removeOnPermissionsChangeListener(OnPermissionsChangedListener listener) {
         throw new UnsupportedOperationException();
     }
 

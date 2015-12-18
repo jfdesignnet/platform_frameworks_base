@@ -27,6 +27,12 @@ import android.os.ParcelFileDescriptor;
  *  {@hide}
  */
 interface IUserManager {
+
+    /*
+     * DO NOT MOVE - UserManager.h depends on the ordering of this function.
+     */
+    int getCredentialOwnerProfile(int userHandle);
+
     UserInfo createUser(in String name, int flags);
     UserInfo createProfileForUser(in String name, int flags, int userHandle);
     void setUserEnabled(int userHandle);
@@ -36,6 +42,7 @@ interface IUserManager {
     ParcelFileDescriptor getUserIcon(int userHandle);
     List<UserInfo> getUsers(boolean excludeDying);
     List<UserInfo> getProfiles(int userHandle, boolean enabledOnly);
+    boolean canAddMoreManagedProfiles();
     UserInfo getProfileParent(int userHandle);
     UserInfo getUserInfo(int userHandle);
     long getUserCreationTime(int userHandle);
@@ -45,13 +52,12 @@ interface IUserManager {
     Bundle getUserRestrictions(int userHandle);
     boolean hasUserRestriction(in String restrictionKey, int userHandle);
     void setUserRestrictions(in Bundle restrictions, int userHandle);
+    void setUserRestriction(String key, boolean value, int userId);
+    void setSystemControlledUserRestriction(String key, boolean value, int userId);
     void setApplicationRestrictions(in String packageName, in Bundle restrictions,
             int userHandle);
     Bundle getApplicationRestrictions(in String packageName);
     Bundle getApplicationRestrictionsForUser(in String packageName, int userHandle);
-    boolean setRestrictionsChallenge(in String newPin);
-    int checkRestrictionsChallenge(in String pin);
-    boolean hasRestrictionsChallenge();
     void removeRestrictions();
     void setDefaultGuestRestrictions(in Bundle restrictions);
     Bundle getDefaultGuestRestrictions();

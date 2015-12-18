@@ -72,6 +72,12 @@ static struct {
     jmethodID ctor;
 } gSurfacePlaneClassInfo;
 
+// Get an ID that's unique within this process.
+static int32_t createProcessUniqueId() {
+    static volatile int32_t globalCounter = 0;
+    return android_atomic_inc(&globalCounter);
+}
+
 // ----------------------------------------------------------------------------
 
 class JNIImageReaderContext : public ConsumerBase::FrameAvailableListener
@@ -808,6 +814,9 @@ static void ImageReader_init(JNIEnv* env, jobject thiz, jobject weakThiz,
     sp<ConsumerBase> consumer;
     sp<CpuConsumer> cpuConsumer;
     sp<BufferItemConsumer> opaqueConsumer;
+    String8 consumerName = String8::format("ImageReader-%dx%df%xm%d-%d-%d",
+            width, height, format, maxImages, getpid(),
+            createProcessUniqueId());
     if (isFormatOpaque(nativeFormat)) {
         // Use the SW_READ_NEVER usage to tell producer that this format is not for preview or video
         // encoding. The only possibility will be ZSL output.
@@ -819,6 +828,7 @@ static void ImageReader_init(JNIEnv* env, jobject thiz, jobject weakThiz,
             return;
         }
         ctx->setOpaqueConsumer(opaqueConsumer);
+        opaqueConsumer->setName(consumerName);
         consumer = opaqueConsumer;
     } else {
         cpuConsumer = new CpuConsumer(gbConsumer, maxImages, /*controlledByApp*/true);
@@ -828,6 +838,7 @@ static void ImageReader_init(JNIEnv* env, jobject thiz, jobject weakThiz,
             return;
         }
         ctx->setCpuConsumer(cpuConsumer);
+        cpuConsumer->setName(consumerName);
         consumer = cpuConsumer;
     }
 
@@ -1222,6 +1233,22 @@ static jint Image_getHeight(JNIEnv* env, jobject thiz, jint format)
     }
 }
 
+static jint Image_getFormat(JNIEnv* env, jobject thiz, jint readerFormat)
+{
+    if (isFormatOpaque(readerFormat)) {
+        // Assuming opaque reader produce opaque images.
+        return static_cast<jint>(PublicFormat::PRIVATE);
+    } else {
+        CpuConsumer::LockedBuffer* buffer = Image_getLockedBuffer(env, thiz);
+        int readerHalFormat = android_view_Surface_mapPublicFormatToHalFormat(
+                static_cast<PublicFormat>(readerFormat));
+        int32_t fmt = applyFormatOverrides(buffer->flexFormat, readerHalFormat);
+        PublicFormat publicFmt = android_view_Surface_mapHalFormatDataspaceToPublicFormat(
+                fmt, buffer->dataSpace);
+        return static_cast<jint>(publicFmt);
+    }
+}
+
 } // extern "C"
 
 // ----------------------------------------------------------------------------
@@ -1240,8 +1267,9 @@ static JNINativeMethod gImageMethods[] = {
     {"nativeImageGetBuffer",   "(II)Ljava/nio/ByteBuffer;",   (void*)Image_getByteBuffer },
     {"nativeCreatePlane",      "(II)Landroid/media/ImageReader$SurfaceImage$SurfacePlane;",
                                                               (void*)Image_createSurfacePlane },
-    {"nativeGetWidth",         "(I)I",                         (void*)Image_getWidth },
-    {"nativeGetHeight",        "(I)I",                         (void*)Image_getHeight },
+    {"nativeGetWidth",         "(I)I",                        (void*)Image_getWidth },
+    {"nativeGetHeight",        "(I)I",                        (void*)Image_getHeight },
+    {"nativeGetFormat",        "(I)I",                        (void*)Image_getFormat },
 };
 
 int register_android_media_ImageReader(JNIEnv *env) {

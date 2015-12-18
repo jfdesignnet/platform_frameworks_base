@@ -615,6 +615,10 @@ static void android_content_AssetManager_setConfiguration(JNIEnv* env, jobject c
 
     const char* locale8 = locale != NULL ? env->GetStringUTFChars(locale, NULL) : NULL;
 
+    // Constants duplicated from Java class android.content.res.Configuration.
+    static const jint kScreenLayoutRoundMask = 0x300;
+    static const jint kScreenLayoutRoundShift = 8;
+
     config.mcc = (uint16_t)mcc;
     config.mnc = (uint16_t)mnc;
     config.orientation = (uint8_t)orientation;
@@ -632,6 +636,13 @@ static void android_content_AssetManager_setConfiguration(JNIEnv* env, jobject c
     config.uiMode = (uint8_t)uiMode;
     config.sdkVersion = (uint16_t)sdkVersion;
     config.minorVersion = 0;
+
+    // In Java, we use a 32bit integer for screenLayout, while we only use an 8bit integer
+    // in C++. We must extract the round qualifier out of the Java screenLayout and put it
+    // into screenLayout2.
+    config.screenLayout2 =
+            (uint8_t)((screenLayout & kScreenLayoutRoundMask) >> kScreenLayoutRoundShift);
+
     am->setConfiguration(config, locale8);
 
     if (locale != NULL) env->ReleaseStringUTFChars(locale, locale8);
@@ -976,6 +987,12 @@ static void android_content_AssetManager_copyTheme(JNIEnv* env, jobject clazz,
     dest->setTo(*src);
 }
 
+static void android_content_AssetManager_clearTheme(JNIEnv* env, jobject clazz, jlong themeHandle)
+{
+    ResTable::Theme* theme = reinterpret_cast<ResTable::Theme*>(themeHandle);
+    theme->clear();
+}
+
 static jint android_content_AssetManager_loadThemeAttributeValue(
     JNIEnv* env, jobject clazz, jlong themeHandle, jint ident, jobject outValue, jboolean resolve)
 {
@@ -997,6 +1014,13 @@ static jint android_content_AssetManager_loadThemeAttributeValue(
         }
     }
     return block >= 0 ? copyValue(env, outValue, &res, value, ref, block, typeSpecFlags) : block;
+}
+
+static jint android_content_AssetManager_getThemeChangingConfigurations(JNIEnv* env, jobject clazz,
+                                                                        jlong themeHandle)
+{
+    ResTable::Theme* theme = reinterpret_cast<ResTable::Theme*>(themeHandle);
+    return theme->getChangingConfigurations();
 }
 
 static void android_content_AssetManager_dumpTheme(JNIEnv* env, jobject clazz,
@@ -2101,8 +2125,12 @@ static JNINativeMethod gAssetManagerMethods[] = {
         (void*) android_content_AssetManager_applyThemeStyle },
     { "copyTheme", "(JJ)V",
         (void*) android_content_AssetManager_copyTheme },
+    { "clearTheme", "(J)V",
+        (void*) android_content_AssetManager_clearTheme },
     { "loadThemeAttributeValue", "(JILandroid/util/TypedValue;Z)I",
         (void*) android_content_AssetManager_loadThemeAttributeValue },
+    { "getThemeChangingConfigurations", "(J)I",
+        (void*) android_content_AssetManager_getThemeChangingConfigurations },
     { "dumpTheme", "(JILjava/lang/String;Ljava/lang/String;)V",
         (void*) android_content_AssetManager_dumpTheme },
     { "applyStyle","(JIIJ[I[I[I)Z",

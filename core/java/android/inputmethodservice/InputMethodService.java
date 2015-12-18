@@ -306,6 +306,14 @@ public class InputMethodService extends AbstractInputMethodService {
     int mStatusIcon;
     int mBackDisposition;
 
+    /**
+     * {@code true} when the previous IME had non-empty inset at the bottom of the screen and we
+     * have not shown our own window yet.  In this situation, the previous inset continues to be
+     * shown as an empty region until it is explicitly updated. Basically we can trigger the update
+     * by calling 1) {@code mWindow.show()} or 2) {@link #clearInsetOfPreviousIme()}.
+     */
+    boolean mShouldClearInsetOfPreviousIme;
+
     final Insets mTmpInsets = new Insets();
     final int[] mTmpLocation = new int[2];
 
@@ -408,6 +416,7 @@ public class InputMethodService extends AbstractInputMethodService {
             mShowInputRequested = false;
             mShowInputForced = false;
             doHideWindow();
+            clearInsetOfPreviousIme();
             if (resultReceiver != null) {
                 resultReceiver.send(wasVis != isInputViewShown()
                         ? InputMethodManager.RESULT_HIDDEN
@@ -432,6 +441,7 @@ public class InputMethodService extends AbstractInputMethodService {
                     mWindowAdded = false;
                 }
             }
+            clearInsetOfPreviousIme();
             // If user uses hard keyboard, IME button should always be shown.
             boolean showing = isInputViewShown();
             mImm.setImeWindowStatus(mToken, IME_ACTIVE | (showing ? IME_VISIBLE : 0),
@@ -669,6 +679,9 @@ public class InputMethodService extends AbstractInputMethodService {
         super.setTheme(mTheme);
         super.onCreate();
         mImm = (InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);
+        // If the previous IME has occupied non-empty inset in the screen, we need to decide whether
+        // we continue to use the same size of the inset or update it
+        mShouldClearInsetOfPreviousIme = (mImm.getInputMethodWindowVisibleHeight() > 0);
         mInflater = (LayoutInflater)getSystemService(
                 Context.LAYOUT_INFLATER_SERVICE);
         mWindow = new SoftInputWindow(this, "InputMethod", mTheme, null, null, mDispatcherState,
@@ -1494,6 +1507,9 @@ public class InputMethodService extends AbstractInputMethodService {
             if (DEBUG) Log.v(TAG, "showWindow: showing!");
             onWindowShown();
             mWindow.show();
+            // Put here rather than in onWindowShown() in case people forget to call
+            // super.onWindowShown().
+            mShouldClearInsetOfPreviousIme = false;
         }
     }
 
@@ -1540,7 +1556,29 @@ public class InputMethodService extends AbstractInputMethodService {
     public void onWindowHidden() {
         // Intentionally empty
     }
-    
+
+    /**
+     * Reset the inset occupied the previous IME when and only when
+     * {@link #mShouldClearInsetOfPreviousIme} is {@code true}.
+     */
+    private void clearInsetOfPreviousIme() {
+        if (DEBUG) Log.v(TAG, "clearInsetOfPreviousIme() "
+                + " mShouldClearInsetOfPreviousIme=" + mShouldClearInsetOfPreviousIme);
+        if (!mShouldClearInsetOfPreviousIme || mWindow == null) return;
+        try {
+            // We do not call onWindowShown() and onWindowHidden() so as not to make the IME author
+            // confused.
+            // TODO: Find out a better way which has less side-effect.
+            mWindow.show();
+            mWindow.hide();
+        } catch (WindowManager.BadTokenException e) {
+            if (DEBUG) Log.v(TAG, "clearInsetOfPreviousIme: BadTokenException: IME is done.");
+            mWindowVisible = false;
+            mWindowAdded = false;
+        }
+        mShouldClearInsetOfPreviousIme = false;
+    }
+
     /**
      * Called when a new client has bound to the input method.  This
      * may be followed by a series of {@link #onStartInput(EditorInfo, boolean)}
@@ -1759,16 +1797,9 @@ public class InputMethodService extends AbstractInputMethodService {
     private void requestShowSelf(int flags) {
         mImm.showSoftInputFromInputMethod(mToken, flags);
     }
-    
+
     private boolean handleBack(boolean doIt) {
         if (mShowInputRequested) {
-            if (isExtractViewShown() && mExtractView instanceof ExtractEditLayout) {
-                ExtractEditLayout extractEditLayout = (ExtractEditLayout) mExtractView;
-                if (extractEditLayout.isActionModeStarted()) {
-                    if (doIt) extractEditLayout.finishActionMode();
-                    return true;
-                }
-            }
             // If the soft input area is shown, back closes it and we
             // consume the back key.
             if (doIt) requestHideSelf(0);
@@ -1788,7 +1819,18 @@ public class InputMethodService extends AbstractInputMethodService {
         }
         return false;
     }
-    
+
+    /**
+     * @return {#link ExtractEditText} if it is considered to be visible and active. Otherwise
+     * {@code null} is returned.
+     */
+    private ExtractEditText getExtractEditTextIfVisible() {
+        if (!isExtractViewShown() || !isInputViewShown()) {
+            return null;
+        }
+        return mExtractEditText;
+    }
+
     /**
      * Override this to intercept key down events before they are processed by the
      * application.  If you return true, the application will not 
@@ -1804,6 +1846,10 @@ public class InputMethodService extends AbstractInputMethodService {
      */
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            final ExtractEditText eet = getExtractEditTextIfVisible();
+            if (eet != null && eet.handleBackInTextActionModeIfNeeded(event)) {
+                return true;
+            }
             if (handleBack(false)) {
                 event.startTracking();
                 return true;
@@ -1851,11 +1897,15 @@ public class InputMethodService extends AbstractInputMethodService {
      * them to perform navigation in the underlying application.
      */
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && event.isTracking()
-                && !event.isCanceled()) {
-            return handleBack(true);
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            final ExtractEditText eet = getExtractEditTextIfVisible();
+            if (eet != null && eet.handleBackInTextActionModeIfNeeded(event)) {
+                return true;
+            }
+            if (event.isTracking() && !event.isCanceled()) {
+                return handleBack(true);
+            }
         }
-        
         return doMovementKey(keyCode, event, MOVEMENT_UP);
     }
 
@@ -1921,10 +1971,10 @@ public class InputMethodService extends AbstractInputMethodService {
         }
         onExtractedCursorMovement(dx, dy);
     }
-    
+
     boolean doMovementKey(int keyCode, KeyEvent event, int count) {
-        final ExtractEditText eet = mExtractEditText;
-        if (isExtractViewShown() && isInputViewShown() && eet != null) {
+        final ExtractEditText eet = getExtractEditTextIfVisible();
+        if (eet != null) {
             // If we are in fullscreen mode, the cursor will move around
             // the extract edit text, but should NOT cause focus to move
             // to other fields.
@@ -1975,7 +2025,7 @@ public class InputMethodService extends AbstractInputMethodService {
                     return true;
             }
         }
-        
+
         return false;
     }
     
@@ -2428,5 +2478,6 @@ public class InputMethodService extends AbstractInputMethodService {
                 + " visibleTopInsets=" + mTmpInsets.visibleTopInsets
                 + " touchableInsets=" + mTmpInsets.touchableInsets
                 + " touchableRegion=" + mTmpInsets.touchableRegion);
+        p.println(" mShouldClearInsetOfPreviousIme=" + mShouldClearInsetOfPreviousIme);
     }
 }

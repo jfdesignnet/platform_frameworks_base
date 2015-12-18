@@ -38,14 +38,17 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
 import android.os.RemoteException;
-import android.os.SystemProperties;
 import android.os.SystemClock;
 import android.os.ServiceManager;
+import android.os.UserHandle;
 import android.provider.Settings;
+import android.util.ArrayMap;
 import android.util.Log;
+import android.util.Pair;
 import android.view.KeyEvent;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 
@@ -57,22 +60,13 @@ import java.util.Iterator;
  */
 public class AudioManager {
 
-    private final Context mApplicationContext;
+    private Context mOriginalContext;
+    private Context mApplicationContext;
     private long mVolumeKeyUpTime;
     private final boolean mUseVolumeKeySounds;
     private final boolean mUseFixedVolume;
     private static String TAG = "AudioManager";
     private static final AudioPortEventHandler sAudioPortEventHandler = new AudioPortEventHandler();
-
-    /**
-     * System properties for whether the default microphone and speaker paths support
-     * near-ultrasound frequencies (range of 18 - 21 kHz).
-     */
-    private static final String SYSTEM_PROPERTY_MIC_NEAR_ULTRASOUND =
-            "persist.audio.mic.ultrasound";
-    private static final String SYSTEM_PROPERTY_SPEAKER_NEAR_ULTRASOUND =
-            "persist.audio.spkr.ultrasound";
-    private static final String DEFAULT_RESULT_FALSE_STRING = "false";
 
     /**
      * Broadcast intent, a hint for applications that audio is about to become
@@ -209,6 +203,17 @@ public class AudioManager {
      * @hide The stream type for the volume changed intent.
      */
     public static final String EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE";
+
+    /**
+     * @hide
+     * The stream type alias for the volume changed intent.
+     * For instance the intent may indicate a change of the {@link #STREAM_NOTIFICATION} stream
+     * type (as indicated by the {@link #EXTRA_VOLUME_STREAM_TYPE} extra), but this is also
+     * reflected by a change of the volume of its alias, {@link #STREAM_RING} on some devices,
+     * {@link #STREAM_MUSIC} on others (e.g. a television).
+     */
+    public static final String EXTRA_VOLUME_STREAM_TYPE_ALIAS =
+            "android.media.EXTRA_VOLUME_STREAM_TYPE_ALIAS";
 
     /**
      * @hide The volume associated with the stream for the volume changed intent.
@@ -621,12 +626,30 @@ public class AudioManager {
      * @hide
      */
     public AudioManager(Context context) {
-        mApplicationContext = context;
-        mUseVolumeKeySounds = mApplicationContext.getResources().getBoolean(
+        setContext(context);
+        mUseVolumeKeySounds = getContext().getResources().getBoolean(
                 com.android.internal.R.bool.config_useVolumeKeySounds);
-        mUseFixedVolume = mApplicationContext.getResources().getBoolean(
+        mUseFixedVolume = getContext().getResources().getBoolean(
                 com.android.internal.R.bool.config_useFixedVolume);
-        sAudioPortEventHandler.init();
+    }
+
+    private Context getContext() {
+        if (mApplicationContext == null) {
+            setContext(mOriginalContext);
+        }
+        if (mApplicationContext != null) {
+            return mApplicationContext;
+        }
+        return mOriginalContext;
+    }
+
+    private void setContext(Context context) {
+        mApplicationContext = context.getApplicationContext();
+        if (mApplicationContext != null) {
+            mOriginalContext = null;
+        } else {
+            mOriginalContext = context;
+        }
     }
 
     private static IAudioService getService()
@@ -663,7 +686,7 @@ public class AudioManager {
      *     or {@link KeyEvent#KEYCODE_MEDIA_AUDIO_TRACK}.
      */
     public void dispatchMediaKeyEvent(KeyEvent keyEvent) {
-        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(mApplicationContext);
+        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(getContext());
         helper.sendMediaButtonEvent(keyEvent, false);
     }
 
@@ -709,7 +732,7 @@ public class AudioManager {
                 break;
             case KeyEvent.KEYCODE_VOLUME_MUTE:
                 if (event.getRepeatCount() == 0) {
-                    MediaSessionLegacyHelper.getHelper(mApplicationContext)
+                    MediaSessionLegacyHelper.getHelper(getContext())
                             .sendVolumeKeyEvent(event, false);
                 }
                 break;
@@ -737,7 +760,7 @@ public class AudioManager {
                 mVolumeKeyUpTime = SystemClock.uptimeMillis();
                 break;
             case KeyEvent.KEYCODE_VOLUME_MUTE:
-                MediaSessionLegacyHelper.getHelper(mApplicationContext)
+                MediaSessionLegacyHelper.getHelper(getContext())
                         .sendVolumeKeyEvent(event, false);
                 break;
         }
@@ -783,7 +806,7 @@ public class AudioManager {
         IAudioService service = getService();
         try {
             service.adjustStreamVolume(streamType, direction, flags,
-                    mApplicationContext.getOpPackageName());
+                    getContext().getOpPackageName());
         } catch (RemoteException e) {
             Log.e(TAG, "Dead object in adjustStreamVolume", e);
         }
@@ -813,7 +836,7 @@ public class AudioManager {
      * @see #isVolumeFixed()
      */
     public void adjustVolume(int direction, int flags) {
-        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(mApplicationContext);
+        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(getContext());
         helper.sendAdjustVolumeBy(USE_DEFAULT_STREAM_TYPE, direction, flags);
     }
 
@@ -842,7 +865,7 @@ public class AudioManager {
      * @see #isVolumeFixed()
      */
     public void adjustSuggestedStreamVolume(int direction, int suggestedStreamType, int flags) {
-        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(mApplicationContext);
+        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(getContext());
         helper.sendAdjustVolumeBy(suggestedStreamType, direction, flags);
     }
 
@@ -850,7 +873,8 @@ public class AudioManager {
     public void setMasterMute(boolean mute, int flags) {
         IAudioService service = getService();
         try {
-            service.setMasterMute(mute, flags, mApplicationContext.getOpPackageName());
+            service.setMasterMute(mute, flags, getContext().getOpPackageName(),
+                    UserHandle.getCallingUserId());
         } catch (RemoteException e) {
             Log.e(TAG, "Dead object in setMasterMute", e);
         }
@@ -997,7 +1021,7 @@ public class AudioManager {
         }
         IAudioService service = getService();
         try {
-            service.setRingerModeExternal(ringerMode, mApplicationContext.getOpPackageName());
+            service.setRingerModeExternal(ringerMode, getContext().getOpPackageName());
         } catch (RemoteException e) {
             Log.e(TAG, "Dead object in setRingerMode", e);
         }
@@ -1018,7 +1042,7 @@ public class AudioManager {
     public void setStreamVolume(int streamType, int index, int flags) {
         IAudioService service = getService();
         try {
-            service.setStreamVolume(streamType, index, flags, mApplicationContext.getOpPackageName());
+            service.setStreamVolume(streamType, index, flags, getContext().getOpPackageName());
         } catch (RemoteException e) {
             Log.e(TAG, "Dead object in setStreamVolume", e);
         }
@@ -1331,7 +1355,7 @@ public class AudioManager {
      * @see #startBluetoothSco()
     */
     public boolean isBluetoothScoAvailableOffCall() {
-        return mApplicationContext.getResources().getBoolean(
+        return getContext().getResources().getBoolean(
                com.android.internal.R.bool.config_bluetooth_sco_off_call);
     }
 
@@ -1384,7 +1408,7 @@ public class AudioManager {
         IAudioService service = getService();
         try {
             service.startBluetoothSco(mICallBack,
-                    mApplicationContext.getApplicationInfo().targetSdkVersion);
+                    getContext().getApplicationInfo().targetSdkVersion);
         } catch (RemoteException e) {
             Log.e(TAG, "Dead object in startBluetoothSco", e);
         }
@@ -1529,10 +1553,11 @@ public class AudioManager {
      * @param on set <var>true</var> to mute the microphone;
      *           <var>false</var> to turn mute off
      */
-    public void setMicrophoneMute(boolean on){
+    public void setMicrophoneMute(boolean on) {
         IAudioService service = getService();
         try {
-            service.setMicrophoneMute(on, mApplicationContext.getOpPackageName());
+            service.setMicrophoneMute(on, getContext().getOpPackageName(),
+                    UserHandle.getCallingUserId());
         } catch (RemoteException e) {
             Log.e(TAG, "Dead object in setMicrophoneMute", e);
         }
@@ -1963,7 +1988,7 @@ public class AudioManager {
      * Settings has an in memory cache, so this is fast.
      */
     private boolean querySoundEffectsEnabled(int user) {
-        return Settings.System.getIntForUser(mApplicationContext.getContentResolver(),
+        return Settings.System.getIntForUser(getContext().getContentResolver(),
                 Settings.System.SOUND_EFFECTS_ENABLED, 0, user) != 0;
     }
 
@@ -2375,7 +2400,7 @@ public class AudioManager {
         try {
             status = service.requestAudioFocus(requestAttributes, durationHint, mICallBack,
                     mAudioFocusDispatcher, getIdForAudioFocusListener(l),
-                    mApplicationContext.getOpPackageName() /* package name */, flags,
+                    getContext().getOpPackageName() /* package name */, flags,
                     ap != null ? ap.cb() : null);
         } catch (RemoteException e) {
             Log.e(TAG, "Can't call requestAudioFocus() on AudioService:", e);
@@ -2400,7 +2425,7 @@ public class AudioManager {
                         .setInternalLegacyStreamType(streamType).build(),
                     durationHint, mICallBack, null,
                     AudioSystem.IN_VOICE_COMM_FOCUS_ID,
-                    mApplicationContext.getOpPackageName(),
+                    getContext().getOpPackageName(),
                     AUDIOFOCUS_FLAG_LOCK,
                     null /* policy token */);
         } catch (RemoteException e) {
@@ -2469,7 +2494,7 @@ public class AudioManager {
         if (eventReceiver == null) {
             return;
         }
-        if (!eventReceiver.getPackageName().equals(mApplicationContext.getPackageName())) {
+        if (!eventReceiver.getPackageName().equals(getContext().getPackageName())) {
             Log.e(TAG, "registerMediaButtonEventReceiver() error: " +
                     "receiver and context package names don't match");
             return;
@@ -2478,7 +2503,7 @@ public class AudioManager {
         Intent mediaButtonIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
         //     the associated intent will be handled by the component being registered
         mediaButtonIntent.setComponent(eventReceiver);
-        PendingIntent pi = PendingIntent.getBroadcast(mApplicationContext,
+        PendingIntent pi = PendingIntent.getBroadcast(getContext(),
                 0/*requestCode, ignored*/, mediaButtonIntent, 0/*flags*/);
         registerMediaButtonIntent(pi, eventReceiver);
     }
@@ -2512,8 +2537,8 @@ public class AudioManager {
             Log.e(TAG, "Cannot call registerMediaButtonIntent() with a null parameter");
             return;
         }
-        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(mApplicationContext);
-        helper.addMediaButtonListener(pi, eventReceiver, mApplicationContext);
+        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(getContext());
+        helper.addMediaButtonListener(pi, eventReceiver, getContext());
     }
 
     /**
@@ -2531,7 +2556,7 @@ public class AudioManager {
         Intent mediaButtonIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
         //     the associated intent will be handled by the component being registered
         mediaButtonIntent.setComponent(eventReceiver);
-        PendingIntent pi = PendingIntent.getBroadcast(mApplicationContext,
+        PendingIntent pi = PendingIntent.getBroadcast(getContext(),
                 0/*requestCode, ignored*/, mediaButtonIntent, 0/*flags*/);
         unregisterMediaButtonIntent(pi);
     }
@@ -2554,7 +2579,7 @@ public class AudioManager {
      * @hide
      */
     public void unregisterMediaButtonIntent(PendingIntent pi) {
-        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(mApplicationContext);
+        MediaSessionLegacyHelper helper = MediaSessionLegacyHelper.getHelper(getContext());
         helper.removeMediaButtonListener(pi);
     }
 
@@ -2571,7 +2596,7 @@ public class AudioManager {
         if ((rcClient == null) || (rcClient.getRcMediaIntent() == null)) {
             return;
         }
-        rcClient.registerWithSession(MediaSessionLegacyHelper.getHelper(mApplicationContext));
+        rcClient.registerWithSession(MediaSessionLegacyHelper.getHelper(getContext()));
     }
 
     /**
@@ -2586,7 +2611,7 @@ public class AudioManager {
         if ((rcClient == null) || (rcClient.getRcMediaIntent() == null)) {
             return;
         }
-        rcClient.unregisterWithSession(MediaSessionLegacyHelper.getHelper(mApplicationContext));
+        rcClient.unregisterWithSession(MediaSessionLegacyHelper.getHelper(getContext()));
     }
 
     /**
@@ -3187,11 +3212,13 @@ public class AudioManager {
             int outputFramesPerBuffer = AudioSystem.getPrimaryOutputFrameCount();
             return outputFramesPerBuffer > 0 ? Integer.toString(outputFramesPerBuffer) : null;
         } else if (PROPERTY_SUPPORT_MIC_NEAR_ULTRASOUND.equals(key)) {
-            return SystemProperties.get(SYSTEM_PROPERTY_MIC_NEAR_ULTRASOUND,
-                    DEFAULT_RESULT_FALSE_STRING);
+            // Will throw a RuntimeException Resources.NotFoundException if this config value is
+            // not found.
+            return String.valueOf(getContext().getResources().getBoolean(
+                    com.android.internal.R.bool.config_supportMicNearUltrasound));
         } else if (PROPERTY_SUPPORT_SPEAKER_NEAR_ULTRASOUND.equals(key)) {
-            return SystemProperties.get(SYSTEM_PROPERTY_SPEAKER_NEAR_ULTRASOUND,
-                    DEFAULT_RESULT_FALSE_STRING);
+            return String.valueOf(getContext().getResources().getBoolean(
+                    com.android.internal.R.bool.config_supportSpeakerNearUltrasound));
         } else {
             // null or unknown key
             return null;
@@ -3280,7 +3307,7 @@ public class AudioManager {
      */
     public void setRingerModeInternal(int ringerMode) {
         try {
-            getService().setRingerModeInternal(ringerMode, mApplicationContext.getOpPackageName());
+            getService().setRingerModeInternal(ringerMode, getContext().getOpPackageName());
         } catch (RemoteException e) {
             Log.w(TAG, "Error calling setRingerModeInternal", e);
         }
@@ -3381,8 +3408,18 @@ public class AudioManager {
      * @param ports An AudioPort ArrayList where the list will be returned.
      * @hide
      */
-    public int listAudioPorts(ArrayList<AudioPort> ports) {
-        return updateAudioPortCache(ports, null);
+    public static int listAudioPorts(ArrayList<AudioPort> ports) {
+        return updateAudioPortCache(ports, null, null);
+    }
+
+    /**
+     * Returns a list of descriptors for all audio ports managed by the audio framework as
+     * it was before the last update calback.
+     * @param ports An AudioPort ArrayList where the list will be returned.
+     * @hide
+     */
+    public static int listPreviousAudioPorts(ArrayList<AudioPort> ports) {
+        return updateAudioPortCache(null, null, ports);
     }
 
     /**
@@ -3390,18 +3427,43 @@ public class AudioManager {
      * @see listAudioPorts(ArrayList<AudioPort>)
      * @hide
      */
-    public int listAudioDevicePorts(ArrayList<AudioDevicePort> devices) {
+    public static int listAudioDevicePorts(ArrayList<AudioDevicePort> devices) {
+        if (devices == null) {
+            return ERROR_BAD_VALUE;
+        }
         ArrayList<AudioPort> ports = new ArrayList<AudioPort>();
-        int status = updateAudioPortCache(ports, null);
+        int status = updateAudioPortCache(ports, null, null);
         if (status == SUCCESS) {
-            devices.clear();
-            for (int i = 0; i < ports.size(); i++) {
-                if (ports.get(i) instanceof AudioDevicePort) {
-                    devices.add((AudioDevicePort)ports.get(i));
-                }
-            }
+            filterDevicePorts(ports, devices);
         }
         return status;
+    }
+
+    /**
+     * Specialized version of listPreviousAudioPorts() listing only audio devices (AudioDevicePort)
+     * @see listPreviousAudioPorts(ArrayList<AudioPort>)
+     * @hide
+     */
+    public static int listPreviousAudioDevicePorts(ArrayList<AudioDevicePort> devices) {
+        if (devices == null) {
+            return ERROR_BAD_VALUE;
+        }
+        ArrayList<AudioPort> ports = new ArrayList<AudioPort>();
+        int status = updateAudioPortCache(null, null, ports);
+        if (status == SUCCESS) {
+            filterDevicePorts(ports, devices);
+        }
+        return status;
+    }
+
+    private static void filterDevicePorts(ArrayList<AudioPort> ports,
+                                          ArrayList<AudioDevicePort> devices) {
+        devices.clear();
+        for (int i = 0; i < ports.size(); i++) {
+            if (ports.get(i) instanceof AudioDevicePort) {
+                devices.add((AudioDevicePort)ports.get(i));
+            }
+        }
     }
 
     /**
@@ -3427,7 +3489,7 @@ public class AudioManager {
      *         patch[0] contains the newly created patch
      * @hide
      */
-    public int createAudioPatch(AudioPatch[] patch,
+    public static int createAudioPatch(AudioPatch[] patch,
                                  AudioPortConfig[] sources,
                                  AudioPortConfig[] sinks) {
         return AudioSystem.createAudioPatch(patch, sources, sinks);
@@ -3444,7 +3506,7 @@ public class AudioManager {
      *         - {@link #ERROR} if patch cannot be released for any other reason.
      * @hide
      */
-    public int releaseAudioPatch(AudioPatch patch) {
+    public static int releaseAudioPatch(AudioPatch patch) {
         return AudioSystem.releaseAudioPatch(patch);
     }
 
@@ -3453,8 +3515,8 @@ public class AudioManager {
      * @param patches An AudioPatch array where the list will be returned.
      * @hide
      */
-    public int listAudioPatches(ArrayList<AudioPatch> patches) {
-        return updateAudioPortCache(null, patches);
+    public static int listAudioPatches(ArrayList<AudioPatch> patches) {
+        return updateAudioPortCache(null, patches, null);
     }
 
     /**
@@ -3462,7 +3524,7 @@ public class AudioManager {
      * AudioGain.buildConfig()
      * @hide
      */
-    public int setAudioPortGain(AudioPort port, AudioGainConfig gain) {
+    public static int setAudioPortGain(AudioPort port, AudioGainConfig gain) {
         if (port == null || gain == null) {
             return ERROR_BAD_VALUE;
         }
@@ -3502,6 +3564,7 @@ public class AudioManager {
      * @hide
      */
     public void registerAudioPortUpdateListener(OnAudioPortUpdateListener l) {
+        sAudioPortEventHandler.init();
         sAudioPortEventHandler.registerListener(l);
     }
 
@@ -3520,6 +3583,7 @@ public class AudioManager {
     static final int AUDIOPORT_GENERATION_INIT = 0;
     static Integer sAudioPortGeneration = new Integer(AUDIOPORT_GENERATION_INIT);
     static ArrayList<AudioPort> sAudioPortsCached = new ArrayList<AudioPort>();
+    static ArrayList<AudioPort> sPreviousAudioPortsCached = new ArrayList<AudioPort>();
     static ArrayList<AudioPatch> sAudioPatchesCached = new ArrayList<AudioPatch>();
 
     static int resetAudioPortGeneration() {
@@ -3531,7 +3595,9 @@ public class AudioManager {
         return generation;
     }
 
-    static int updateAudioPortCache(ArrayList<AudioPort> ports, ArrayList<AudioPatch> patches) {
+    static int updateAudioPortCache(ArrayList<AudioPort> ports, ArrayList<AudioPatch> patches,
+                                    ArrayList<AudioPort> previousPorts) {
+        sAudioPortEventHandler.init();
         synchronized (sAudioPortGeneration) {
 
             if (sAudioPortGeneration == AUDIOPORT_GENERATION_INIT) {
@@ -3590,6 +3656,7 @@ public class AudioManager {
                     }
                 }
 
+                sPreviousAudioPortsCached = sAudioPortsCached;
                 sAudioPortsCached = newPorts;
                 sAudioPatchesCached = newPatches;
                 sAudioPortGeneration = portGeneration[0];
@@ -3601,6 +3668,10 @@ public class AudioManager {
             if (patches != null) {
                 patches.clear();
                 patches.addAll(sAudioPatchesCached);
+            }
+            if (previousPorts != null) {
+                previousPorts.clear();
+                previousPorts.addAll(sPreviousAudioPortsCached);
             }
         }
         return SUCCESS;
@@ -3634,5 +3705,332 @@ public class AudioManager {
                                                  portCfg.channelMask(),
                                                  portCfg.format(),
                                                  gainCfg);
+    }
+
+    private OnAmPortUpdateListener mPortListener = null;
+
+    /**
+     * The message sent to apps when the contents of the device list changes if they provide
+     * a {#link Handler} object to addOnAudioDeviceConnectionListener().
+     */
+    private final static int MSG_DEVICES_CALLBACK_REGISTERED = 0;
+    private final static int MSG_DEVICES_DEVICES_ADDED = 1;
+    private final static int MSG_DEVICES_DEVICES_REMOVED = 2;
+
+    /**
+     * The list of {@link AudioDeviceCallback} objects to receive add/remove notifications.
+     */
+    private ArrayMap<AudioDeviceCallback, NativeEventHandlerDelegate>
+        mDeviceCallbacks =
+            new ArrayMap<AudioDeviceCallback, NativeEventHandlerDelegate>();
+
+    /**
+     * The following are flags to allow users of {@link AudioManager#getDevices(int)} to filter
+     * the results list to only those device types they are interested in.
+     */
+    /**
+     * Specifies to the {@link AudioManager#getDevices(int)} method to include
+     * source (i.e. input) audio devices.
+     */
+    public static final int GET_DEVICES_INPUTS    = 0x0001;
+
+    /**
+     * Specifies to the {@link AudioManager#getDevices(int)} method to include
+     * sink (i.e. output) audio devices.
+     */
+    public static final int GET_DEVICES_OUTPUTS   = 0x0002;
+
+    /**
+     * Specifies to the {@link AudioManager#getDevices(int)} method to include both
+     * source and sink devices.
+     */
+    public static final int GET_DEVICES_ALL = GET_DEVICES_OUTPUTS | GET_DEVICES_INPUTS;
+
+    /**
+     * Determines if a given AudioDevicePort meets the specified filter criteria.
+     * @param port  The port to test.
+     * @param flags A set of bitflags specifying the criteria to test.
+     * @see {@link GET_DEVICES_OUTPUTS} and {@link GET_DEVICES_INPUTS}
+     **/
+    private static boolean checkFlags(AudioDevicePort port, int flags) {
+        return port.role() == AudioPort.ROLE_SINK && (flags & GET_DEVICES_OUTPUTS) != 0 ||
+               port.role() == AudioPort.ROLE_SOURCE && (flags & GET_DEVICES_INPUTS) != 0;
+    }
+
+    private static boolean checkTypes(AudioDevicePort port) {
+        return AudioDeviceInfo.convertInternalDeviceToDeviceType(port.type()) !=
+                    AudioDeviceInfo.TYPE_UNKNOWN &&
+                port.type() != AudioSystem.DEVICE_IN_BACK_MIC;
+    }
+
+    /**
+     * Returns an array of {@link AudioDeviceInfo} objects corresponding to the audio devices
+     * currently connected to the system and meeting the criteria specified in the
+     * <code>flags</code> parameter.
+     * @param flags A set of bitflags specifying the criteria to test.
+     * @see {@link GET_DEVICES_OUTPUTS}, {@link GET_DEVICES_INPUTS} and {@link GET_DEVICES_ALL}.
+     * @return A (possibly zero-length) array of AudioDeviceInfo objects.
+     */
+    public AudioDeviceInfo[] getDevices(int flags) {
+        return getDevicesStatic(flags);
+    }
+
+    /**
+     * Does the actual computation to generate an array of (externally-visible) AudioDeviceInfo
+     * objects from the current (internal) AudioDevicePort list.
+     */
+    private static AudioDeviceInfo[]
+        infoListFromPortList(ArrayList<AudioDevicePort> ports, int flags) {
+
+        // figure out how many AudioDeviceInfo we need space for...
+        int numRecs = 0;
+        for (AudioDevicePort port : ports) {
+            if (checkTypes(port) && checkFlags(port, flags)) {
+                numRecs++;
+            }
+        }
+
+        // Now load them up...
+        AudioDeviceInfo[] deviceList = new AudioDeviceInfo[numRecs];
+        int slot = 0;
+        for (AudioDevicePort port : ports) {
+            if (checkTypes(port) && checkFlags(port, flags)) {
+                deviceList[slot++] = new AudioDeviceInfo(port);
+            }
+        }
+
+        return deviceList;
+    }
+
+    /*
+     * Calculate the list of ports that are in ports_B, but not in ports_A. This is used by
+     * the add/remove callback mechanism to provide a list of the newly added or removed devices
+     * rather than the whole list and make the app figure it out.
+     * Note that calling this method with:
+     *  ports_A == PREVIOUS_ports and ports_B == CURRENT_ports will calculated ADDED ports.
+     *  ports_A == CURRENT_ports and ports_B == PREVIOUS_ports will calculated REMOVED ports.
+     */
+    private static AudioDeviceInfo[] calcListDeltas(
+            ArrayList<AudioDevicePort> ports_A, ArrayList<AudioDevicePort> ports_B, int flags) {
+
+        ArrayList<AudioDevicePort> delta_ports = new ArrayList<AudioDevicePort>();
+
+        AudioDevicePort cur_port = null;
+        for (int cur_index = 0; cur_index < ports_B.size(); cur_index++) {
+            boolean cur_port_found = false;
+            cur_port = ports_B.get(cur_index);
+            for (int prev_index = 0;
+                 prev_index < ports_A.size() && !cur_port_found;
+                 prev_index++) {
+                cur_port_found = (cur_port.id() == ports_A.get(prev_index).id());
+            }
+
+            if (!cur_port_found) {
+                delta_ports.add(cur_port);
+            }
+        }
+
+        return infoListFromPortList(delta_ports, flags);
+    }
+
+    /**
+     * Generates a list of AudioDeviceInfo objects corresponding to the audio devices currently
+     * connected to the system and meeting the criteria specified in the <code>flags</code>
+     * parameter.
+     * This is an internal function. The public API front is getDevices(int).
+     * @param flags A set of bitflags specifying the criteria to test.
+     * @see {@link GET_DEVICES_OUTPUTS}, {@link GET_DEVICES_INPUTS} and {@link GET_DEVICES_ALL}.
+     * @return A (possibly zero-length) array of AudioDeviceInfo objects.
+     * @hide
+     */
+    public static AudioDeviceInfo[] getDevicesStatic(int flags) {
+        ArrayList<AudioDevicePort> ports = new ArrayList<AudioDevicePort>();
+        int status = AudioManager.listAudioDevicePorts(ports);
+        if (status != AudioManager.SUCCESS) {
+            // fail and bail!
+            return new AudioDeviceInfo[0];  // Always return an array.
+        }
+
+        return infoListFromPortList(ports, flags);
+    }
+
+    /**
+     * Registers an {@link AudioDeviceCallback} object to receive notifications of changes
+     * to the set of connected audio devices.
+     * @param callback The {@link AudioDeviceCallback} object to receive connect/disconnect
+     * notifications.
+     * @param handler Specifies the {@link Handler} object for the thread on which to execute
+     * the callback. If <code>null</code>, the {@link Handler} associated with the main
+     * {@link Looper} will be used.
+     */
+    public void registerAudioDeviceCallback(AudioDeviceCallback callback,
+            android.os.Handler handler) {
+        synchronized (mDeviceCallbacks) {
+            if (callback != null && !mDeviceCallbacks.containsKey(callback)) {
+                if (mDeviceCallbacks.size() == 0) {
+                    if (mPortListener == null) {
+                        mPortListener = new OnAmPortUpdateListener();
+                    }
+                    registerAudioPortUpdateListener(mPortListener);
+                }
+                NativeEventHandlerDelegate delegate =
+                        new NativeEventHandlerDelegate(callback, handler);
+                mDeviceCallbacks.put(callback, delegate);
+                broadcastDeviceListChange(delegate.getHandler());
+            }
+        }
+    }
+
+    /**
+     * Unregisters an {@link AudioDeviceCallback} object which has been previously registered
+     * to receive notifications of changes to the set of connected audio devices.
+     * @param callback The {@link AudioDeviceCallback} object that was previously registered
+     * with {@link AudioManager#registerAudioDeviceCallback) to be unregistered.
+     */
+    public void unregisterAudioDeviceCallback(AudioDeviceCallback callback) {
+        synchronized (mDeviceCallbacks) {
+            if (mDeviceCallbacks.containsKey(callback)) {
+                mDeviceCallbacks.remove(callback);
+                if (mDeviceCallbacks.size() == 0) {
+                    unregisterAudioPortUpdateListener(mPortListener);
+                }
+            }
+        }
+    }
+
+    // Since we need to calculate the changes since THE LAST NOTIFICATION, and not since the
+    // (unpredictable) last time updateAudioPortCache() was called by someone, keep a list
+    // of the ports that exist at the time of the last notification.
+    private ArrayList<AudioDevicePort> mPreviousPorts = new ArrayList<AudioDevicePort>();
+
+    /**
+     * Internal method to compute and generate add/remove messages and then send to any
+     * registered callbacks.
+     */
+    private void broadcastDeviceListChange(Handler handler) {
+        int status;
+
+        // Get the new current set of ports
+        ArrayList<AudioDevicePort> current_ports = new ArrayList<AudioDevicePort>();
+        status = AudioManager.listAudioDevicePorts(current_ports);
+        if (status != AudioManager.SUCCESS) {
+            return;
+        }
+
+        if (handler != null) {
+            // This is the callback for the registration, so send the current list
+            AudioDeviceInfo[] deviceList =
+                    infoListFromPortList(current_ports, GET_DEVICES_ALL);
+            handler.sendMessage(
+                    Message.obtain(handler, MSG_DEVICES_CALLBACK_REGISTERED, deviceList));
+        } else {
+            AudioDeviceInfo[] added_devices =
+                    calcListDeltas(mPreviousPorts, current_ports, GET_DEVICES_ALL);
+            AudioDeviceInfo[] removed_devices =
+                    calcListDeltas(current_ports, mPreviousPorts, GET_DEVICES_ALL);
+
+            if (added_devices.length != 0 || removed_devices.length != 0) {
+                synchronized (mDeviceCallbacks) {
+                    for (int i = 0; i < mDeviceCallbacks.size(); i++) {
+                        handler = mDeviceCallbacks.valueAt(i).getHandler();
+                        if (handler != null) {
+                            if (added_devices.length != 0) {
+                                handler.sendMessage(Message.obtain(handler,
+                                                                   MSG_DEVICES_DEVICES_ADDED,
+                                                                   added_devices));
+                            }
+                            if (removed_devices.length != 0) {
+                                handler.sendMessage(Message.obtain(handler,
+                                                                   MSG_DEVICES_DEVICES_REMOVED,
+                                                                   removed_devices));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        mPreviousPorts = current_ports;
+    }
+
+    /**
+     * Handles Port list update notifications from the AudioManager
+     */
+    private class OnAmPortUpdateListener implements AudioManager.OnAudioPortUpdateListener {
+        static final String TAG = "OnAmPortUpdateListener";
+        public void onAudioPortListUpdate(AudioPort[] portList) {
+            broadcastDeviceListChange(null);
+        }
+
+        /**
+         * Callback method called upon audio patch list update.
+         * Note: We don't do anything with Patches at this time, so ignore this notification.
+         * @param patchList the updated list of audio patches.
+         */
+        public void onAudioPatchListUpdate(AudioPatch[] patchList) {}
+
+        /**
+         * Callback method called when the mediaserver dies
+         */
+        public void onServiceDied() {
+            broadcastDeviceListChange(null);
+        }
+    }
+
+    //---------------------------------------------------------
+    // Inner classes
+    //--------------------
+    /**
+     * Helper class to handle the forwarding of native events to the appropriate listener
+     * (potentially) handled in a different thread.
+     */
+    private class NativeEventHandlerDelegate {
+        private final Handler mHandler;
+
+        NativeEventHandlerDelegate(final AudioDeviceCallback callback,
+                                   Handler handler) {
+            // find the looper for our new event handler
+            Looper looper;
+            if (handler != null) {
+                looper = handler.getLooper();
+            } else {
+                // no given handler, use the looper the addListener call was called in
+                looper = Looper.getMainLooper();
+            }
+
+            // construct the event handler with this looper
+            if (looper != null) {
+                // implement the event handler delegate
+                mHandler = new Handler(looper) {
+                    @Override
+                    public void handleMessage(Message msg) {
+                        switch(msg.what) {
+                        case MSG_DEVICES_CALLBACK_REGISTERED:
+                        case MSG_DEVICES_DEVICES_ADDED:
+                            if (callback != null) {
+                                callback.onAudioDevicesAdded((AudioDeviceInfo[])msg.obj);
+                            }
+                            break;
+
+                        case MSG_DEVICES_DEVICES_REMOVED:
+                            if (callback != null) {
+                                callback.onAudioDevicesRemoved((AudioDeviceInfo[])msg.obj);
+                            }
+                           break;
+
+                        default:
+                            Log.e(TAG, "Unknown native event type: " + msg.what);
+                            break;
+                        }
+                    }
+                };
+            } else {
+                mHandler = null;
+            }
+        }
+
+        Handler getHandler() {
+            return mHandler;
+        }
     }
 }

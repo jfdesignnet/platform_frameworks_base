@@ -217,14 +217,21 @@ public class Vpn {
      * @return true if the operation is succeeded.
      */
     public synchronized boolean prepare(String oldPackage, String newPackage) {
-        if (oldPackage != null && getAppUid(oldPackage, mUserHandle) != mOwnerUID) {
-            // The package doesn't match. We return false (to obtain user consent) unless the user
-            // has already consented to that VPN package.
-            if (!oldPackage.equals(VpnConfig.LEGACY_VPN) && isVpnUserPreConsented(oldPackage)) {
-                prepareInternal(oldPackage);
-                return true;
+        if (oldPackage != null) {
+            if (getAppUid(oldPackage, mUserHandle) != mOwnerUID) {
+                // The package doesn't match. We return false (to obtain user consent) unless the
+                // user has already consented to that VPN package.
+                if (!oldPackage.equals(VpnConfig.LEGACY_VPN) && isVpnUserPreConsented(oldPackage)) {
+                    prepareInternal(oldPackage);
+                    return true;
+                }
+                return false;
+            } else if (!oldPackage.equals(VpnConfig.LEGACY_VPN)
+                    && !isVpnUserPreConsented(oldPackage)) {
+                // Currently prepared VPN is revoked, so unprepare it and return false.
+                prepareInternal(VpnConfig.LEGACY_VPN);
+                return false;
             }
-            return false;
         }
 
         // Return true if we do not need to revoke.
@@ -291,13 +298,15 @@ public class Vpn {
     }
 
     /**
-     * Set whether the current package has the ability to launch VPNs without user intervention.
+     * Set whether a package has the ability to launch VPNs without user intervention.
      */
-    public void setPackageAuthorization(boolean authorized) {
+    public void setPackageAuthorization(String packageName, boolean authorized) {
         // Check if the caller is authorized.
         enforceControlPermission();
 
-        if (mPackage == null || VpnConfig.LEGACY_VPN.equals(mPackage)) {
+        int uid = getAppUid(packageName, mUserHandle);
+        if (uid == -1 || VpnConfig.LEGACY_VPN.equals(packageName)) {
+            // Authorization for nonexistent packages (or fake ones) can't be updated.
             return;
         }
 
@@ -305,10 +314,10 @@ public class Vpn {
         try {
             AppOpsManager appOps =
                     (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE);
-            appOps.setMode(AppOpsManager.OP_ACTIVATE_VPN, mOwnerUID, mPackage,
+            appOps.setMode(AppOpsManager.OP_ACTIVATE_VPN, uid, packageName,
                     authorized ? AppOpsManager.MODE_ALLOWED : AppOpsManager.MODE_IGNORED);
         } catch (Exception e) {
-            Log.wtf(TAG, "Failed to set app ops for package " + mPackage, e);
+            Log.wtf(TAG, "Failed to set app ops for package " + packageName + ", uid " + uid, e);
         } finally {
             Binder.restoreCallingIdentity(token);
         }
@@ -481,6 +490,10 @@ public class Vpn {
         if (Binder.getCallingUid() != mOwnerUID) {
             return null;
         }
+        // Check to ensure consent hasn't been revoked since we were prepared.
+        if (!isVpnUserPreConsented(mPackage)) {
+            return null;
+        }
         // Check if the service is properly declared.
         Intent intent = new Intent(VpnConfig.SERVICE_INTERFACE);
         intent.setClassName(mPackage, config.user);
@@ -488,7 +501,8 @@ public class Vpn {
         try {
             // Restricted users are not allowed to create VPNs, they are tied to Owner
             UserInfo user = mgr.getUserInfo(mUserHandle);
-            if (user.isRestricted() || mgr.hasUserRestriction(UserManager.DISALLOW_CONFIG_VPN)) {
+            if (user.isRestricted() || mgr.hasUserRestriction(UserManager.DISALLOW_CONFIG_VPN,
+                    new UserHandle(mUserHandle))) {
                 throw new SecurityException("Restricted users cannot establish VPNs");
             }
 
@@ -529,8 +543,9 @@ public class Vpn {
                 throw new IllegalArgumentException("At least one address must be specified");
             }
             Connection connection = new Connection();
-            if (!mContext.bindServiceAsUser(intent, connection, Context.BIND_AUTO_CREATE,
-                        new UserHandle(mUserHandle))) {
+            if (!mContext.bindServiceAsUser(intent, connection,
+                    Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE,
+                    new UserHandle(mUserHandle))) {
                 throw new IllegalStateException("Cannot bind " + config.user);
             }
 
@@ -895,7 +910,8 @@ public class Vpn {
         }
         UserManager mgr = UserManager.get(mContext);
         UserInfo user = mgr.getUserInfo(mUserHandle);
-        if (user.isRestricted() || mgr.hasUserRestriction(UserManager.DISALLOW_CONFIG_VPN)) {
+        if (user.isRestricted() || mgr.hasUserRestriction(UserManager.DISALLOW_CONFIG_VPN,
+                    new UserHandle(mUserHandle))) {
             throw new SecurityException("Restricted users cannot establish VPNs");
         }
 
@@ -1119,7 +1135,7 @@ public class Vpn {
                 final ConnectivityManager cm = ConnectivityManager.from(mContext);
                 for (Network network : cm.getAllNetworks()) {
                     final LinkProperties lp = cm.getLinkProperties(network);
-                    if (lp != null && mOuterInterface.equals(lp.getInterfaceName())) {
+                    if (lp != null && lp.getAllInterfaceNames().contains(mOuterInterface)) {
                         final NetworkInfo networkInfo = cm.getNetworkInfo(network);
                         if (networkInfo != null) mOuterConnection.set(networkInfo.getType());
                     }

@@ -34,6 +34,12 @@ interface IBatteryStats {
     void noteStopAudio(int uid);
     void noteResetVideo();
     void noteResetAudio();
+    void noteFlashlightOn(int uid);
+    void noteFlashlightOff(int uid);
+    void noteStartCamera(int uid);
+    void noteStopCamera(int uid);
+    void noteResetCamera();
+    void noteResetFlashlight();
 
     // Remaining methods are only used in Java.
     byte[] getStatistics();
@@ -72,13 +78,12 @@ interface IBatteryStats {
 
     void noteVibratorOn(int uid, long durationMillis);
     void noteVibratorOff(int uid);
-    void noteFlashlightOn();
-    void noteFlashlightOff();
     void noteStartGps(int uid);
     void noteStopGps(int uid);
     void noteScreenState(int state);
     void noteScreenBrightness(int brightness);
     void noteUserActivity(int uid, int event);
+    void noteWakeUp(String reason, int reasonUid);
     void noteInteractive(boolean interactive);
     void noteConnectivityChanged(int type, String extra);
     void noteMobileRadioPowerState(int powerState, long timestampNs);
@@ -112,7 +117,7 @@ interface IBatteryStats {
     void noteWifiRadioPowerState(int powerState, long timestampNs);
     void noteNetworkInterfaceType(String iface, int type);
     void noteNetworkStatsEnabled();
-    void noteDeviceIdleMode(boolean enabled, boolean fromActive, boolean fromMotion);
+    void noteDeviceIdleMode(boolean enabled, String activeReason, int activeUid);
     void setBatteryState(int status, int health, int plugType, int level, int temp, int volt);
     long getAwakeTimeBattery();
     long getAwakeTimePlugged();

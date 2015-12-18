@@ -16,6 +16,8 @@
 
 package com.android.statementservice.retriever;
 
+import android.util.Log;
+
 import com.android.volley.Cache;
 import com.android.volley.NetworkResponse;
 import com.android.volley.toolbox.HttpHeaderParser;
@@ -39,9 +41,44 @@ import java.util.Map;
  * @hide
  */
 public class URLFetcher {
+    private static final String TAG = URLFetcher.class.getSimpleName();
 
     private static final long DO_NOT_CACHE_RESULT = 0L;
     private static final int INPUT_BUFFER_SIZE_IN_BYTES = 1024;
+
+    /**
+     * Fetches the specified url and returns the content and ttl.
+     *
+     * <p>
+     * Retry {@code retry} times if the connection failed or timed out for any reason.
+     * HTTP error code (e.g. 404/500) won't be retried.
+     *
+     * @throws IOException if it can't retrieve the content due to a network problem.
+     * @throws AssociationServiceException if the URL scheme is not http or https or the content
+     * length exceeds {code fileSizeLimit}.
+     */
+    public WebContent getWebContentFromUrlWithRetry(URL url, long fileSizeLimit,
+            int connectionTimeoutMillis, int backoffMillis, int retry)
+                    throws AssociationServiceException, IOException, InterruptedException {
+        if (retry <= 0) {
+            throw new IllegalArgumentException("retry should be a postive inetger.");
+        }
+        while (retry > 0) {
+            try {
+                return getWebContentFromUrl(url, fileSizeLimit, connectionTimeoutMillis);
+            } catch (IOException e) {
+                retry--;
+                if (retry == 0) {
+                    throw e;
+                }
+            }
+
+            Thread.sleep(backoffMillis);
+        }
+
+        // Should never reach here.
+        return null;
+    }
 
     /**
      * Fetches the specified url and returns the content and ttl.
@@ -57,27 +94,36 @@ public class URLFetcher {
             throw new IllegalArgumentException("The url protocol should be on http or https.");
         }
 
-        HttpURLConnection connection;
-        connection = (HttpURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(true);
-        connection.setConnectTimeout(connectionTimeoutMillis);
-        connection.setReadTimeout(connectionTimeoutMillis);
-        connection.setUseCaches(true);
-        connection.addRequestProperty("Cache-Control", "max-stale=60");
-
-        if (connection.getContentLength() > fileSizeLimit) {
-            throw new AssociationServiceException("The content size of the url is larger than "
-                    + fileSizeLimit);
-        }
-
-        Long expireTimeMillis = getExpirationTimeMillisFromHTTPHeader(connection.getHeaderFields());
-
+        HttpURLConnection connection = null;
         try {
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setInstanceFollowRedirects(true);
+            connection.setConnectTimeout(connectionTimeoutMillis);
+            connection.setReadTimeout(connectionTimeoutMillis);
+            connection.setUseCaches(true);
+            connection.setInstanceFollowRedirects(false);
+            connection.addRequestProperty("Cache-Control", "max-stale=60");
+
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                Log.e(TAG, "The responses code is not 200 but "  + connection.getResponseCode());
+                return new WebContent("", DO_NOT_CACHE_RESULT);
+            }
+
+            if (connection.getContentLength() > fileSizeLimit) {
+                Log.e(TAG, "The content size of the url is larger than "  + fileSizeLimit);
+                return new WebContent("", DO_NOT_CACHE_RESULT);
+            }
+
+            Long expireTimeMillis = getExpirationTimeMillisFromHTTPHeader(
+                    connection.getHeaderFields());
+
             return new WebContent(inputStreamToString(
                     connection.getInputStream(), connection.getContentLength(), fileSizeLimit),
                 expireTimeMillis);
         } finally {
-            connection.disconnect();
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
     }
 

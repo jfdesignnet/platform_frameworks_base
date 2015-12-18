@@ -51,17 +51,20 @@ namespace uirenderer {
 ///////////////////////////////////////////////////////////////////////////////
 
 void TextDrawFunctor::draw(CacheTexture& texture, bool linearFiltering) {
-    int textureFillFlags = static_cast<int>(texture.getFormat() == GL_ALPHA
-            ? TextureFillFlags::kIsAlphaMaskTexture : TextureFillFlags::kNone);
-    if (linearFiltering) {
-        textureFillFlags |= TextureFillFlags::kForceFilter;
+    int textureFillFlags = TextureFillFlags::None;
+    if (texture.getFormat() == GL_ALPHA) {
+        textureFillFlags |= TextureFillFlags::IsAlphaMaskTexture;
     }
-    const Matrix4& transform = pureTranslate ? Matrix4::identity() : *(renderer->currentTransform());
+    if (linearFiltering) {
+        textureFillFlags |= TextureFillFlags::ForceFilter;
+    }
+    int transformFlags = pureTranslate
+            ? TransformFlags::MeshIgnoresCanvasTransform : TransformFlags::None;
     Glop glop;
     GlopBuilder(renderer->mRenderState, renderer->mCaches, &glop)
             .setMeshTexturedIndexedQuads(texture.mesh(), texture.meshElementCount())
             .setFillTexturePaint(texture.getTexture(), textureFillFlags, paint, renderer->currentSnapshot()->alpha)
-            .setTransform(renderer->currentSnapshot()->getOrthoMatrix(), transform, false)
+            .setTransform(*(renderer->currentSnapshot()), transformFlags)
             .setModelViewOffsetRect(0, 0, Rect(0, 0, 0, 0))
             .setRoundRectClipState(renderer->currentSnapshot()->roundRectClipState)
             .build();
@@ -518,10 +521,10 @@ void FontRenderer::appendMeshQuad(float x1, float y1, float u1, float v1,
     appendMeshQuadNoClip(x1, y1, u1, v1, x2, y2, u2, v2, x3, y3, u3, v3, x4, y4, u4, v4, texture);
 
     if (mBounds) {
-        mBounds->left = fmin(mBounds->left, x1);
-        mBounds->top = fmin(mBounds->top, y3);
-        mBounds->right = fmax(mBounds->right, x3);
-        mBounds->bottom = fmax(mBounds->bottom, y1);
+        mBounds->left = std::min(mBounds->left, x1);
+        mBounds->top = std::min(mBounds->top, y3);
+        mBounds->right = std::max(mBounds->right, x3);
+        mBounds->bottom = std::max(mBounds->bottom, y1);
     }
 
     if (mCurrentCacheTexture->endOfMesh()) {
@@ -536,10 +539,10 @@ void FontRenderer::appendRotatedMeshQuad(float x1, float y1, float u1, float v1,
     appendMeshQuadNoClip(x1, y1, u1, v1, x2, y2, u2, v2, x3, y3, u3, v3, x4, y4, u4, v4, texture);
 
     if (mBounds) {
-        mBounds->left = fmin(mBounds->left, fmin(x1, fmin(x2, fmin(x3, x4))));
-        mBounds->top = fmin(mBounds->top, fmin(y1, fmin(y2, fmin(y3, y4))));
-        mBounds->right = fmax(mBounds->right, fmax(x1, fmax(x2, fmax(x3, x4))));
-        mBounds->bottom = fmax(mBounds->bottom, fmax(y1, fmax(y2, fmax(y3, y4))));
+        mBounds->left = std::min(mBounds->left, std::min(x1, std::min(x2, std::min(x3, x4))));
+        mBounds->top = std::min(mBounds->top, std::min(y1, std::min(y2, std::min(y3, y4))));
+        mBounds->right = std::max(mBounds->right, std::max(x1, std::max(x2, std::max(x3, x4))));
+        mBounds->bottom = std::max(mBounds->bottom, std::max(y1, std::max(y2, std::max(y3, y4))));
     }
 
     if (mCurrentCacheTexture->endOfMesh()) {

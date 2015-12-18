@@ -24,14 +24,20 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.net.Uri;
+import android.os.Bundle;
+import android.os.IRemoteCallback;
+import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewStub;
 import android.view.WindowInsets;
+import android.view.WindowManagerGlobal;
 import android.widget.FrameLayout;
+
+import com.android.internal.logging.MetricsLogger;
 import com.android.systemui.R;
 import com.android.systemui.recents.Constants;
 import com.android.systemui.recents.RecentsAppWidgetHostView;
@@ -52,6 +58,8 @@ import java.util.List;
 public class RecentsView extends FrameLayout implements TaskStackView.TaskStackViewCallbacks,
         RecentsPackageMonitor.PackageCallbacks {
 
+    private static final String TAG = "RecentsView";
+
     /** The RecentsView callbacks */
     public interface RecentsViewCallbacks {
         public void onTaskViewClicked();
@@ -59,8 +67,8 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         public void onAllTaskViewsDismissed();
         public void onExitToHomeAnimationTriggered();
         public void onScreenPinningRequest();
-
         public void onTaskResize(Task t);
+        public void runAfterPause(Runnable r);
     }
 
     RecentsConfiguration mConfig;
@@ -280,17 +288,14 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
 
     /** Adds the search bar */
     public void setSearchBar(RecentsAppWidgetHostView searchBar) {
-        // Create the search bar (and hide it if we have no recent tasks)
-        if (Constants.DebugFlags.App.EnableSearchLayout) {
-            // Remove the previous search bar if one exists
-            if (mSearchBar != null && indexOfChild(mSearchBar) > -1) {
-                removeView(mSearchBar);
-            }
-            // Add the new search bar
-            if (searchBar != null) {
-                mSearchBar = searchBar;
-                addView(mSearchBar);
-            }
+        // Remove the previous search bar if one exists
+        if (mSearchBar != null && indexOfChild(mSearchBar) > -1) {
+            removeView(mSearchBar);
+        }
+        // Add the new search bar
+        if (searchBar != null) {
+            mSearchBar = searchBar;
+            addView(mSearchBar);
         }
     }
 
@@ -317,8 +322,8 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         int height = MeasureSpec.getSize(heightMeasureSpec);
 
         // Get the search bar bounds and measure the search bar layout
+        Rect searchBarSpaceBounds = new Rect();
         if (mSearchBar != null) {
-            Rect searchBarSpaceBounds = new Rect();
             mConfig.getSearchBarBounds(width, height, mConfig.systemInsets.top, searchBarSpaceBounds);
             mSearchBar.measure(
                     MeasureSpec.makeMeasureSpec(searchBarSpaceBounds.width(), MeasureSpec.EXACTLY),
@@ -327,7 +332,7 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
 
         Rect taskStackBounds = new Rect();
         mConfig.getAvailableTaskStackBounds(width, height, mConfig.systemInsets.top,
-                mConfig.systemInsets.right, taskStackBounds);
+                mConfig.systemInsets.right, searchBarSpaceBounds, taskStackBounds);
 
         // Measure each TaskStackView with the full width and height of the window since the
         // transition view is a child of that stack view
@@ -431,11 +436,75 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         return false;
     }
 
+    public void disableLayersForOneFrame() {
+        List<TaskStackView> stackViews = getTaskStackViews();
+        for (int i = 0; i < stackViews.size(); i++) {
+            stackViews.get(i).disableLayersForOneFrame();
+        }
+    }
+
+    private void postDrawHeaderThumbnailTransitionRunnable(final TaskView tv, final int offsetX,
+            final int offsetY, final TaskViewTransform transform,
+            final ActivityOptions.OnAnimationStartedListener animStartedListener) {
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                // Disable any focused state before we draw the header
+                if (tv.isFocusedTask()) {
+                    tv.unsetFocusedTask();
+                }
+
+                float scale = tv.getScaleX();
+                int fromHeaderWidth = (int) (tv.mHeaderView.getMeasuredWidth() * scale);
+                int fromHeaderHeight = (int) (tv.mHeaderView.getMeasuredHeight() * scale);
+
+                Bitmap b = Bitmap.createBitmap(fromHeaderWidth, fromHeaderHeight,
+                        Bitmap.Config.ARGB_8888);
+                if (Constants.DebugFlags.App.EnableTransitionThumbnailDebugMode) {
+                    b.eraseColor(0xFFff0000);
+                } else {
+                    Canvas c = new Canvas(b);
+                    c.scale(tv.getScaleX(), tv.getScaleY());
+                    tv.mHeaderView.draw(c);
+                    c.setBitmap(null);
+                }
+                b = b.createAshmemBitmap();
+                int[] pts = new int[2];
+                tv.getLocationOnScreen(pts);
+                try {
+                    WindowManagerGlobal.getWindowManagerService()
+                            .overridePendingAppTransitionAspectScaledThumb(b,
+                                    pts[0] + offsetX,
+                                    pts[1] + offsetY,
+                                    transform.rect.width(),
+                                    transform.rect.height(),
+                                    new IRemoteCallback.Stub() {
+                                        @Override
+                                        public void sendResult(Bundle data)
+                                                throws RemoteException {
+                                            post(new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    if (animStartedListener != null) {
+                                                        animStartedListener.onAnimationStarted();
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    }, true);
+                } catch (RemoteException e) {
+                    Log.w(TAG, "Error overriding app transition", e);
+                }
+            }
+        };
+        mCb.runAfterPause(r);
+    }
     /**** TaskStackView.TaskStackCallbacks Implementation ****/
 
     @Override
     public void onTaskViewClicked(final TaskStackView stackView, final TaskView tv,
                                   final TaskStack stack, final Task task, final boolean lockToTask) {
+
         // Notify any callbacks of the launching of a new task
         if (mCb != null) {
             mCb.onTaskViewClicked();
@@ -466,30 +535,6 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         ActivityOptions opts = null;
         if (task.thumbnail != null && task.thumbnail.getWidth() > 0 &&
                 task.thumbnail.getHeight() > 0) {
-            Bitmap b;
-            if (tv != null) {
-                // Disable any focused state before we draw the header
-                if (tv.isFocusedTask()) {
-                    tv.unsetFocusedTask();
-                }
-
-                float scale = tv.getScaleX();
-                int fromHeaderWidth = (int) (tv.mHeaderView.getMeasuredWidth() * scale);
-                int fromHeaderHeight = (int) (tv.mHeaderView.getMeasuredHeight() * scale);
-                b = Bitmap.createBitmap(fromHeaderWidth, fromHeaderHeight,
-                        Bitmap.Config.ARGB_8888);
-                if (Constants.DebugFlags.App.EnableTransitionThumbnailDebugMode) {
-                    b.eraseColor(0xFFff0000);
-                } else {
-                    Canvas c = new Canvas(b);
-                    c.scale(tv.getScaleX(), tv.getScaleY());
-                    tv.mHeaderView.draw(c);
-                    c.setBitmap(null);
-                }
-            } else {
-                // Notify the system to skip the thumbnail layer by using an ALPHA_8 bitmap
-                b = Bitmap.createBitmap(1, 1, Bitmap.Config.ALPHA_8);
-            }
             ActivityOptions.OnAnimationStartedListener animStartedListener = null;
             if (lockToTask) {
                 animStartedListener = new ActivityOptions.OnAnimationStartedListener() {
@@ -508,6 +553,10 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
                     }
                 };
             }
+            if (tv != null) {
+                postDrawHeaderThumbnailTransitionRunnable(tv, offsetX, offsetY, transform,
+                        animStartedListener);
+            }
             if (mConfig.multiStackEnabled) {
                 opts = ActivityOptions.makeCustomAnimation(sourceView.getContext(),
                         R.anim.recents_from_unknown_enter,
@@ -515,7 +564,8 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
                         sourceView.getHandler(), animStartedListener);
             } else {
                 opts = ActivityOptions.makeThumbnailAspectScaleUpAnimation(sourceView,
-                        b, offsetX, offsetY, transform.rect.width(), transform.rect.height(),
+                        Bitmap.createBitmap(1, 1, Bitmap.Config.ALPHA_8).createAshmemBitmap(),
+                        offsetX, offsetY, transform.rect.width(), transform.rect.height(),
                         sourceView.getHandler(), animStartedListener);
             }
         }
@@ -540,16 +590,27 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
                         if (mCb != null) {
                             mCb.onTaskLaunchFailed();
                         }
+
+                        // Keep track of failed launches
+                        MetricsLogger.count(getContext(), "overview_task_launch_failed", 1);
                     }
                 }
             }
         };
 
+        // Keep track of the index of the task launch
+        int taskIndexFromFront = 0;
+        int taskIndex = stack.indexOfTask(task);
+        if (taskIndex > -1) {
+            taskIndexFromFront = stack.getTaskCount() - taskIndex - 1;
+        }
+        MetricsLogger.histogram(getContext(), "overview_task_launch_index", taskIndexFromFront);
+
         // Launch the app right away if there is no task view, otherwise, animate the icon out first
         if (tv == null) {
             launchRunnable.run();
         } else {
-            if (!task.group.isFrontMostTask(task)) {
+            if (task.group != null && !task.group.isFrontMostTask(task)) {
                 // For affiliated tasks that are behind other tasks, we must animate the front cards
                 // out of view before starting the task transition
                 stackView.startLaunchTaskAnimation(tv, launchRunnable, lockToTask);
@@ -595,6 +656,9 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
         }
 
         mCb.onAllTaskViewsDismissed();
+
+        // Keep track of all-deletions
+        MetricsLogger.count(getContext(), "overview_task_all_dismissed", 1);
     }
 
     /** Final callback after Recents is finally hidden. */

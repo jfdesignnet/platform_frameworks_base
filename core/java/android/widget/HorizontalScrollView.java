@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
@@ -35,10 +36,13 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
+import android.view.ViewHierarchyEncoder;
 import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.AnimationUtils;
+
+import com.android.internal.R;
 
 import java.util.List;
 
@@ -768,7 +772,8 @@ public class HorizontalScrollView extends FrameLayout {
             return true;
         }
         switch (action) {
-            case AccessibilityNodeInfo.ACTION_SCROLL_FORWARD: {
+            case AccessibilityNodeInfo.ACTION_SCROLL_FORWARD:
+            case R.id.accessibilityActionScrollRight: {
                 if (!isEnabled()) {
                     return false;
                 }
@@ -779,7 +784,8 @@ public class HorizontalScrollView extends FrameLayout {
                     return true;
                 }
             } return false;
-            case AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD: {
+            case AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD:
+            case R.id.accessibilityActionScrollLeft: {
                 if (!isEnabled()) {
                     return false;
                 }
@@ -807,10 +813,12 @@ public class HorizontalScrollView extends FrameLayout {
         if (scrollRange > 0) {
             info.setScrollable(true);
             if (isEnabled() && mScrollX > 0) {
-                info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT);
             }
             if (isEnabled() && mScrollX < scrollRange) {
-                info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT);
             }
         }
     }
@@ -1497,11 +1505,9 @@ public class HorizontalScrollView extends FrameLayout {
             final int scrollRange = Math.max(0,
                     childWidth - (r - l - mPaddingLeft - mPaddingRight));
             if (mSavedState != null) {
-                if (isLayoutRtl() == mSavedState.isLayoutRtl) {
-                    mScrollX = mSavedState.scrollPosition;
-                } else {
-                    mScrollX = scrollRange - mSavedState.scrollPosition;
-                }
+                mScrollX = isLayoutRtl()
+                        ? scrollRange - mSavedState.scrollOffsetFromStart
+                        : mSavedState.scrollOffsetFromStart;
                 mSavedState = null;
             } else {
                 if (isLayoutRtl()) {
@@ -1684,14 +1690,19 @@ public class HorizontalScrollView extends FrameLayout {
         }
         Parcelable superState = super.onSaveInstanceState();
         SavedState ss = new SavedState(superState);
-        ss.scrollPosition = mScrollX;
-        ss.isLayoutRtl = isLayoutRtl();
+        ss.scrollOffsetFromStart = isLayoutRtl() ? -mScrollX : mScrollX;
         return ss;
     }
 
+    /** @hide */
+    @Override
+    protected void encodeProperties(@NonNull ViewHierarchyEncoder encoder) {
+        super.encodeProperties(encoder);
+        encoder.addProperty("layout:fillViewPort", mFillViewport);
+    }
+
     static class SavedState extends BaseSavedState {
-        public int scrollPosition;
-        public boolean isLayoutRtl;
+        public int scrollOffsetFromStart;
 
         SavedState(Parcelable superState) {
             super(superState);
@@ -1699,23 +1710,21 @@ public class HorizontalScrollView extends FrameLayout {
 
         public SavedState(Parcel source) {
             super(source);
-            scrollPosition = source.readInt();
-            isLayoutRtl = (source.readInt() == 0) ? true : false;
+            scrollOffsetFromStart = source.readInt();
         }
 
         @Override
         public void writeToParcel(Parcel dest, int flags) {
             super.writeToParcel(dest, flags);
-            dest.writeInt(scrollPosition);
-            dest.writeInt(isLayoutRtl ? 1 : 0);
+            dest.writeInt(scrollOffsetFromStart);
         }
 
         @Override
         public String toString() {
             return "HorizontalScrollView.SavedState{"
                     + Integer.toHexString(System.identityHashCode(this))
-                    + " scrollPosition=" + scrollPosition
-                    + " isLayoutRtl=" + isLayoutRtl + "}";
+                    + " scrollPosition=" + scrollOffsetFromStart
+                    + "}";
         }
 
         public static final Parcelable.Creator<SavedState> CREATOR

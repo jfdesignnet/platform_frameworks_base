@@ -65,7 +65,7 @@ public abstract class BatteryStats implements Parcelable {
      * A constant indicating a window wake lock timer.
      */
     public static final int WAKE_TYPE_WINDOW = 2;
-    
+
     /**
      * A constant indicating a sensor timer.
      */
@@ -132,6 +132,21 @@ public abstract class BatteryStats implements Parcelable {
     public static final int AUDIO_TURNED_ON = 15;
 
     /**
+     * A constant indicating a flashlight turn on timer
+     */
+    public static final int FLASHLIGHT_TURNED_ON = 16;
+
+    /**
+     * A constant indicating a camera turn on timer
+     */
+    public static final int CAMERA_TURNED_ON = 17;
+
+    /**
+     * A constant indicating a draw wake lock timer.
+     */
+    public static final int WAKE_TYPE_DRAW = 18;
+
+    /**
      * Include all of the data in the stats, including previously saved data.
      */
     public static final int STATS_SINCE_CHARGED = 0;
@@ -154,7 +169,7 @@ public abstract class BatteryStats implements Parcelable {
     /**
      * Current version of checkin data format.
      */
-    static final String CHECKIN_VERSION = "14";
+    static final String CHECKIN_VERSION = "15";
 
     /**
      * Old version, we hit 9 and ran out of room, need to remove.
@@ -169,6 +184,7 @@ public abstract class BatteryStats implements Parcelable {
     private static final String UID_DATA = "uid";
     private static final String APK_DATA = "apk";
     private static final String PROCESS_DATA = "pr";
+    private static final String CPU_DATA = "cpu";
     private static final String SENSOR_DATA = "sr";
     private static final String VIBRATOR_DATA = "vib";
     private static final String FOREGROUND_DATA = "fg";
@@ -208,6 +224,10 @@ public abstract class BatteryStats implements Parcelable {
     private static final String CHARGE_STEP_DATA = "csd";
     private static final String DISCHARGE_TIME_REMAIN_DATA = "dtr";
     private static final String CHARGE_TIME_REMAIN_DATA = "ctr";
+    private static final String FLASHLIGHT_DATA = "fla";
+    private static final String CAMERA_DATA = "cam";
+    private static final String VIDEO_DATA = "vid";
+    private static final String AUDIO_DATA = "aud";
 
     private final StringBuilder mFormatBuilder = new StringBuilder(32);
     private final Formatter mFormatter = new Formatter(mFormatBuilder);
@@ -381,8 +401,10 @@ public abstract class BatteryStats implements Parcelable {
         public abstract long getWifiBatchedScanTime(int csphBin, long elapsedRealtimeUs, int which);
         public abstract int getWifiBatchedScanCount(int csphBin, int which);
         public abstract long getWifiMulticastTime(long elapsedRealtimeUs, int which);
-        public abstract long getAudioTurnedOnTime(long elapsedRealtimeUs, int which);
-        public abstract long getVideoTurnedOnTime(long elapsedRealtimeUs, int which);
+        public abstract Timer getAudioTurnedOnTimer();
+        public abstract Timer getVideoTurnedOnTimer();
+        public abstract Timer getFlashlightTurnedOnTimer();
+        public abstract Timer getCameraTurnedOnTimer();
         public abstract Timer getForegroundActivityTimer();
 
         // Time this uid has any processes in foreground state.
@@ -424,6 +446,32 @@ public abstract class BatteryStats implements Parcelable {
         public abstract long getNetworkActivityPackets(int type, int which);
         public abstract long getMobileRadioActiveTime(int which);
         public abstract int getMobileRadioActiveCount(int which);
+
+        /**
+         * Get the total cpu time (in microseconds) this UID had processes executing in userspace.
+         */
+        public abstract long getUserCpuTimeUs(int which);
+
+        /**
+         * Get the total cpu time (in microseconds) this UID had processes executing kernel syscalls.
+         */
+        public abstract long getSystemCpuTimeUs(int which);
+
+        /**
+         * Get the total cpu power consumed (in milli-ampere-microseconds).
+         */
+        public abstract long getCpuPowerMaUs(int which);
+
+        /**
+         * Returns the approximate cpu time (in milliseconds) spent at a certain CPU speed for a
+         * given CPU cluster.
+         * @param cluster the index of the CPU cluster.
+         * @param step the index of the CPU speed. This is not the actual speed of the CPU.
+         * @param which one of STATS_SINCE_CHARGED, STATS_SINCE_UNPLUGGED, or STATS_CURRENT.
+         * @see PowerProfile.getNumCpuClusters()
+         * @see PowerProfile.getNumSpeedStepsInCpuCluster(int)
+         */
+        public abstract long getTimeAtCpuSpeed(int cluster, int step, int which);
 
         public static abstract class Sensor {
             /*
@@ -505,15 +553,6 @@ public abstract class BatteryStats implements Parcelable {
              * @return foreground cpu time in microseconds
              */
             public abstract long getForegroundTime(int which);
-
-            /**
-             * Returns the approximate cpu time (in milliseconds) spent at a certain CPU speed.
-             * @param speedStep the index of the CPU speed. This is not the actual speed of the
-             * CPU.
-             * @param which one of STATS_SINCE_CHARGED, STATS_SINCE_UNPLUGGED, or STATS_CURRENT.
-             * @see BatteryStats#getCpuSpeedSteps()
-             */
-            public abstract long getTimeAtCpuSpeedStep(int speedStep, int which);
 
             public abstract int countExcessivePowers();
 
@@ -841,6 +880,9 @@ public abstract class BatteryStats implements Parcelable {
 
         public void readFromParcel(Parcel in) {
             final int N = in.readInt();
+            if (N > mStepDurations.length) {
+                throw new ParcelFormatException("more step durations than available: " + N);
+            }
             mNumStepDurations = N;
             for (int i=0; i<N; i++) {
                 mStepDurations[i] = in.readLong();
@@ -1097,6 +1139,7 @@ public abstract class BatteryStats implements Parcelable {
         public static final int STATE2_CHARGING_FLAG = 1<<25;
         public static final int STATE2_PHONE_IN_CALL_FLAG = 1<<24;
         public static final int STATE2_BLUETOOTH_ON_FLAG = 1<<23;
+        public static final int STATE2_CAMERA_FLAG = 1<<22;
 
         public static final int MOST_INTERESTING_STATES2 =
             STATE2_POWER_SAVE_FLAG | STATE2_WIFI_ON_FLAG | STATE2_DEVICE_IDLE_FLAG
@@ -1139,20 +1182,27 @@ public abstract class BatteryStats implements Parcelable {
         public static final int EVENT_USER_FOREGROUND = 0x0008;
         // Event for connectivity changed.
         public static final int EVENT_CONNECTIVITY_CHANGED = 0x0009;
-        // Event for significant motion taking us out of idle mode.
-        public static final int EVENT_SIGNIFICANT_MOTION = 0x000a;
         // Event for becoming active taking us out of idle mode.
-        public static final int EVENT_ACTIVE = 0x000b;
+        public static final int EVENT_ACTIVE = 0x000a;
         // Event for a package being installed.
-        public static final int EVENT_PACKAGE_INSTALLED = 0x000c;
+        public static final int EVENT_PACKAGE_INSTALLED = 0x000b;
         // Event for a package being uninstalled.
-        public static final int EVENT_PACKAGE_UNINSTALLED = 0x000d;
+        public static final int EVENT_PACKAGE_UNINSTALLED = 0x000c;
         // Event for a package being uninstalled.
-        public static final int EVENT_ALARM = 0x000e;
+        public static final int EVENT_ALARM = 0x000d;
         // Record that we have decided we need to collect new stats data.
-        public static final int EVENT_COLLECT_EXTERNAL_STATS = 0x000f;
+        public static final int EVENT_COLLECT_EXTERNAL_STATS = 0x000e;
+        // Event for a package becoming inactive due to being unused for a period of time.
+        public static final int EVENT_PACKAGE_INACTIVE = 0x000f;
+        // Event for a package becoming active due to an interaction.
+        public static final int EVENT_PACKAGE_ACTIVE = 0x0010;
+        // Event for a package being on the temporary whitelist.
+        public static final int EVENT_TEMP_WHITELIST = 0x0011;
+        // Event for the screen waking up.
+        public static final int EVENT_SCREEN_WAKE_UP = 0x0012;
+
         // Number of event types.
-        public static final int EVENT_COUNT = 0x0010;
+        public static final int EVENT_COUNT = 0x0013;
         // Mask to extract out only the type part of the event.
         public static final int EVENT_TYPE_MASK = ~(EVENT_FLAG_START|EVENT_FLAG_FINISH);
 
@@ -1176,6 +1226,10 @@ public abstract class BatteryStats implements Parcelable {
                 EVENT_USER_FOREGROUND | EVENT_FLAG_FINISH;
         public static final int EVENT_ALARM_START = EVENT_ALARM | EVENT_FLAG_START;
         public static final int EVENT_ALARM_FINISH = EVENT_ALARM | EVENT_FLAG_FINISH;
+        public static final int EVENT_TEMP_WHITELIST_START =
+                EVENT_TEMP_WHITELIST | EVENT_FLAG_START;
+        public static final int EVENT_TEMP_WHITELIST_FINISH =
+                EVENT_TEMP_WHITELIST | EVENT_FLAG_FINISH;
 
         // For CMD_EVENT.
         public int eventCode;
@@ -1804,16 +1858,19 @@ public abstract class BatteryStats implements Parcelable {
         new BitDescription(HistoryItem.STATE2_WIFI_SUPPL_STATE_MASK,
                 HistoryItem.STATE2_WIFI_SUPPL_STATE_SHIFT, "wifi_suppl", "Wsp",
                 WIFI_SUPPL_STATE_NAMES, WIFI_SUPPL_STATE_SHORT_NAMES),
+        new BitDescription(HistoryItem.STATE2_CAMERA_FLAG, "camera", "ca"),
     };
 
     public static final String[] HISTORY_EVENT_NAMES = new String[] {
             "null", "proc", "fg", "top", "sync", "wake_lock_in", "job", "user", "userfg", "conn",
-            "motion", "active", "pkginst", "pkgunin", "alarm", "stats"
+            "active", "pkginst", "pkgunin", "alarm", "stats", "inactive", "active", "tmpwhitelist",
+            "screenwake",
     };
 
     public static final String[] HISTORY_EVENT_CHECKIN_NAMES = new String[] {
             "Enl", "Epr", "Efg", "Etp", "Esy", "Ewl", "Ejb", "Eur", "Euf", "Ecn",
-            "Esm", "Eac", "Epi", "Epu", "Eal", "Est"
+            "Eac", "Epi", "Epu", "Eal", "Est", "Eai", "Eaa", "Etw",
+            "Esw",
     };
 
     /**
@@ -1912,6 +1969,15 @@ public abstract class BatteryStats implements Parcelable {
      * {@hide}
      */
     public abstract long getFlashlightOnCount(int which);
+
+    /**
+     * Returns the time in microseconds that the camera has been on while the device was
+     * running on battery.
+     *
+     * {@hide}
+     */
+    public abstract long getCameraOnTime(long elapsedRealtimeUs, int which);
+
 
     public static final int NETWORK_MOBILE_RX_DATA = 0;
     public static final int NETWORK_MOBILE_TX_DATA = 1;
@@ -2212,9 +2278,6 @@ public abstract class BatteryStats implements Parcelable {
 
     public abstract Map<String, ? extends Timer> getKernelWakelockStats();
 
-    /** Returns the number of different speeds that the CPU can run at */
-    public abstract int getCpuSpeedSteps();
-
     public abstract void writeToParcelWithoutUids(Parcel out, int flags);
 
     private final static void formatTimeRaw(StringBuilder out, long seconds) {
@@ -2308,10 +2371,10 @@ public abstract class BatteryStats implements Parcelable {
      */
     private static final String printWakeLock(StringBuilder sb, Timer timer,
             long elapsedRealtimeUs, String name, int which, String linePrefix) {
-        
+
         if (timer != null) {
             long totalTimeMillis = computeWakeLock(timer, elapsedRealtimeUs, which);
-            
+
             int count = timer.getCountLocked(which);
             if (totalTimeMillis != 0) {
                 sb.append(linePrefix);
@@ -2327,6 +2390,40 @@ public abstract class BatteryStats implements Parcelable {
             }
         }
         return linePrefix;
+    }
+
+    /**
+     *
+     * @param pw a PrintWriter object to print to.
+     * @param sb a StringBuilder object.
+     * @param timer a Timer object contining the wakelock times.
+     * @param rawRealtime the current on-battery time in microseconds.
+     * @param which which one of STATS_SINCE_CHARGED, STATS_SINCE_UNPLUGGED, or STATS_CURRENT.
+     * @param prefix a String to be prepended to each line of output.
+     * @param type the name of the timer.
+     */
+    private static final boolean printTimer(PrintWriter pw, StringBuilder sb, Timer timer,
+            long rawRealtime, int which, String prefix, String type) {
+        if (timer != null) {
+            // Convert from microseconds to milliseconds with rounding
+            final long totalTime = (timer.getTotalTimeLocked(
+                    rawRealtime, which) + 500) / 1000;
+            final int count = timer.getCountLocked(which);
+            if (totalTime != 0) {
+                sb.setLength(0);
+                sb.append(prefix);
+                sb.append("    ");
+                sb.append(type);
+                sb.append(": ");
+                formatTimeMs(sb, totalTime);
+                sb.append("realtime (");
+                sb.append(count);
+                sb.append(" times)");
+                pw.println(sb.toString());
+                return true;
+            }
+        }
+        return false;
     }
     
     /**
@@ -2366,16 +2463,43 @@ public abstract class BatteryStats implements Parcelable {
      */
     private static final void dumpLine(PrintWriter pw, int uid, String category, String type, 
            Object... args ) {
-        pw.print(BATTERY_STATS_CHECKIN_VERSION); pw.print(',');
-        pw.print(uid); pw.print(',');
-        pw.print(category); pw.print(',');
+        pw.print(BATTERY_STATS_CHECKIN_VERSION);
+        pw.print(',');
+        pw.print(uid);
+        pw.print(',');
+        pw.print(category);
+        pw.print(',');
         pw.print(type);
-        
-        for (Object arg : args) {  
+
+        for (Object arg : args) {
             pw.print(',');
             pw.print(arg);
         }
         pw.println();
+    }
+
+    /**
+     * Dump a given timer stat for terse checkin mode.
+     *
+     * @param pw the PageWriter to dump log to
+     * @param uid the UID to log
+     * @param category category of data (e.g. "total", "last", "unplugged", "current" )
+     * @param type type of data (e.g. "wakelock", "sensor", "process", "apk" ,  "process", "network")
+     * @param timer a {@link Timer} to dump stats for
+     * @param rawRealtime the current elapsed realtime of the system in microseconds
+     * @param which one of STATS_SINCE_CHARGED, STATS_SINCE_UNPLUGGED, or STATS_CURRENT
+     */
+    private static final void dumpTimer(PrintWriter pw, int uid, String category, String type,
+                                        Timer timer, long rawRealtime, int which) {
+        if (timer != null) {
+            // Convert from microseconds to milliseconds with rounding
+            final long totalTime = (timer.getTotalTimeLocked(rawRealtime, which) + 500)
+                    / 1000;
+            final int count = timer.getCountLocked(which);
+            if (totalTime != 0) {
+                dumpLine(pw, uid, category, type, totalTime, count);
+            }
+        }
     }
 
     /**
@@ -2491,7 +2615,9 @@ public abstract class BatteryStats implements Parcelable {
                 getMobileRadioActiveAdjustedTime(which) / 1000, interactiveTime / 1000,
                 powerSaveModeEnabledTime / 1000, connChanges, deviceIdleModeEnabledTime / 1000,
                 getDeviceIdleModeEnabledCount(which), deviceIdlingTime / 1000,
-                getDeviceIdlingCount(which));
+                getDeviceIdlingCount(which),
+                getMobileRadioActiveCount(which),
+                getMobileRadioActiveUnknownTime(which) / 1000);
         
         // Dump screen brightness stats
         Object[] args = new Object[NUM_SCREEN_BRIGHTNESS_BINS];
@@ -2647,6 +2773,9 @@ public abstract class BatteryStats implements Parcelable {
                     case OVERCOUNTED:
                         label = "over";
                         break;
+                    case CAMERA:
+                        label = "camera";
+                        break;
                     default:
                         label = "???";
                 }
@@ -2755,6 +2884,15 @@ public abstract class BatteryStats implements Parcelable {
                 }
             }
 
+            dumpTimer(pw, uid, category, FLASHLIGHT_DATA, u.getFlashlightTurnedOnTimer(),
+                    rawRealtime, which);
+            dumpTimer(pw, uid, category, CAMERA_DATA, u.getCameraTurnedOnTimer(),
+                    rawRealtime, which);
+            dumpTimer(pw, uid, category, VIDEO_DATA, u.getVideoTurnedOnTimer(),
+                    rawRealtime, which);
+            dumpTimer(pw, uid, category, AUDIO_DATA, u.getAudioTurnedOnTimer(),
+                    rawRealtime, which);
+
             final SparseArray<? extends BatteryStats.Uid.Sensor> sensors = u.getSensorStats();
             final int NSE = sensors.size();
             for (int ise=0; ise<NSE; ise++) {
@@ -2772,27 +2910,11 @@ public abstract class BatteryStats implements Parcelable {
                 }
             }
 
-            final Timer vibTimer = u.getVibratorOnTimer();
-            if (vibTimer != null) {
-                // Convert from microseconds to milliseconds with rounding
-                final long totalTime = (vibTimer.getTotalTimeLocked(rawRealtime, which) + 500)
-                        / 1000;
-                final int count = vibTimer.getCountLocked(which);
-                if (totalTime != 0) {
-                    dumpLine(pw, uid, category, VIBRATOR_DATA, totalTime, count);
-                }
-            }
+            dumpTimer(pw, uid, category, VIBRATOR_DATA, u.getVibratorOnTimer(),
+                    rawRealtime, which);
 
-            final Timer fgTimer = u.getForegroundActivityTimer();
-            if (fgTimer != null) {
-                // Convert from microseconds to milliseconds with rounding
-                final long totalTime = (fgTimer.getTotalTimeLocked(rawRealtime, which) + 500)
-                        / 1000;
-                final int count = fgTimer.getCountLocked(which);
-                if (totalTime != 0) {
-                    dumpLine(pw, uid, category, FOREGROUND_DATA, totalTime, count);
-                }
-            }
+            dumpTimer(pw, uid, category, FOREGROUND_DATA, u.getForegroundActivityTimer(),
+                    rawRealtime, which);
 
             final Object[] stateTimes = new Object[Uid.NUM_PROCESS_STATE];
             long totalStateTime = 0;
@@ -2802,6 +2924,14 @@ public abstract class BatteryStats implements Parcelable {
             }
             if (totalStateTime > 0) {
                 dumpLine(pw, uid, category, STATE_TIME_DATA, stateTimes);
+            }
+
+            final long userCpuTimeUs = u.getUserCpuTimeUs(which);
+            final long systemCpuTimeUs = u.getSystemCpuTimeUs(which);
+            final long powerCpuMaUs = u.getCpuPowerMaUs(which);
+            if (userCpuTimeUs > 0 || systemCpuTimeUs > 0 || powerCpuMaUs > 0) {
+                dumpLine(pw, uid, category, CPU_DATA, userCpuTimeUs / 1000, systemCpuTimeUs / 1000,
+                        powerCpuMaUs / 1000);
             }
 
             final ArrayMap<String, ? extends BatteryStats.Uid.Proc> processStats
@@ -2867,6 +2997,10 @@ public abstract class BatteryStats implements Parcelable {
 
     private void printmAh(PrintWriter printer, double power) {
         printer.print(BatteryStatsHelper.makemAh(power));
+    }
+
+    private void printmAh(StringBuilder sb, double power) {
+        sb.append(BatteryStatsHelper.makemAh(power));
     }
 
     /**
@@ -3273,12 +3407,13 @@ public abstract class BatteryStats implements Parcelable {
         final long wifiIdleTimeMs = getWifiControllerActivity(CONTROLLER_IDLE_TIME, which);
         final long wifiRxTimeMs = getWifiControllerActivity(CONTROLLER_RX_TIME, which);
         final long wifiTxTimeMs = getWifiControllerActivity(CONTROLLER_TX_TIME, which);
+        final long wifiPowerDrainMaMs = getWifiControllerActivity(CONTROLLER_POWER_DRAIN, which);
         final long wifiTotalTimeMs = wifiIdleTimeMs + wifiRxTimeMs + wifiTxTimeMs;
 
         sb.setLength(0);
         sb.append(prefix);
         sb.append("  WiFi Idle time: "); formatTimeMs(sb, wifiIdleTimeMs);
-        sb.append(" (");
+        sb.append("(");
         sb.append(formatRatioLocked(wifiIdleTimeMs, wifiTotalTimeMs));
         sb.append(")");
         pw.println(sb.toString());
@@ -3286,7 +3421,7 @@ public abstract class BatteryStats implements Parcelable {
         sb.setLength(0);
         sb.append(prefix);
         sb.append("  WiFi Rx time:   "); formatTimeMs(sb, wifiRxTimeMs);
-        sb.append(" (");
+        sb.append("(");
         sb.append(formatRatioLocked(wifiRxTimeMs, wifiTotalTimeMs));
         sb.append(")");
         pw.println(sb.toString());
@@ -3294,16 +3429,16 @@ public abstract class BatteryStats implements Parcelable {
         sb.setLength(0);
         sb.append(prefix);
         sb.append("  WiFi Tx time:   "); formatTimeMs(sb, wifiTxTimeMs);
-        sb.append(" (");
+        sb.append("(");
         sb.append(formatRatioLocked(wifiTxTimeMs, wifiTotalTimeMs));
         sb.append(")");
         pw.println(sb.toString());
 
         sb.setLength(0);
         sb.append(prefix);
-        sb.append("  WiFi Power drain: ").append(BatteryStatsHelper.makemAh(
-                getWifiControllerActivity(CONTROLLER_POWER_DRAIN, which) / (double)(1000*60*60)));
-        sb.append(" mAh");
+        sb.append("  WiFi Power drain: ").append(
+                BatteryStatsHelper.makemAh(wifiPowerDrainMaMs / (double) (1000*60*60)));
+        sb.append("mAh");
         pw.println(sb.toString());
 
         final long bluetoothIdleTimeMs =
@@ -3316,7 +3451,7 @@ public abstract class BatteryStats implements Parcelable {
         sb.setLength(0);
         sb.append(prefix);
         sb.append("  Bluetooth Idle time: "); formatTimeMs(sb, bluetoothIdleTimeMs);
-        sb.append(" (");
+        sb.append("(");
         sb.append(formatRatioLocked(bluetoothIdleTimeMs, bluetoothTotalTimeMs));
         sb.append(")");
         pw.println(sb.toString());
@@ -3324,7 +3459,7 @@ public abstract class BatteryStats implements Parcelable {
         sb.setLength(0);
         sb.append(prefix);
         sb.append("  Bluetooth Rx time:   "); formatTimeMs(sb, bluetoothRxTimeMs);
-        sb.append(" (");
+        sb.append("(");
         sb.append(formatRatioLocked(bluetoothRxTimeMs, bluetoothTotalTimeMs));
         sb.append(")");
         pw.println(sb.toString());
@@ -3332,7 +3467,7 @@ public abstract class BatteryStats implements Parcelable {
         sb.setLength(0);
         sb.append(prefix);
         sb.append("  Bluetooth Tx time:   "); formatTimeMs(sb, bluetoothTxTimeMs);
-        sb.append(" (");
+        sb.append("(");
         sb.append(formatRatioLocked(bluetoothTxTimeMs, bluetoothTotalTimeMs));
         sb.append(")");
         pw.println(sb.toString());
@@ -3342,7 +3477,7 @@ public abstract class BatteryStats implements Parcelable {
         sb.append("  Bluetooth Power drain: ").append(BatteryStatsHelper.makemAh(
                 getBluetoothControllerActivity(CONTROLLER_POWER_DRAIN, which) /
                         (double)(1000*60*60)));
-        sb.append(" mAh");
+        sb.append("mAh");
         pw.println(sb.toString());
 
         pw.println();
@@ -3395,53 +3530,97 @@ public abstract class BatteryStats implements Parcelable {
                     pw.println();
             for (int i=0; i<sippers.size(); i++) {
                 final BatterySipper bs = sippers.get(i);
+                pw.print(prefix);
                 switch (bs.drainType) {
                     case IDLE:
-                        pw.print(prefix); pw.print("    Idle: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Idle: ");
                         break;
                     case CELL:
-                        pw.print(prefix); pw.print("    Cell standby: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Cell standby: ");
                         break;
                     case PHONE:
-                        pw.print(prefix); pw.print("    Phone calls: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Phone calls: ");
                         break;
                     case WIFI:
-                        pw.print(prefix); pw.print("    Wifi: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Wifi: ");
                         break;
                     case BLUETOOTH:
-                        pw.print(prefix); pw.print("    Bluetooth: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Bluetooth: ");
                         break;
                     case SCREEN:
-                        pw.print(prefix); pw.print("    Screen: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Screen: ");
                         break;
                     case FLASHLIGHT:
-                        pw.print(prefix); pw.print("    Flashlight: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Flashlight: ");
                         break;
                     case APP:
-                        pw.print(prefix); pw.print("    Uid ");
+                        pw.print("    Uid ");
                         UserHandle.formatUid(pw, bs.uidObj.getUid());
-                        pw.print(": "); printmAh(pw, bs.totalPowerMah); pw.println();
+                        pw.print(": ");
                         break;
                     case USER:
-                        pw.print(prefix); pw.print("    User "); pw.print(bs.userId);
-                        pw.print(": "); printmAh(pw, bs.totalPowerMah); pw.println();
+                        pw.print("    User "); pw.print(bs.userId);
+                        pw.print(": ");
                         break;
                     case UNACCOUNTED:
-                        pw.print(prefix); pw.print("    Unaccounted: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Unaccounted: ");
                         break;
                     case OVERCOUNTED:
-                        pw.print(prefix); pw.print("    Over-counted: "); printmAh(pw, bs.totalPowerMah);
-                        pw.println();
+                        pw.print("    Over-counted: ");
+                        break;
+                    case CAMERA:
+                        pw.print("    Camera: ");
+                        break;
+                    default:
+                        pw.print("    ???: ");
                         break;
                 }
+                printmAh(pw, bs.totalPowerMah);
+
+                if (bs.usagePowerMah != bs.totalPowerMah) {
+                    // If the usage (generic power) isn't the whole amount, we list out
+                    // what components are involved in the calculation.
+
+                    pw.print(" (");
+                    if (bs.usagePowerMah != 0) {
+                        pw.print(" usage=");
+                        printmAh(pw, bs.usagePowerMah);
+                    }
+                    if (bs.cpuPowerMah != 0) {
+                        pw.print(" cpu=");
+                        printmAh(pw, bs.cpuPowerMah);
+                    }
+                    if (bs.wakeLockPowerMah != 0) {
+                        pw.print(" wake=");
+                        printmAh(pw, bs.wakeLockPowerMah);
+                    }
+                    if (bs.mobileRadioPowerMah != 0) {
+                        pw.print(" radio=");
+                        printmAh(pw, bs.mobileRadioPowerMah);
+                    }
+                    if (bs.wifiPowerMah != 0) {
+                        pw.print(" wifi=");
+                        printmAh(pw, bs.wifiPowerMah);
+                    }
+                    if (bs.gpsPowerMah != 0) {
+                        pw.print(" gps=");
+                        printmAh(pw, bs.gpsPowerMah);
+                    }
+                    if (bs.sensorPowerMah != 0) {
+                        pw.print(" sensor=");
+                        printmAh(pw, bs.sensorPowerMah);
+                    }
+                    if (bs.cameraPowerMah != 0) {
+                        pw.print(" camera=");
+                        printmAh(pw, bs.cameraPowerMah);
+                    }
+                    if (bs.flashlightPowerMah != 0) {
+                        pw.print(" flash=");
+                        printmAh(pw, bs.flashlightPowerMah);
+                    }
+                    pw.print(" )");
+                }
+                pw.println();
             }
             pw.println();
         }
@@ -3647,6 +3826,27 @@ public abstract class BatteryStats implements Parcelable {
                 pw.println(sb.toString());
             }
 
+            final long uidWifiIdleTimeMs = u.getWifiControllerActivity(CONTROLLER_IDLE_TIME, which);
+            final long uidWifiRxTimeMs = u.getWifiControllerActivity(CONTROLLER_RX_TIME, which);
+            final long uidWifiTxTimeMs = u.getWifiControllerActivity(CONTROLLER_TX_TIME, which);
+            final long uidWifiTotalTimeMs = uidWifiIdleTimeMs + uidWifiRxTimeMs + uidWifiTxTimeMs;
+            if (uidWifiTotalTimeMs > 0) {
+                sb.setLength(0);
+                sb.append(prefix).append("    WiFi Idle time: ");
+                formatTimeMs(sb, uidWifiIdleTimeMs);
+                sb.append("(").append(formatRatioLocked(uidWifiIdleTimeMs, uidWifiTotalTimeMs))
+                        .append(")\n");
+
+                sb.append(prefix).append("    WiFi Rx time:   "); formatTimeMs(sb, uidWifiRxTimeMs);
+                sb.append("(").append(formatRatioLocked(uidWifiRxTimeMs, uidWifiTotalTimeMs))
+                        .append(")\n");
+
+                sb.append(prefix).append("    WiFi Tx time:   "); formatTimeMs(sb, uidWifiTxTimeMs);
+                sb.append("(").append(formatRatioLocked(uidWifiTxTimeMs, uidWifiTotalTimeMs))
+                        .append(")");
+                pw.println(sb.toString());
+            }
+
             if (u.hasUserActivity()) {
                 boolean hasData = false;
                 for (int i=0; i<Uid.NUM_USER_ACTIVITY_TYPES; i++) {
@@ -3672,6 +3872,7 @@ public abstract class BatteryStats implements Parcelable {
             final ArrayMap<String, ? extends BatteryStats.Uid.Wakelock> wakelocks
                     = u.getWakelockStats();
             long totalFullWakelock = 0, totalPartialWakelock = 0, totalWindowWakelock = 0;
+            long totalDrawWakelock = 0;
             int countWakelock = 0;
             for (int iw=wakelocks.size()-1; iw>=0; iw--) {
                 final Uid.Wakelock wl = wakelocks.valueAt(iw);
@@ -3686,18 +3887,20 @@ public abstract class BatteryStats implements Parcelable {
                         "partial", which, linePrefix);
                 linePrefix = printWakeLock(sb, wl.getWakeTime(WAKE_TYPE_WINDOW), rawRealtime,
                         "window", which, linePrefix);
-                if (true || !linePrefix.equals(": ")) {
-                    sb.append(" realtime");
-                    // Only print out wake locks that were held
-                    pw.println(sb.toString());
-                    uidActivity = true;
-                    countWakelock++;
-                }
+                linePrefix = printWakeLock(sb, wl.getWakeTime(WAKE_TYPE_DRAW), rawRealtime,
+                        "draw", which, linePrefix);
+                sb.append(" realtime");
+                pw.println(sb.toString());
+                uidActivity = true;
+                countWakelock++;
+
                 totalFullWakelock += computeWakeLock(wl.getWakeTime(WAKE_TYPE_FULL),
                         rawRealtime, which);
                 totalPartialWakelock += computeWakeLock(wl.getWakeTime(WAKE_TYPE_PARTIAL),
                         rawRealtime, which);
                 totalWindowWakelock += computeWakeLock(wl.getWakeTime(WAKE_TYPE_WINDOW),
+                        rawRealtime, which);
+                totalDrawWakelock += computeWakeLock(wl.getWakeTime(WAKE_TYPE_DRAW),
                         rawRealtime, which);
             }
             if (countWakelock > 1) {
@@ -3727,6 +3930,14 @@ public abstract class BatteryStats implements Parcelable {
                         needComma = true;
                         formatTimeMs(sb, totalWindowWakelock);
                         sb.append("window");
+                    }
+                    if (totalDrawWakelock != 0) {
+                        if (needComma) {
+                            sb.append(",");
+                        }
+                        needComma = true;
+                        formatTimeMs(sb, totalDrawWakelock);
+                        sb.append("draw");
                     }
                     sb.append(" realtime");
                     pw.println(sb.toString());
@@ -3779,6 +3990,15 @@ public abstract class BatteryStats implements Parcelable {
                 uidActivity = true;
             }
 
+            uidActivity |= printTimer(pw, sb, u.getFlashlightTurnedOnTimer(), rawRealtime, which,
+                    prefix, "Flashlight");
+            uidActivity |= printTimer(pw, sb, u.getCameraTurnedOnTimer(), rawRealtime, which,
+                    prefix, "Camera");
+            uidActivity |= printTimer(pw, sb, u.getVideoTurnedOnTimer(), rawRealtime, which,
+                    prefix, "Video");
+            uidActivity |= printTimer(pw, sb, u.getAudioTurnedOnTimer(), rawRealtime, which,
+                    prefix, "Audio");
+
             final SparseArray<? extends BatteryStats.Uid.Sensor> sensors = u.getSensorStats();
             final int NSE = sensors.size();
             for (int ise=0; ise<NSE; ise++) {
@@ -3818,44 +4038,10 @@ public abstract class BatteryStats implements Parcelable {
                 uidActivity = true;
             }
 
-            final Timer vibTimer = u.getVibratorOnTimer();
-            if (vibTimer != null) {
-                // Convert from microseconds to milliseconds with rounding
-                final long totalTime = (vibTimer.getTotalTimeLocked(
-                        rawRealtime, which) + 500) / 1000;
-                final int count = vibTimer.getCountLocked(which);
-                //timer.logState();
-                if (totalTime != 0) {
-                    sb.setLength(0);
-                    sb.append(prefix);
-                    sb.append("    Vibrator: ");
-                    formatTimeMs(sb, totalTime);
-                    sb.append("realtime (");
-                    sb.append(count);
-                    sb.append(" times)");
-                    pw.println(sb.toString());
-                    uidActivity = true;
-                }
-            }
-
-            final Timer fgTimer = u.getForegroundActivityTimer();
-            if (fgTimer != null) {
-                // Convert from microseconds to milliseconds with rounding
-                final long totalTime = (fgTimer.getTotalTimeLocked(rawRealtime, which) + 500)
-                        / 1000;
-                final int count = fgTimer.getCountLocked(which);
-                if (totalTime != 0) {
-                    sb.setLength(0);
-                    sb.append(prefix);
-                    sb.append("    Foreground activities: ");
-                    formatTimeMs(sb, totalTime);
-                    sb.append("realtime (");
-                    sb.append(count);
-                    sb.append(" times)");
-                    pw.println(sb.toString());
-                    uidActivity = true;
-                }
-            }
+            uidActivity |= printTimer(pw, sb, u.getVibratorOnTimer(), rawRealtime, which, prefix,
+                    "Vibrator");
+            uidActivity |= printTimer(pw, sb, u.getForegroundActivityTimer(), rawRealtime, which,
+                    prefix, "Foreground activities");
 
             long totalStateTime = 0;
             for (int ips=0; ips<Uid.NUM_PROCESS_STATE; ips++) {
@@ -3871,6 +4057,22 @@ public abstract class BatteryStats implements Parcelable {
                     pw.println(sb.toString());
                     uidActivity = true;
                 }
+            }
+
+            final long userCpuTimeUs = u.getUserCpuTimeUs(which);
+            final long systemCpuTimeUs = u.getSystemCpuTimeUs(which);
+            final long powerCpuMaUs = u.getCpuPowerMaUs(which);
+            if (userCpuTimeUs > 0 || systemCpuTimeUs > 0 || powerCpuMaUs > 0) {
+                sb.setLength(0);
+                sb.append(prefix);
+                sb.append("    Total cpu time: u=");
+                formatTimeMs(sb, userCpuTimeUs / 1000);
+                sb.append("s=");
+                formatTimeMs(sb, systemCpuTimeUs / 1000);
+                sb.append("p=");
+                printmAh(sb, powerCpuMaUs / (1000.0 * 1000.0 * 60.0 * 60.0));
+                sb.append("mAh");
+                pw.println(sb.toString());
             }
 
             final ArrayMap<String, ? extends BatteryStats.Uid.Proc> processStats

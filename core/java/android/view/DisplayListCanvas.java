@@ -89,19 +89,20 @@ public class DisplayListCanvas extends Canvas {
 
     private DisplayListCanvas() {
         super(nCreateDisplayListCanvas());
+        mDensity = 0; // disable bitmap density scaling
     }
 
     private static native long nCreateDisplayListCanvas();
 
-    public static void setProperty(String name, String value) {
-        nSetProperty(name, value);
-    }
-
-    private static native void nSetProperty(String name, String value);
-
     ///////////////////////////////////////////////////////////////////////////
     // Canvas management
     ///////////////////////////////////////////////////////////////////////////
+
+
+    @Override
+    public void setDensity(int density) {
+        // drop silently, since DisplayListCanvas doesn't perform density scaling
+    }
 
     @Override
     public boolean isHardwareAccelerated() {
@@ -234,25 +235,13 @@ public class DisplayListCanvas extends Canvas {
      * Draws the specified display list onto this canvas. The display list can only
      * be drawn if {@link android.view.RenderNode#isValid()} returns true.
      *
-     * @param renderNode The RenderNode to replay.
+     * @param renderNode The RenderNode to draw.
      */
     public void drawRenderNode(RenderNode renderNode) {
-        drawRenderNode(renderNode, RenderNode.FLAG_CLIP_CHILDREN);
+        nDrawRenderNode(mNativeCanvasWrapper, renderNode.getNativeDisplayList());
     }
 
-    /**
-     * Draws the specified display list onto this canvas.
-     *
-     * @param renderNode The RenderNode to replay.
-     * @param flags Optional flags about drawing, see {@link RenderNode} for
-     *              the possible flags.
-     */
-    public void drawRenderNode(RenderNode renderNode, int flags) {
-        nDrawRenderNode(mNativeCanvasWrapper, renderNode.getNativeDisplayList(), flags);
-    }
-
-    private static native void nDrawRenderNode(long renderer, long renderNode,
-            int flags);
+    private static native void nDrawRenderNode(long renderer, long renderNode);
 
     ///////////////////////////////////////////////////////////////////////////
     // Hardware layer
@@ -283,7 +272,7 @@ public class DisplayListCanvas extends Canvas {
         Bitmap bitmap = patch.getBitmap();
         throwIfCannotDraw(bitmap);
         final long nativePaint = paint == null ? 0 : paint.getNativeInstance();
-        nDrawPatch(mNativeCanvasWrapper, bitmap.getSkBitmap(), patch.mNativeChunk,
+        nDrawPatch(mNativeCanvasWrapper, bitmap, patch.mNativeChunk,
                 dst.left, dst.top, dst.right, dst.bottom, nativePaint);
     }
 
@@ -293,11 +282,11 @@ public class DisplayListCanvas extends Canvas {
         Bitmap bitmap = patch.getBitmap();
         throwIfCannotDraw(bitmap);
         final long nativePaint = paint == null ? 0 : paint.getNativeInstance();
-        nDrawPatch(mNativeCanvasWrapper, bitmap.getSkBitmap(), patch.mNativeChunk,
+        nDrawPatch(mNativeCanvasWrapper, bitmap, patch.mNativeChunk,
                 dst.left, dst.top, dst.right, dst.bottom, nativePaint);
     }
 
-    private static native void nDrawPatch(long renderer, long bitmap, long chunk,
+    private static native void nDrawPatch(long renderer, Bitmap bitmap, long chunk,
             float left, float top, float right, float bottom, long paint);
 
     public void drawCircle(CanvasProperty<Float> cx, CanvasProperty<Float> cy,
@@ -334,10 +323,4 @@ public class DisplayListCanvas extends Canvas {
     }
 
     private static native void nDrawRects(long renderer, long region, long paint);
-
-    @Override
-    public void drawPicture(Picture picture) {
-        picture.endRecording();
-        // TODO: Implement rendering
-    }
 }

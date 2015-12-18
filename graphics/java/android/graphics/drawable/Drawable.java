@@ -269,33 +269,32 @@ public abstract class Drawable {
     }
 
     /**
-     * Set to true to have the drawable dither its colors when drawn to a device
-     * with fewer than 8-bits per color component. This can improve the look on
-     * those devices, but can also slow down the drawing a little.
+     * Set to true to have the drawable dither its colors when drawn to a
+     * device with fewer than 8-bits per color component.
+     *
+     * @see android.graphics.Paint#setDither(boolean);
+     * @deprecated This property is ignored.
      */
+    @Deprecated
     public void setDither(boolean dither) {}
 
     /**
-     * @return whether this drawable dither its colors
-     * @see #setDither(boolean)
-     */
-    public boolean getDither() {
-        return false;
-    }
-
-    /**
-     * Set to true to have the drawable filter its bitmap when scaled or rotated
-     * (for drawables that use bitmaps). If the drawable does not use bitmaps,
-     * this call is ignored. This can improve the look when scaled or rotated,
-     * but also slows down the drawing.
+     * Set to true to have the drawable filter its bitmaps with bilinear
+     * sampling when they are scaled or rotated.
+     *
+     * <p>This can improve appearance when bitmaps are rotated. If the drawable
+     * does not use bitmaps, this call is ignored.</p>
+     *
+     * @see #isFilterBitmap()
+     * @see android.graphics.Paint#setFilterBitmap(boolean);
      */
     public void setFilterBitmap(boolean filter) {}
 
     /**
-     * @return whether this drawable filters its bitmap
+     * @return whether this drawable filters its bitmaps
      * @see #setFilterBitmap(boolean)
      */
-    public boolean getFilterBitmap() {
+    public boolean isFilterBitmap() {
         return false;
     }
 
@@ -433,7 +432,7 @@ public abstract class Drawable {
 
     /**
      * Set the layout direction for this drawable. Should be a resolved
-     * layout direction, as the Drawable as no capacity to do the resolution on
+     * layout direction, as the Drawable has no capacity to do the resolution on
      * its own.
      *
      * @param layoutDirection the resolved layout direction for the drawable,
@@ -444,7 +443,7 @@ public abstract class Drawable {
     public final boolean setLayoutDirection(@View.ResolvedLayoutDir int layoutDirection) {
         if (mLayoutDirection != layoutDirection) {
             mLayoutDirection = layoutDirection;
-            return onLayoutDirectionChange(layoutDirection);
+            return onLayoutDirectionChanged(layoutDirection);
         }
         return false;
     }
@@ -457,7 +456,7 @@ public abstract class Drawable {
      *         the drawable to change and it needs to be re-drawn
      * @see #setLayoutDirection(int)
      */
-    public boolean onLayoutDirectionChange(@View.ResolvedLayoutDir int layoutDirection) {
+    public boolean onLayoutDirectionChanged(@View.ResolvedLayoutDir int layoutDirection) {
         return false;
     }
 
@@ -809,6 +808,14 @@ public abstract class Drawable {
      * {@link android.graphics.PixelFormat#TRANSPARENT}, or
      * {@link android.graphics.PixelFormat#OPAQUE}.
      *
+     * <p>An OPAQUE drawable is one that draws all all content within its bounds, completely
+     * covering anything behind the drawable. A TRANSPARENT drawable is one that draws nothing
+     * within its bounds, allowing everything behind it to show through. A TRANSLUCENT drawable
+     * is a drawable in any other state, where the drawable will draw some, but not all,
+     * of the content within its bounds and at least some content behind the drawable will
+     * be visible. If the visibility of the drawable's contents cannot be determined, the
+     * safest/best return value is TRANSLUCENT.
+     *
      * <p>Generally a Drawable should be as conservative as possible with the
      * value it returns.  For example, if it contains multiple child drawables
      * and only shows one of them at a time, if only one of the children is
@@ -1139,6 +1146,7 @@ public abstract class Drawable {
      * document, tries to create a Drawable from that tag. Returns {@code null}
      * if the tag is not a valid drawable.
      */
+    @SuppressWarnings("deprecation")
     public static Drawable createFromXmlInner(Resources r, XmlPullParser parser, AttributeSet attrs,
             Theme theme) throws XmlPullParserException, IOException {
         final Drawable drawable;
@@ -1194,16 +1202,10 @@ public abstract class Drawable {
                 drawable = new InsetDrawable();
                 break;
             case "bitmap":
-                drawable = new BitmapDrawable(r);
-                if (r != null) {
-                    ((BitmapDrawable) drawable).setTargetDensity(r.getDisplayMetrics());
-                }
+                drawable = new BitmapDrawable();
                 break;
             case "nine-patch":
                 drawable = new NinePatchDrawable();
-                if (r != null) {
-                    ((NinePatchDrawable) drawable).setTargetDensity(r.getDisplayMetrics());
-                }
                 break;
             default:
                 throw new XmlPullParserException(parser.getPositionDescription() +

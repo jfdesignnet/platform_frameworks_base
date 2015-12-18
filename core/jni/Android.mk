@@ -16,6 +16,14 @@ else
     LOCAL_CFLAGS += -DPACKED=""
 endif
 
+ifneq ($(ENABLE_CPUSETS),)
+    LOCAL_CFLAGS += -DENABLE_CPUSETS
+endif
+
+ifneq ($(ENABLE_SCHED_BOOST),)
+    LOCAL_CFLAGS += -DENABLE_SCHED_BOOST
+endif
+
 LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
 
 LOCAL_CFLAGS += -DU_USING_ICU_NAMESPACE=0
@@ -132,6 +140,7 @@ LOCAL_SRC_FILES:= \
     android_media_AudioRecord.cpp \
     android_media_AudioSystem.cpp \
     android_media_AudioTrack.cpp \
+    android_media_DeviceCallback.cpp \
     android_media_JetPlayer.cpp \
     android_media_RemoteDisplay.cpp \
     android_media_ToneGenerator.cpp \
@@ -176,11 +185,13 @@ LOCAL_C_INCLUDES += \
     $(call include-path-for, libhardware)/hardware \
     $(call include-path-for, libhardware_legacy)/hardware_legacy \
     $(TOP)/frameworks/av/include \
+    $(TOP)/frameworks/base/media/jni \
     $(TOP)/system/media/camera/include \
     $(TOP)/system/netd/include \
     external/pdfium/core/include/fpdfapi \
     external/pdfium/core/include/fpdfdoc \
     external/pdfium/fpdfsdk/include \
+    external/pdfium/public \
     external/skia/src/core \
     external/skia/src/effects \
     external/skia/src/images \
@@ -255,11 +266,16 @@ LOCAL_MODULE:= libandroid_runtime
 
 # -Wno-unknown-pragmas: necessary for Clang as the GL bindings need to turn
 #                       off a GCC warning that Clang doesn't know.
-LOCAL_CFLAGS += -Wall -Werror -Wunused -Wunreachable-code -Wno-unknown-pragmas
+LOCAL_CFLAGS += -Wall -Werror -Wno-error=deprecated-declarations -Wunused -Wunreachable-code \
+        -Wno-unknown-pragmas
 
 # -Wno-c++11-extensions: Clang warns about Skia using the C++11 override keyword, but this project
 #                        is not being compiled with that level. Remove once this has changed.
 LOCAL_CFLAGS += -Wno-c++11-extensions
+
+# b/22414716: thread_local (android/graphics/Paint.cpp) and Clang don't like each other at the
+#             moment.
+LOCAL_CLANG := false
 
 include $(BUILD_SHARED_LIBRARY)
 

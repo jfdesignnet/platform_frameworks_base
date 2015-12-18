@@ -25,7 +25,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.ACCESS_ALL_EXTERNAL_STORAGE" />
+    <!-- Used to read storage for all users -->
+    <uses-permission android:name="android.permission.WRITE_MEDIA_STORAGE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-permission android:name="android.permission.INJECT_EVENTS" />
@@ -48,9 +49,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.OVERRIDE_WIFI_CONFIG" />
@@ -58,7 +60,7 @@
     <uses-permission android:name="android.permission.CONNECTIVITY_INTERNAL" />
     <uses-permission android:name="android.permission.READ_NETWORK_USAGE_HISTORY" />
     <uses-permission android:name="android.permission.CONTROL_VPN" />
-
+    <uses-permission android:name="android.permission.PEERS_MAC_ADDRESS"/>
     <!-- Physical hardware -->
     <uses-permission android:name="android.permission.MANAGE_USB" />
     <uses-permission android:name="android.permission.DEVICE_POWER" />
@@ -106,6 +108,7 @@
     <uses-permission android:name="android.permission.ACCESS_KEYGUARD_SECURE_STORAGE" />
     <uses-permission android:name="android.permission.TRUST_LISTENER" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <uses-permission android:name="android.permission.RESET_FINGERPRINT_LOCKOUT" />
 
     <!-- Needed for WallpaperManager.clear in ImageWallpaper.updateWallpaperLocked -->
     <uses-permission android:name="android.permission.SET_WALLPAPER"/>
@@ -123,6 +126,14 @@
 
     <!-- Assist -->
     <uses-permission android:name="android.permission.ACCESS_VOICE_INTERACTION_SERVICE" />
+
+    <!-- Listen for keyboard attachment / detachment -->
+    <uses-permission android:name="android.permission.TABLET_MODE" />
+
+    <!-- Self permission for internal broadcasts. -->
+    <permission android:name="com.android.systemui.permission.SELF"
+            android:protectionLevel="signature" />
+    <uses-permission android:name="com.android.systemui.permission.SELF" />
 
     <application
         android:name=".SystemUIApplication"
@@ -177,9 +188,20 @@
                   android:label="@*android:string/usb_storage_activity_title"
                   android:excludeFromRecents="true">
         </activity>
-        <activity android:name="com.android.internal.app.ExternalMediaFormatActivity"
-                android:theme="@*android:style/Theme.Dialog.Alert"
-                android:excludeFromRecents="true">
+
+        <activity android:name=".tuner.TunerActivity"
+                  android:enabled="false"
+                  android:icon="@drawable/tuner"
+                  android:theme="@android:style/Theme.Material.Settings"
+                  android:label="@string/system_ui_tuner"
+                  android:process=":tuner"
+                  android:exported="true">
+            <intent-filter>
+                <action android:name="com.android.settings.action.EXTRA_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="com.android.settings.category"
+                    android:value="com.android.settings.category.system" />
         </activity>
 
         <!-- Alternate Recents -->
@@ -210,6 +232,12 @@
 
         <!-- Callback for dismissing screenshot notification after a share target is picked -->
         <receiver android:name=".screenshot.GlobalScreenshot$TargetChosenReceiver"
+                  android:process=":screenshot"
+                  android:exported="false" />
+
+        <!-- Callback for deleting screenshot notification -->
+        <receiver android:name=".screenshot.GlobalScreenshot$DeleteScreenshotReceiver"
+                  android:process=":screenshot"
                   android:exported="false" />
 
         <!-- started from UsbDeviceSettingsManager -->
@@ -255,6 +283,11 @@
             android:finishOnCloseSystemDialogs="true"
             android:excludeFromRecents="true">
         </activity>
+        <activity android:name=".usb.UsbDebuggingSecondaryUserActivity"
+            android:theme="@style/Theme.SystemUI.Dialog.Alert"
+            android:finishOnCloseSystemDialogs="true"
+            android:excludeFromRecents="true">
+        </activity>
 
         <!-- started from NetworkPolicyManagerService -->
         <activity
@@ -293,10 +326,11 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".egg.LLandActivity"
-                  android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        <activity android:name=".egg.MLandActivity"
+                  android:theme="@android:style/Theme.Material.NoActionBar"
                   android:exported="true"
-                  android:label="@string/lland"
+                  android:icon="@drawable/icon"
+                  android:label="@string/mland"
                   android:hardwareAccelerated="true"
                   android:launchMode="singleInstance"
                   android:screenOrientation="locked"
@@ -369,5 +403,13 @@
             android:exported="true"
             android:singleUser="true"
             android:permission="android.permission.BIND_DREAM_SERVICE" />
+
+        <receiver
+            android:name=".tuner.TunerService$ClearReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.android.systemui.action.CLEAR_TUNER" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

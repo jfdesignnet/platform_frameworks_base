@@ -16,22 +16,22 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingStart="4dp"
-    android:paddingEnd="4dp"
-    android:clipChildren="false" >
+    android:clipChildren="false"
+    android:id="@+id/volume_dialog_row"
+    android:paddingEnd="8dp"
+    android:paddingStart="8dp" >
 
     <TextView
         android:id="@+id/volume_row_header"
-        style="?android:attr/textAppearanceButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:alpha="@dimen/volume_secondary_alpha"
         android:ellipsize="end"
         android:maxLines="1"
+        android:textAppearance="@style/TextAppearance.Volume.Header"
         android:paddingBottom="0dp"
         android:paddingEnd="12dp"
-        android:paddingStart="13dp"
-        android:paddingTop="8dp" />
+        android:paddingStart="12dp"
+        android:paddingTop="4dp" />
 
     <com.android.keyguard.AlphaOptimizedImageButton
         android:id="@+id/volume_row_icon"
@@ -50,10 +50,10 @@
         android:layout_below="@id/volume_row_header"
         android:layout_toEndOf="@id/volume_row_icon"
         android:layout_toStartOf="@+id/volume_settings_button"
-        android:paddingEnd="4dp"
-        android:paddingStart="4dp"
-        android:progressTint="@android:color/white"
-        android:thumbTint="@android:color/white" />
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:paddingEnd="8dp"
+        android:paddingStart="8dp" />
 
     <com.android.keyguard.AlphaOptimizedImageButton
         android:id="@+id/volume_settings_button"

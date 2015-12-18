@@ -20,6 +20,23 @@
 namespace android {
 namespace uirenderer {
 
+const std::string FrameInfoNames[] = {
+    "Flags",
+    "IntendedVsync",
+    "Vsync",
+    "OldestInputEvent",
+    "NewestInputEvent",
+    "HandleInputStart",
+    "AnimationStart",
+    "PerformTraversalsStart",
+    "DrawStart",
+    "SyncQueued",
+    "SyncStart",
+    "IssueDrawCommandsStart",
+    "SwapBuffers",
+    "FrameCompleted",
+};
+
 void FrameInfo::importUiThreadInfo(int64_t* info) {
     memcpy(mFrameInfo, info, UI_THREAD_FRAME_INFO_SIZE * sizeof(int64_t));
 }

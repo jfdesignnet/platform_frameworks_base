@@ -20,8 +20,6 @@ import android.content.pm.PackageParser;
 import android.content.pm.PermissionInfo;
 import android.os.UserHandle;
 
-import com.android.internal.util.ArrayUtils;
-
 final class BasePermission {
     final static int TYPE_NORMAL = 0;
 
@@ -89,5 +87,11 @@ final class BasePermission {
     public boolean isRuntime() {
         return (protectionLevel & PermissionInfo.PROTECTION_MASK_BASE)
                 == PermissionInfo.PROTECTION_DANGEROUS;
+    }
+
+    public boolean isDevelopment() {
+        return (protectionLevel & PermissionInfo.PROTECTION_MASK_BASE)
+                == PermissionInfo.PROTECTION_SIGNATURE
+                && (protectionLevel & PermissionInfo.PROTECTION_FLAG_DEVELOPMENT) != 0;
     }
 }

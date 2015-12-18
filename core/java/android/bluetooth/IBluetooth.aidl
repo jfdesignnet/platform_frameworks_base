@@ -92,6 +92,7 @@ interface IBluetooth
     ParcelFileDescriptor createSocketChannel(int type, in String serviceName, in ParcelUuid uuid, int port, int flag);
 
     boolean configHciSnoopLog(boolean enable);
+    boolean factoryReset();
 
     boolean isMultiAdvertisementSupported();
     boolean isPeripheralModeSupported();
@@ -101,8 +102,8 @@ interface IBluetooth
     void getActivityEnergyInfoFromController();
     BluetoothActivityEnergyInfo reportActivityInfo();
 
-    // for dumpsys support
-    String dump();
+    // For dumpsys support
+    void dump(in ParcelFileDescriptor fd);
     void onLeServiceUp();
     void onBrEdrDown();
 }

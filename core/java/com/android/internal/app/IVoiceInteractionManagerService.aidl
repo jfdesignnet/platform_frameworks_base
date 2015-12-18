@@ -35,7 +35,11 @@ interface IVoiceInteractionManagerService {
     boolean hideSessionFromSession(IBinder token);
     int startVoiceActivity(IBinder token, in Intent intent, String resolvedType);
     void setKeepAwake(IBinder token, boolean keepAwake);
+    void closeSystemDialogs(IBinder token);
     void finish(IBinder token);
+    void setDisabledShowContext(int flags);
+    int getDisabledShowContext();
+    int getUserDisabledShowContext();
 
     /**
      * Gets the registered Sound model for keyphrase detection for the current user.
@@ -92,9 +96,24 @@ interface IVoiceInteractionManagerService {
      * Shows the session for the currently active service. Used to start a new session from system
      * affordances.
      *
-     * @param showCallback callback to be notified when the session was shown
+     * @param args the bundle to pass as arguments to the voice interaction session
+     * @param sourceFlags flags indicating the source of this show
+     * @param showCallback optional callback to be notified when the session was shown
+     * @param activityToken optional token of activity that needs to be on top
      */
-    void showSessionForActiveService(IVoiceInteractionSessionShowCallback showCallback);
+    boolean showSessionForActiveService(in Bundle args, int sourceFlags,
+            IVoiceInteractionSessionShowCallback showCallback, IBinder activityToken);
+
+    /**
+     * Hides the session from the active service, if it is showing.
+     */
+    void hideCurrentSession();
+
+    /**
+     * Notifies the active service that a launch was requested from the Keyguard. This will only
+     * be called if {@link #activeServiceSupportsLaunchFromKeyguard()} returns true.
+     */
+    void launchVoiceAssistFromKeyguard();
 
     /**
      * Indicates whether there is a voice session running (but not necessarily showing).
@@ -105,5 +124,16 @@ interface IVoiceInteractionManagerService {
      * Indicates whether the currently active voice interaction service is capable of handling the
      * assist gesture.
      */
-    boolean activeServiceSupportsAssistGesture();
+    boolean activeServiceSupportsAssist();
+
+    /**
+     * Indicates whether the currently active voice interaction service is capable of being launched
+     * from the lockscreen.
+     */
+    boolean activeServiceSupportsLaunchFromKeyguard();
+
+    /**
+     * Called when the lockscreen got shown.
+     */
+    void onLockscreenShown();
 }

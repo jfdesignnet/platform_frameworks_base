@@ -342,7 +342,9 @@ interface INetworkManagementService
     void setFirewallInterfaceRule(String iface, boolean allow);
     void setFirewallEgressSourceRule(String addr, boolean allow);
     void setFirewallEgressDestRule(String addr, int port, boolean allow);
-    void setFirewallUidRule(int uid, boolean allow);
+    void setFirewallUidRule(int chain, int uid, int rule);
+    void setFirewallUidRules(int chain, in int[] uids, in int[] rules);
+    void setFirewallChainEnabled(int chain, boolean enable);
 
     /**
      * Set all packets from users in ranges to go through VPN specified by netId.
@@ -386,8 +388,10 @@ interface INetworkManagementService
 
     /**
      * Setup a new physical network.
+     * @param permission null if no permissions required to access this network.  PERMISSION_NETWORK
+     *                   or PERMISSION_SYSTEM to set respective permission.
      */
-    void createPhysicalNetwork(int netId);
+    void createPhysicalNetwork(int netId, String permission);
 
     /**
      * Setup a new VPN.
@@ -413,6 +417,13 @@ interface INetworkManagementService
 
     void setDefaultNetId(int netId);
     void clearDefaultNetId();
+
+    /**
+     * Set permission for a network.
+     * @param permission null to clear permissions. PERMISSION_NETWORK or PERMISSION_SYSTEM to set
+     *                   permission.
+     */
+    void setNetworkPermission(int netId, String permission);
 
     void setPermission(String permission, in int[] uids);
     void clearPermission(in int[] uids);

@@ -1,11 +1,11 @@
-/**
- * Copyright (c) 2015, The Android Open Source Project
+/*
+ * Copyright (C) 2015 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,17 +31,31 @@ public class OperationResult implements Parcelable {
     public final long operationHandle;
     public final int inputConsumed;
     public final byte[] output;
+    public final KeymasterArguments outParams;
 
     public static final Parcelable.Creator<OperationResult> CREATOR = new
             Parcelable.Creator<OperationResult>() {
+                @Override
                 public OperationResult createFromParcel(Parcel in) {
                     return new OperationResult(in);
                 }
 
+                @Override
                 public OperationResult[] newArray(int length) {
                     return new OperationResult[length];
                 }
             };
+
+    public OperationResult(
+            int resultCode, IBinder token, long operationHandle, int inputConsumed, byte[] output,
+            KeymasterArguments outParams) {
+        this.resultCode = resultCode;
+        this.token = token;
+        this.operationHandle = operationHandle;
+        this.inputConsumed = inputConsumed;
+        this.output = output;
+        this.outParams = outParams;
+    }
 
     protected OperationResult(Parcel in) {
         resultCode = in.readInt();
@@ -49,6 +63,7 @@ public class OperationResult implements Parcelable {
         operationHandle = in.readLong();
         inputConsumed = in.readInt();
         output = in.createByteArray();
+        outParams = KeymasterArguments.CREATOR.createFromParcel(in);
     }
 
     @Override
@@ -63,5 +78,6 @@ public class OperationResult implements Parcelable {
         out.writeLong(operationHandle);
         out.writeInt(inputConsumed);
         out.writeByteArray(output);
+        outParams.writeToParcel(out, flags);
     }
 }

@@ -16,8 +16,6 @@
 
 package android.media.midi;
 
-import android.content.Context;
-import android.content.ServiceConnection;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -40,9 +38,9 @@ public final class MidiDevice implements Closeable {
 
     private final MidiDeviceInfo mDeviceInfo;
     private final IMidiDeviceServer mDeviceServer;
-    private Context mContext;
-    private ServiceConnection mServiceConnection;
-
+    private final IMidiManager mMidiManager;
+    private final IBinder mClientToken;
+    private final IBinder mDeviceToken;
 
     private final CloseGuard mGuard = CloseGuard.get();
 
@@ -52,35 +50,54 @@ public final class MidiDevice implements Closeable {
      * Close this object to terminate the connection.
      */
     public class MidiConnection implements Closeable {
-        private final IBinder mToken;
-        private final MidiInputPort mInputPort;
+        private final IMidiDeviceServer mInputPortDeviceServer;
+        private final IBinder mInputPortToken;
+        private final IBinder mOutputPortToken;
+        private final CloseGuard mGuard = CloseGuard.get();
+        private boolean mIsClosed;
 
-        MidiConnection(IBinder token, MidiInputPort inputPort) {
-            mToken = token;
-            mInputPort = inputPort;
+        MidiConnection(IBinder outputPortToken, MidiInputPort inputPort) {
+            mInputPortDeviceServer = inputPort.getDeviceServer();
+            mInputPortToken = inputPort.getToken();
+            mOutputPortToken = outputPortToken;
+            mGuard.open("close");
         }
 
         @Override
         public void close() throws IOException {
+            synchronized (mGuard) {
+                if (mIsClosed) return;
+                mGuard.close();
+                try {
+                    // close input port
+                    mInputPortDeviceServer.closePort(mInputPortToken);
+                    // close output port
+                    mDeviceServer.closePort(mOutputPortToken);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "RemoteException in MidiConnection.close");
+                }
+                mIsClosed = true;
+            }
+        }
+
+        @Override
+        protected void finalize() throws Throwable {
             try {
-                mDeviceServer.closePort(mToken);
-                IoUtils.closeQuietly(mInputPort);
-            } catch (RemoteException e) {
-                Log.e(TAG, "RemoteException in MidiConnection.close");
+                mGuard.warnIfOpen();
+                close();
+            } finally {
+                super.finalize();
             }
         }
     }
 
-    /* package */ MidiDevice(MidiDeviceInfo deviceInfo, IMidiDeviceServer server) {
-        this(deviceInfo, server, null, null);
-    }
-
     /* package */ MidiDevice(MidiDeviceInfo deviceInfo, IMidiDeviceServer server,
-            Context context, ServiceConnection serviceConnection) {
+            IMidiManager midiManager, IBinder clientToken, IBinder deviceToken) {
         mDeviceInfo = deviceInfo;
         mDeviceServer = server;
-        mContext = context;
-        mServiceConnection = serviceConnection;
+        mMidiManager = midiManager;
+        mClientToken = clientToken;
+        mDeviceToken = deviceToken;
         mGuard.open("close");
     }
 
@@ -96,8 +113,13 @@ public final class MidiDevice implements Closeable {
     /**
      * Called to open a {@link MidiInputPort} for the specified port number.
      *
+     * An input port can only be used by one sender at a time.
+     * Opening an input port will fail if another application has already opened it for use.
+     * A {@link MidiDeviceStatus} can be used to determine if an input port is already open.
+     *
      * @param portNumber the number of the input port to open
-     * @return the {@link MidiInputPort}
+     * @return the {@link MidiInputPort} if the open is successful,
+     *         or null in case of failure.
      */
     public MidiInputPort openInputPort(int portNumber) {
         try {
@@ -116,8 +138,11 @@ public final class MidiDevice implements Closeable {
     /**
      * Called to open a {@link MidiOutputPort} for the specified port number.
      *
+     * An output port may be opened by multiple applications.
+     *
      * @param portNumber the number of the output port to open
-     * @return the {@link MidiOutputPort}
+     * @return the {@link MidiOutputPort} if the open is successful,
+     *         or null in case of failure.
      */
     public MidiOutputPort openOutputPort(int portNumber) {
         try {
@@ -136,11 +161,14 @@ public final class MidiDevice implements Closeable {
     /**
      * Connects the supplied {@link MidiInputPort} to the output port of this device
      * with the specified port number. Once the connection is made, the MidiInput port instance
-     * can no longer receive data via its {@link MidiReceiver#onReceive} method.
-     * This method returns a {@link MidiDevice.MidiConnection} object, which can be used to close the connection
+     * can no longer receive data via its {@link MidiReceiver#onSend} method.
+     * This method returns a {@link MidiDevice.MidiConnection} object, which can be used
+     * to close the connection.
+     *
      * @param inputPort the inputPort to connect
      * @param outputPortNumber the port number of the output port to connect inputPort to.
-     * @return {@link MidiDevice.MidiConnection} object if the connection is successful, or null in case of failure
+     * @return {@link MidiDevice.MidiConnection} object if the connection is successful,
+     *         or null in case of failure.
      */
     public MidiConnection connectPorts(MidiInputPort inputPort, int outputPortNumber) {
         if (outputPortNumber < 0 || outputPortNumber >= mDeviceInfo.getOutputPortCount()) {
@@ -167,10 +195,10 @@ public final class MidiDevice implements Closeable {
     public void close() throws IOException {
         synchronized (mGuard) {
             mGuard.close();
-            if (mContext != null && mServiceConnection != null) {
-                mContext.unbindService(mServiceConnection);
-                mContext = null;
-                mServiceConnection = null;
+            try {
+                mMidiManager.closeDevice(mClientToken, mDeviceToken);
+            } catch (RemoteException e) {
+                Log.e(TAG, "RemoteException in closeDevice");
             }
         }
     }

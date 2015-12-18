@@ -55,17 +55,29 @@ public final class MidiConstants {
     public final static int SYSTEM_BYTE_LENGTHS[] = { 1, 2, 3, 2, 1, 1, 1, 1, 1,
             1, 1, 1, 1, 1, 1, 1 };
 
-    /********************************************************************/
 
-    public static int getBytesPerMessage(int command) {
-        if ((command < 0x80) || (command > 0xFF)) {
-            return 0;
-        } else if (command >= 0xF0) {
-            return SYSTEM_BYTE_LENGTHS[command & 0x0F];
+    /**
+     * MIDI messages, except for SysEx, are 1,2 or 3 bytes long.
+     * You can tell how long a MIDI message is from the first status byte.
+     * Do not call this for SysEx, which has variable length.
+     * @param statusByte
+     * @return number of bytes in a complete message or zero if data byte passed
+     */
+    public static int getBytesPerMessage(byte statusByte) {
+        // Java bytes are signed so we need to mask off the high bits
+        // to get a value between 0 and 255.
+        int statusInt = statusByte & 0xFF;
+        if (statusInt >= 0xF0) {
+            // System messages use low nibble for size.
+            return SYSTEM_BYTE_LENGTHS[statusInt & 0x0F];
+        } else if(statusInt >= 0x80) {
+            // Channel voice messages use high nibble for size.
+            return CHANNEL_BYTE_LENGTHS[(statusInt >> 4) - 8];
         } else {
-            return CHANNEL_BYTE_LENGTHS[(command >> 4) - 8];
+            return 0; // data byte
         }
     }
+
 
     /**
      * @param msg
@@ -87,13 +99,13 @@ public final class MidiConstants {
     }
 
     // Returns true if this command can be used for running status
-    public static boolean allowRunningStatus(int command) {
+    public static boolean allowRunningStatus(byte command) {
         // only Channel Voice and Channel Mode commands can use running status
         return (command >= STATUS_NOTE_OFF && command < STATUS_SYSTEM_EXCLUSIVE);
     }
 
     // Returns true if this command cancels running status
-    public static boolean cancelsRunningStatus(int command) {
+    public static boolean cancelsRunningStatus(byte command) {
         // System Common messages cancel running status
         return (command >= STATUS_SYSTEM_EXCLUSIVE && command <= STATUS_END_SYSEX);
     }

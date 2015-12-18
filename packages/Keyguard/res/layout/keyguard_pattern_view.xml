@@ -31,8 +31,7 @@
     android:clipToPadding="false"
     androidprv:layout_maxWidth="@dimen/keyguard_security_width"
     androidprv:layout_maxHeight="@dimen/keyguard_security_height"
-    android:gravity="center_horizontal"
-    android:contentDescription="@string/keyguard_accessibility_pattern_unlock">
+    android:gravity="center_horizontal">
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -64,7 +63,6 @@
                 android:layout_marginStart="8dip"
                 android:layout_gravity="center_horizontal"
                 android:gravity="center"
-                android:contentDescription="@string/keyguard_accessibility_pattern_area"
                 android:clipChildren="false"
                 android:clipToPadding="false" />
 

@@ -53,8 +53,6 @@ interface IConnectivityManager
     Network[] getAllNetworks();
     NetworkCapabilities[] getDefaultNetworkCapabilitiesForUser(int userId);
 
-    NetworkInfo getProvisioningOrActiveNetworkInfo();
-
     boolean isNetworkSupported(int networkType);
 
     LinkProperties getActiveLinkProperties();
@@ -98,37 +96,31 @@ interface IConnectivityManager
 
     void reportNetworkConnectivity(in Network network, boolean hasConnectivity);
 
-    void captivePortalAppResponse(in Network network, int response, String actionToken);
-
     ProxyInfo getGlobalProxy();
 
     void setGlobalProxy(in ProxyInfo p);
 
-    ProxyInfo getDefaultProxy();
+    ProxyInfo getProxyForNetwork(in Network nework);
 
-    boolean prepareVpn(String oldPackage, String newPackage);
+    boolean prepareVpn(String oldPackage, String newPackage, int userId);
 
-    void setVpnPackageAuthorization(boolean authorized);
+    void setVpnPackageAuthorization(String packageName, int userId, boolean authorized);
 
     ParcelFileDescriptor establishVpn(in VpnConfig config);
 
-    VpnConfig getVpnConfig();
+    VpnConfig getVpnConfig(int userId);
 
     void startLegacyVpn(in VpnProfile profile);
 
-    LegacyVpnInfo getLegacyVpnInfo();
+    LegacyVpnInfo getLegacyVpnInfo(int userId);
 
     VpnInfo[] getAllVpnInfo();
 
     boolean updateLockdownVpn();
 
-    void captivePortalCheckCompleted(in NetworkInfo info, boolean isCaptivePortal);
-
     int checkMobileProvisioning(int suggestedTimeOutMs);
 
     String getMobileProvisioningUrl();
-
-    String getMobileRedirectedProvisioningUrl();
 
     void setProvisioningNotificationVisible(boolean visible, int networkType, in String action);
 
@@ -168,4 +160,9 @@ interface IConnectivityManager
     boolean setUnderlyingNetworksForVpn(in Network[] networks);
 
     void factoryReset();
+
+    void startNattKeepalive(in Network network, int intervalSeconds, in Messenger messenger,
+            in IBinder binder, String srcAddr, int srcPort, String dstAddr);
+
+    void stopKeepalive(in Network network, int slot);
 }

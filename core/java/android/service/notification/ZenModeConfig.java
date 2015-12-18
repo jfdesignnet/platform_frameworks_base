@@ -16,6 +16,7 @@
 
 package android.service.notification;
 
+import android.app.ActivityManager;
 import android.app.NotificationManager.Policy;
 import android.content.ComponentName;
 import android.content.Context;
@@ -23,6 +24,7 @@ import android.content.res.Resources;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.UserHandle;
 import android.provider.Settings.Global;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
@@ -39,6 +41,7 @@ import org.xmlpull.v1.XmlSerializer;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
@@ -55,6 +58,7 @@ public class ZenModeConfig implements Parcelable {
     public static final int SOURCE_CONTACT = 1;
     public static final int SOURCE_STAR = 2;
     public static final int MAX_SOURCE = SOURCE_STAR;
+    private static final int DEFAULT_SOURCE = SOURCE_CONTACT;
 
     public static final int[] ALL_DAYS = { Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY,
             Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY };
@@ -62,11 +66,14 @@ public class ZenModeConfig implements Parcelable {
             Calendar.WEDNESDAY, Calendar.THURSDAY };
     public static final int[] WEEKEND_DAYS = { Calendar.FRIDAY, Calendar.SATURDAY };
 
-    public static final int[] MINUTE_BUCKETS = new int[] { 15, 30, 45, 60, 120, 180, 240, 480 };
+    public static final int[] MINUTE_BUCKETS = generateMinuteBuckets();
     private static final int SECONDS_MS = 1000;
     private static final int MINUTES_MS = 60 * SECONDS_MS;
+    private static final int DAY_MINUTES = 24 * 60;
     private static final int ZERO_VALUE_MS = 10 * SECONDS_MS;
 
+    private static final boolean DEFAULT_ALLOW_CALLS = true;
+    private static final boolean DEFAULT_ALLOW_MESSAGES = false;
     private static final boolean DEFAULT_ALLOW_REMINDERS = true;
     private static final boolean DEFAULT_ALLOW_EVENTS = true;
     private static final boolean DEFAULT_ALLOW_REPEAT_CALLERS = false;
@@ -74,11 +81,14 @@ public class ZenModeConfig implements Parcelable {
     private static final int XML_VERSION = 2;
     private static final String ZEN_TAG = "zen";
     private static final String ZEN_ATT_VERSION = "version";
+    private static final String ZEN_ATT_USER = "user";
     private static final String ALLOW_TAG = "allow";
     private static final String ALLOW_ATT_CALLS = "calls";
     private static final String ALLOW_ATT_REPEAT_CALLERS = "repeatCallers";
     private static final String ALLOW_ATT_MESSAGES = "messages";
     private static final String ALLOW_ATT_FROM = "from";
+    private static final String ALLOW_ATT_CALLS_FROM = "callsFrom";
+    private static final String ALLOW_ATT_MESSAGES_FROM = "messagesFrom";
     private static final String ALLOW_ATT_REMINDERS = "reminders";
     private static final String ALLOW_ATT_EVENTS = "events";
 
@@ -95,7 +105,7 @@ public class ZenModeConfig implements Parcelable {
     private static final String MANUAL_TAG = "manual";
     private static final String AUTOMATIC_TAG = "automatic";
 
-    private static final String RULE_ATT_ID = "id";
+    private static final String RULE_ATT_ID = "ruleId";
     private static final String RULE_ATT_ENABLED = "enabled";
     private static final String RULE_ATT_SNOOZING = "snoozing";
     private static final String RULE_ATT_NAME = "name";
@@ -103,12 +113,14 @@ public class ZenModeConfig implements Parcelable {
     private static final String RULE_ATT_ZEN = "zen";
     private static final String RULE_ATT_CONDITION_ID = "conditionId";
 
-    public boolean allowCalls;
+    public boolean allowCalls = DEFAULT_ALLOW_CALLS;
     public boolean allowRepeatCallers = DEFAULT_ALLOW_REPEAT_CALLERS;
-    public boolean allowMessages;
+    public boolean allowMessages = DEFAULT_ALLOW_MESSAGES;
     public boolean allowReminders = DEFAULT_ALLOW_REMINDERS;
     public boolean allowEvents = DEFAULT_ALLOW_EVENTS;
-    public int allowFrom = SOURCE_ANYONE;
+    public int allowCallsFrom = DEFAULT_SOURCE;
+    public int allowMessagesFrom = DEFAULT_SOURCE;
+    public int user = UserHandle.USER_OWNER;
 
     public ZenRule manualRule;
     public ArrayMap<String, ZenRule> automaticRules = new ArrayMap<>();
@@ -121,7 +133,9 @@ public class ZenModeConfig implements Parcelable {
         allowMessages = source.readInt() == 1;
         allowReminders = source.readInt() == 1;
         allowEvents = source.readInt() == 1;
-        allowFrom = source.readInt();
+        allowCallsFrom = source.readInt();
+        allowMessagesFrom = source.readInt();
+        user = source.readInt();
         manualRule = source.readParcelable(null);
         final int len = source.readInt();
         if (len > 0) {
@@ -142,7 +156,9 @@ public class ZenModeConfig implements Parcelable {
         dest.writeInt(allowMessages ? 1 : 0);
         dest.writeInt(allowReminders ? 1 : 0);
         dest.writeInt(allowEvents ? 1 : 0);
-        dest.writeInt(allowFrom);
+        dest.writeInt(allowCallsFrom);
+        dest.writeInt(allowMessagesFrom);
+        dest.writeInt(user);
         dest.writeParcelable(manualRule, 0);
         if (!automaticRules.isEmpty()) {
             final int len = automaticRules.size();
@@ -163,15 +179,79 @@ public class ZenModeConfig implements Parcelable {
     @Override
     public String toString() {
         return new StringBuilder(ZenModeConfig.class.getSimpleName()).append('[')
-            .append("allowCalls=").append(allowCalls)
+            .append("user=").append(user)
+            .append(",allowCalls=").append(allowCalls)
             .append(",allowRepeatCallers=").append(allowRepeatCallers)
             .append(",allowMessages=").append(allowMessages)
-            .append(",allowFrom=").append(sourceToString(allowFrom))
+            .append(",allowCallsFrom=").append(sourceToString(allowCallsFrom))
+            .append(",allowMessagesFrom=").append(sourceToString(allowMessagesFrom))
             .append(",allowReminders=").append(allowReminders)
             .append(",allowEvents=").append(allowEvents)
             .append(",automaticRules=").append(automaticRules)
             .append(",manualRule=").append(manualRule)
             .append(']').toString();
+    }
+
+    private Diff diff(ZenModeConfig to) {
+        final Diff d = new Diff();
+        if (to == null) {
+            return d.addLine("config", "delete");
+        }
+        if (user != to.user) {
+            d.addLine("user", user, to.user);
+        }
+        if (allowCalls != to.allowCalls) {
+            d.addLine("allowCalls", allowCalls, to.allowCalls);
+        }
+        if (allowRepeatCallers != to.allowRepeatCallers) {
+            d.addLine("allowRepeatCallers", allowRepeatCallers, to.allowRepeatCallers);
+        }
+        if (allowMessages != to.allowMessages) {
+            d.addLine("allowMessages", allowMessages, to.allowMessages);
+        }
+        if (allowCallsFrom != to.allowCallsFrom) {
+            d.addLine("allowCallsFrom", allowCallsFrom, to.allowCallsFrom);
+        }
+        if (allowMessagesFrom != to.allowMessagesFrom) {
+            d.addLine("allowMessagesFrom", allowMessagesFrom, to.allowMessagesFrom);
+        }
+        if (allowReminders != to.allowReminders) {
+            d.addLine("allowReminders", allowReminders, to.allowReminders);
+        }
+        if (allowEvents != to.allowEvents) {
+            d.addLine("allowEvents", allowEvents, to.allowEvents);
+        }
+        final ArraySet<String> allRules = new ArraySet<>();
+        addKeys(allRules, automaticRules);
+        addKeys(allRules, to.automaticRules);
+        final int N = allRules.size();
+        for (int i = 0; i < N; i++) {
+            final String rule = allRules.valueAt(i);
+            final ZenRule fromRule = automaticRules != null ? automaticRules.get(rule) : null;
+            final ZenRule toRule = to.automaticRules != null ? to.automaticRules.get(rule) : null;
+            ZenRule.appendDiff(d, "automaticRule[" + rule + "]", fromRule, toRule);
+        }
+        ZenRule.appendDiff(d, "manualRule", manualRule, to.manualRule);
+        return d;
+    }
+
+    public static Diff diff(ZenModeConfig from, ZenModeConfig to) {
+        if (from == null) {
+            final Diff d = new Diff();
+            if (to != null) {
+                d.addLine("config", "insert");
+            }
+            return d;
+        }
+        return from.diff(to);
+    }
+
+    private static <T> void addKeys(ArraySet<T> set, ArrayMap<T, ?> map) {
+        if (map != null) {
+            for (int i = 0; i < map.size(); i++) {
+                set.add(map.keyAt(i));
+            }
+        }
     }
 
     public boolean isValid() {
@@ -201,6 +281,18 @@ public class ZenModeConfig implements Parcelable {
         }
     }
 
+    private static int[] generateMinuteBuckets() {
+        final int maxHrs = 12;
+        final int[] buckets = new int[maxHrs + 3];
+        buckets[0] = 15;
+        buckets[1] = 30;
+        buckets[2] = 45;
+        for (int i = 1; i <= maxHrs; i++) {
+            buckets[2 + i] = 60 * i;
+        }
+        return buckets;
+    }
+
     public static String sourceToString(int source) {
         switch (source) {
             case SOURCE_ANYONE:
@@ -222,17 +314,19 @@ public class ZenModeConfig implements Parcelable {
         return other.allowCalls == allowCalls
                 && other.allowRepeatCallers == allowRepeatCallers
                 && other.allowMessages == allowMessages
-                && other.allowFrom == allowFrom
+                && other.allowCallsFrom == allowCallsFrom
+                && other.allowMessagesFrom == allowMessagesFrom
                 && other.allowReminders == allowReminders
                 && other.allowEvents == allowEvents
+                && other.user == user
                 && Objects.equals(other.automaticRules, automaticRules)
                 && Objects.equals(other.manualRule, manualRule);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(allowCalls, allowRepeatCallers, allowMessages, allowFrom,
-                allowReminders, allowEvents, automaticRules, manualRule);
+        return Objects.hash(allowCalls, allowRepeatCallers, allowMessages, allowCallsFrom,
+                allowMessagesFrom, allowReminders, allowEvents, user, automaticRules, manualRule);
     }
 
     private static String toDayList(int[] days) {
@@ -267,6 +361,15 @@ public class ZenModeConfig implements Parcelable {
         }
     }
 
+    private static long tryParseLong(String value, long defValue) {
+        if (TextUtils.isEmpty(value)) return defValue;
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException e) {
+            return defValue;
+        }
+    }
+
     public static ZenModeConfig readXml(XmlPullParser parser, Migration migration)
             throws XmlPullParserException, IOException {
         int type = parser.getEventType();
@@ -279,6 +382,7 @@ public class ZenModeConfig implements Parcelable {
             final XmlV1 v1 = XmlV1.readXml(parser);
             return migration.migrate(v1);
         }
+        rt.user = safeInt(parser, ZEN_ATT_USER, rt.user);
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT) {
             tag = parser.getName();
             if (type == XmlPullParser.END_TAG && ZEN_TAG.equals(tag)) {
@@ -293,9 +397,19 @@ public class ZenModeConfig implements Parcelable {
                     rt.allowReminders = safeBoolean(parser, ALLOW_ATT_REMINDERS,
                             DEFAULT_ALLOW_REMINDERS);
                     rt.allowEvents = safeBoolean(parser, ALLOW_ATT_EVENTS, DEFAULT_ALLOW_EVENTS);
-                    rt.allowFrom = safeInt(parser, ALLOW_ATT_FROM, SOURCE_ANYONE);
-                    if (rt.allowFrom < SOURCE_ANYONE || rt.allowFrom > MAX_SOURCE) {
-                        throw new IndexOutOfBoundsException("bad source in config:" + rt.allowFrom);
+                    final int from = safeInt(parser, ALLOW_ATT_FROM, -1);
+                    final int callsFrom = safeInt(parser, ALLOW_ATT_CALLS_FROM, -1);
+                    final int messagesFrom = safeInt(parser, ALLOW_ATT_MESSAGES_FROM, -1);
+                    if (isValidSource(callsFrom) && isValidSource(messagesFrom)) {
+                        rt.allowCallsFrom = callsFrom;
+                        rt.allowMessagesFrom = messagesFrom;
+                    } else if (isValidSource(from)) {
+                        Slog.i(TAG, "Migrating existing shared 'from': " + sourceToString(from));
+                        rt.allowCallsFrom = from;
+                        rt.allowMessagesFrom = from;
+                    } else {
+                        rt.allowCallsFrom = DEFAULT_SOURCE;
+                        rt.allowMessagesFrom = DEFAULT_SOURCE;
                     }
                 } else if (MANUAL_TAG.equals(tag)) {
                     rt.manualRule = readRuleXml(parser);
@@ -314,6 +428,7 @@ public class ZenModeConfig implements Parcelable {
     public void writeXml(XmlSerializer out) throws IOException {
         out.startTag(null, ZEN_TAG);
         out.attribute(null, ZEN_ATT_VERSION, Integer.toString(XML_VERSION));
+        out.attribute(null, ZEN_ATT_USER, Integer.toString(user));
 
         out.startTag(null, ALLOW_TAG);
         out.attribute(null, ALLOW_ATT_CALLS, Boolean.toString(allowCalls));
@@ -321,7 +436,8 @@ public class ZenModeConfig implements Parcelable {
         out.attribute(null, ALLOW_ATT_MESSAGES, Boolean.toString(allowMessages));
         out.attribute(null, ALLOW_ATT_REMINDERS, Boolean.toString(allowReminders));
         out.attribute(null, ALLOW_ATT_EVENTS, Boolean.toString(allowEvents));
-        out.attribute(null, ALLOW_ATT_FROM, Integer.toString(allowFrom));
+        out.attribute(null, ALLOW_ATT_CALLS_FROM, Integer.toString(allowCallsFrom));
+        out.attribute(null, ALLOW_ATT_MESSAGES_FROM, Integer.toString(allowMessagesFrom));
         out.endTag(null, ALLOW_TAG);
 
         if (manualRule != null) {
@@ -355,7 +471,7 @@ public class ZenModeConfig implements Parcelable {
         rt.conditionId = safeUri(parser, RULE_ATT_CONDITION_ID);
         rt.component = safeComponentName(parser, RULE_ATT_COMPONENT);
         rt.condition = readConditionXml(parser);
-        return rt.condition != null ? rt : null;
+        return rt;
     }
 
     public static void writeRuleXml(ZenRule rule, XmlSerializer out) throws IOException {
@@ -409,6 +525,10 @@ public class ZenModeConfig implements Parcelable {
 
     public static boolean isValidMinute(int val) {
         return val >= 0 && val < 60;
+    }
+
+    private static boolean isValidSource(int source) {
+        return source >= SOURCE_ANYONE && source <= MAX_SOURCE;
     }
 
     private static boolean safeBoolean(XmlPullParser parser, String att, boolean defValue) {
@@ -473,7 +593,8 @@ public class ZenModeConfig implements Parcelable {
 
     public Policy toNotificationPolicy() {
         int priorityCategories = 0;
-        int prioritySenders = Policy.PRIORITY_SENDERS_ANY;
+        int priorityCallSenders = Policy.PRIORITY_SENDERS_CONTACTS;
+        int priorityMessageSenders = Policy.PRIORITY_SENDERS_CONTACTS;
         if (allowCalls) {
             priorityCategories |= Policy.PRIORITY_CATEGORY_CALLS;
         }
@@ -489,18 +610,27 @@ public class ZenModeConfig implements Parcelable {
         if (allowRepeatCallers) {
             priorityCategories |= Policy.PRIORITY_CATEGORY_REPEAT_CALLERS;
         }
-        switch (allowFrom) {
-            case SOURCE_ANYONE:
-                prioritySenders = Policy.PRIORITY_SENDERS_ANY;
-                break;
-            case SOURCE_CONTACT:
-                prioritySenders = Policy.PRIORITY_SENDERS_CONTACTS;
-                break;
-            case SOURCE_STAR:
-                prioritySenders = Policy.PRIORITY_SENDERS_STARRED;
-                break;
+        priorityCallSenders = sourceToPrioritySenders(allowCallsFrom, priorityCallSenders);
+        priorityMessageSenders = sourceToPrioritySenders(allowMessagesFrom, priorityMessageSenders);
+        return new Policy(priorityCategories, priorityCallSenders, priorityMessageSenders);
+    }
+
+    private static int sourceToPrioritySenders(int source, int def) {
+        switch (source) {
+            case SOURCE_ANYONE: return Policy.PRIORITY_SENDERS_ANY;
+            case SOURCE_CONTACT: return Policy.PRIORITY_SENDERS_CONTACTS;
+            case SOURCE_STAR: return Policy.PRIORITY_SENDERS_STARRED;
+            default: return def;
         }
-        return new Policy(priorityCategories, prioritySenders);
+    }
+
+    private static int prioritySendersToSource(int prioritySenders, int def) {
+        switch (prioritySenders) {
+            case Policy.PRIORITY_SENDERS_CONTACTS: return SOURCE_CONTACT;
+            case Policy.PRIORITY_SENDERS_STARRED: return SOURCE_STAR;
+            case Policy.PRIORITY_SENDERS_ANY: return SOURCE_ANYONE;
+            default: return def;
+        }
     }
 
     public void applyNotificationPolicy(Policy policy) {
@@ -511,55 +641,87 @@ public class ZenModeConfig implements Parcelable {
         allowReminders = (policy.priorityCategories & Policy.PRIORITY_CATEGORY_REMINDERS) != 0;
         allowRepeatCallers = (policy.priorityCategories & Policy.PRIORITY_CATEGORY_REPEAT_CALLERS)
                 != 0;
-        switch (policy.prioritySenders) {
-            case Policy.PRIORITY_SENDERS_CONTACTS:
-                allowFrom = SOURCE_CONTACT;
-                break;
-            case Policy.PRIORITY_SENDERS_STARRED:
-                allowFrom = SOURCE_STAR;
-                break;
-            default:
-                allowFrom = SOURCE_ANYONE;
-                break;
-        }
+        allowCallsFrom = prioritySendersToSource(policy.priorityCallSenders, allowCallsFrom);
+        allowMessagesFrom = prioritySendersToSource(policy.priorityMessageSenders,
+                allowMessagesFrom);
     }
 
     public static Condition toTimeCondition(Context context, int minutesFromNow, int userHandle) {
-        final long now = System.currentTimeMillis();
-        final long millis = minutesFromNow == 0 ? ZERO_VALUE_MS : minutesFromNow * MINUTES_MS;
-        return toTimeCondition(context, now + millis, minutesFromNow, now, userHandle);
+        return toTimeCondition(context, minutesFromNow, userHandle, false /*shortVersion*/);
     }
 
-    public static Condition toTimeCondition(Context context, long time, int minutes, long now,
-            int userHandle) {
-        final int num, summaryResId, line1ResId;
+    public static Condition toTimeCondition(Context context, int minutesFromNow, int userHandle,
+            boolean shortVersion) {
+        final long now = System.currentTimeMillis();
+        final long millis = minutesFromNow == 0 ? ZERO_VALUE_MS : minutesFromNow * MINUTES_MS;
+        return toTimeCondition(context, now + millis, minutesFromNow, userHandle, shortVersion);
+    }
+
+    public static Condition toTimeCondition(Context context, long time, int minutes,
+            int userHandle, boolean shortVersion) {
+        final int num;
+        String summary, line1, line2;
+        final CharSequence formattedTime = getFormattedTime(context, time, userHandle);
+        final Resources res = context.getResources();
         if (minutes < 60) {
             // display as minutes
             num = minutes;
-            summaryResId = R.plurals.zen_mode_duration_minutes_summary;
-            line1ResId = R.plurals.zen_mode_duration_minutes;
-        } else {
+            int summaryResId = shortVersion ? R.plurals.zen_mode_duration_minutes_summary_short
+                    : R.plurals.zen_mode_duration_minutes_summary;
+            summary = res.getQuantityString(summaryResId, num, num, formattedTime);
+            int line1ResId = shortVersion ? R.plurals.zen_mode_duration_minutes_short
+                    : R.plurals.zen_mode_duration_minutes;
+            line1 = res.getQuantityString(line1ResId, num, num, formattedTime);
+            line2 = res.getString(R.string.zen_mode_until, formattedTime);
+        } else if (minutes < DAY_MINUTES) {
             // display as hours
             num =  Math.round(minutes / 60f);
-            summaryResId = com.android.internal.R.plurals.zen_mode_duration_hours_summary;
-            line1ResId = com.android.internal.R.plurals.zen_mode_duration_hours;
+            int summaryResId = shortVersion ? R.plurals.zen_mode_duration_hours_summary_short
+                    : R.plurals.zen_mode_duration_hours_summary;
+            summary = res.getQuantityString(summaryResId, num, num, formattedTime);
+            int line1ResId = shortVersion ? R.plurals.zen_mode_duration_hours_short
+                    : R.plurals.zen_mode_duration_hours;
+            line1 = res.getQuantityString(line1ResId, num, num, formattedTime);
+            line2 = res.getString(R.string.zen_mode_until, formattedTime);
+        } else {
+            // display as day/time
+            summary = line1 = line2 = res.getString(R.string.zen_mode_until, formattedTime);
         }
-        final String skeleton = DateFormat.is24HourFormat(context, userHandle) ? "Hm" : "hma";
-        final String pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(), skeleton);
-        final CharSequence formattedTime = DateFormat.format(pattern, time);
-        final Resources res = context.getResources();
-        final String summary = res.getQuantityString(summaryResId, num, num, formattedTime);
-        final String line1 = res.getQuantityString(line1ResId, num, num, formattedTime);
-        final String line2 = res.getString(R.string.zen_mode_until, formattedTime);
         final Uri id = toCountdownConditionId(time);
         return new Condition(id, summary, line1, line2, 0, Condition.STATE_TRUE,
                 Condition.FLAG_RELEVANT_NOW);
     }
 
-    // For built-in conditions
+    public static Condition toNextAlarmCondition(Context context, long now, long alarm,
+            int userHandle) {
+        final CharSequence formattedTime = getFormattedTime(context, alarm, userHandle);
+        final Resources res = context.getResources();
+        final String line1 = res.getString(R.string.zen_mode_alarm, formattedTime);
+        final Uri id = toCountdownConditionId(alarm);
+        return new Condition(id, "", line1, "", 0, Condition.STATE_TRUE,
+                Condition.FLAG_RELEVANT_NOW);
+    }
+
+    private static CharSequence getFormattedTime(Context context, long time, int userHandle) {
+        String skeleton = "EEE " + (DateFormat.is24HourFormat(context, userHandle) ? "Hm" : "hma");
+        GregorianCalendar now = new GregorianCalendar();
+        GregorianCalendar endTime = new GregorianCalendar();
+        endTime.setTimeInMillis(time);
+        if (now.get(Calendar.YEAR) == endTime.get(Calendar.YEAR)
+                && now.get(Calendar.MONTH) == endTime.get(Calendar.MONTH)
+                && now.get(Calendar.DATE) == endTime.get(Calendar.DATE)) {
+            skeleton = DateFormat.is24HourFormat(context, userHandle) ? "Hm" : "hma";
+        }
+        final String pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(), skeleton);
+        return DateFormat.format(pattern, time);
+    }
+
+    // ==== Built-in system conditions ====
+
     public static final String SYSTEM_AUTHORITY = "android";
 
-    // Built-in countdown conditions, e.g. condition://android/countdown/1399917958951
+    // ==== Built-in system condition: countdown ====
+
     public static final String COUNTDOWN_PATH = "countdown";
 
     public static Uri toCountdownConditionId(long time) {
@@ -586,8 +748,42 @@ public class ZenModeConfig implements Parcelable {
         return tryParseCountdownConditionId(conditionId) != 0;
     }
 
-    // built-in schedule conditions
+    // ==== Built-in system condition: schedule ====
+
     public static final String SCHEDULE_PATH = "schedule";
+
+    public static Uri toScheduleConditionId(ScheduleInfo schedule) {
+        return new Uri.Builder().scheme(Condition.SCHEME)
+                .authority(SYSTEM_AUTHORITY)
+                .appendPath(SCHEDULE_PATH)
+                .appendQueryParameter("days", toDayList(schedule.days))
+                .appendQueryParameter("start", schedule.startHour + "." + schedule.startMinute)
+                .appendQueryParameter("end", schedule.endHour + "." + schedule.endMinute)
+                .build();
+    }
+
+    public static boolean isValidScheduleConditionId(Uri conditionId) {
+        return tryParseScheduleConditionId(conditionId) != null;
+    }
+
+    public static ScheduleInfo tryParseScheduleConditionId(Uri conditionId) {
+        final boolean isSchedule =  conditionId != null
+                && conditionId.getScheme().equals(Condition.SCHEME)
+                && conditionId.getAuthority().equals(ZenModeConfig.SYSTEM_AUTHORITY)
+                && conditionId.getPathSegments().size() == 1
+                && conditionId.getPathSegments().get(0).equals(ZenModeConfig.SCHEDULE_PATH);
+        if (!isSchedule) return null;
+        final int[] start = tryParseHourAndMinute(conditionId.getQueryParameter("start"));
+        final int[] end = tryParseHourAndMinute(conditionId.getQueryParameter("end"));
+        if (start == null || end == null) return null;
+        final ScheduleInfo rt = new ScheduleInfo();
+        rt.days = tryParseDayList(conditionId.getQueryParameter("days"), "\\.");
+        rt.startHour = start[0];
+        rt.startMinute = start[1];
+        rt.endHour = end[0];
+        rt.endMinute = end[1];
+        return rt;
+    }
 
     public static class ScheduleInfo {
         public int[] days;
@@ -626,38 +822,78 @@ public class ZenModeConfig implements Parcelable {
         }
     }
 
-    public static Uri toScheduleConditionId(ScheduleInfo schedule) {
+    // ==== Built-in system condition: event ====
+
+    public static final String EVENT_PATH = "event";
+
+    public static Uri toEventConditionId(EventInfo event) {
         return new Uri.Builder().scheme(Condition.SCHEME)
                 .authority(SYSTEM_AUTHORITY)
-                .appendPath(SCHEDULE_PATH)
-                .appendQueryParameter("days", toDayList(schedule.days))
-                .appendQueryParameter("start", schedule.startHour + "." + schedule.startMinute)
-                .appendQueryParameter("end", schedule.endHour + "." + schedule.endMinute)
+                .appendPath(EVENT_PATH)
+                .appendQueryParameter("userId", Long.toString(event.userId))
+                .appendQueryParameter("calendar", event.calendar != null ? event.calendar : "")
+                .appendQueryParameter("reply", Integer.toString(event.reply))
                 .build();
     }
 
-    public static boolean isValidScheduleConditionId(Uri conditionId) {
-        return tryParseScheduleConditionId(conditionId) != null;
+    public static boolean isValidEventConditionId(Uri conditionId) {
+        return tryParseEventConditionId(conditionId) != null;
     }
 
-    public static ScheduleInfo tryParseScheduleConditionId(Uri conditionId) {
-        final boolean isSchedule =  conditionId != null
+    public static EventInfo tryParseEventConditionId(Uri conditionId) {
+        final boolean isEvent = conditionId != null
                 && conditionId.getScheme().equals(Condition.SCHEME)
                 && conditionId.getAuthority().equals(ZenModeConfig.SYSTEM_AUTHORITY)
                 && conditionId.getPathSegments().size() == 1
-                && conditionId.getPathSegments().get(0).equals(ZenModeConfig.SCHEDULE_PATH);
-        if (!isSchedule) return null;
-        final int[] start = tryParseHourAndMinute(conditionId.getQueryParameter("start"));
-        final int[] end = tryParseHourAndMinute(conditionId.getQueryParameter("end"));
-        if (start == null || end == null) return null;
-        final ScheduleInfo rt = new ScheduleInfo();
-        rt.days = tryParseDayList(conditionId.getQueryParameter("days"), "\\.");
-        rt.startHour = start[0];
-        rt.startMinute = start[1];
-        rt.endHour = end[0];
-        rt.endMinute = end[1];
+                && conditionId.getPathSegments().get(0).equals(EVENT_PATH);
+        if (!isEvent) return null;
+        final EventInfo rt = new EventInfo();
+        rt.userId = tryParseInt(conditionId.getQueryParameter("userId"), UserHandle.USER_NULL);
+        rt.calendar = conditionId.getQueryParameter("calendar");
+        if (TextUtils.isEmpty(rt.calendar) || tryParseLong(rt.calendar, -1L) != -1L) {
+            rt.calendar = null;
+        }
+        rt.reply = tryParseInt(conditionId.getQueryParameter("reply"), 0);
         return rt;
     }
+
+    public static class EventInfo {
+        public static final int REPLY_ANY_EXCEPT_NO = 0;
+        public static final int REPLY_YES_OR_MAYBE = 1;
+        public static final int REPLY_YES = 2;
+
+        public int userId = UserHandle.USER_NULL;  // USER_NULL = unspecified - use current user
+        public String calendar;  // CalendarContract.Calendars.OWNER_ACCOUNT, or null for any
+        public int reply;
+
+        @Override
+        public int hashCode() {
+            return 0;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof EventInfo)) return false;
+            final EventInfo other = (EventInfo) o;
+            return userId == other.userId
+                    && Objects.equals(calendar, other.calendar)
+                    && reply == other.reply;
+        }
+
+        public EventInfo copy() {
+            final EventInfo rt = new EventInfo();
+            rt.userId = userId;
+            rt.calendar = calendar;
+            rt.reply = reply;
+            return rt;
+        }
+
+        public static int resolveUserId(int userId) {
+            return userId == UserHandle.USER_NULL ? ActivityManager.getCurrentUser() : userId;
+        }
+    }
+
+    // ==== End built-in system conditions ====
 
     private static int[] tryParseHourAndMinute(String value) {
         if (TextUtils.isEmpty(value)) return null;
@@ -677,18 +913,13 @@ public class ZenModeConfig implements Parcelable {
         return UUID.randomUUID().toString().replace("-", "");
     }
 
-    public static String getConditionLine1(Context context, ZenModeConfig config,
-            int userHandle) {
-        return getConditionLine(context, config, userHandle, true /*useLine1*/);
-    }
-
     public static String getConditionSummary(Context context, ZenModeConfig config,
-            int userHandle) {
-        return getConditionLine(context, config, userHandle, false /*useLine1*/);
+            int userHandle, boolean shortVersion) {
+        return getConditionLine(context, config, userHandle, false /*useLine1*/, shortVersion);
     }
 
     private static String getConditionLine(Context context, ZenModeConfig config,
-            int userHandle, boolean useLine1) {
+            int userHandle, boolean useLine1, boolean shortVersion) {
         if (config == null) return "";
         if (config.manualRule != null) {
             final Uri id = config.manualRule.conditionId;
@@ -700,8 +931,8 @@ public class ZenModeConfig implements Parcelable {
             if (time > 0) {
                 final long now = System.currentTimeMillis();
                 final long span = time - now;
-                c = toTimeCondition(context,
-                        time, Math.round(span / (float) MINUTES_MS), now, userHandle);
+                c = toTimeCondition(context, time, Math.round(span / (float) MINUTES_MS),
+                        userHandle, shortVersion);
             }
             final String rt = c == null ? "" : useLine1 ? c.line1 : c.summary;
             return TextUtils.isEmpty(rt) ? "" : rt;
@@ -776,6 +1007,45 @@ public class ZenModeConfig implements Parcelable {
                     .append(",condition=").append(condition)
                     .append(",component=").append(component)
                     .append(']').toString();
+        }
+
+        private static void appendDiff(Diff d, String item, ZenRule from, ZenRule to) {
+            if (d == null) return;
+            if (from == null) {
+                if (to != null) {
+                    d.addLine(item, "insert");
+                }
+                return;
+            }
+            from.appendDiff(d, item, to);
+        }
+
+        private void appendDiff(Diff d, String item, ZenRule to) {
+            if (to == null) {
+                d.addLine(item, "delete");
+                return;
+            }
+            if (enabled != to.enabled) {
+                d.addLine(item, "enabled", enabled, to.enabled);
+            }
+            if (snoozing != to.snoozing) {
+                d.addLine(item, "snoozing", snoozing, to.snoozing);
+            }
+            if (!Objects.equals(name, to.name)) {
+                d.addLine(item, "name", name, to.name);
+            }
+            if (zenMode != to.zenMode) {
+                d.addLine(item, "zenMode", zenMode, to.zenMode);
+            }
+            if (!Objects.equals(conditionId, to.conditionId)) {
+                d.addLine(item, "conditionId", conditionId, to.conditionId);
+            }
+            if (!Objects.equals(condition, to.condition)) {
+                d.addLine(item, "condition", condition, to.condition);
+            }
+            if (!Objects.equals(component, to.component)) {
+                d.addLine(item, "component", component, to.component);
+            }
         }
 
         @Override
@@ -934,6 +1204,36 @@ public class ZenModeConfig implements Parcelable {
 
     public interface Migration {
         ZenModeConfig migrate(XmlV1 v1);
+    }
+
+    public static class Diff {
+        private final ArrayList<String> lines = new ArrayList<>();
+
+        @Override
+        public String toString() {
+            final StringBuilder sb = new StringBuilder("Diff[");
+            final int N = lines.size();
+            for (int i = 0; i < N; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(lines.get(i));
+            }
+            return sb.append(']').toString();
+        }
+
+        private Diff addLine(String item, String action) {
+            lines.add(item + ":" + action);
+            return this;
+        }
+
+        public Diff addLine(String item, String subitem, Object from, Object to) {
+            return addLine(item + "." + subitem, from, to);
+        }
+
+        public Diff addLine(String item, Object from, Object to) {
+            return addLine(item, from + "->" + to);
+        }
     }
 
 }

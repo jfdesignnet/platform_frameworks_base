@@ -25,6 +25,7 @@ import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.android.internal.logging.MetricsLogger;
 import com.android.settingslib.bluetooth.CachedBluetoothDevice;
 import com.android.systemui.R;
 import com.android.systemui.qs.QSDetailItems;
@@ -75,6 +76,7 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
     @Override
     protected void handleClick() {
         final boolean isEnabled = (Boolean)mState.value;
+        MetricsLogger.action(mContext, getMetricsCategory(), !isEnabled);
         mController.setBluetoothEnabled(!isEnabled);
     }
 
@@ -132,6 +134,11 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
     }
 
     @Override
+    public int getMetricsCategory() {
+        return MetricsLogger.QS_BLUETOOTH;
+    }
+
+    @Override
     protected String composeChangeAnnouncement() {
         if (mState.value) {
             return mContext.getString(R.string.accessibility_quick_settings_bluetooth_changed_on);
@@ -142,9 +149,10 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
 
     private final BluetoothController.Callback mCallback = new BluetoothController.Callback() {
         @Override
-        public void onBluetoothStateChange(boolean enabled, boolean connecting) {
+        public void onBluetoothStateChange(boolean enabled) {
             refreshState();
         }
+
         @Override
         public void onBluetoothDevicesChanged() {
             mUiHandler.post(new Runnable() {
@@ -177,8 +185,14 @@ public class BluetoothTile extends QSTile<QSTile.BooleanState>  {
 
         @Override
         public void setToggleState(boolean state) {
+            MetricsLogger.action(mContext, MetricsLogger.QS_BLUETOOTH_TOGGLE, state);
             mController.setBluetoothEnabled(state);
             showDetail(false);
+        }
+
+        @Override
+        public int getMetricsCategory() {
+            return MetricsLogger.QS_BLUETOOTH_DETAILS;
         }
 
         @Override

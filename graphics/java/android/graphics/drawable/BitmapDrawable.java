@@ -219,7 +219,8 @@ public class BitmapDrawable extends Drawable {
         }
     }
 
-    private void setBitmap(Bitmap bitmap) {
+    /** @hide */
+    protected void setBitmap(Bitmap bitmap) {
         if (mBitmapState.mBitmap != bitmap) {
             mBitmapState.mBitmap = bitmap;
             computeBitmapSize();
@@ -352,14 +353,14 @@ public class BitmapDrawable extends Drawable {
     }
 
     @Override
-    public void setDither(boolean dither) {
-        mBitmapState.mPaint.setDither(dither);
-        invalidateSelf();
+    public boolean isFilterBitmap() {
+        return mBitmapState.mPaint.isFilterBitmap();
     }
 
     @Override
-    public boolean getDither() {
-        return mBitmapState.mPaint.isDither();
+    public void setDither(boolean dither) {
+        mBitmapState.mPaint.setDither(dither);
+        invalidateSelf();
     }
 
     /**
@@ -810,6 +811,9 @@ public class BitmapDrawable extends Drawable {
         if (tileModeY != TILE_MODE_UNDEFINED) {
             setTileModeY(parseTileMode(tileModeY));
         }
+
+        final int densityDpi = r.getDisplayMetrics().densityDpi;
+        state.mTargetDensity = densityDpi == 0 ? DisplayMetrics.DENSITY_DEFAULT : densityDpi;
     }
 
     @Override
@@ -972,7 +976,8 @@ public class BitmapDrawable extends Drawable {
      */
     private void updateLocalState(Resources res) {
         if (res != null) {
-            mTargetDensity = res.getDisplayMetrics().densityDpi;
+            final int densityDpi = res.getDisplayMetrics().densityDpi;
+            mTargetDensity = densityDpi == 0 ? DisplayMetrics.DENSITY_DEFAULT : densityDpi;
         } else {
             mTargetDensity = mBitmapState.mTargetDensity;
         }

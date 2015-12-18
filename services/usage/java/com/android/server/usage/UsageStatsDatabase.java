@@ -21,6 +21,7 @@ import android.app.usage.UsageStatsManager;
 import android.os.Build;
 import android.util.AtomicFile;
 import android.util.Slog;
+import android.util.TimeUtils;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -191,7 +192,11 @@ class UsageStatsDatabase {
 
                 for (File f : files) {
                     final AtomicFile af = new AtomicFile(f);
-                    mSortedStatFiles[i].put(UsageStatsXml.parseBeginTime(af), af);
+                    try {
+                        mSortedStatFiles[i].put(UsageStatsXml.parseBeginTime(af), af);
+                    } catch (IOException e) {
+                        Slog.e(TAG, "failed to index file: " + f, e);
+                    }
                 }
             }
         }
@@ -273,14 +278,21 @@ class UsageStatsDatabase {
 
     public void onTimeChanged(long timeDiffMillis) {
         synchronized (mLock) {
+            StringBuilder logBuilder = new StringBuilder();
+            logBuilder.append("Time changed by ");
+            TimeUtils.formatDuration(timeDiffMillis, logBuilder);
+            logBuilder.append(".");
+
+            int filesDeleted = 0;
+            int filesMoved = 0;
+
             for (TimeSparseArray<AtomicFile> files : mSortedStatFiles) {
                 final int fileCount = files.size();
                 for (int i = 0; i < fileCount; i++) {
                     final AtomicFile file = files.valueAt(i);
                     final long newTime = files.keyAt(i) + timeDiffMillis;
                     if (newTime < 0) {
-                        Slog.i(TAG, "Deleting file " + file.getBaseFile().getAbsolutePath()
-                                + " for it is in the future now.");
+                        filesDeleted++;
                         file.delete();
                     } else {
                         try {
@@ -295,13 +307,16 @@ class UsageStatsDatabase {
                         }
 
                         final File newFile = new File(file.getBaseFile().getParentFile(), newName);
-                        Slog.i(TAG, "Moving file " + file.getBaseFile().getAbsolutePath() + " to "
-                                + newFile.getAbsolutePath());
+                        filesMoved++;
                         file.getBaseFile().renameTo(newFile);
                     }
                 }
                 files.clear();
             }
+
+            logBuilder.append(" files deleted: ").append(filesDeleted);
+            logBuilder.append(" files moved: ").append(filesMoved);
+            Slog.i(TAG, logBuilder.toString());
 
             // Now re-index the new files.
             indexFilesLocked();
@@ -506,7 +521,14 @@ class UsageStatsDatabase {
                 if (path.endsWith(BAK_SUFFIX)) {
                     f = new File(path.substring(0, path.length() - BAK_SUFFIX.length()));
                 }
-                long beginTime = UsageStatsXml.parseBeginTime(f);
+
+                long beginTime;
+                try {
+                    beginTime = UsageStatsXml.parseBeginTime(f);
+                } catch (IOException e) {
+                    beginTime = 0;
+                }
+
                 if (beginTime < expiryTime) {
                     new AtomicFile(f).delete();
                 }

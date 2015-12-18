@@ -19,7 +19,10 @@ package com.android.documentsui;
 import static com.android.documentsui.BaseActivity.State.ACTION_BROWSE;
 import static com.android.documentsui.BaseActivity.State.ACTION_BROWSE_ALL;
 import static com.android.documentsui.BaseActivity.State.ACTION_CREATE;
+import static com.android.documentsui.BaseActivity.State.ACTION_GET_CONTENT;
 import static com.android.documentsui.BaseActivity.State.ACTION_MANAGE;
+import static com.android.documentsui.BaseActivity.State.ACTION_OPEN;
+import static com.android.documentsui.BaseActivity.State.ACTION_OPEN_TREE;
 import static com.android.documentsui.BaseActivity.State.MODE_GRID;
 import static com.android.documentsui.BaseActivity.State.MODE_LIST;
 import static com.android.documentsui.BaseActivity.State.MODE_UNKNOWN;
@@ -50,10 +53,13 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.OperationCanceledException;
 import android.os.Parcelable;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
+import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.text.format.Formatter;
 import android.text.format.Time;
@@ -133,6 +139,8 @@ public class DirectoryFragment extends Fragment {
     private static final String EXTRA_IGNORE_STATE = "ignoreState";
 
     private final int mLoaderId = 42;
+
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
 
     public static void showNormal(FragmentManager fm, RootInfo root, DocumentInfo doc, int anim) {
         show(fm, TYPE_NORMAL, root, doc, null, anim);
@@ -296,6 +304,21 @@ public class DirectoryFragment extends Fragment {
 
             @Override
             public void onLoadFinished(Loader<DirectoryResult> loader, DirectoryResult result) {
+                if (result == null || result.exception != null) {
+                    // onBackPressed does a fragment transaction, which can't be done inside
+                    // onLoadFinished
+                    mHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            final Activity activity = getActivity();
+                            if (activity != null) {
+                                activity.onBackPressed();
+                            }
+                        }
+                    });
+                    return;
+                }
+
                 if (!isAdded()) return;
 
                 mAdapter.swapResult(result);
@@ -474,8 +497,7 @@ public class DirectoryFragment extends Fragment {
         @Override
         public boolean onCreateActionMode(ActionMode mode, Menu menu) {
             mode.getMenuInflater().inflate(R.menu.mode_directory, menu);
-            mode.setTitle(getResources()
-                    .getString(R.string.mode_selected_count, mCurrentView.getCheckedItemCount()));
+            mode.setTitle(TextUtils.formatSelectedCount(mCurrentView.getCheckedItemCount()));
             return true;
         }
 
@@ -559,11 +581,23 @@ public class DirectoryFragment extends Fragment {
                 // Directories and footer items cannot be checked
                 boolean valid = false;
 
+                final State state = getDisplayState(DirectoryFragment.this);
                 final Cursor cursor = mAdapter.getItem(position);
                 if (cursor != null) {
                     final String docMimeType = getCursorString(cursor, Document.COLUMN_MIME_TYPE);
                     final int docFlags = getCursorInt(cursor, Document.COLUMN_FLAGS);
-                    valid = isDocumentEnabled(docMimeType, docFlags);
+                    switch (state.action) {
+                        case ACTION_OPEN:
+                        case ACTION_CREATE:
+                        case ACTION_GET_CONTENT:
+                        case ACTION_OPEN_TREE:
+                            valid = isDocumentEnabled(docMimeType, docFlags)
+                                    && !Document.MIME_TYPE_DIR.equals(docMimeType);
+                            break;
+                        default:
+                            valid = isDocumentEnabled(docMimeType, docFlags);
+                            break;
+                    }
                 }
 
                 if (!valid) {
@@ -571,8 +605,7 @@ public class DirectoryFragment extends Fragment {
                 }
             }
 
-            mode.setTitle(getResources()
-                    .getString(R.string.mode_selected_count, mCurrentView.getCheckedItemCount()));
+            mode.setTitle(TextUtils.formatSelectedCount(mCurrentView.getCheckedItemCount()));
         }
     };
 

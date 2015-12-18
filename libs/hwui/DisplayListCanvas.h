@@ -98,7 +98,7 @@ public:
     // Bitmap-based
     void drawBitmap(const SkBitmap* bitmap, const SkPaint* paint);
     // TODO: move drawPatch() to Canvas.h
-    void drawPatch(const SkBitmap* bitmap, const Res_png_9patch* patch,
+    void drawPatch(const SkBitmap& bitmap, const Res_png_9patch* patch,
             float left, float top, float right, float bottom, const SkPaint* paint);
 
     // Shapes
@@ -115,10 +115,10 @@ public:
 // HWUI Canvas draw operations - special
 // ----------------------------------------------------------------------------
     void drawLayer(DeferredLayerUpdater* layerHandle, float x, float y);
-    void drawRenderNode(RenderNode* renderNode, Rect& dirty, int32_t replayFlags);
+    void drawRenderNode(RenderNode* renderNode);
 
     // TODO: rename for consistency
-    void callDrawGLFunction(Functor* functor, Rect& dirty);
+    void callDrawGLFunction(Functor* functor);
 
     void setHighContrastText(bool highContrastText) {
         mHighContrastText = highContrastText;
@@ -165,6 +165,7 @@ public:
     // Matrix
     virtual void getMatrix(SkMatrix* outMatrix) const override { mState.getMatrix(outMatrix); }
     virtual void setMatrix(const SkMatrix& matrix) override;
+    virtual void setLocalMatrix(const SkMatrix& matrix) override;
 
     virtual void concat(const SkMatrix& matrix) override;
     virtual void rotate(float degrees) override;
@@ -263,6 +264,7 @@ private:
     size_t addDrawOp(DrawOp* op);
     size_t addRenderNodeOp(DrawRenderNodeOp* op);
 
+    void refBitmapsInShader(const SkShader* shader);
 
     template<class T>
     inline const T* refBuffer(const T* srcBuffer, int32_t count) {
@@ -311,6 +313,7 @@ private:
 
             // replaceValueFor() performs an add if the entry doesn't exist
             mPaintMap.replaceValueFor(key, cachedPaint);
+            refBitmapsInShader(cachedPaint->getShader());
         }
 
         return cachedPaint;
@@ -345,14 +348,15 @@ private:
         return cachedRegion;
     }
 
-    inline const SkBitmap* refBitmap(const SkBitmap* bitmap) {
+    inline const SkBitmap* refBitmap(const SkBitmap& bitmap) {
         // Note that this assumes the bitmap is immutable. There are cases this won't handle
         // correctly, such as creating the bitmap from scratch, drawing with it, changing its
         // contents, and drawing again. The only fix would be to always copy it the first time,
         // which doesn't seem worth the extra cycles for this unlikely case.
-        const SkBitmap* cachedBitmap = mResourceCache.insert(bitmap);
-        mDisplayListData->bitmapResources.add(cachedBitmap);
-        return cachedBitmap;
+        SkBitmap* localBitmap = new (alloc()) SkBitmap(bitmap);
+        alloc().autoDestroy(localBitmap);
+        mDisplayListData->bitmapResources.push_back(localBitmap);
+        return localBitmap;
     }
 
     inline const Res_png_9patch* refPatch(const Res_png_9patch* patch) {

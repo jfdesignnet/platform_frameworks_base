@@ -1894,6 +1894,8 @@ int ResTable_config::compare(const ResTable_config& o) const {
     if (diff != 0) return diff;
     diff = (int32_t)(screenLayout - o.screenLayout);
     if (diff != 0) return diff;
+    diff = (int32_t)(screenLayout2 - o.screenLayout2);
+    if (diff != 0) return diff;
     diff = (int32_t)(uiMode - o.uiMode);
     if (diff != 0) return diff;
     diff = (int32_t)(smallestScreenWidthDp - o.smallestScreenWidthDp);
@@ -1951,6 +1953,9 @@ int ResTable_config::compareLogical(const ResTable_config& o) const {
     if (screenLayout != o.screenLayout) {
         return screenLayout < o.screenLayout ? -1 : 1;
     }
+    if (screenLayout2 != o.screenLayout2) {
+        return screenLayout2 < o.screenLayout2 ? -1 : 1;
+    }
     if (uiMode != o.uiMode) {
         return uiMode < o.uiMode ? -1 : 1;
     }
@@ -1975,6 +1980,7 @@ int ResTable_config::diff(const ResTable_config& o) const {
     if (version != o.version) diffs |= CONFIG_VERSION;
     if ((screenLayout & MASK_LAYOUTDIR) != (o.screenLayout & MASK_LAYOUTDIR)) diffs |= CONFIG_LAYOUTDIR;
     if ((screenLayout & ~MASK_LAYOUTDIR) != (o.screenLayout & ~MASK_LAYOUTDIR)) diffs |= CONFIG_SCREEN_LAYOUT;
+    if ((screenLayout2 & MASK_SCREENROUND) != (o.screenLayout2 & MASK_SCREENROUND)) diffs |= CONFIG_SCREEN_ROUND;
     if (uiMode != o.uiMode) diffs |= CONFIG_UI_MODE;
     if (smallestScreenWidthDp != o.smallestScreenWidthDp) diffs |= CONFIG_SMALLEST_SCREEN_SIZE;
     if (screenSizeDp != o.screenSizeDp) diffs |= CONFIG_SCREEN_SIZE;
@@ -2077,6 +2083,13 @@ bool ResTable_config::isMoreSpecificThan(const ResTable_config& o) const {
         if (((screenLayout^o.screenLayout) & MASK_SCREENLONG) != 0) {
             if (!(screenLayout & MASK_SCREENLONG)) return false;
             if (!(o.screenLayout & MASK_SCREENLONG)) return true;
+        }
+    }
+
+    if (screenLayout2 || o.screenLayout2) {
+        if (((screenLayout2^o.screenLayout2) & MASK_SCREENROUND) != 0) {
+            if (!(screenLayout2 & MASK_SCREENROUND)) return false;
+            if (!(o.screenLayout2 & MASK_SCREENROUND)) return true;
         }
     }
 
@@ -2264,6 +2277,13 @@ bool ResTable_config::isBetterThan(const ResTable_config& o,
             if (((screenLayout^o.screenLayout) & MASK_SCREENLONG) != 0
                     && (requested->screenLayout & MASK_SCREENLONG)) {
                 return (screenLayout & MASK_SCREENLONG);
+            }
+        }
+
+        if (screenLayout2 || o.screenLayout2) {
+            if (((screenLayout2^o.screenLayout2) & MASK_SCREENROUND) != 0 &&
+                    (requested->screenLayout2 & MASK_SCREENROUND)) {
+                return screenLayout2 & MASK_SCREENROUND;
             }
         }
 
@@ -2480,6 +2500,15 @@ bool ResTable_config::match(const ResTable_config& settings) const {
             return false;
         }
     }
+
+    if (screenConfig2 != 0) {
+        const int screenRound = screenLayout2 & MASK_SCREENROUND;
+        const int setScreenRound = settings.screenLayout2 & MASK_SCREENROUND;
+        if (screenRound != 0 && screenRound != setScreenRound) {
+            return false;
+        }
+    }
+
     if (screenSizeDp != 0) {
         if (screenWidthDp != 0 && screenWidthDp > settings.screenWidthDp) {
             if (kDebugTableSuperNoisy) {
@@ -2767,6 +2796,20 @@ String8 ResTable_config::toString() const {
             default:
                 res.appendFormat("screenLayoutLong=%d",
                         dtohs(screenLayout&ResTable_config::MASK_SCREENLONG));
+                break;
+        }
+    }
+    if ((screenLayout2&MASK_SCREENROUND) != 0) {
+        if (res.size() > 0) res.append("-");
+        switch (screenLayout2&MASK_SCREENROUND) {
+            case SCREENROUND_NO:
+                res.append("notround");
+                break;
+            case SCREENROUND_YES:
+                res.append("round");
+                break;
+            default:
+                res.appendFormat("screenRound=%d", dtohs(screenLayout2&MASK_SCREENROUND));
                 break;
         }
     }
@@ -3147,6 +3190,7 @@ struct ResTable::bag_set
 
 ResTable::Theme::Theme(const ResTable& table)
     : mTable(table)
+    , mTypeSpecFlags(0)
 {
     memset(mPackages, 0, sizeof(mPackages));
 }
@@ -3204,6 +3248,8 @@ status_t ResTable::Theme::applyStyle(uint32_t resID, bool force)
         mTable.unlock();
         return N;
     }
+
+    mTypeSpecFlags |= bagTypeSpecFlags;
 
     uint32_t curPackage = 0xffffffff;
     ssize_t curPackageIndex = 0;
@@ -3323,6 +3369,32 @@ status_t ResTable::Theme::setTo(const Theme& other)
         }
     }
 
+    mTypeSpecFlags = other.mTypeSpecFlags;
+
+    if (kDebugTableTheme) {
+        ALOGI("Final theme:");
+        dumpToLog();
+    }
+
+    return NO_ERROR;
+}
+
+status_t ResTable::Theme::clear()
+{
+    if (kDebugTableTheme) {
+        ALOGI("Clearing theme %p...\n", this);
+        dumpToLog();
+    }
+
+    for (size_t i = 0; i < Res_MAXPACKAGE; i++) {
+        if (mPackages[i] != NULL) {
+            free_package(mPackages[i]);
+            mPackages[i] = NULL;
+        }
+    }
+
+    mTypeSpecFlags = 0;
+
     if (kDebugTableTheme) {
         ALOGI("Final theme:");
         dumpToLog();
@@ -3415,6 +3487,11 @@ ssize_t ResTable::Theme::resolveAttributeReference(Res_value* inOutValue,
     }
     return mTable.resolveReference(inOutValue, blockIndex, outLastRef,
             inoutTypeSpecFlags, inoutConfig);
+}
+
+uint32_t ResTable::Theme::getChangingConfigurations() const
+{
+    return mTypeSpecFlags;
 }
 
 void ResTable::Theme::dumpToLog() const
@@ -6681,7 +6758,13 @@ void ResTable::print(bool inclValues) const
                     printf("      NON-INTEGER ResTable_type ADDRESS: %p\n", type);
                     continue;
                 }
-                String8 configStr = type->config.toString();
+
+                // Always copy the config, as fields get added and we need to
+                // set the defaults.
+                ResTable_config thisConfig;
+                thisConfig.copyFromDtoH(type->config);
+
+                String8 configStr = thisConfig.toString();
                 printf("      config %s:\n", configStr.size() > 0
                         ? configStr.string() : "(default)");
                 size_t entryCount = dtohl(type->entryCount);

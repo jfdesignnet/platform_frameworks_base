@@ -2066,7 +2066,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     LockPatternUtils lpu = new LockPatternUtils(mContext);
                     List<LockPatternView.Cell> cellPattern =
                             LockPatternUtils.stringToPattern(lockPattern);
-                    lpu.saveLockPattern(cellPattern, null);
+                    lpu.saveLockPattern(cellPattern, null, UserHandle.USER_OWNER);
                 } catch (IllegalArgumentException e) {
                     // Don't want corrupted lock pattern to hang the reboot process
                 }
@@ -2681,9 +2681,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
             // Set default cdma call auto retry
             loadSetting(stmt, Settings.Global.CALL_AUTO_RETRY, 0);
-
-            // Set default simplified carrier network settings to 0
-            loadSetting(stmt, Settings.Global.HIDE_CARRIER_NETWORK_SETTINGS, 0);
 
             // Set the preferred network mode to target desired value or Default
             // value defined in RILConstants

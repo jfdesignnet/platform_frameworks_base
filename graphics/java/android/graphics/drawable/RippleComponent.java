@@ -52,9 +52,23 @@ abstract class RippleComponent {
     /** Screen density used to adjust pixel-based constants. */
     protected float mDensity;
 
-    public RippleComponent(RippleDrawable owner, Rect bounds) {
+    /**
+     * If set, force all ripple animations to not run on RenderThread, even if it would be
+     * available.
+     */
+    private final boolean mForceSoftware;
+
+    public RippleComponent(RippleDrawable owner, Rect bounds, boolean forceSoftware) {
         mOwner = owner;
         mBounds = bounds;
+        mForceSoftware = forceSoftware;
+    }
+
+    public void onBoundsChange() {
+        if (!mHasMaxRadius) {
+            mTargetRadius = getTargetRadius(mBounds);
+            onTargetRadiusChanged(mTargetRadius);
+        }
     }
 
     public final void setup(float maxRadius, float density) {
@@ -62,14 +76,18 @@ abstract class RippleComponent {
             mHasMaxRadius = true;
             mTargetRadius = maxRadius;
         } else {
-            final float halfWidth = mBounds.width() / 2.0f;
-            final float halfHeight = mBounds.height() / 2.0f;
-            mTargetRadius = (float) Math.sqrt(halfWidth * halfWidth + halfHeight * halfHeight);
+            mTargetRadius = getTargetRadius(mBounds);
         }
 
         mDensity = density;
 
         onTargetRadiusChanged(mTargetRadius);
+    }
+
+    private static float getTargetRadius(Rect bounds) {
+        final float halfWidth = bounds.width() / 2.0f;
+        final float halfHeight = bounds.height() / 2.0f;
+        return (float) Math.sqrt(halfWidth * halfWidth + halfHeight * halfHeight);
     }
 
     /**
@@ -132,7 +150,7 @@ abstract class RippleComponent {
      * @return {@code true} if something was drawn, {@code false} otherwise
      */
     public boolean draw(Canvas c, Paint p) {
-        final boolean hasDisplayListCanvas = c.isHardwareAccelerated()
+        final boolean hasDisplayListCanvas = !mForceSoftware && c.isHardwareAccelerated()
                 && c instanceof DisplayListCanvas;
         if (mHasDisplayListCanvas != hasDisplayListCanvas) {
             mHasDisplayListCanvas = hasDisplayListCanvas;
@@ -222,11 +240,15 @@ abstract class RippleComponent {
 
         if (mHasPendingHardwareAnimator) {
             mHasPendingHardwareAnimator = false;
+
+            // Manually jump values to their exited state. Normally we'd do that
+            // later when starting the hardware exit, but we're aborting early.
+            jumpValuesToExit();
         }
     }
 
     protected final void invalidateSelf() {
-        mOwner.invalidateSelf();
+        mOwner.invalidateSelf(false);
     }
 
     protected final boolean isHardwareAnimating() {

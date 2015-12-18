@@ -4,13 +4,19 @@ LOCAL_REL_DIR := core/jni
 
 LOCAL_CFLAGS += -Wall -Werror -Wno-unused-parameter
 
+ifneq ($(ENABLE_CPUSETS),)
+ifneq ($(ENABLE_SCHED_BOOST),)
+LOCAL_CFLAGS += -DUSE_SCHED_BOOST
+endif
+endif
+
 LOCAL_SRC_FILES += \
     $(LOCAL_REL_DIR)/com_android_server_AlarmManagerService.cpp \
     $(LOCAL_REL_DIR)/com_android_server_am_BatteryStatsService.cpp \
+    $(LOCAL_REL_DIR)/com_android_server_am_ActivityManagerService.cpp \
     $(LOCAL_REL_DIR)/com_android_server_AssetAtlasService.cpp \
     $(LOCAL_REL_DIR)/com_android_server_connectivity_Vpn.cpp \
     $(LOCAL_REL_DIR)/com_android_server_ConsumerIrService.cpp \
-    $(LOCAL_REL_DIR)/com_android_server_fingerprint_FingerprintService.cpp \
     $(LOCAL_REL_DIR)/com_android_server_hdmi_HdmiCecController.cpp \
     $(LOCAL_REL_DIR)/com_android_server_input_InputApplicationHandle.cpp \
     $(LOCAL_REL_DIR)/com_android_server_input_InputManagerService.cpp \

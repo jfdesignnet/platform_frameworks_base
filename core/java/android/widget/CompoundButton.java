@@ -17,8 +17,10 @@
 package android.widget;
 
 import android.annotation.DrawableRes;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.graphics.PorterDuff;
+import android.view.ViewHierarchyEncoder;
 import com.android.internal.R;
 
 import android.content.Context;
@@ -239,6 +241,17 @@ public abstract class CompoundButton extends Button implements Checkable {
                 setMinHeight(drawable.getIntrinsicHeight());
                 applyButtonTint();
             }
+        }
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public void onResolveDrawables(@ResolvedLayoutDir int layoutDirection) {
+        super.onResolveDrawables(layoutDirection);
+        if (mButtonDrawable != null) {
+            mButtonDrawable.setLayoutDirection(layoutDirection);
         }
     }
 
@@ -530,9 +543,16 @@ public abstract class CompoundButton extends Button implements Checkable {
     @Override
     public void onRestoreInstanceState(Parcelable state) {
         SavedState ss = (SavedState) state;
-  
+
         super.onRestoreInstanceState(ss.getSuperState());
         setChecked(ss.checked);
         requestLayout();
+    }
+
+    /** @hide */
+    @Override
+    protected void encodeProperties(@NonNull ViewHierarchyEncoder stream) {
+        super.encodeProperties(stream);
+        stream.addProperty("checked", isChecked());
     }
 }

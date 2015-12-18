@@ -20,11 +20,13 @@ import android.content.Context;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
+import android.graphics.drawable.Icon;
 import android.media.AudioAttributes;
 import android.os.UserHandle;
 import android.service.notification.StatusBarNotification;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.server.EventLogTags;
 
 import java.io.PrintWriter;
 import java.lang.reflect.Array;
@@ -67,6 +69,12 @@ public final class NotificationRecord {
     // The first post time, stable across updates.
     private long mCreationTimeMs;
 
+    // The most recent visibility event.
+    private long mVisibleSinceMs;
+
+    // The most recent update time, or the creation time if no updates.
+    private long mUpdateTimeMs;
+
     // Is this record an update of an old record?
     public boolean isUpdate;
     private int mPackagePriority;
@@ -83,6 +91,7 @@ public final class NotificationRecord {
         mOriginalFlags = sbn.getNotification().flags;
         mRankingTimeMs = calculateRankingTimeMs(0L);
         mCreationTimeMs = sbn.getPostTime();
+        mUpdateTimeMs = mCreationTimeMs;
     }
 
     // copy any notes that the ranking system may have made before the update
@@ -94,6 +103,7 @@ public final class NotificationRecord {
         mIntercept = previous.mIntercept;
         mRankingTimeMs = calculateRankingTimeMs(previous.getRankingTimeMs());
         mCreationTimeMs = previous.mCreationTimeMs;
+        mVisibleSinceMs = previous.mVisibleSinceMs;
         // Don't copy mGlobalSortKey, recompute it.
     }
 
@@ -104,14 +114,19 @@ public final class NotificationRecord {
     /** @deprecated Use {@link #getUser()} instead. */
     public int getUserId() { return sbn.getUserId(); }
 
-    void dump(PrintWriter pw, String prefix, Context baseContext) {
+    void dump(PrintWriter pw, String prefix, Context baseContext, boolean redact) {
         final Notification notification = sbn.getNotification();
+        final Icon icon = notification.getSmallIcon();
+        String iconStr = String.valueOf(icon);
+        if (icon != null && icon.getType() == Icon.TYPE_RESOURCE) {
+            iconStr += " / " + idDebugString(baseContext, icon.getResPackage(), icon.getResId());
+        }
         pw.println(prefix + this);
         pw.println(prefix + "  uid=" + sbn.getUid() + " userId=" + sbn.getUserId());
-        pw.println(prefix + "  icon=0x" + Integer.toHexString(notification.icon)
-                + " / " + idDebugString(baseContext, sbn.getPackageName(), notification.icon));
+        pw.println(prefix + "  icon=" + iconStr);
         pw.println(prefix + "  pri=" + notification.priority + " score=" + sbn.getScore());
         pw.println(prefix + "  key=" + sbn.getKey());
+        pw.println(prefix + "  seen=" + mIsSeen);
         pw.println(prefix + "  groupKey=" + getGroupKey());
         pw.println(prefix + "  contentIntent=" + notification.contentIntent);
         pw.println(prefix + "  deleteIntent=" + notification.deleteIntent);
@@ -149,7 +164,7 @@ public final class NotificationRecord {
                     pw.println("null");
                 } else {
                     pw.print(val.getClass().getSimpleName());
-                    if (val instanceof CharSequence || val instanceof String) {
+                    if (redact && (val instanceof CharSequence || val instanceof String)) {
                         // redact contents from bugreports
                     } else if (val instanceof Bitmap) {
                         pw.print(String.format(" (%dx%d)",
@@ -157,7 +172,14 @@ public final class NotificationRecord {
                                 ((Bitmap) val).getHeight()));
                     } else if (val.getClass().isArray()) {
                         final int N = Array.getLength(val);
-                        pw.println(" (" + N + ")");
+                        pw.print(" (" + N + ")");
+                        if (!redact) {
+                            for (int j=0; j<N; j++) {
+                                pw.println();
+                                pw.print(String.format("%s      [%d] %s",
+                                        prefix, j, String.valueOf(Array.get(val, j))));
+                            }
+                        }
                     } else {
                         pw.print(" (" + String.valueOf(val) + ")");
                     }
@@ -175,6 +197,8 @@ public final class NotificationRecord {
         pw.println(prefix + "  mGlobalSortKey=" + mGlobalSortKey);
         pw.println(prefix + "  mRankingTimeMs=" + mRankingTimeMs);
         pw.println(prefix + "  mCreationTimeMs=" + mCreationTimeMs);
+        pw.println(prefix + "  mVisibleSinceMs=" + mVisibleSinceMs);
+        pw.println(prefix + "  mUpdateTimeMs=" + mUpdateTimeMs);
     }
 
 
@@ -271,10 +295,41 @@ public final class NotificationRecord {
     }
 
     /**
-     * Returns the timestamp of the first post, ignoring updates.
+     * @param now this current time in milliseconds.
+     * @returns the number of milliseconds since the most recent update, or the post time if none.
      */
-    public long getCreationTimeMs() {
-        return mCreationTimeMs;
+    public int getFreshnessMs(long now) {
+        return (int) (now - mUpdateTimeMs);
+    }
+
+    /**
+     * @param now this current time in milliseconds.
+     * @returns the number of milliseconds since the the first post, ignoring updates.
+     */
+    public int getLifespanMs(long now) {
+        return (int) (now - mCreationTimeMs);
+    }
+
+    /**
+     * @param now this current time in milliseconds.
+     * @returns the number of milliseconds since the most recent visibility event, or 0 if never.
+     */
+    public int getExposureMs(long now) {
+        return mVisibleSinceMs == 0 ? 0 : (int) (now - mVisibleSinceMs);
+    }
+
+    /**
+     * Set the visibility of the notification.
+     */
+    public void setVisibility(boolean visible, int rank) {
+        final long now = System.currentTimeMillis();
+        mVisibleSinceMs = visible ? now : mVisibleSinceMs;
+        stats.onVisibilityChanged(visible);
+        EventLogTags.writeNotificationVisibility(getKey(), visible ? 1 : 0,
+                (int) (now - mCreationTimeMs),
+                (int) (now - mUpdateTimeMs),
+                0, // exposure time
+                rank);
     }
 
     /**

@@ -16,8 +16,10 @@
 
 package com.android.internal.statusbar;
 
-import com.android.internal.statusbar.StatusBarIcon;
+import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
+
+import com.android.internal.statusbar.StatusBarIcon;
 
 /** @hide */
 oneway interface IStatusBar
@@ -64,5 +66,15 @@ oneway interface IStatusBar
      *        bar caused by this app transition in millis
      */
     void appTransitionStarting(long statusBarAnimationsStartTime, long statusBarAnimationsDuration);
+
+    void showAssistDisclosure();
+    void startAssist(in Bundle args);
+
+    /**
+     * Notifies the status bar that a camera launch gesture has been detected.
+     *
+     * @param source the identifier for the gesture, see {@link StatusBarManager}
+     */
+    void onCameraLaunchGestureDetected(int source);
 }
 

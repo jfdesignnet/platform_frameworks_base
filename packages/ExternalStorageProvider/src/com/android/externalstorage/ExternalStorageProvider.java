@@ -38,6 +38,7 @@ import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.DocumentsContract.Root;
 import android.provider.DocumentsProvider;
+import android.provider.MediaStore;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.DebugUtils;
@@ -61,6 +62,9 @@ public class ExternalStorageProvider extends DocumentsProvider {
     private static final boolean LOG_INOTIFY = false;
 
     public static final String AUTHORITY = "com.android.externalstorage.documents";
+
+    private static final Uri BASE_URI =
+            new Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT).authority(AUTHORITY).build();
 
     // docId format: root:path/to/file
 
@@ -120,13 +124,20 @@ public class ExternalStorageProvider extends DocumentsProvider {
             if (!volume.isMountedReadable()) continue;
 
             final String rootId;
-            if (VolumeInfo.ID_EMULATED_INTERNAL.equals(volume.getId())) {
+            final String title;
+            if (volume.getType() == VolumeInfo.TYPE_EMULATED) {
+                // We currently only support a single emulated volume mounted at
+                // a time, and it's always considered the primary
                 rootId = ROOT_ID_PRIMARY_EMULATED;
-            } else if (volume.getType() == VolumeInfo.TYPE_EMULATED) {
-                final VolumeInfo privateVol = mStorageManager.findPrivateForEmulated(volume);
-                rootId = privateVol.getFsUuid();
+                if (VolumeInfo.ID_EMULATED_INTERNAL.equals(volume.getId())) {
+                    title = getContext().getString(R.string.root_internal_storage);
+                } else {
+                    final VolumeInfo privateVol = mStorageManager.findPrivateForEmulated(volume);
+                    title = mStorageManager.getBestVolumeDescription(privateVol);
+                }
             } else if (volume.getType() == VolumeInfo.TYPE_PUBLIC) {
                 rootId = volume.getFsUuid();
+                title = mStorageManager.getBestVolumeDescription(volume);
             } else {
                 // Unsupported volume; ignore
                 continue;
@@ -148,15 +159,15 @@ public class ExternalStorageProvider extends DocumentsProvider {
                 root.rootId = rootId;
                 root.flags = Root.FLAG_SUPPORTS_CREATE | Root.FLAG_LOCAL_ONLY | Root.FLAG_ADVANCED
                         | Root.FLAG_SUPPORTS_SEARCH | Root.FLAG_SUPPORTS_IS_CHILD;
-                if (ROOT_ID_PRIMARY_EMULATED.equals(rootId)) {
-                    root.title = getContext().getString(R.string.root_internal_storage);
-                } else {
-                    root.title = mStorageManager.getBestVolumeDescription(volume);
-                }
+                root.title = title;
                 if (volume.getType() == VolumeInfo.TYPE_PUBLIC) {
                     root.flags |= Root.FLAG_HAS_SETTINGS;
                 }
-                root.visiblePath = volume.getPathForUser(userId);
+                if (volume.isVisibleForRead(userId)) {
+                    root.visiblePath = volume.getPathForUser(userId);
+                } else {
+                    root.visiblePath = null;
+                }
                 root.path = volume.getInternalPathForUser(userId);
                 root.docId = getDocIdForFile(root.path);
 
@@ -167,8 +178,10 @@ public class ExternalStorageProvider extends DocumentsProvider {
 
         Log.d(TAG, "After updating volumes, found " + mRoots.size() + " active roots");
 
-        getContext().getContentResolver()
-                .notifyChange(DocumentsContract.buildRootsUri(AUTHORITY), null, false);
+        // Note this affects content://com.android.externalstorage.documents/root/39BD-07C5
+        // as well as content://com.android.externalstorage.documents/document/*/children,
+        // so just notify on content://com.android.externalstorage.documents/.
+        getContext().getContentResolver().notifyChange(BASE_URI, null, false);
     }
 
     private static String[] resolveRootProjection(String[] projection) {
@@ -368,12 +381,31 @@ public class ExternalStorageProvider extends DocumentsProvider {
     @Override
     public void deleteDocument(String docId) throws FileNotFoundException {
         final File file = getFileForDocId(docId);
-        if (file.isDirectory()) {
+        final boolean isDirectory = file.isDirectory();
+        if (isDirectory) {
             FileUtils.deleteContents(file);
         }
         if (!file.delete()) {
             throw new IllegalStateException("Failed to delete " + file);
         }
+
+        final ContentResolver resolver = getContext().getContentResolver();
+        final Uri externalUri = MediaStore.Files.getContentUri("external");
+
+        // Remove media store entries for any files inside this directory, using
+        // path prefix match. Logic borrowed from MtpDatabase.
+        if (isDirectory) {
+            final String path = file.getAbsolutePath() + "/";
+            resolver.delete(externalUri,
+                    "_data LIKE ?1 AND lower(substr(_data,1,?2))=lower(?3)",
+                    new String[] { path + "%", Integer.toString(path.length()), path });
+        }
+
+        // Remove media store entry for this exact file.
+        final String path = file.getAbsolutePath();
+        resolver.delete(externalUri,
+                "_data LIKE ?1 AND lower(_data)=lower(?2)",
+                new String[] { path, path });
     }
 
     @Override

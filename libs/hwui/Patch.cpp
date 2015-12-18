@@ -81,9 +81,9 @@ Patch::Patch(const float bitmapWidth, const float bitmapHeight,
         }
         const float xStretchTex = stretchSize;
         const float fixed = bitmapWidth - stretchSize;
-        const float xStretch = fmaxf(width - fixed, 0.0f);
+        const float xStretch = std::max(width - fixed, 0.0f);
         stretchX = xStretch / xStretchTex;
-        rescaleX = fixed == 0.0f ? 0.0f : fminf(fmaxf(width, 0.0f) / fixed, 1.0f);
+        rescaleX = fixed == 0.0f ? 0.0f : std::min(std::max(width, 0.0f) / fixed, 1.0f);
     }
 
     if (yStretchCount > 0) {
@@ -93,9 +93,9 @@ Patch::Patch(const float bitmapWidth, const float bitmapHeight,
         }
         const float yStretchTex = stretchSize;
         const float fixed = bitmapHeight - stretchSize;
-        const float yStretch = fmaxf(height - fixed, 0.0f);
+        const float yStretch = std::max(height - fixed, 0.0f);
         stretchY = yStretch / yStretchTex;
-        rescaleY = fixed == 0.0f ? 0.0f : fminf(fmaxf(height, 0.0f) / fixed, 1.0f);
+        rescaleY = fixed == 0.0f ? 0.0f : std::min(std::max(height, 0.0f) / fixed, 1.0f);
     }
 
     uint32_t quadCount = 0;
@@ -119,7 +119,7 @@ Patch::Patch(const float bitmapWidth, const float bitmapHeight,
         }
 
         float vOffset = y1 == y2 ? 0.0f : 0.5 - (0.5 * segment / (y2 - y1));
-        float v2 = fmax(0.0f, stepY - vOffset) / bitmapHeight;
+        float v2 = std::max(0.0f, stepY - vOffset) / bitmapHeight;
         v1 += vOffset / bitmapHeight;
 
         if (stepY > 0.0f) {
@@ -167,7 +167,7 @@ void Patch::generateRow(const int32_t* xDivs, uint32_t xCount, TextureVertex*& v
         }
 
         float uOffset = x1 == x2 ? 0.0f : 0.5 - (0.5 * segment / (x2 - x1));
-        float u2 = fmax(0.0f, stepX - uOffset) / bitmapWidth;
+        float u2 = std::max(0.0f, stepX - uOffset) / bitmapWidth;
         u1 += uOffset / bitmapWidth;
 
         if (stepX > 0.0f) {

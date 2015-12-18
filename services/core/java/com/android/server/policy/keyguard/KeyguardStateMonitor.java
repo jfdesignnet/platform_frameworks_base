@@ -25,6 +25,8 @@ import com.android.internal.policy.IKeyguardService;
 import com.android.internal.policy.IKeyguardStateCallback;
 import com.android.internal.widget.LockPatternUtils;
 
+import java.io.PrintWriter;
+
 /**
  * Maintains a cached copy of Keyguard's state.
  * @hide
@@ -36,16 +38,19 @@ public class KeyguardStateMonitor extends IKeyguardStateCallback.Stub {
     // Keyguard changes its state, it always triggers a layout in window manager. Because
     // IKeyguardStateCallback is synchronous and because these states are declared volatile, it's
     // guaranteed that window manager picks up the new state all the time in the layout caused by
-    // the state change of Keyguard.
-    private volatile boolean mIsShowing;
-    private volatile boolean mSimSecure;
-    private volatile boolean mInputRestricted;
+    // the state change of Keyguard. To be extra safe, assume most restrictive values until Keyguard
+    // tells us the actual value.
+    private volatile boolean mIsShowing = true;
+    private volatile boolean mSimSecure = true;
+    private volatile boolean mInputRestricted = true;
+
+    private int mCurrentUserId;
 
     private final LockPatternUtils mLockPatternUtils;
 
     public KeyguardStateMonitor(Context context, IKeyguardService service) {
         mLockPatternUtils = new LockPatternUtils(context);
-        mLockPatternUtils.setCurrentUser(ActivityManager.getCurrentUser());
+        mCurrentUserId = ActivityManager.getCurrentUser();
         try {
             service.addStateMonitorCallback(this);
         } catch (RemoteException e) {
@@ -58,7 +63,7 @@ public class KeyguardStateMonitor extends IKeyguardStateCallback.Stub {
     }
 
     public boolean isSecure() {
-        return mLockPatternUtils.isSecure() || mSimSecure;
+        return mLockPatternUtils.isSecure(getCurrentUser()) || mSimSecure;
     }
 
     public boolean isInputRestricted() {
@@ -75,12 +80,25 @@ public class KeyguardStateMonitor extends IKeyguardStateCallback.Stub {
         mSimSecure = simSecure;
     }
 
-    public void setCurrentUser(int userId) {
-        mLockPatternUtils.setCurrentUser(userId);
+    public synchronized void setCurrentUser(int userId) {
+        mCurrentUserId = userId;
+    }
+
+    private synchronized int getCurrentUser() {
+        return mCurrentUserId;
     }
 
     @Override // Binder interface
     public void onInputRestrictedStateChanged(boolean inputRestricted) {
         mInputRestricted = inputRestricted;
+    }
+
+    public void dump(String prefix, PrintWriter pw) {
+        pw.println(prefix + TAG);
+        prefix += "  ";
+        pw.println(prefix + "mIsShowing=" + mIsShowing);
+        pw.println(prefix + "mSimSecure=" + mSimSecure);
+        pw.println(prefix + "mInputRestricted=" + mInputRestricted);
+        pw.println(prefix + "mCurrentUserId=" + mCurrentUserId);
     }
 }

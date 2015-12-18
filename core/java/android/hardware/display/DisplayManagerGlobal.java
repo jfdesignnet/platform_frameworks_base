@@ -192,17 +192,6 @@ public final class DisplayManagerGlobal {
         return getCompatibleDisplay(displayId, DisplayAdjustments.DEFAULT_DISPLAY_ADJUSTMENTS);
     }
 
-    /**
-     * Gets information about a logical display without applying any compatibility metrics.
-     *
-     * @param displayId The logical display id.
-     * @param configuration the configuration.
-     * @return The display object, or null if there is no display with the given id.
-     */
-    public Display getRealDisplay(int displayId, Configuration configuration) {
-        return getCompatibleDisplay(displayId, new DisplayAdjustments(configuration));
-    }
-
     public void registerDisplayListener(DisplayListener listener, Handler handler) {
         if (listener == null) {
             throw new IllegalArgumentException("listener must not be null");
@@ -367,6 +356,14 @@ public final class DisplayManagerGlobal {
         } catch (RemoteException ex) {
             Log.e(TAG, "Failed to get Wifi display status.", ex);
             return new WifiDisplayStatus();
+        }
+    }
+
+    public void requestColorTransform(int displayId, int colorTransformId) {
+        try {
+            mDm.requestColorTransform(displayId, colorTransformId);
+        } catch (RemoteException ex) {
+            Log.e(TAG, "Failed to request color transform.", ex);
         }
     }
 

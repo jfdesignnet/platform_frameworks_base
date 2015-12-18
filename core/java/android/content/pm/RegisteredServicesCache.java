@@ -52,6 +52,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -83,7 +84,7 @@ public abstract class RegisteredServicesCache<V> {
     private final String mAttributesName;
     private final XmlSerializerAndParser<V> mSerializerAndParser;
 
-    private final Object mServicesLock = new Object();
+    protected final Object mServicesLock = new Object();
 
     @GuardedBy("mServicesLock")
     private final SparseArray<UserServices<V>> mUserServices = new SparseArray<UserServices<V>>(2);
@@ -231,6 +232,7 @@ public abstract class RegisteredServicesCache<V> {
         synchronized (mServicesLock) {
             final UserServices<V> user = findOrCreateUserLocked(userId);
             user.services = null;
+            onServicesChangedLocked(userId);
         }
     }
 
@@ -488,9 +490,14 @@ public abstract class RegisteredServicesCache<V> {
                 }
             }
             if (changed) {
+                onServicesChangedLocked(userId);
                 writePersistentServicesLocked(user, userId);
             }
         }
+    }
+
+    protected void onServicesChangedLocked(int userId) {
+        // Feel free to override
     }
 
     /**
@@ -573,7 +580,7 @@ public abstract class RegisteredServicesCache<V> {
     private void readPersistentServicesLocked(InputStream is)
             throws XmlPullParserException, IOException {
         XmlPullParser parser = Xml.newPullParser();
-        parser.setInput(is, null);
+        parser.setInput(is, StandardCharsets.UTF_8.name());
         int eventType = parser.getEventType();
         while (eventType != XmlPullParser.START_TAG
                 && eventType != XmlPullParser.END_DOCUMENT) {
@@ -663,7 +670,7 @@ public abstract class RegisteredServicesCache<V> {
         try {
             fos = atomicFile.startWrite();
             XmlSerializer out = new FastXmlSerializer();
-            out.setOutput(fos, "utf-8");
+            out.setOutput(fos, StandardCharsets.UTF_8.name());
             out.startDocument(null, true);
             out.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true);
             out.startTag(null, "services");
@@ -686,7 +693,9 @@ public abstract class RegisteredServicesCache<V> {
 
     @VisibleForTesting
     protected void onUserRemoved(int userId) {
-        mUserServices.remove(userId);
+        synchronized (mServicesLock) {
+            mUserServices.remove(userId);
+        }
     }
 
     @VisibleForTesting

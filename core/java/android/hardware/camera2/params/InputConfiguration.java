@@ -19,11 +19,11 @@ package android.hardware.camera2.params;
 import android.hardware.camera2.utils.HashCodeHelpers;
 
 /**
- * Immutable class to store an input configuration that is used to create a reprocessible capture
+ * Immutable class to store an input configuration that is used to create a reprocessable capture
  * session.
  *
- * @see CameraDevice#createReprocessibleCaptureSession
- * @see CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP
+ * @see android.hardware.camera2.CameraDevice#createReprocessableCaptureSession
+ * @see android.hardware.camera2.CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP
  */
 public final class InputConfiguration {
 
@@ -111,5 +111,18 @@ public final class InputConfiguration {
     @Override
     public int hashCode() {
         return HashCodeHelpers.hashCode(mWidth, mHeight, mFormat);
+    }
+
+    /**
+     * Return this {@link InputConfiguration} as a string representation.
+     *
+     * <p> {@code "InputConfiguration(w:%d, h:%d, format:%d)"}, where {@code %d} represents
+     * the width, height, and format, respectively.</p>
+     *
+     * @return string representation of {@link InputConfiguration}
+     */
+    @Override
+    public String toString() {
+        return String.format("InputConfiguration(w:%d, h:%d, format:%d)", mWidth, mHeight, mFormat);
     }
 }

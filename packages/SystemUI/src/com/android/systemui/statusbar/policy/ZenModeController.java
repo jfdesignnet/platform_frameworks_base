@@ -27,7 +27,6 @@ public interface ZenModeController {
     void removeCallback(Callback callback);
     void setZen(int zen, Uri conditionId, String reason);
     int getZen();
-    void requestConditions(boolean request);
     ZenRule getManualRule();
     ZenModeConfig getConfig();
     long getNextAlarm();
@@ -35,6 +34,8 @@ public interface ZenModeController {
     boolean isZenAvailable();
     ComponentName getEffectsSuppressor();
     boolean isCountdownConditionSupported();
+    int getCurrentUser();
+    boolean isVolumeRestricted();
 
     public static class Callback {
         public void onZenChanged(int zen) {}
@@ -45,4 +46,5 @@ public interface ZenModeController {
         public void onManualRuleChanged(ZenRule rule) {}
         public void onConfigChanged(ZenModeConfig config) {}
     }
+
 }

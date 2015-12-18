@@ -52,6 +52,7 @@ import android.os.Message;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.SELinux;
 import android.os.UserHandle;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -77,6 +78,7 @@ import java.io.File;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -127,6 +129,8 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
     @GuardedBy("mLock")
     private boolean mPermissionsAccepted = false;
     @GuardedBy("mLock")
+    private boolean mRelinquished = false;
+    @GuardedBy("mLock")
     private boolean mDestroyed = false;
 
     private int mFinalStatus;
@@ -161,6 +165,10 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
     private final List<File> mResolvedStagedFiles = new ArrayList<>();
     @GuardedBy("mLock")
     private final List<File> mResolvedInheritedFiles = new ArrayList<>();
+    @GuardedBy("mLock")
+    private final List<String> mResolvedInstructionSets = new ArrayList<>();
+    @GuardedBy("mLock")
+    private File mInheritedFilesBase;
 
     private final Handler.Callback mHandlerCallback = new Handler.Callback() {
         @Override
@@ -481,7 +489,7 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
             // User needs to accept permissions; give installer an intent they
             // can use to involve user.
             final Intent intent = new Intent(PackageInstaller.ACTION_CONFIRM_PERMISSIONS);
-            intent.setPackage("com.android.packageinstaller");
+            intent.setPackage(mContext.getPackageManager().getPermissionControllerPackageName());
             intent.putExtra(PackageInstaller.EXTRA_SESSION_ID, sessionId);
             try {
                 mRemoteObserver.onUserActionRequired(intent);
@@ -509,8 +517,17 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
                 final List<File> fromFiles = mResolvedInheritedFiles;
                 final File toDir = resolveStageDir();
 
+                if (LOGD) Slog.d(TAG, "Inherited files: " + mResolvedInheritedFiles);
+                if (!mResolvedInheritedFiles.isEmpty() && mInheritedFilesBase == null) {
+                    throw new IllegalStateException("mInheritedFilesBase == null");
+                }
+
                 if (isLinkPossible(fromFiles, toDir)) {
-                    linkFiles(fromFiles, toDir);
+                    if (!mResolvedInstructionSets.isEmpty()) {
+                        final File oatDir = new File(toDir, "oat");
+                        createOatDirs(mResolvedInstructionSets, oatDir);
+                    }
+                    linkFiles(fromFiles, toDir, mInheritedFilesBase);
                 } else {
                     // TODO: this should delegate to DCS so the system process
                     // avoids holding open FDs into containers.
@@ -557,6 +574,7 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
             user = new UserHandle(userId);
         }
 
+        mRelinquished = true;
         mPm.installStage(mPackageName, stageDir, stageCid, localObserver, params,
                 installerPackageName, installerUid, user);
     }
@@ -687,6 +705,33 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
                     }
                 }
             }
+
+            // Inherit compiled oat directory.
+            final File packageInstallDir = (new File(app.getBaseCodePath())).getParentFile();
+            mInheritedFilesBase = packageInstallDir;
+            final File oatDir = new File(packageInstallDir, "oat");
+            if (oatDir.exists()) {
+                final File[] archSubdirs = oatDir.listFiles();
+
+                // Keep track of all instruction sets we've seen compiled output for.
+                // If we're linking (and not copying) inherited files, we can recreate the
+                // instruction set hierarchy and link compiled output.
+                if (archSubdirs != null && archSubdirs.length > 0) {
+                    final String[] instructionSets = InstructionSets.getAllDexCodeInstructionSets();
+                    for (File archSubDir : archSubdirs) {
+                        // Skip any directory that isn't an ISA subdir.
+                        if (!ArrayUtils.contains(instructionSets, archSubDir.getName())) {
+                            continue;
+                        }
+
+                        mResolvedInstructionSets.add(archSubDir.getName());
+                        List<File> oatFiles = Arrays.asList(archSubDir.listFiles());
+                        if (!oatFiles.isEmpty()) {
+                            mResolvedInheritedFiles.addAll(oatFiles);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -765,16 +810,41 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
         return true;
     }
 
-    private static void linkFiles(List<File> fromFiles, File toDir) throws IOException {
+    private static String getRelativePath(File file, File base) throws IOException {
+        final String pathStr = file.getAbsolutePath();
+        final String baseStr = base.getAbsolutePath();
+        // Don't allow relative paths.
+        if (pathStr.contains("/.") ) {
+            throw new IOException("Invalid path (was relative) : " + pathStr);
+        }
+
+        if (pathStr.startsWith(baseStr)) {
+            return pathStr.substring(baseStr.length());
+        }
+
+        throw new IOException("File: " + pathStr + " outside base: " + baseStr);
+    }
+
+    private void createOatDirs(List<String> instructionSets, File fromDir) {
+        for (String instructionSet : instructionSets) {
+            mPm.mInstaller.createOatDir(fromDir.getAbsolutePath(), instructionSet);
+        }
+    }
+
+    private void linkFiles(List<File> fromFiles, File toDir, File fromDir)
+            throws IOException {
         for (File fromFile : fromFiles) {
-            final File toFile = new File(toDir, fromFile.getName());
-            try {
-                if (LOGD) Slog.d(TAG, "Linking " + fromFile + " to " + toFile);
-                Os.link(fromFile.getAbsolutePath(), toFile.getAbsolutePath());
-            } catch (ErrnoException e) {
-                throw new IOException("Failed to link " + fromFile + " to " + toFile, e);
+            final String relativePath = getRelativePath(fromFile, fromDir);
+            final int ret = mPm.mInstaller.linkFile(relativePath, fromDir.getAbsolutePath(),
+                    toDir.getAbsolutePath());
+
+            if (ret < 0) {
+                // installd will log failure details.
+                throw new IOException("failed linkOrCreateDir(" + relativePath + ", "
+                        + fromDir + ", " + toDir + ")");
             }
         }
+
         Slog.d(TAG, "Linked " + fromFiles.size() + " files into " + toDir);
     }
 
@@ -928,6 +998,10 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
 
     @Override
     public void abandon() {
+        if (mRelinquished) {
+            Slog.d(TAG, "Ignoring abandon after commit relinquished control");
+            return;
+        }
         destroyInternal();
         dispatchSessionFinished(INSTALL_FAILED_ABORTED, "Session was abandoned", null);
     }
@@ -958,8 +1032,7 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
             }
         }
         if (stageDir != null) {
-            FileUtils.deleteContents(stageDir);
-            stageDir.delete();
+            mPm.mInstaller.rmPackageDir(stageDir.getAbsolutePath());
         }
         if (stageCid != null) {
             PackageHelper.destroySdDir(stageCid);
@@ -990,6 +1063,7 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
         pw.printPair("mProgress", mProgress);
         pw.printPair("mSealed", mSealed);
         pw.printPair("mPermissionsAccepted", mPermissionsAccepted);
+        pw.printPair("mRelinquished", mRelinquished);
         pw.printPair("mDestroyed", mDestroyed);
         pw.printPair("mBridges", mBridges.size());
         pw.printPair("mFinalStatus", mFinalStatus);

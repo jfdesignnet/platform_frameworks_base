@@ -246,6 +246,8 @@ abstract class HdmiCecLocalDevice {
                 return handleRequestActiveSource(message);
             case Constants.MESSAGE_GET_MENU_LANGUAGE:
                 return handleGetMenuLanguage(message);
+            case Constants.MESSAGE_SET_MENU_LANGUAGE:
+                return handleSetMenuLanguage(message);
             case Constants.MESSAGE_GIVE_PHYSICAL_ADDRESS:
                 return handleGivePhysicalAddress();
             case Constants.MESSAGE_GIVE_OSD_NAME:
@@ -372,6 +374,14 @@ abstract class HdmiCecLocalDevice {
     protected boolean handleGetMenuLanguage(HdmiCecMessage message) {
         assertRunOnServiceThread();
         Slog.w(TAG, "Only TV can handle <Get Menu Language>:" + message.toString());
+        // 'return false' will cause to reply with <Feature Abort>.
+        return false;
+    }
+
+    @ServiceThreadOnly
+    protected boolean handleSetMenuLanguage(HdmiCecMessage message) {
+        assertRunOnServiceThread();
+        Slog.w(TAG, "Only Playback device can handle <Set Menu Language>:" + message.toString());
         // 'return false' will cause to reply with <Feature Abort>.
         return false;
     }
@@ -737,6 +747,9 @@ abstract class HdmiCecLocalDevice {
         }
     }
 
+    void setAutoDeviceOff(boolean enabled) {
+    }
+
     /**
      * Called when a hot-plug event issued.
      *
@@ -829,8 +842,11 @@ abstract class HdmiCecLocalDevice {
      *
      * @param initiatedByCec true if this power sequence is initiated
      *        by the reception the CEC messages like &lt;Standby&gt;
+     * @param standbyAction Intent action that drives the standby process,
+     *        either {@link HdmiControlService#STANDBY_SCREEN_OFF} or
+     *        {@link HdmiControlService#STANDBY_SHUTDOWN}
      */
-    protected void onStandby(boolean initiatedByCec) {}
+    protected void onStandby(boolean initiatedByCec, int standbyAction) {}
 
     /**
      * Disable device. {@code callback} is used to get notified when all pending

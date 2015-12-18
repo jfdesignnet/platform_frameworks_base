@@ -100,11 +100,11 @@ public class VolumeDialogController {
     private boolean mEnabled;
     private boolean mDestroyed;
     private VolumePolicy mVolumePolicy;
-    private boolean mShowDndTile = false;
+    private boolean mShowDndTile = true;
 
     public VolumeDialogController(Context context, ComponentName component) {
         mContext = context.getApplicationContext();
-        Events.writeEvent(Events.EVENT_COLLECTION_STARTED);
+        Events.writeEvent(mContext, Events.EVENT_COLLECTION_STARTED);
         mComponent = component;
         mWorkerThread = new HandlerThread(VolumeDialogController.class.getSimpleName());
         mWorkerThread.start();
@@ -123,6 +123,10 @@ public class VolumeDialogController {
 
     public AudioManager getAudioManager() {
         return mAudio;
+    }
+
+    public ZenModeConfig getZenModeConfig() {
+        return mNoMan.getZenModeConfig();
     }
 
     public void dismiss() {
@@ -164,7 +168,7 @@ public class VolumeDialogController {
         if (D.BUG) Log.d(TAG, "destroy");
         if (mDestroyed) return;
         mDestroyed = true;
-        Events.writeEvent(Events.EVENT_COLLECTION_STOPPED);
+        Events.writeEvent(mContext, Events.EVENT_COLLECTION_STOPPED);
         mMediaSessions.destroy();
         mObserver.destroy();
         mReceiver.destroy();
@@ -176,7 +180,7 @@ public class VolumeDialogController {
         pw.print("  mEnabled: "); pw.println(mEnabled);
         pw.print("  mDestroyed: "); pw.println(mDestroyed);
         pw.print("  mVolumePolicy: "); pw.println(mVolumePolicy);
-        pw.print("  mEnabled: "); pw.println(mEnabled);
+        pw.print("  mState: "); pw.println(mState.toString(4));
         pw.print("  mShowDndTile: "); pw.println(mShowDndTile);
         pw.print("  mHasVibrator: "); pw.println(mHasVibrator);
         pw.print("  mRemoteStreams: "); pw.println(mMediaSessionsCallbacksW.mRemoteStreams
@@ -289,7 +293,8 @@ public class VolumeDialogController {
         if (showUI) {
             changed |= updateActiveStreamW(stream);
         }
-        changed |= updateStreamLevelW(stream, mAudio.getLastAudibleStreamVolume(stream));
+        int lastAudibleStreamVolume = mAudio.getLastAudibleStreamVolume(stream);
+        changed |= updateStreamLevelW(stream, lastAudibleStreamVolume);
         changed |= checkRoutedToBluetoothW(showUI ? AudioManager.STREAM_MUSIC : stream);
         if (changed) {
             mCallbacks.onStateChanged(mState);
@@ -304,14 +309,14 @@ public class VolumeDialogController {
             mCallbacks.onShowSilentHint();
         }
         if (changed && fromKey) {
-            Events.writeEvent(Events.EVENT_KEY);
+            Events.writeEvent(mContext, Events.EVENT_KEY, stream, lastAudibleStreamVolume);
         }
     }
 
     private boolean updateActiveStreamW(int activeStream) {
         if (activeStream == mState.activeStream) return false;
         mState.activeStream = activeStream;
-        Events.writeEvent(Events.EVENT_ACTIVE_STREAM_CHANGED, activeStream);
+        Events.writeEvent(mContext, Events.EVENT_ACTIVE_STREAM_CHANGED, activeStream);
         if (D.BUG) Log.d(TAG, "updateActiveStreamW " + activeStream);
         final int s = activeStream < DYNAMIC_STREAM_START_INDEX ? activeStream : -1;
         if (D.BUG) Log.d(TAG, "forceVolumeControlStream " + s);
@@ -342,7 +347,7 @@ public class VolumeDialogController {
         updateRingerModeExternalW(mAudio.getRingerMode());
         updateZenModeW();
         updateEffectsSuppressorW(mNoMan.getEffectsSuppressor());
-        updateExitConditionW();
+        updateZenModeConfigW();
         mCallbacks.onStateChanged(mState);
     }
 
@@ -360,7 +365,7 @@ public class VolumeDialogController {
         if (ss.level == level) return false;
         ss.level = level;
         if (isLogWorthy(stream)) {
-            Events.writeEvent(Events.EVENT_LEVEL_CHANGED, stream, level);
+            Events.writeEvent(mContext, Events.EVENT_LEVEL_CHANGED, stream, level);
         }
         return true;
     }
@@ -383,7 +388,7 @@ public class VolumeDialogController {
         if (ss.muted == muted) return false;
         ss.muted = muted;
         if (isLogWorthy(stream)) {
-            Events.writeEvent(Events.EVENT_MUTE_CHANGED, stream, muted);
+            Events.writeEvent(mContext, Events.EVENT_MUTE_CHANGED, stream, muted);
         }
         if (muted && isRinger(stream)) {
             updateRingerModeInternalW(mAudio.getRingerModeInternal());
@@ -395,17 +400,10 @@ public class VolumeDialogController {
         return stream == AudioManager.STREAM_RING || stream == AudioManager.STREAM_NOTIFICATION;
     }
 
-    private Condition getExitCondition() {
-        final ZenModeConfig config = mNoMan.getZenModeConfig();
-        return config == null ? null
-                : config.manualRule == null ? null
-                : config.manualRule.condition;
-    }
-
-    private boolean updateExitConditionW() {
-        final Condition exitCondition = getExitCondition();
-        if (Objects.equals(mState.exitCondition, exitCondition)) return false;
-        mState.exitCondition = exitCondition;
+    private boolean updateZenModeConfigW() {
+        final ZenModeConfig zenModeConfig = getZenModeConfig();
+        if (Objects.equals(mState.zenModeConfig, zenModeConfig)) return false;
+        mState.zenModeConfig = zenModeConfig;
         return true;
     }
 
@@ -413,7 +411,7 @@ public class VolumeDialogController {
         if (Objects.equals(mState.effectsSuppressor, effectsSuppressor)) return false;
         mState.effectsSuppressor = effectsSuppressor;
         mState.effectsSuppressorName = getApplicationName(mContext, mState.effectsSuppressor);
-        Events.writeEvent(Events.EVENT_SUPPRESSOR_CHANGED, mState.effectsSuppressor,
+        Events.writeEvent(mContext, Events.EVENT_SUPPRESSOR_CHANGED, mState.effectsSuppressor,
                 mState.effectsSuppressorName);
         return true;
     }
@@ -437,21 +435,21 @@ public class VolumeDialogController {
                 Settings.Global.ZEN_MODE, Settings.Global.ZEN_MODE_OFF);
         if (mState.zenMode == zen) return false;
         mState.zenMode = zen;
-        Events.writeEvent(Events.EVENT_ZEN_MODE_CHANGED, zen);
+        Events.writeEvent(mContext, Events.EVENT_ZEN_MODE_CHANGED, zen);
         return true;
     }
 
     private boolean updateRingerModeExternalW(int rm) {
         if (rm == mState.ringerModeExternal) return false;
         mState.ringerModeExternal = rm;
-        Events.writeEvent(Events.EVENT_EXTERNAL_RINGER_MODE_CHANGED, rm);
+        Events.writeEvent(mContext, Events.EVENT_EXTERNAL_RINGER_MODE_CHANGED, rm);
         return true;
     }
 
     private boolean updateRingerModeInternalW(int rm) {
         if (rm == mState.ringerModeInternal) return false;
         mState.ringerModeInternal = rm;
-        Events.writeEvent(Events.EVENT_INTERNAL_RINGER_MODE_CHANGED, rm);
+        Events.writeEvent(mContext, Events.EVENT_INTERNAL_RINGER_MODE_CHANGED, rm);
         return true;
     }
 
@@ -750,7 +748,7 @@ public class VolumeDialogController {
                 changed = updateZenModeW();
             }
             if (ZEN_MODE_CONFIG_URI.equals(uri)) {
-                changed = updateExitConditionW();
+                changed = updateZenModeConfigW();
             }
             if (changed) {
                 mCallbacks.onStateChanged(mState);
@@ -770,6 +768,7 @@ public class VolumeDialogController {
             filter.addAction(NotificationManager.ACTION_EFFECTS_SUPPRESSOR_CHANGED);
             filter.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
             filter.addAction(Intent.ACTION_SCREEN_OFF);
+            filter.addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
             mContext.registerReceiver(this, filter, null, mWorker);
         }
 
@@ -824,6 +823,9 @@ public class VolumeDialogController {
             } else if (action.equals(Intent.ACTION_SCREEN_OFF)) {
                 if (D.BUG) Log.d(TAG, "onReceive ACTION_SCREEN_OFF");
                 mCallbacks.onScreenOff();
+            } else if (action.equals(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) {
+                if (D.BUG) Log.d(TAG, "onReceive ACTION_CLOSE_SYSTEM_DIALOGS");
+                dismiss();
             }
             if (changed) {
                 mCallbacks.onStateChanged(mState);
@@ -943,7 +945,7 @@ public class VolumeDialogController {
         public int zenMode;
         public ComponentName effectsSuppressor;
         public String effectsSuppressorName;
-        public Condition exitCondition;
+        public ZenModeConfig zenModeConfig;
         public int activeStream = NO_ACTIVE_STREAM;
 
         public State copy() {
@@ -956,30 +958,55 @@ public class VolumeDialogController {
             rt.zenMode = zenMode;
             if (effectsSuppressor != null) rt.effectsSuppressor = effectsSuppressor.clone();
             rt.effectsSuppressorName = effectsSuppressorName;
-            if (exitCondition != null) rt.exitCondition = exitCondition.copy();
+            if (zenModeConfig != null) rt.zenModeConfig = zenModeConfig.copy();
             rt.activeStream = activeStream;
             return rt;
         }
 
         @Override
         public String toString() {
+            return toString(0);
+        }
+
+        public String toString(int indent) {
             final StringBuilder sb = new StringBuilder("{");
+            if (indent > 0) sep(sb, indent);
             for (int i = 0; i < states.size(); i++) {
-                if (i > 0) sb.append(',');
+                if (i > 0) {
+                    sep(sb, indent);
+                }
                 final int stream = states.keyAt(i);
                 final StreamState ss = states.valueAt(i);
                 sb.append(AudioSystem.streamToString(stream)).append(":").append(ss.level)
-                        .append("[").append(ss.levelMin).append("..").append(ss.levelMax);
+                        .append('[').append(ss.levelMin).append("..").append(ss.levelMax)
+                        .append(']');
                 if (ss.muted) sb.append(" [MUTED]");
             }
-            sb.append(",ringerModeExternal:").append(ringerModeExternal);
-            sb.append(",ringerModeInternal:").append(ringerModeInternal);
-            sb.append(",zenMode:").append(zenMode);
-            sb.append(",effectsSuppressor:").append(effectsSuppressor);
-            sb.append(",effectsSuppressorName:").append(effectsSuppressorName);
-            sb.append(",exitCondition:").append(exitCondition);
-            sb.append(",activeStream:").append(activeStream);
+            sep(sb, indent); sb.append("ringerModeExternal:").append(ringerModeExternal);
+            sep(sb, indent); sb.append("ringerModeInternal:").append(ringerModeInternal);
+            sep(sb, indent); sb.append("zenMode:").append(zenMode);
+            sep(sb, indent); sb.append("effectsSuppressor:").append(effectsSuppressor);
+            sep(sb, indent); sb.append("effectsSuppressorName:").append(effectsSuppressorName);
+            sep(sb, indent); sb.append("zenModeConfig:").append(zenModeConfig);
+            sep(sb, indent); sb.append("activeStream:").append(activeStream);
+            if (indent > 0) sep(sb, indent);
             return sb.append('}').toString();
+        }
+
+        private static void sep(StringBuilder sb, int indent) {
+            if (indent > 0) {
+                sb.append('\n');
+                for (int i = 0; i < indent; i++) {
+                    sb.append(' ');
+                }
+            } else {
+                sb.append(',');
+            }
+        }
+
+        public Condition getManualExitCondition() {
+            return zenModeConfig != null && zenModeConfig.manualRule != null
+                    ? zenModeConfig.manualRule.condition : null;
         }
     }
 

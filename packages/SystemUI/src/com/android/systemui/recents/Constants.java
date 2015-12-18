@@ -20,6 +20,14 @@ package com.android.systemui.recents;
  * Constants
  */
 public class Constants {
+
+    public static class Metrics {
+        // DO NOT MODIFY THE ORDER OF THESE METRICS
+        public static final int DismissSourceKeyboard = 0;
+        public static final int DismissSourceSwipeGesture = 1;
+        public static final int DismissSourceHeaderButton = 2;
+    }
+
     public static class DebugFlags {
         // Enable this with any other debug flag to see more info
         public static final boolean Verbose = false;
@@ -29,8 +37,6 @@ public class Constants {
             public static final boolean EnableTransitionThumbnailDebugMode = false;
             // Enables the filtering of tasks according to their grouping
             public static final boolean EnableTaskFiltering = false;
-            // Enables app-info pane on long-pressing the icon
-            public static final boolean EnableDevAppInfoOnLongPress = true;
             // Enables dismiss-all
             public static final boolean EnableDismissAll = false;
             // Enables debug mode

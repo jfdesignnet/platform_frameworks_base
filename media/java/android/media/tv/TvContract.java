@@ -21,6 +21,7 @@ import android.annotation.SystemApi;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentUris;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.IBinder;
 import android.provider.BaseColumns;
@@ -281,12 +282,12 @@ public final class TvContract {
         return ContentUris.withAppendedId(WatchedPrograms.CONTENT_URI, watchedProgramId);
     }
 
-    private static final boolean isTvUri(Uri uri) {
+    private static boolean isTvUri(Uri uri) {
         return uri != null && ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
                 && AUTHORITY.equals(uri.getAuthority());
     }
 
-    private static final boolean isTwoSegmentUriStartingWith(Uri uri, String pathSegment) {
+    private static boolean isTwoSegmentUriStartingWith(Uri uri, String pathSegment) {
         List<String> pathSegments = uri.getPathSegments();
         return pathSegments.size() == 2 && pathSegment.equals(pathSegments.get(0));
     }
@@ -332,15 +333,15 @@ public final class TvContract {
      */
     public interface BaseTvColumns extends BaseColumns {
         /**
-         * The name of the package that owns a row in each table.
+         * The name of the package that owns the current row.
          *
-         * <p>The TV provider fills it in with the name of the package that provides the initial data
-         * of that row. If the package is later uninstalled, the rows it owns are automatically
-         * removed from the tables.
+         * <p>The TV provider fills in this column with the name of the package that provides the
+         * initial data of the row. If the package is later uninstalled, the rows it owns are
+         * automatically removed from the tables.
          *
          * <p>Type: TEXT
          */
-        public static final String COLUMN_PACKAGE_NAME = "package_name";
+        String COLUMN_PACKAGE_NAME = "package_name";
     }
 
     /** Column definitions for the TV channels table. */
@@ -485,8 +486,7 @@ public final class TvContract {
         /** The video resolution for ultra high-definition. */
         public static final String VIDEO_RESOLUTION_UHD = "VIDEO_RESOLUTION_UHD";
 
-        private static final Map<String, String> VIDEO_FORMAT_TO_RESOLUTION_MAP =
-                new HashMap<String, String>();
+        private static final Map<String, String> VIDEO_FORMAT_TO_RESOLUTION_MAP = new HashMap<>();
 
         static {
             VIDEO_FORMAT_TO_RESOLUTION_MAP.put(VIDEO_FORMAT_480I, VIDEO_RESOLUTION_SD);
@@ -565,7 +565,7 @@ public final class TvContract {
          * defined there (e.g. ETSI EN 300 468/TR 101 211 and ARIB STD-B10). If channels cannot be
          * globally identified by 2-tuple {{@link #COLUMN_TRANSPORT_STREAM_ID},
          * {@link #COLUMN_SERVICE_ID}}, one must carefully assign a value to this field to form a
-         * unique 3-tuple identification {{@link #COLUMN_ORIGINAL_NETWORK_ID},
+         * unique 3-tuple identification {{@code COLUMN_ORIGINAL_NETWORK_ID},
          * {@link #COLUMN_TRANSPORT_STREAM_ID}, {@link #COLUMN_SERVICE_ID}} for its channels.
          *
          * <p>This is a required field if the channel cannot be uniquely identified by a 2-tuple
@@ -681,12 +681,13 @@ public final class TvContract {
         /**
          * The flag indicating whether this TV channel is searchable or not.
          *
-         * <p>In some regions, it is not allowed to surface search results for a given channel
-         * without broadcaster's consent. This is used to impose such restriction. Channels marked
-         * with "not searchable" cannot be used by other services except for the system service that
-         * shows the TV content. A value of 1 indicates the channel is searchable and can be
-         * included in search results, a value of 0 indicates the channel and its TV programs are
-         * hidden from search. If not specified, this value is set to 1 (searchable) by default.
+         * <p>The columns of searchable channels can be read by other applications that have proper
+         * permission. Care must be taken not to open sensitive data.
+         *
+         * <p>A value of 1 indicates that the channel is searchable and its columns can be read by
+         * other applications, a value of 0 indicates that the channel is hidden and its columns can
+         * be read only by the package that owns the channel and the system. If not specified, this
+         * value is set to 1 (searchable) by default.
          *
          * <p>Type: INTEGER (boolean)
          */
@@ -707,6 +708,110 @@ public final class TvContract {
          */
         @SystemApi
         public static final String COLUMN_LOCKED = "locked";
+
+        /**
+         * The URI for the app badge icon of the app link template for this channel.
+         *
+         * <p>This small icon is overlaid at the bottom of the poster art specified by
+         * {@link #COLUMN_APP_LINK_POSTER_ART_URI}. The data in the column must be a URI in one of
+         * the following formats:
+         *
+         * <ul>
+         * <li>content ({@link android.content.ContentResolver#SCHEME_CONTENT})</li>
+         * <li>android.resource ({@link android.content.ContentResolver#SCHEME_ANDROID_RESOURCE})
+         * </li>
+         * <li>file ({@link android.content.ContentResolver#SCHEME_FILE})</li>
+         * </ul>
+         *
+         * <p>The app-linking allows channel input sources to provide activity links from their live
+         * channel programming to another activity. This enables content providers to increase user
+         * engagement by offering the viewer other content or actions.
+         *
+         * <p>Type: TEXT
+         * @see #COLUMN_APP_LINK_COLOR
+         * @see #COLUMN_APP_LINK_INTENT_URI
+         * @see #COLUMN_APP_LINK_POSTER_ART_URI
+         * @see #COLUMN_APP_LINK_TEXT
+         */
+        public static final String COLUMN_APP_LINK_ICON_URI = "app_link_icon_uri";
+
+        /**
+         * The URI for the poster art used as the background of the app link template for this
+         * channel.
+         *
+         * <p>The data in the column must be a URL, or a URI in one of the following formats:
+         *
+         * <ul>
+         * <li>content ({@link android.content.ContentResolver#SCHEME_CONTENT})</li>
+         * <li>android.resource ({@link android.content.ContentResolver#SCHEME_ANDROID_RESOURCE})
+         * </li>
+         * <li>file ({@link android.content.ContentResolver#SCHEME_FILE})</li>
+         * </ul>
+         *
+         * <p>The app-linking allows channel input sources to provide activity links from their live
+         * channel programming to another activity. This enables content providers to increase user
+         * engagement by offering the viewer other content or actions.
+         *
+         * <p>Type: TEXT
+         * @see #COLUMN_APP_LINK_COLOR
+         * @see #COLUMN_APP_LINK_ICON_URI
+         * @see #COLUMN_APP_LINK_INTENT_URI
+         * @see #COLUMN_APP_LINK_TEXT
+         */
+        public static final String COLUMN_APP_LINK_POSTER_ART_URI = "app_link_poster_art_uri";
+
+        /**
+         * The link text of the app link template for this channel.
+         *
+         * <p>This provides a short description of the action that happens when the corresponding
+         * app link is clicked.
+         *
+         * <p>The app-linking allows channel input sources to provide activity links from their live
+         * channel programming to another activity. This enables content providers to increase user
+         * engagement by offering the viewer other content or actions.
+         *
+         * <p>Type: TEXT
+         * @see #COLUMN_APP_LINK_COLOR
+         * @see #COLUMN_APP_LINK_ICON_URI
+         * @see #COLUMN_APP_LINK_INTENT_URI
+         * @see #COLUMN_APP_LINK_POSTER_ART_URI
+         */
+        public static final String COLUMN_APP_LINK_TEXT = "app_link_text";
+
+        /**
+         * The accent color of the app link template for this channel. This is primarily used for
+         * the background color of the text box in the template.
+         *
+         * <p>The app-linking allows channel input sources to provide activity links from their live
+         * channel programming to another activity. This enables content providers to increase user
+         * engagement by offering the viewer other content or actions.
+         *
+         * <p>Type: INTEGER (color value)
+         * @see #COLUMN_APP_LINK_ICON_URI
+         * @see #COLUMN_APP_LINK_INTENT_URI
+         * @see #COLUMN_APP_LINK_POSTER_ART_URI
+         * @see #COLUMN_APP_LINK_TEXT
+         */
+        public static final String COLUMN_APP_LINK_COLOR = "app_link_color";
+
+        /**
+         * The intent URI of the app link for this channel.
+         *
+         * <p>The URI is created using {@link Intent#toUri} with {@link Intent#URI_INTENT_SCHEME}
+         * and converted back to the original intent with {@link Intent#parseUri}. The intent is
+         * launched when the user clicks the corresponding app link for the current channel.
+         *
+         * <p>The app-linking allows channel input sources to provide activity links from their live
+         * channel programming to another activity. This enables content providers to increase user
+         * engagement by offering the viewer other content or actions.
+         *
+         * <p>Type: TEXT
+         * @see #COLUMN_APP_LINK_COLOR
+         * @see #COLUMN_APP_LINK_ICON_URI
+         * @see #COLUMN_APP_LINK_POSTER_ART_URI
+         * @see #COLUMN_APP_LINK_TEXT
+         */
+        public static final String COLUMN_APP_LINK_INTENT_URI = "app_link_intent_uri";
 
         /**
          * Internal data used by individual TV input services.
@@ -996,6 +1101,15 @@ public final class TvContract {
         /**
          * The URI for the poster art of this TV program.
          *
+         * <p>The data in the column must be a URL, or a URI in one of the following formats:
+         *
+         * <ul>
+         * <li>content ({@link android.content.ContentResolver#SCHEME_CONTENT})</li>
+         * <li>android.resource ({@link android.content.ContentResolver#SCHEME_ANDROID_RESOURCE})
+         * </li>
+         * <li>file ({@link android.content.ContentResolver#SCHEME_FILE})</li>
+         * </ul>
+         *
          * <p>Can be empty.
          *
          * <p>Type: TEXT
@@ -1005,11 +1119,39 @@ public final class TvContract {
         /**
          * The URI for the thumbnail of this TV program.
          *
+         * <p>The system can generate a thumbnail from the poster art if this column is not
+         * specified. Thus it is not necessary for TV input services to include a thumbnail if it is
+         * just a scaled image of the poster art.
+         *
+         * <p>The data in the column must be a URL, or a URI in one of the following formats:
+         *
+         * <ul>
+         * <li>content ({@link android.content.ContentResolver#SCHEME_CONTENT})</li>
+         * <li>android.resource ({@link android.content.ContentResolver#SCHEME_ANDROID_RESOURCE})
+         * </li>
+         * <li>file ({@link android.content.ContentResolver#SCHEME_FILE})</li>
+         * </ul>
+         *
          * <p>Can be empty.
          *
          * <p>Type: TEXT
          */
         public static final String COLUMN_THUMBNAIL_URI = "thumbnail_uri";
+
+        /**
+         * The flag indicating whether this TV program is searchable or not.
+         *
+         * <p>The columns of searchable programs can be read by other applications that have proper
+         * permission. Care must be taken not to open sensitive data.
+         *
+         * <p>A value of 1 indicates that the program is searchable and its columns can be read by
+         * other applications, a value of 0 indicates that the program is hidden and its columns can
+         * be read only by the package that owns the program and the system. If not specified, this
+         * value is set to 1 (searchable) by default.
+         *
+         * <p>Type: INTEGER (boolean)
+         */
+        public static final String COLUMN_SEARCHABLE = "searchable";
 
         /**
          * Internal data used by individual TV input services.
@@ -1128,7 +1270,7 @@ public final class TvContract {
             /** The genre for Tech/Science. */
             public static final String TECH_SCIENCE = "TECH_SCIENCE";
 
-            private static final ArraySet<String> CANONICAL_GENRES = new ArraySet<String>();
+            private static final ArraySet<String> CANONICAL_GENRES = new ArraySet<>();
             static {
                 CANONICAL_GENRES.add(FAMILY_KIDS);
                 CANONICAL_GENRES.add(SPORTS);

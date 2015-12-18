@@ -17,14 +17,12 @@
 package com.android.test.assist;
 
 import android.animation.Animator;
-import android.animation.RevealAnimator;
 import android.animation.ValueAnimator;
 import android.app.VoiceInteractor;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
-import android.service.voice.VoiceInteractionService;
 import android.service.voice.VoiceInteractionSession;
 import android.util.Log;
 import android.view.View;
@@ -55,39 +53,30 @@ public class AssistInteractionSession extends VoiceInteractionSession {
     }
 
     @Override
-    public void onConfirm(Caller caller,
-            Request request, CharSequence prompt, Bundle extras) {
-
+    public void onRequestConfirmation(ConfirmationRequest request) {
     }
 
     @Override
-    public void onPickOption(Caller caller,
-            Request request, CharSequence prompt,
-            VoiceInteractor.PickOptionRequest.Option[] options, Bundle extras) {
-
+    public void onRequestPickOption(PickOptionRequest request) {
     }
 
     @Override
-    public void onCommand(Caller caller,
-            Request request, String command, Bundle extras) {
-
+    public void onRequestCommand(CommandRequest request) {
     }
 
     @Override
-    public void onCreate(Bundle args) {
-        super.onCreate(args);
+    public void onCancelRequest(Request request) {
+    }
 
+    @Override
+    public void onCreate() {
+        super.onCreate();
         // Simulate slowness of Assist app
         try {
             Thread.sleep(1000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-    }
-
-    @Override
-    public void onCancel(Request request) {
-
     }
 
     @Override
@@ -105,7 +94,7 @@ public class AssistInteractionSession extends VoiceInteractionSession {
     @Override
     public void onShow(Bundle args, int showFlags) {
         super.onShow(args, showFlags);
-        if ((showFlags & VoiceInteractionService.START_SOURCE_ASSIST_GESTURE) != 0) {
+        if ((showFlags & SHOW_SOURCE_ASSIST_GESTURE) != 0) {
             mBackground.getViewTreeObserver().addOnPreDrawListener(
                     new ViewTreeObserver.OnPreDrawListener() {
                         @Override
@@ -116,6 +105,12 @@ public class AssistInteractionSession extends VoiceInteractionSession {
                         }
                     });
         }
+    }
+
+    @Override
+    public void onLockscreenShown() {
+        super.onLockscreenShown();
+        Log.i("Assistant", "Lockscreen was shown");
     }
 
     private void playAssistAnimation() {

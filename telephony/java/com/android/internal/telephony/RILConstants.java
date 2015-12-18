@@ -96,6 +96,16 @@ public interface RILConstants {
     int NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA = 10; /* LTE, CDMA, EvDo, GSM/WCDMA */
     int NETWORK_MODE_LTE_ONLY       = 11; /* LTE Only mode. */
     int NETWORK_MODE_LTE_WCDMA      = 12; /* LTE/WCDMA */
+    int NETWORK_MODE_TDSCDMA_ONLY            = 13; /* TD-SCDMA only */
+    int NETWORK_MODE_TDSCDMA_WCDMA           = 14; /* TD-SCDMA and WCDMA */
+    int NETWORK_MODE_LTE_TDSCDMA             = 15; /* TD-SCDMA and LTE */
+    int NETWORK_MODE_TDSCDMA_GSM             = 16; /* TD-SCDMA and GSM */
+    int NETWORK_MODE_LTE_TDSCDMA_GSM         = 17; /* TD-SCDMA,GSM and LTE */
+    int NETWORK_MODE_TDSCDMA_GSM_WCDMA       = 18; /* TD-SCDMA, GSM/WCDMA */
+    int NETWORK_MODE_LTE_TDSCDMA_WCDMA       = 19; /* TD-SCDMA, WCDMA and LTE */
+    int NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA   = 20; /* TD-SCDMA, GSM/WCDMA and LTE */
+    int NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA  = 21; /*TD-SCDMA,EvDo,CDMA,GSM/WCDMA*/
+    int NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = 22; /* TD-SCDMA/LTE/GSM/WCDMA, CDMA, and EvDo */
     int PREFERRED_NETWORK_MODE      = SystemProperties.getInt("ro.telephony.default_network",
             NETWORK_MODE_WCDMA_PREF);
 
@@ -323,6 +333,7 @@ cat include/telephony/ril.h | \
     int RIL_REQUEST_START_LCE = 132;
     int RIL_REQUEST_STOP_LCE = 133;
     int RIL_REQUEST_PULL_LCEDATA = 134;
+    int RIL_REQUEST_GET_ACTIVITY_INFO = 135;
 
     int RIL_UNSOL_RESPONSE_BASE = 1000;
     int RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED = 1000;

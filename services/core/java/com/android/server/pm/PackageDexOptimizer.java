@@ -17,9 +17,12 @@
 package com.android.server.pm;
 
 import android.annotation.Nullable;
+import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageParser;
+import android.os.PowerManager;
 import android.os.UserHandle;
+import android.os.WorkSource;
 import android.util.ArraySet;
 import android.util.Log;
 import android.util.Slog;
@@ -31,7 +34,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import dalvik.system.DexFile;
-import dalvik.system.StaleDexCacheError;
 
 import static com.android.server.pm.InstructionSets.getAppDexInstructionSets;
 import static com.android.server.pm.InstructionSets.getDexCodeInstructionSets;
@@ -51,8 +53,14 @@ final class PackageDexOptimizer {
     private final PackageManagerService mPackageManagerService;
     private ArraySet<PackageParser.Package> mDeferredDexOpt;
 
+    private final PowerManager.WakeLock mDexoptWakeLock;
+    private volatile boolean mSystemReady;
+
     PackageDexOptimizer(PackageManagerService packageManagerService) {
         this.mPackageManagerService = packageManagerService;
+        PowerManager powerManager = (PowerManager)packageManagerService.mContext.getSystemService(
+                Context.POWER_SERVICE);
+        mDexoptWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "*dexopt*");
     }
 
     /**
@@ -63,7 +71,7 @@ final class PackageDexOptimizer {
      * {@link PackageManagerService#mInstallLock}.
      */
     int performDexOpt(PackageParser.Package pkg, String[] instructionSets,
-            boolean forceDex, boolean defer, boolean inclDependencies) {
+            boolean forceDex, boolean defer, boolean inclDependencies, boolean bootComplete) {
         ArraySet<String> done;
         if (inclDependencies && (pkg.usesLibraries != null || pkg.usesOptionalLibraries != null)) {
             done = new ArraySet<String>();
@@ -72,23 +80,35 @@ final class PackageDexOptimizer {
             done = null;
         }
         synchronized (mPackageManagerService.mInstallLock) {
-            return performDexOptLI(pkg, instructionSets, forceDex, defer, done);
+            final boolean useLock = mSystemReady;
+            if (useLock) {
+                mDexoptWakeLock.setWorkSource(new WorkSource(pkg.applicationInfo.uid));
+                mDexoptWakeLock.acquire();
+            }
+            try {
+                return performDexOptLI(pkg, instructionSets, forceDex, defer, bootComplete, done);
+            } finally {
+                if (useLock) {
+                    mDexoptWakeLock.release();
+                }
+            }
         }
     }
 
     private int performDexOptLI(PackageParser.Package pkg, String[] targetInstructionSets,
-            boolean forceDex, boolean defer, ArraySet<String> done) {
+            boolean forceDex, boolean defer, boolean bootComplete, ArraySet<String> done) {
         final String[] instructionSets = targetInstructionSets != null ?
                 targetInstructionSets : getAppDexInstructionSets(pkg.applicationInfo);
 
         if (done != null) {
             done.add(pkg.packageName);
             if (pkg.usesLibraries != null) {
-                performDexOptLibsLI(pkg.usesLibraries, instructionSets, forceDex, defer, done);
+                performDexOptLibsLI(pkg.usesLibraries, instructionSets, forceDex, defer,
+                        bootComplete, done);
             }
             if (pkg.usesOptionalLibraries != null) {
                 performDexOptLibsLI(pkg.usesOptionalLibraries, instructionSets, forceDex, defer,
-                        done);
+                        bootComplete, done);
             }
         }
 
@@ -112,61 +132,60 @@ final class PackageDexOptimizer {
             }
 
             for (String path : paths) {
-                try {
-                    final int dexoptNeeded;
-                    if (forceDex) {
-                        dexoptNeeded = DexFile.DEX2OAT_NEEDED;
-                    } else {
-                        dexoptNeeded = DexFile.getDexOptNeeded(path,
-                                pkg.packageName, dexCodeInstructionSet, defer);
+                final int dexoptNeeded;
+                if (forceDex) {
+                    dexoptNeeded = DexFile.DEX2OAT_NEEDED;
+                } else {
+                    try {
+                        dexoptNeeded = DexFile.getDexOptNeeded(path, pkg.packageName,
+                                dexCodeInstructionSet, defer);
+                    } catch (IOException ioe) {
+                        Slog.w(TAG, "IOException reading apk: " + path, ioe);
+                        return DEX_OPT_FAILED;
                     }
+                }
 
-                    if (!forceDex && defer && dexoptNeeded != DexFile.NO_DEXOPT_NEEDED) {
-                        // We're deciding to defer a needed dexopt. Don't bother dexopting for other
-                        // paths and instruction sets. We'll deal with them all together when we process
-                        // our list of deferred dexopts.
-                        addPackageForDeferredDexopt(pkg);
-                        return DEX_OPT_DEFERRED;
-                    }
+                if (!forceDex && defer && dexoptNeeded != DexFile.NO_DEXOPT_NEEDED) {
+                    // We're deciding to defer a needed dexopt. Don't bother dexopting for other
+                    // paths and instruction sets. We'll deal with them all together when we process
+                    // our list of deferred dexopts.
+                    addPackageForDeferredDexopt(pkg);
+                    return DEX_OPT_DEFERRED;
+                }
 
-                    if (dexoptNeeded != DexFile.NO_DEXOPT_NEEDED) {
-                        final String dexoptType;
-                        String oatDir = null;
-                        if (dexoptNeeded == DexFile.DEX2OAT_NEEDED) {
-                            dexoptType = "dex2oat";
+                if (dexoptNeeded != DexFile.NO_DEXOPT_NEEDED) {
+                    final String dexoptType;
+                    String oatDir = null;
+                    if (dexoptNeeded == DexFile.DEX2OAT_NEEDED) {
+                        dexoptType = "dex2oat";
+                        try {
                             oatDir = createOatDirIfSupported(pkg, dexCodeInstructionSet);
-                        } else if (dexoptNeeded == DexFile.PATCHOAT_NEEDED) {
-                            dexoptType = "patchoat";
-                        } else if (dexoptNeeded == DexFile.SELF_PATCHOAT_NEEDED) {
-                            dexoptType = "self patchoat";
-                        } else {
-                            throw new IllegalStateException("Invalid dexopt needed: " + dexoptNeeded);
-                        }
-                        Log.i(TAG, "Running dexopt (" + dexoptType + ") on: " + path + " pkg="
-                                + pkg.applicationInfo.packageName + " isa=" + dexCodeInstructionSet
-                                + " vmSafeMode=" + vmSafeMode + " debuggable=" + debuggable
-                                + " oatDir = " + oatDir);
-                        final int sharedGid = UserHandle.getSharedAppGid(pkg.applicationInfo.uid);
-                        final int ret = mPackageManagerService.mInstaller.dexopt(path, sharedGid,
-                                !pkg.isForwardLocked(), pkg.packageName, dexCodeInstructionSet,
-                                dexoptNeeded, vmSafeMode, debuggable, oatDir);
-                        if (ret < 0) {
+                        } catch (IOException ioe) {
+                            Slog.w(TAG, "Unable to create oatDir for package: " + pkg.packageName);
                             return DEX_OPT_FAILED;
                         }
+                    } else if (dexoptNeeded == DexFile.PATCHOAT_NEEDED) {
+                        dexoptType = "patchoat";
+                    } else if (dexoptNeeded == DexFile.SELF_PATCHOAT_NEEDED) {
+                        dexoptType = "self patchoat";
+                    } else {
+                        throw new IllegalStateException("Invalid dexopt needed: " + dexoptNeeded);
+                    }
+
+                    Log.i(TAG, "Running dexopt (" + dexoptType + ") on: " + path + " pkg="
+                            + pkg.applicationInfo.packageName + " isa=" + dexCodeInstructionSet
+                            + " vmSafeMode=" + vmSafeMode + " debuggable=" + debuggable
+                            + " oatDir = " + oatDir + " bootComplete=" + bootComplete);
+                    final int sharedGid = UserHandle.getSharedAppGid(pkg.applicationInfo.uid);
+                    final int ret = mPackageManagerService.mInstaller.dexopt(path, sharedGid,
+                            !pkg.isForwardLocked(), pkg.packageName, dexCodeInstructionSet,
+                            dexoptNeeded, vmSafeMode, debuggable, oatDir, bootComplete);
+
+                    // Dex2oat might fail due to compiler / verifier errors. We soldier on
+                    // regardless, and attempt to interpret the app as a safety net.
+                    if (ret == 0) {
                         performedDexOpt = true;
                     }
-                } catch (FileNotFoundException e) {
-                    Slog.w(TAG, "Apk not found for dexopt: " + path);
-                    return DEX_OPT_FAILED;
-                } catch (IOException e) {
-                    Slog.w(TAG, "IOException reading apk: " + path, e);
-                    return DEX_OPT_FAILED;
-                } catch (StaleDexCacheError e) {
-                    Slog.w(TAG, "StaleDexCacheError when reading apk: " + path, e);
-                    return DEX_OPT_FAILED;
-                } catch (Exception e) {
-                    Slog.w(TAG, "Exception when doing dexopt : ", e);
-                    return DEX_OPT_FAILED;
                 }
             }
 
@@ -199,8 +218,7 @@ final class PackageDexOptimizer {
     @Nullable
     private String createOatDirIfSupported(PackageParser.Package pkg, String dexInstructionSet)
             throws IOException {
-        if ((pkg.isSystemApp() && !pkg.isUpdatedSystemApp()) || pkg.isForwardLocked()
-                || pkg.applicationInfo.isExternalAsec()) {
+        if (!pkg.canHaveOatDir()) {
             return null;
         }
         File codePath = new File(pkg.codePath);
@@ -218,12 +236,12 @@ final class PackageDexOptimizer {
     }
 
     private void performDexOptLibsLI(ArrayList<String> libs, String[] instructionSets,
-            boolean forceDex, boolean defer, ArraySet<String> done) {
+            boolean forceDex, boolean defer, boolean bootComplete, ArraySet<String> done) {
         for (String libName : libs) {
             PackageParser.Package libPkg = mPackageManagerService.findSharedNonSystemLibrary(
                     libName);
             if (libPkg != null && !done.contains(libName)) {
-                performDexOptLI(libPkg, instructionSets, forceDex, defer, done);
+                performDexOptLI(libPkg, instructionSets, forceDex, defer, bootComplete, done);
             }
         }
     }
@@ -243,5 +261,9 @@ final class PackageDexOptimizer {
             mDeferredDexOpt = new ArraySet<>();
         }
         mDeferredDexOpt.add(pkg);
+    }
+
+    void systemReady() {
+        mSystemReady = true;
     }
 }

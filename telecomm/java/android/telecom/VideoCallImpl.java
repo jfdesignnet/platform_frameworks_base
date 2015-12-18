@@ -16,6 +16,7 @@
 
 package android.telecom;
 
+import android.net.Uri;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -36,17 +37,12 @@ import com.android.internal.telecom.IVideoProvider;
  * {@hide}
  */
 public class VideoCallImpl extends VideoCall {
-    private static final int MSG_RECEIVE_SESSION_MODIFY_REQUEST = 1;
-    private static final int MSG_RECEIVE_SESSION_MODIFY_RESPONSE = 2;
-    private static final int MSG_HANDLE_CALL_SESSION_EVENT = 3;
-    private static final int MSG_CHANGE_PEER_DIMENSIONS = 4;
-    private static final int MSG_CHANGE_CALL_DATA_USAGE = 5;
-    private static final int MSG_CHANGE_CAMERA_CAPABILITIES = 6;
-    private static final int MSG_CHANGE_VIDEO_QUALITY = 7;
 
     private final IVideoProvider mVideoProvider;
     private final VideoCallListenerBinder mBinder;
     private VideoCall.Callback mCallback;
+    private int mVideoQuality = VideoProfile.QUALITY_UNKNOWN;
+    private Call mCall;
 
     private IBinder.DeathRecipient mDeathRecipient = new IBinder.DeathRecipient() {
         @Override
@@ -61,7 +57,7 @@ public class VideoCallImpl extends VideoCall {
     private final class VideoCallListenerBinder extends IVideoCallback.Stub {
         @Override
         public void receiveSessionModifyRequest(VideoProfile videoProfile) {
-            mHandler.obtainMessage(MSG_RECEIVE_SESSION_MODIFY_REQUEST,
+            mHandler.obtainMessage(MessageHandler.MSG_RECEIVE_SESSION_MODIFY_REQUEST,
                     videoProfile).sendToTarget();
         }
 
@@ -72,12 +68,14 @@ public class VideoCallImpl extends VideoCall {
             args.arg1 = status;
             args.arg2 = requestProfile;
             args.arg3 = responseProfile;
-            mHandler.obtainMessage(MSG_RECEIVE_SESSION_MODIFY_RESPONSE, args).sendToTarget();
+            mHandler.obtainMessage(MessageHandler.MSG_RECEIVE_SESSION_MODIFY_RESPONSE, args)
+                    .sendToTarget();
         }
 
         @Override
         public void handleCallSessionEvent(int event) {
-            mHandler.obtainMessage(MSG_HANDLE_CALL_SESSION_EVENT, event).sendToTarget();
+            mHandler.obtainMessage(MessageHandler.MSG_HANDLE_CALL_SESSION_EVENT, event)
+                    .sendToTarget();
         }
 
         @Override
@@ -85,28 +83,42 @@ public class VideoCallImpl extends VideoCall {
             SomeArgs args = SomeArgs.obtain();
             args.arg1 = width;
             args.arg2 = height;
-            mHandler.obtainMessage(MSG_CHANGE_PEER_DIMENSIONS, args).sendToTarget();
+            mHandler.obtainMessage(MessageHandler.MSG_CHANGE_PEER_DIMENSIONS, args).sendToTarget();
         }
 
         @Override
         public void changeVideoQuality(int videoQuality) {
-            mHandler.obtainMessage(MSG_CHANGE_VIDEO_QUALITY, videoQuality, 0).sendToTarget();
+            mHandler.obtainMessage(MessageHandler.MSG_CHANGE_VIDEO_QUALITY, videoQuality, 0)
+                    .sendToTarget();
         }
 
         @Override
         public void changeCallDataUsage(long dataUsage) {
-            mHandler.obtainMessage(MSG_CHANGE_CALL_DATA_USAGE, dataUsage).sendToTarget();
+            mHandler.obtainMessage(MessageHandler.MSG_CHANGE_CALL_DATA_USAGE, dataUsage)
+                    .sendToTarget();
         }
 
         @Override
-        public void changeCameraCapabilities(CameraCapabilities cameraCapabilities) {
-            mHandler.obtainMessage(MSG_CHANGE_CAMERA_CAPABILITIES,
+        public void changeCameraCapabilities(VideoProfile.CameraCapabilities cameraCapabilities) {
+            mHandler.obtainMessage(MessageHandler.MSG_CHANGE_CAMERA_CAPABILITIES,
                     cameraCapabilities).sendToTarget();
         }
     }
 
     /** Default handler used to consolidate binder method calls onto a single thread. */
-    private final Handler mHandler = new Handler(Looper.getMainLooper()) {
+    private final class MessageHandler extends Handler {
+        private static final int MSG_RECEIVE_SESSION_MODIFY_REQUEST = 1;
+        private static final int MSG_RECEIVE_SESSION_MODIFY_RESPONSE = 2;
+        private static final int MSG_HANDLE_CALL_SESSION_EVENT = 3;
+        private static final int MSG_CHANGE_PEER_DIMENSIONS = 4;
+        private static final int MSG_CHANGE_CALL_DATA_USAGE = 5;
+        private static final int MSG_CHANGE_CAMERA_CAPABILITIES = 6;
+        private static final int MSG_CHANGE_VIDEO_QUALITY = 7;
+
+        public MessageHandler(Looper looper) {
+            super(looper);
+        }
+
         @Override
         public void handleMessage(Message msg) {
             if (mCallback == null) {
@@ -149,9 +161,10 @@ public class VideoCallImpl extends VideoCall {
                     break;
                 case MSG_CHANGE_CAMERA_CAPABILITIES:
                     mCallback.onCameraCapabilitiesChanged(
-                            (CameraCapabilities) msg.obj);
+                            (VideoProfile.CameraCapabilities) msg.obj);
                     break;
                 case MSG_CHANGE_VIDEO_QUALITY:
+                    mVideoQuality = msg.arg1;
                     mCallback.onVideoQualityChanged(msg.arg1);
                     break;
                 default:
@@ -160,22 +173,42 @@ public class VideoCallImpl extends VideoCall {
         }
     };
 
-    /** {@hide} */
-    VideoCallImpl(IVideoProvider videoProvider) throws RemoteException {
+    private Handler mHandler;
+
+    VideoCallImpl(IVideoProvider videoProvider, Call call) throws RemoteException {
         mVideoProvider = videoProvider;
         mVideoProvider.asBinder().linkToDeath(mDeathRecipient, 0);
 
         mBinder = new VideoCallListenerBinder();
         mVideoProvider.addVideoCallback(mBinder);
+        mCall = call;
+    }
+
+    public void destroy() {
+        unregisterCallback(mCallback);
     }
 
     /** {@inheritDoc} */
     public void registerCallback(VideoCall.Callback callback) {
-        mCallback = callback;
+        registerCallback(callback, null);
     }
 
     /** {@inheritDoc} */
-    public void unregisterCallback() {
+    public void registerCallback(VideoCall.Callback callback, Handler handler) {
+        mCallback = callback;
+        if (handler == null) {
+            mHandler = new MessageHandler(Looper.getMainLooper());
+        } else {
+            mHandler = new MessageHandler(handler.getLooper());
+        }
+    }
+
+    /** {@inheritDoc} */
+    public void unregisterCallback(VideoCall.Callback callback) {
+        if (callback != mCallback) {
+            return;
+        }
+
         mCallback = null;
         try {
             mVideoProvider.removeVideoCallback(mBinder);
@@ -223,10 +256,24 @@ public class VideoCallImpl extends VideoCall {
         }
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Sends a session modification request to the video provider.
+     * <p>
+     * The {@link InCallService} will create the {@code requestProfile} based on the current
+     * video state (i.e. {@link Call.Details#getVideoState()}).  It is, however, possible that the
+     * video state maintained by the {@link InCallService} could get out of sync with what is known
+     * by the {@link android.telecom.Connection.VideoProvider}.  To remove ambiguity, the
+     * {@link VideoCallImpl} passes along the pre-modify video profile to the {@code VideoProvider}
+     * to ensure it has full context of the requested change.
+     *
+     * @param requestProfile The requested video profile.
+     */
     public void sendSessionModifyRequest(VideoProfile requestProfile) {
         try {
-            mVideoProvider.sendSessionModifyRequest(requestProfile);
+            VideoProfile originalProfile = new VideoProfile(mCall.getDetails().getVideoState(),
+                    mVideoQuality);
+
+            mVideoProvider.sendSessionModifyRequest(originalProfile, requestProfile);
         } catch (RemoteException e) {
         }
     }
@@ -256,7 +303,7 @@ public class VideoCallImpl extends VideoCall {
     }
 
     /** {@inheritDoc} */
-    public void setPauseImage(String uri) {
+    public void setPauseImage(Uri uri) {
         try {
             mVideoProvider.setPauseImage(uri);
         } catch (RemoteException e) {

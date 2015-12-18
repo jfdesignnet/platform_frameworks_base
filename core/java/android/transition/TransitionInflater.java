@@ -211,10 +211,10 @@ public class TransitionInflater {
                             .asSubclass(expectedType);
                     if (c != null) {
                         constructor = c.getConstructor(sConstructorSignature);
+                        constructor.setAccessible(true);
                         sConstructors.put(className, constructor);
                     }
                 }
-
                 return constructor.newInstance(mContext, attrs);
             }
         } catch (InstantiationException e) {

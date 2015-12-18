@@ -26,7 +26,6 @@ import android.app.trust.ITrustListener;
 interface ITrustManager {
     void reportUnlockAttempt(boolean successful, int userId);
     void reportEnabledTrustAgentsChanged(int userId);
-    void reportRequireCredentialEntry(int userId);
     void registerTrustListener(in ITrustListener trustListener);
     void unregisterTrustListener(in ITrustListener trustListener);
     void reportKeyguardShowingChanged();

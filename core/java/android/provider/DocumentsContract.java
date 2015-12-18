@@ -93,6 +93,12 @@ public final class DocumentsContract {
     public static final String EXTRA_SHOW_ADVANCED = "android.content.extra.SHOW_ADVANCED";
 
     /**
+     * Set this in a DocumentsUI intent to cause a package's own roots to be
+     * excluded from the roots list.
+     */
+    public static final String EXTRA_EXCLUDE_SELF = "android.provider.extra.EXCLUDE_SELF";
+
+    /**
      * Included in {@link AssetFileDescriptor#getExtras()} when returned
      * thumbnail should be rotated.
      *
@@ -100,6 +106,11 @@ public final class DocumentsContract {
      * @hide
      */
     public static final String EXTRA_ORIENTATION = "android.content.extra.ORIENTATION";
+
+    /**
+     * Overrides the default prompt text in DocumentsUI when set in an intent.
+     */
+    public static final String EXTRA_PROMPT = "android.provider.extra.PROMPT";
 
     /** {@hide} */
     public static final String ACTION_MANAGE_ROOT = "android.provider.action.MANAGE_ROOT";
@@ -118,6 +129,9 @@ public final class DocumentsContract {
      * Buffer is large enough to rewind past any EXIF headers.
      */
     private static final int THUMBNAIL_BUFFER_SIZE = (int) (128 * KB_IN_BYTES);
+
+    /** {@hide} */
+    public static final String PACKAGE_DOCUMENTS_UI = "com.android.documentsui";
 
     /**
      * Constants related to a document, including {@link Cursor} column names

@@ -68,17 +68,6 @@ class RenderNode;
 class TextDrawFunctor;
 class VertexBuffer;
 
-struct DrawModifiers {
-    DrawModifiers()
-        : mOverrideLayerAlpha(0.0f) {}
-
-    void reset() {
-        mOverrideLayerAlpha = 0.0f;
-    }
-
-    float mOverrideLayerAlpha;
-};
-
 enum StateDeferFlags {
     kStateDeferFlag_Draw = 0x1,
     kStateDeferFlag_Clip = 0x2
@@ -138,8 +127,9 @@ public:
     void setViewport(int width, int height) { mState.setViewport(width, height); }
 
     void initProperties();
-    void initLight(const Vector3& lightCenter, float lightRadius,
-            uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha);
+    void initLight(float lightRadius, uint8_t ambientShadowAlpha,
+            uint8_t spotShadowAlpha);
+    void setLightCenter(const Vector3& lightCenter);
 
     /*
      * Prepares the renderer to draw a frame. This method must be invoked
@@ -236,9 +226,6 @@ public:
 
     void setDrawFilter(SkDrawFilter* filter);
 
-    // If this value is set to < 1.0, it overrides alpha set on layer (see drawBitmap, drawLayer)
-    void setOverrideLayerAlpha(float alpha) { mDrawModifiers.mOverrideLayerAlpha = alpha; }
-
     /**
      * Store the current display state (most importantly, the current clip and transform), and
      * additionally map the state's bounds from local to window coordinates.
@@ -248,9 +235,6 @@ public:
     bool storeDisplayState(DeferredDisplayState& state, int stateDeferFlags);
     void restoreDisplayState(const DeferredDisplayState& state, bool skipClipRestore = false);
     void setupMergedMultiDraw(const Rect* clipRect);
-
-    const DrawModifiers& getDrawModifiers() { return mDrawModifiers; }
-    void setDrawModifiers(const DrawModifiers& drawModifiers) { mDrawModifiers = drawModifiers; }
 
     bool isCurrentTransformSimple() {
         return currentTransform()->isSimple();
@@ -384,6 +368,7 @@ public:
 
     void getMatrix(SkMatrix* outMatrix) const { mState.getMatrix(outMatrix); }
     void setMatrix(const SkMatrix& matrix) { mState.setMatrix(matrix); }
+    void setLocalMatrix(const SkMatrix& matrix);
     void concatMatrix(const SkMatrix& matrix) { mState.concatMatrix(matrix); }
 
     void translate(float dx, float dy, float dz = 0.0f);
@@ -415,6 +400,7 @@ public:
     void setClippingOutline(LinearAllocator& allocator, const Outline* outline);
     void setClippingRoundRect(LinearAllocator& allocator,
             const Rect& rect, float radius, bool highPriority = true);
+    void setProjectionPathMask(LinearAllocator& allocator, const SkPath* path);
 
     inline bool hasRectToRectTransform() const { return mState.hasRectToRectTransform(); }
     inline const mat4* currentTransform() const { return mState.currentTransform(); }
@@ -432,6 +418,8 @@ public:
         mTempPaths.push_back(std::move(path));
         return returnPath;
     }
+
+    void setBaseTransform(const Matrix4& matrix) { mBaseTransform = matrix; }
 
 protected:
     /**
@@ -523,8 +511,7 @@ protected:
 
     /**
      * Gets the alpha and xfermode out of a paint object. If the paint is null
-     * alpha will be 255 and the xfermode will be SRC_OVER. Accounts for both
-     * snapshot alpha, and overrideLayerAlpha
+     * alpha will be 255 and the xfermode will be SRC_OVER. Accounts for snapshot alpha.
      *
      * @param paint The paint to extract values from
      * @param alpha Where to store the resulting alpha
@@ -533,27 +520,11 @@ protected:
     inline void getAlphaAndMode(const SkPaint* paint, int* alpha, SkXfermode::Mode* mode) const;
 
     /**
-     * Gets the alpha from a layer, accounting for snapshot alpha and overrideLayerAlpha
+     * Gets the alpha from a layer, accounting for snapshot alpha
      *
      * @param layer The layer from which the alpha is extracted
      */
     inline float getLayerAlpha(const Layer* layer) const;
-
-    /**
-     * Safely retrieves the ColorFilter from the given Paint. If the paint is
-     * null then null is returned.
-     */
-    static inline SkColorFilter* getColorFilter(const SkPaint* paint) {
-        return paint ? paint->getColorFilter() : nullptr;
-    }
-
-    /**
-     * Safely retrieves the Shader from the given Paint. If the paint is
-     * null then null is returned.
-     */
-    static inline const SkShader* getShader(const SkPaint* paint) {
-        return paint ? paint->getShader() : nullptr;
-    }
 
     /**
      * Set to true to suppress error checks at the end of a frame.
@@ -567,7 +538,13 @@ protected:
     RenderState& mRenderState;
 
 private:
-    void renderGlop(const Glop& glop, bool clearLayer = true);
+    enum class GlopRenderType {
+        Standard,
+        Multi,
+        LayerClear
+    };
+
+    void renderGlop(const Glop& glop, GlopRenderType type = GlopRenderType::Standard);
 
     /**
      * Discards the content of the framebuffer if supported by the driver.
@@ -656,13 +633,20 @@ private:
     void composeLayerRegion(Layer* layer, const Rect& rect);
 
     /**
-     * Compose the specified layer as a simple rectangle.
+     * Restores the content in layer to the screen, swapping the blend mode,
+     * specifically used in the restore() of a saveLayerAlpha().
      *
-     * @param layer The layer to compose
-     * @param rect The layer's bounds
-     * @param swap If true, the source and destination are swapped
+     * This allows e.g. a layer that would have been drawn on top of existing content (with SrcOver)
+     * to be drawn underneath.
+     *
+     * This will always ignore the canvas transform.
      */
-    void composeLayerRect(Layer* layer, const Rect& rect, bool swap = false);
+    void composeLayerRectSwapped(Layer* layer, const Rect& rect);
+
+    /**
+     * Draws the content in layer to the screen.
+     */
+    void composeLayerRect(Layer* layer, const Rect& rect);
 
     /**
      * Clears all the regions corresponding to the current list of layers.
@@ -868,10 +852,6 @@ private:
     // Default UV mapper
     const UvMapper mUvMapper;
 
-    // shader, filters, and shadow
-    DrawModifiers mDrawModifiers;
-    SkPaint mFilteredPaint;
-
     // List of rectangles to clear after saveLayer() is invoked
     std::vector<Rect> mLayers;
     // List of layers to update at the beginning of a frame
@@ -899,6 +879,16 @@ private:
 
     // Paths kept alive for the duration of the frame
     std::vector<std::unique_ptr<SkPath>> mTempPaths;
+
+    /**
+     * Initial transform for a rendering pass; transform from global device
+     * coordinates to the current RenderNode's drawing content coordinates,
+     * with the RenderNode's RenderProperty transforms already applied.
+     * Calling setMatrix(mBaseTransform) will result in drawing at the origin
+     * of the DisplayList's recorded surface prior to any Canvas
+     * transformation.
+     */
+    Matrix4 mBaseTransform;
 
     friend class Layer;
     friend class TextDrawFunctor;

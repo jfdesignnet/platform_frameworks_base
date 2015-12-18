@@ -61,7 +61,7 @@ interface ICameraDeviceUser
      * must be called before any requests can be submitted.
      * <p>
      */
-    int endConfigure();
+    int endConfigure(boolean isConstrainedHighSpeed);
 
     int deleteStream(int streamId);
 
@@ -100,4 +100,8 @@ interface ICameraDeviceUser
     int flush(out LongParcelable lastFrameNumber);
 
     int prepare(int streamId);
+
+    int tearDown(int streamId);
+
+    int prepare2(int maxCount, int streamId);
 }

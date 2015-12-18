@@ -16,6 +16,7 @@
 
 package android.content;
 
+import android.annotation.SystemApi;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
@@ -402,6 +403,19 @@ public class ContextWrapper extends Context {
 
     /** @hide */
     @Override
+    public void sendBroadcastMultiplePermissions(Intent intent, String[] receiverPermissions) {
+        mBase.sendBroadcastMultiplePermissions(intent, receiverPermissions);
+    }
+
+    /** @hide */
+    @SystemApi
+    @Override
+    public void sendBroadcast(Intent intent, String receiverPermission, Bundle options) {
+        mBase.sendBroadcast(intent, receiverPermission, options);
+    }
+
+    /** @hide */
+    @Override
     public void sendBroadcast(Intent intent, String receiverPermission, int appOp) {
         mBase.sendBroadcast(intent, receiverPermission, appOp);
     }
@@ -419,6 +433,18 @@ public class ContextWrapper extends Context {
         Bundle initialExtras) {
         mBase.sendOrderedBroadcast(intent, receiverPermission,
                 resultReceiver, scheduler, initialCode,
+                initialData, initialExtras);
+    }
+
+    /** @hide */
+    @SystemApi
+    @Override
+    public void sendOrderedBroadcast(
+            Intent intent, String receiverPermission, Bundle options, BroadcastReceiver resultReceiver,
+            Handler scheduler, int initialCode, String initialData,
+            Bundle initialExtras) {
+        mBase.sendOrderedBroadcast(intent, receiverPermission,
+                options, resultReceiver, scheduler, initialCode,
                 initialData, initialExtras);
     }
 
@@ -463,10 +489,18 @@ public class ContextWrapper extends Context {
     @Override
     public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
             String receiverPermission, int appOp, BroadcastReceiver resultReceiver,
-            Handler scheduler,
-            int initialCode, String initialData, Bundle initialExtras) {
+            Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
         mBase.sendOrderedBroadcastAsUser(intent, user, receiverPermission, appOp, resultReceiver,
                 scheduler, initialCode, initialData, initialExtras);
+    }
+
+    /** @hide */
+    @Override
+    public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
+            String receiverPermission, int appOp, Bundle options, BroadcastReceiver resultReceiver,
+            Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
+        mBase.sendOrderedBroadcastAsUser(intent, user, receiverPermission, appOp, options,
+                resultReceiver, scheduler, initialCode, initialData, initialExtras);
     }
 
     @Override

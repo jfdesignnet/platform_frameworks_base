@@ -660,10 +660,11 @@ class FastScroller {
             maxWidth = containerWidth - adjacent.getRight();
         }
 
-        final int adjMaxWidth = maxWidth - marginLeft - marginRight;
+        final int adjMaxHeight = Math.max(0, container.height());
+        final int adjMaxWidth = Math.max(0, maxWidth - marginLeft - marginRight);
         final int widthMeasureSpec = MeasureSpec.makeMeasureSpec(adjMaxWidth, MeasureSpec.AT_MOST);
-        final int heightMeasureSpec = MeasureSpec.makeMeasureSpec(container.height(),
-                MeasureSpec.UNSPECIFIED);
+        final int heightMeasureSpec = MeasureSpec.makeSafeMeasureSpec(
+                adjMaxHeight, MeasureSpec.UNSPECIFIED);
         view.measure(widthMeasureSpec, heightMeasureSpec);
 
         // Align to the left or right.
@@ -700,10 +701,11 @@ class FastScroller {
 
         final Rect container = mContainerRect;
         final int containerWidth = container.width();
-        final int adjMaxWidth = containerWidth - marginLeft - marginRight;
+        final int adjMaxHeight = Math.max(0, container.height());
+        final int adjMaxWidth = Math.max(0, containerWidth - marginLeft - marginRight);
         final int widthMeasureSpec = MeasureSpec.makeMeasureSpec(adjMaxWidth, MeasureSpec.AT_MOST);
-        final int heightMeasureSpec = MeasureSpec.makeMeasureSpec(container.height(),
-                MeasureSpec.UNSPECIFIED);
+        final int heightMeasureSpec = MeasureSpec.makeSafeMeasureSpec(
+                adjMaxHeight, MeasureSpec.UNSPECIFIED);
         preview.measure(widthMeasureSpec, heightMeasureSpec);
 
         // Align at the vertical center, 10% from the top.
@@ -766,10 +768,11 @@ class FastScroller {
         final View track = mTrackImage;
         final View thumb = mThumbImage;
         final Rect container = mContainerRect;
-        final int maxWidth = container.width();
+        final int maxWidth = Math.max(0, container.width());
+        final int maxHeight = Math.max(0, container.height());
         final int widthMeasureSpec = MeasureSpec.makeMeasureSpec(maxWidth, MeasureSpec.AT_MOST);
-        final int heightMeasureSpec = MeasureSpec.makeMeasureSpec(container.height(),
-                MeasureSpec.UNSPECIFIED);
+        final int heightMeasureSpec = MeasureSpec.makeSafeMeasureSpec(
+                maxHeight, MeasureSpec.UNSPECIFIED);
         track.measure(widthMeasureSpec, heightMeasureSpec);
 
         final int top;
@@ -1389,7 +1392,8 @@ class FastScroller {
                     // to intercept events. If it does, we will receive a CANCEL
                     // event.
                     if (!mList.isInScrollingContainer()) {
-                        beginDrag();
+                        // This will get dispatched to onTouchEvent(). Start
+                        // dragging there.
                         return true;
                     }
 
@@ -1406,6 +1410,8 @@ class FastScroller {
                     final float pos = getPosFromMotionEvent(mInitialTouchY);
                     scrollTo(pos);
 
+                    // This may get dispatched to onTouchEvent(), but it
+                    // doesn't really matter since we'll already be in a drag.
                     return onTouchEvent(ev);
                 }
                 break;
@@ -1440,6 +1446,15 @@ class FastScroller {
         }
 
         switch (me.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: {
+                if (isPointInside(me.getX(), me.getY())) {
+                    if (!mList.isInScrollingContainer()) {
+                        beginDrag();
+                        return true;
+                    }
+                }
+            } break;
+
             case MotionEvent.ACTION_UP: {
                 if (mPendingDrag >= 0) {
                     // Allow a tap to scroll.

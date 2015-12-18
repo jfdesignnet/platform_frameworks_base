@@ -41,7 +41,7 @@ public final class Installer extends SystemService {
     @Override
     public void onStart() {
         Slog.i(TAG, "Waiting for installd to be ready.");
-        ping();
+        mInstaller.waitForConnection();
     }
 
     private static String escapeNull(String arg) {
@@ -77,24 +77,37 @@ public final class Installer extends SystemService {
 
     public int dexopt(String apkPath, int uid, boolean isPublic,
             String instructionSet, int dexoptNeeded) {
+        return dexopt(apkPath, uid, isPublic, instructionSet, dexoptNeeded, true);
+    }
+
+    public int dexopt(String apkPath, int uid, boolean isPublic,
+            String instructionSet, int dexoptNeeded, boolean bootComplete) {
         if (!isValidInstructionSet(instructionSet)) {
             Slog.e(TAG, "Invalid instruction set: " + instructionSet);
             return -1;
         }
 
-        return mInstaller.dexopt(apkPath, uid, isPublic, instructionSet, dexoptNeeded);
+        return mInstaller.dexopt(apkPath, uid, isPublic, instructionSet, dexoptNeeded,
+                bootComplete);
     }
 
     public int dexopt(String apkPath, int uid, boolean isPublic, String pkgName,
             String instructionSet, int dexoptNeeded, boolean vmSafeMode,
             boolean debuggable, @Nullable String outputPath) {
+        return dexopt(apkPath, uid, isPublic, pkgName, instructionSet, dexoptNeeded, vmSafeMode,
+                debuggable, outputPath, true);
+    }
+
+    public int dexopt(String apkPath, int uid, boolean isPublic, String pkgName,
+            String instructionSet, int dexoptNeeded, boolean vmSafeMode,
+            boolean debuggable, @Nullable String outputPath, boolean bootComplete) {
         if (!isValidInstructionSet(instructionSet)) {
             Slog.e(TAG, "Invalid instruction set: " + instructionSet);
             return -1;
         }
         return mInstaller.dexopt(apkPath, uid, isPublic, pkgName,
                 instructionSet, dexoptNeeded, vmSafeMode,
-                debuggable, outputPath);
+                debuggable, outputPath, bootComplete);
     }
 
     public int idmap(String targetApkPath, String overlayApkPath, int uid) {
@@ -264,15 +277,17 @@ public final class Installer extends SystemService {
         return mInstaller.execute(builder.toString());
     }
 
-    public int moveUserDataDirs(String fromUuid, String toUuid, String packageName, int appId,
-            String seinfo) {
-        StringBuilder builder = new StringBuilder("mvuserdata");
+    public int copyCompleteApp(String fromUuid, String toUuid, String packageName,
+            String dataAppName, int appId, String seinfo) {
+        StringBuilder builder = new StringBuilder("cpcompleteapp");
         builder.append(' ');
         builder.append(escapeNull(fromUuid));
         builder.append(' ');
         builder.append(escapeNull(toUuid));
         builder.append(' ');
         builder.append(packageName);
+        builder.append(' ');
+        builder.append(dataAppName);
         builder.append(' ');
         builder.append(appId);
         builder.append(' ');
@@ -306,14 +321,6 @@ public final class Installer extends SystemService {
         builder.append(' ');
         builder.append(instructionSet);
         return mInstaller.execute(builder.toString());
-    }
-
-    public boolean ping() {
-        if (mInstaller.execute("ping") < 0) {
-            return false;
-        } else {
-            return true;
-        }
     }
 
     @Deprecated
@@ -449,6 +456,18 @@ public final class Installer extends SystemService {
         builder.append(oatDir);
         builder.append(' ');
         builder.append(dexInstructionSet);
+        return mInstaller.execute(builder.toString());
+    }
+
+
+    public int linkFile(String relativePath, String fromBase, String toBase) {
+        StringBuilder builder = new StringBuilder("linkfile");
+        builder.append(' ');
+        builder.append(relativePath);
+        builder.append(' ');
+        builder.append(fromBase);
+        builder.append(' ');
+        builder.append(toBase);
         return mInstaller.execute(builder.toString());
     }
 

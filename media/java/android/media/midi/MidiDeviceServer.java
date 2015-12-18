@@ -65,7 +65,6 @@ public final class MidiDeviceServer implements Closeable {
 
 
     // for reporting device status
-    private final IBinder mDeviceStatusToken = new Binder();
     private final boolean[] mInputPortOpen;
     private final int[] mOutputPortOpenCount;
 
@@ -81,6 +80,11 @@ public final class MidiDeviceServer implements Closeable {
          * @param status the {@link MidiDeviceStatus} for the device
          */
         public void onDeviceStatusChanged(MidiDeviceServer server, MidiDeviceStatus status);
+
+        /**
+         * Called to notify when the device is closed
+         */
+        public void onClose();
     }
 
     abstract private class PortClient implements IBinder.DeathRecipient {
@@ -242,10 +246,25 @@ public final class MidiDeviceServer implements Closeable {
         }
 
         @Override
+        public void closeDevice() {
+            if (mCallback != null) {
+                mCallback.onClose();
+            }
+            IoUtils.closeQuietly(MidiDeviceServer.this);
+        }
+
+        @Override
         public void connectPorts(IBinder token, ParcelFileDescriptor pfd,
                 int outputPortNumber) {
             MidiInputPort inputPort = new MidiInputPort(pfd, outputPortNumber);
-            mOutputPortDispatchers[outputPortNumber].getSender().connect(inputPort);
+            MidiDispatcher dispatcher = mOutputPortDispatchers[outputPortNumber];
+            synchronized (dispatcher) {
+                dispatcher.getSender().connect(inputPort);
+                int openCount = dispatcher.getReceiverCount();
+                mOutputPortOpenCount[outputPortNumber] = openCount;
+                updateDeviceStatus();
+            }
+
             mInputPorts.add(inputPort);
             OutputPortClient client = new OutputPortClient(token, inputPort);
             synchronized (mPortClients) {
@@ -257,8 +276,20 @@ public final class MidiDeviceServer implements Closeable {
         public MidiDeviceInfo getDeviceInfo() {
             return mDeviceInfo;
         }
+
+        @Override
+        public void setDeviceInfo(MidiDeviceInfo deviceInfo) {
+            if (Binder.getCallingUid() != Process.SYSTEM_UID) {
+                throw new SecurityException("setDeviceInfo should only be called by MidiService");
+            }
+            if (mDeviceInfo != null) {
+                throw new IllegalStateException("setDeviceInfo should only be called once");
+            }
+            mDeviceInfo = deviceInfo;
+        }
     };
 
+    // Constructor for MidiManager.createDeviceServer()
     /* package */ MidiDeviceServer(IMidiManager midiManager, MidiReceiver[] inputPortReceivers,
             int numOutputPorts, Callback callback) {
         mMidiManager = midiManager;
@@ -280,19 +311,19 @@ public final class MidiDeviceServer implements Closeable {
         mGuard.open("close");
     }
 
+    // Constructor for MidiDeviceService.onCreate()
+    /* package */ MidiDeviceServer(IMidiManager midiManager, MidiReceiver[] inputPortReceivers,
+           MidiDeviceInfo deviceInfo, Callback callback) {
+        this(midiManager, inputPortReceivers, deviceInfo.getOutputPortCount(), callback);
+        mDeviceInfo = deviceInfo;
+    }
+
     /* package */ IMidiDeviceServer getBinderInterface() {
         return mServer;
     }
 
     public IBinder asBinder() {
         return mServer.asBinder();
-    }
-
-    /* package */ void setDeviceInfo(MidiDeviceInfo deviceInfo) {
-        if (mDeviceInfo != null) {
-            throw new IllegalStateException("setDeviceInfo should only be called once");
-        }
-        mDeviceInfo = deviceInfo;
     }
 
     private void updateDeviceStatus() {
@@ -305,7 +336,7 @@ public final class MidiDeviceServer implements Closeable {
             mCallback.onDeviceStatusChanged(this, status);
         }
         try {
-            mMidiManager.setDeviceStatus(mDeviceStatusToken, status);
+            mMidiManager.setDeviceStatus(mServer, status);
         } catch (RemoteException e) {
             Log.e(TAG, "RemoteException in updateDeviceStatus");
         } finally {

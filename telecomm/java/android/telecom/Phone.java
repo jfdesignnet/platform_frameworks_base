@@ -41,8 +41,19 @@ public final class Phone {
          *
          * @param phone The {@code Phone} calling this method.
          * @param audioState The new {@link AudioState}.
+         *
+         * @deprecated Use {@link #onCallAudioStateChanged(Phone, CallAudioState)} instead.
          */
+        @Deprecated
         public void onAudioStateChanged(Phone phone, AudioState audioState) { }
+
+        /**
+         * Called when the audio state changes.
+         *
+         * @param phone The {@code Phone} calling this method.
+         * @param callAudioState The new {@link CallAudioState}.
+         */
+        public void onCallAudioStateChanged(Phone phone, CallAudioState callAudioState) { }
 
         /**
          * Called to bring the in-call screen to the foreground. The in-call experience should
@@ -100,7 +111,7 @@ public final class Phone {
 
     private final InCallAdapter mInCallAdapter;
 
-    private AudioState mAudioState;
+    private CallAudioState mCallAudioState;
 
     private final List<Listener> mListeners = new CopyOnWriteArrayList<>();
 
@@ -111,7 +122,8 @@ public final class Phone {
     }
 
     final void internalAddCall(ParcelableCall parcelableCall) {
-        Call call = new Call(this, parcelableCall.getId(), mInCallAdapter);
+        Call call = new Call(this, parcelableCall.getId(), mInCallAdapter,
+                parcelableCall.getState());
         mCallByTelecomCallId.put(parcelableCall.getId(), call);
         mCalls.add(call);
         checkCallTree(parcelableCall);
@@ -125,7 +137,7 @@ public final class Phone {
 
         InCallService.VideoCall videoCall = call.getVideoCall();
         if (videoCall != null) {
-            videoCall.unregisterCallback();
+            videoCall.destroy();
         }
         fireCallRemoved(call);
     }
@@ -145,10 +157,10 @@ public final class Phone {
         }
     }
 
-    final void internalAudioStateChanged(AudioState audioState) {
-        if (!Objects.equals(mAudioState, audioState)) {
-            mAudioState = audioState;
-            fireAudioStateChanged(audioState);
+    final void internalCallAudioStateChanged(CallAudioState callAudioState) {
+        if (!Objects.equals(mCallAudioState, callAudioState)) {
+            mCallAudioState = callAudioState;
+            fireCallAudioStateChanged(callAudioState);
         }
     }
 
@@ -174,7 +186,7 @@ public final class Phone {
         for (Call call : mCalls) {
             InCallService.VideoCall videoCall = call.getVideoCall();
             if (videoCall != null) {
-                videoCall.unregisterCallback();
+                videoCall.destroy();
             }
             if (call.getState() != Call.STATE_DISCONNECTED) {
                 call.internalSetDisconnected();
@@ -271,9 +283,20 @@ public final class Phone {
      * Obtains the current phone call audio state of the {@code Phone}.
      *
      * @return An object encapsulating the audio state.
+     * @deprecated Use {@link #getCallAudioState()} instead.
      */
+    @Deprecated
     public final AudioState getAudioState() {
-        return mAudioState;
+        return new AudioState(mCallAudioState);
+    }
+
+    /**
+     * Obtains the current phone call audio state of the {@code Phone}.
+     *
+     * @return An object encapsulating the audio state.
+     */
+    public final CallAudioState getCallAudioState() {
+        return mCallAudioState;
     }
 
     private void fireCallAdded(Call call) {
@@ -288,9 +311,10 @@ public final class Phone {
         }
     }
 
-    private void fireAudioStateChanged(AudioState audioState) {
+    private void fireCallAudioStateChanged(CallAudioState audioState) {
         for (Listener listener : mListeners) {
-            listener.onAudioStateChanged(this, audioState);
+            listener.onCallAudioStateChanged(this, audioState);
+            listener.onAudioStateChanged(this, new AudioState(audioState));
         }
     }
 

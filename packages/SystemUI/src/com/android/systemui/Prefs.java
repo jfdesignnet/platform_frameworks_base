@@ -37,19 +37,24 @@ public final class Prefs {
         Key.DND_TILE_VISIBLE,
         Key.DND_TILE_COMBINED_ICON,
         Key.DND_CONFIRMED_PRIORITY_INTRODUCTION,
+        Key.DND_CONFIRMED_SILENCE_INTRODUCTION,
         Key.DND_FAVORITE_BUCKET_INDEX,
         Key.DND_NONE_SELECTED,
+        Key.DND_FAVORITE_ZEN,
     })
     public @interface Key {
         String SEARCH_APP_WIDGET_ID = "searchAppWidgetId";
+        String SEARCH_APP_WIDGET_PACKAGE = "searchAppWidgetPackage";
         String DEBUG_MODE_ENABLED = "debugModeEnabled";
         String HOTSPOT_TILE_LAST_USED = "HotspotTileLastUsed";
         String COLOR_INVERSION_TILE_LAST_USED = "ColorInversionTileLastUsed";
         String DND_TILE_VISIBLE = "DndTileVisible";
         String DND_TILE_COMBINED_ICON = "DndTileCombinedIcon";
         String DND_CONFIRMED_PRIORITY_INTRODUCTION = "DndConfirmedPriorityIntroduction";
+        String DND_CONFIRMED_SILENCE_INTRODUCTION = "DndConfirmedSilenceIntroduction";
         String DND_FAVORITE_BUCKET_INDEX = "DndCountdownMinuteIndex";
         String DND_NONE_SELECTED = "DndNoneSelected";
+        String DND_FAVORITE_ZEN = "DndFavoriteZen";
     }
 
     public static boolean getBoolean(Context context, @Key String key, boolean defaultValue) {
@@ -74,6 +79,14 @@ public final class Prefs {
 
     public static void putLong(Context context, @Key String key, long value) {
         get(context).edit().putLong(key, value).apply();
+    }
+
+    public static String getString(Context context, @Key String key, String defaultValue) {
+        return get(context).getString(key, defaultValue);
+    }
+
+    public static void putString(Context context, @Key String key, String value) {
+        get(context).edit().putString(key, value).apply();
     }
 
     public static Map<String, ?> getAll(Context context) {

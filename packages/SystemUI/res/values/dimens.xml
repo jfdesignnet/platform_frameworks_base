@@ -16,9 +16,6 @@
 */
 -->
 <resources>
-    <!-- Margin at the edge of the screen to ignore touch events for in the windowshade. -->
-    <dimen name="status_bar_edge_ignore">5dp</dimen>
-
     <!-- Recent Applications parameters -->
     <!-- Upper width limit for application icon -->
     <dimen name="status_bar_recents_app_icon_max_width">48dp</dimen>
@@ -167,7 +164,7 @@
     <dimen name="pull_span_min">25dp</dimen>
 
     <dimen name="qs_tile_height">88dp</dimen>
-    <dimen name="qs_tile_icon_size">28dp</dimen>
+    <dimen name="qs_tile_icon_size">24dp</dimen>
     <dimen name="qs_tile_text_size">12sp</dimen>
     <dimen name="qs_tile_divider_height">1dp</dimen>
     <dimen name="qs_panel_padding">16dp</dimen>
@@ -181,7 +178,6 @@
     <dimen name="qs_tile_spacing">4dp</dimen>
     <dimen name="qs_panel_padding_bottom">8dp</dimen>
     <dimen name="qs_detail_item_height">48dp</dimen>
-    <dimen name="qs_detail_item_height_twoline">72dp</dimen>
     <dimen name="qs_brightness_padding_top">6dp</dimen>
     <dimen name="qs_detail_header_text_size">20sp</dimen>
     <dimen name="qs_detail_button_text_size">14sp</dimen>
@@ -191,7 +187,7 @@
     <dimen name="qs_data_usage_text_size">14sp</dimen>
     <dimen name="qs_data_usage_usage_text_size">36sp</dimen>
 
-    <dimen name="segmented_button_spacing">8dp</dimen>
+    <dimen name="segmented_button_spacing">0dp</dimen>
     <dimen name="borderless_button_radius">2dp</dimen>
 
     <!-- How far the expanded QS panel peeks from the header in collapsed state. -->
@@ -310,7 +306,7 @@
     <dimen name="unlock_falsing_threshold">80dp</dimen>
 
     <!-- Lockscreen falsing threshold for quick settings. -->
-    <dimen name="qs_falsing_threshold">40dp</dimen>
+    <dimen name="qs_falsing_threshold">60dp</dimen>
 
     <!-- Falsing threshold used when dismissing notifications from the lockscreen. -->
     <dimen name="swipe_helper_falsing_threshold">70dp</dimen>
@@ -339,13 +335,10 @@
     <dimen name="keyguard_affordance_min_background_radius">30dp</dimen>
 
     <!-- The size of the touch targets on the keyguard for the affordances. -->
-    <dimen name="keyguard_affordance_touch_target_size">96dp</dimen>
+    <dimen name="keyguard_affordance_touch_target_size">120dp</dimen>
 
     <!-- The grow amount for the camera and phone circles when hinting -->
     <dimen name="hint_grow_amount_sideways">60dp</dimen>
-
-    <!-- The chevron padding to the circle when hinting -->
-    <dimen name="hint_chevron_circle_padding">16dp</dimen>
 
     <!-- Distance between notifications and header when they are considered to be colliding. -->
     <dimen name="header_notifications_collide_distance">48dp</dimen>
@@ -569,8 +562,29 @@
 
     <!-- Padding to be used on the bottom of the fingerprint icon on Keyguard so it better aligns
          with the other icons. -->
-    <dimen name="fingerprint_icon_additional_padding">12dp</dimen>
+    <dimen name="fingerprint_icon_additional_padding">4dp</dimen>
 
     <!-- Minimum margin of the notification panel on the side, when being positioned dynamically -->
     <dimen name="notification_panel_min_side_margin">48dp</dimen>
+
+    <!-- Vertical spacing between multiple volume slider rows -->
+    <dimen name="volume_slider_interspacing">8dp</dimen>
+
+    <!-- Volume dialog vertical offset from the top of the screen -->
+    <dimen name="volume_offset_top">0dp</dimen>
+
+    <!-- Standard image button size for volume dialog buttons -->
+    <dimen name="volume_button_size">48dp</dimen>
+
+    <!-- Volume dialog root view bottom margin, at rest -->
+    <dimen name="volume_dialog_margin_bottom">4dp</dimen>
+
+    <!-- Padding between icon and text for managed profile toast -->
+    <dimen name="managed_profile_toast_padding">4dp</dimen>
+
+    <!-- Thickness of the assist disclosure beams -->
+    <dimen name="assist_disclosure_thickness">2.5dp</dimen>
+
+    <!-- Thickness of the shadows of the assist disclosure beams -->
+    <dimen name="assist_disclosure_shadow_thickness">1.5dp</dimen>
 </resources>

@@ -40,6 +40,8 @@ public class DiskInfo implements Parcelable {
             "android.os.storage.action.DISK_SCANNED";
     public static final String EXTRA_DISK_ID =
             "android.os.storage.extra.DISK_ID";
+    public static final String EXTRA_VOLUME_COUNT =
+            "android.os.storage.extra.VOLUME_COUNT";
 
     public static final int FLAG_ADOPTABLE = 1 << 0;
     public static final int FLAG_DEFAULT_PRIMARY = 1 << 1;
@@ -50,6 +52,9 @@ public class DiskInfo implements Parcelable {
     public final int flags;
     public long size;
     public String label;
+    /** Hacky; don't rely on this count */
+    public int volumeCount;
+    public String sysPath;
 
     public DiskInfo(String id, int flags) {
         this.id = Preconditions.checkNotNull(id);
@@ -61,6 +66,8 @@ public class DiskInfo implements Parcelable {
         flags = parcel.readInt();
         size = parcel.readLong();
         label = parcel.readString();
+        volumeCount = parcel.readInt();
+        sysPath = parcel.readString();
     }
 
     public @NonNull String getId() {
@@ -75,6 +82,12 @@ public class DiskInfo implements Parcelable {
             return false;
         }
         if (label.toLowerCase().contains("generic")) {
+            return false;
+        }
+        if (label.toLowerCase().startsWith("usb")) {
+            return false;
+        }
+        if (label.toLowerCase().startsWith("multiple")) {
             return false;
         }
         return true;
@@ -128,6 +141,8 @@ public class DiskInfo implements Parcelable {
         pw.printPair("flags", DebugUtils.flagsToString(getClass(), "FLAG_", flags));
         pw.printPair("size", size);
         pw.printPair("label", label);
+        pw.println();
+        pw.printPair("sysPath", sysPath);
         pw.decreaseIndent();
         pw.println();
     }
@@ -181,5 +196,7 @@ public class DiskInfo implements Parcelable {
         parcel.writeInt(this.flags);
         parcel.writeLong(size);
         parcel.writeString(label);
+        parcel.writeInt(volumeCount);
+        parcel.writeString(sysPath);
     }
 }

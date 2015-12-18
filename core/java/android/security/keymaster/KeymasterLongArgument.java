@@ -1,11 +1,11 @@
-/**
- * Copyright (c) 2015, The Android Open Source Project
+/*
+ * Copyright (C) 2015 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,8 +27,8 @@ class KeymasterLongArgument extends KeymasterArgument {
     public KeymasterLongArgument(int tag, long value) {
         super(tag);
         switch (KeymasterDefs.getTagType(tag)) {
-            case KeymasterDefs.KM_LONG:
-            case KeymasterDefs.KM_LONG_REP:
+            case KeymasterDefs.KM_ULONG:
+            case KeymasterDefs.KM_ULONG_REP:
                 break; // OK.
             default:
                 throw new IllegalArgumentException("Bad long tag " + tag);

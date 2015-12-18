@@ -34,7 +34,7 @@
          to display a size in kilobytes, megabytes, or other size units.
          Some languages (like French) will want to add a space between
          the placeholders. -->
-    <string name="fileSizeSuffix"><xliff:g id="number" example="123">%1$s</xliff:g><xliff:g id="unit" example="KB">%2$s</xliff:g></string>
+    <string name="fileSizeSuffix"><xliff:g id="number" example="123">%1$s</xliff:g> <xliff:g id="unit" example="KB">%2$s</xliff:g></string>
 
     <!-- [CHAR_LIMIT=10] Suffix added to signify duration in days -->
     <string name="durationDays"><xliff:g id="days">%1$d</xliff:g> days</string>
@@ -255,6 +255,8 @@
     <string-array name="wfcOperatorErrorNotificationMessages" />
     <!-- Template for showing cellular network operator name while WFC is active -->
     <string name="wfcSpnFormat">%s</string>
+    <!-- Template for showing operator name for data connection while WFC is active -->
+    <string name="wfcDataSpnFormat">%s</string>
     <!-- WFC, summary for Disabled -->
     <string name="wifi_calling_off_summary">Off</string>
     <!-- WFC, summary for Wi-Fi Preferred -->
@@ -375,6 +377,9 @@
          as a result of the current profile admin gone missing. [CHAR LIMIT=NONE]-->
     <string name="work_profile_deleted_details">The work profile admin app is either missing or corrupted.
          As a result, your work profile and related data have been deleted. Contact your administrator for assistance.</string>
+    <!-- Content text for a notification. The Title of the notification is "work_profile_deleted",
+        This indicates that a work profile has been deleted. [CHAR LIMIT=NONE]-->
+    <string name="work_profile_deleted_description_dpm_wipe">Your work profile is no longer available on this device.</string>
 
     <!-- Factory reset warning dialog strings--> <skip />
     <!-- Shows up in the dialog's title to warn about an impeding factory reset. [CHAR LIMIT=NONE] -->
@@ -410,6 +415,16 @@
     <string name="silent_mode_vibrate">Ringer vibrate</string>
     <!-- Spoken description for ringer normal option. [CHAR LIMIT=NONE] -->
     <string name="silent_mode_ring">Ringer on</string>
+
+    <!-- Reboot to Recovery Progress Dialog. This is shown before it reboots to recovery. -->
+    <string name="reboot_to_update_title">Android system update</string>
+    <string name="reboot_to_update_prepare">Preparing to update\u2026</string>
+    <string name="reboot_to_update_package">Processing the update package\u2026</string>
+    <string name="reboot_to_update_reboot">Restarting\u2026</string>
+
+    <!-- Reboot to Recovery for factory reset. -->
+    <string name="reboot_to_reset_title">Factory data reset</string>
+    <string name="reboot_to_reset_message">Restarting\u2026</string>
 
     <!-- Shutdown Progress Dialog. This is shown if the user chooses to power off the phone. -->
     <string name="shutdown_progress">Shutting down\u2026</string>
@@ -522,66 +537,56 @@
     <!-- Label for the Android system components when they are shown to the user. -->
     <string name="android_system_label">Android System</string>
 
-    <!-- Label for the user owner in the intent forwarding app. -->
-    <string name="user_owner_label">Personal apps</string>
+    <!-- Label for the user owner in the intent forwarding app. [CHAR LIMIT=15] -->
+    <string name="user_owner_label">Personal</string>
 
-    <!-- Label for a corporate profile in the intent forwarding app. -->
+    <!-- Label for a corporate profile in the intent forwarding app. [CHAR LIMIT=15] -->
     <string name="managed_profile_label">Work</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permgrouplab_contacts">Contacts</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_contacts">access and modify your contacts</string>
+    <string name="permgroupdesc_contacts">access your contacts</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permgrouplab_location">Location</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_location">access your location</string>
-
-    <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgrouplab_socialInfo">Your social information</string>
-    <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_socialInfo">Direct access to information about your contacts and social connections.</string>
+    <string name="permgroupdesc_location">access this device\'s location</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permgrouplab_calendar">Calendar</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_calendar">access and modify your calendar</string>
+    <string name="permgroupdesc_calendar">access your calendar</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permgrouplab_sms">SMS</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_sms">access and modify SMS</string>
+    <string name="permgroupdesc_sms">send and view SMS messages</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgrouplab_dictionary">User Dictionary</string>
+    <string name="permgrouplab_storage">Storage</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_dictionary">Read or write words in user dictionary.</string>
-
-    <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgrouplab_bookmarks">Bookmarks and History</string>
-    <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_bookmarks">Direct access to bookmarks and browser history.</string>
+    <string name="permgroupdesc_storage">access photos, media, and files on your device</string>
 
     <!-- Title of a category of application permissioncds, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permgrouplab_microphone">Microphone</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_microphone">use device microphone</string>
+    <string name="permgroupdesc_microphone">record audio</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permgrouplab_camera">Camera</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_camera">use device camera</string>
+    <string name="permgroupdesc_camera">take pictures and record video</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permgrouplab_phone">Phone</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_phone">use device telephony</string>
+    <string name="permgroupdesc_phone">make and manage phone calls</string>
 
     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgrouplab_sensors">Sensors</string>
+    <string name="permgrouplab_sensors">Body Sensors</string>
     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permgroupdesc_sensors">access sensors and wearables</string>
+    <string name="permgroupdesc_sensors">access sensor data about your vital signs</string>
 
     <!-- Title for the capability of an accessibility service to retrieve window content. -->
     <string name="capability_title_canRetrieveWindowContent">Retrieve window content</string>
@@ -662,8 +667,22 @@
       messages. This means the app could monitor or delete messages sent to your
       device without showing them to you.</string>
 
-     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_sendSms">send SMS messages</string>
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_readCellBroadcasts">read cell broadcast messages</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_readCellBroadcasts">Allows the app to read
+        cell broadcast messages received by your device. Cell broadcast alerts
+        are delivered in some locations to warn you of emergency situations.
+        Malicious apps may interfere with the performance or operation of your
+        device when an emergency cell broadcast is received.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_subscribedFeedsRead">read subscribed feeds</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_subscribedFeedsRead">Allows the app to get details about the currently synced feeds.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_sendSms">send and view SMS messages</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_sendSms">Allows the app to send SMS messages.
      This may result in unexpected charges. Malicious apps may cost you money by
@@ -862,46 +881,12 @@
     <string name="permdesc_writeCallLog" product="default">Allows the app to modify your phone\'s call log, including data about incoming and outgoing calls.
         Malicious apps may use this to erase or modify your call log.</string>
 
-
-    <!-- Title of the read profile permission, listed so the user can decide whether to allow the application to read the user's personal profile data. [CHAR LIMIT=30] -->
-    <string name="permlab_readProfile">read your own contact card</string>
-    <!-- Description of the read profile permission, listed so the user can decide whether to allow the application to read the user's personal profile data. [CHAR LIMIT=NONE] -->
-    <string name="permdesc_readProfile" product="default">Allows the app to read
-     personal profile information stored on your device, such as your name and
-     contact information. This means the app can identify you and may send your
-     profile information to others.</string>
-
-    <!-- Title of the write profile permission, listed so the user can decide whether to allow the application to write to the user's personal profile data. [CHAR LIMIT=30] -->
-    <string name="permlab_writeProfile">modify your own contact card</string>
-    <!-- Description of the write profile permission, listed so the user can decide whether to allow the application to write to the user's personal profile data. [CHAR LIMIT=NONE] -->
-    <string name="permdesc_writeProfile" product="default">Allows the app to
-      change or add to personal profile information stored on your device, such
-      as your name and contact information.  This means the app can identify you
-      and may send your profile information to others.</string>
-
     <!-- Title of the body sensors permission, listed so the user can decide whether to allow the application to access body sensor data. [CHAR LIMIT=30] -->
     <string name="permlab_bodySensors">body sensors (like heart rate monitors)
     </string>
     <!-- Description of the body sensors permission, listed so the user can decide whether to allow the application to access data from body sensors. [CHAR LIMIT=NONE] -->
     <string name="permdesc_bodySensors" product="default">Allows the app to access data from sensors
     that monitor your physical condition, such as your heart rate.</string>
-
-    <!-- Title of the read social stream permission, listed so the user can decide whether to allow the application to read information from the user's social stream. [CHAR LIMIT=30] -->
-    <string name="permlab_readSocialStream" product="default">read your social stream</string>
-    <string name="permdesc_readSocialStream" product="default">Allows the app
-      to access and sync social updates from you and your friends. Be careful
-      when sharing information -- this allows the app to read communications
-      between you and your friends on social networks, regardless of
-      confidentiality. Note: this permission may not be enforced on all social
-      networks.</string>
-
-    <!-- Title of the write social stream permission, listed so the user can decide whether to allow the application to write information to the user's social stream. [CHAR LIMIT=30] -->
-    <string name="permlab_writeSocialStream" product="default">write to your social stream</string>
-    <string name="permdesc_writeSocialStream" product="default">Allows the app to
-     display social updates from your friends.  Be careful when sharing
-     information -- this allows the app to produce messages that may appear to
-     come from a friend. Note: this permission may not be enforced on all social
-     networks.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_readCalendar">read calendar events plus confidential information</string>
@@ -942,14 +927,6 @@
         that appear to come from calendar owners, or modify events without the
         owners\' knowledge.</string>
 
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_accessMockLocation">mock location sources for testing</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_accessMockLocation">Create mock location sources for
-      testing or install a new location provider.  This allows the app to
-      override the location and/or status returned by other location sources
-      such as GPS or location providers.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_accessLocationExtraCommands">access extra location provider commands</string>
@@ -1024,6 +1001,11 @@
       confirmation.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permlab_accessImsCallService">access IMS call service</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_accessImsCallService">Allows the app to use the IMS service to make calls without your intervention.</string>
+
+    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_readPhoneState">read phone status and identity</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_readPhoneState">Allows the app to access the phone
@@ -1086,27 +1068,6 @@
     <string name="permdesc_getAccounts" product="default">Allows the app to get
       the list of accounts known by the phone.  This may include any accounts
       created by applications you have installed.</string>
-
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_authenticateAccounts">create accounts and set passwords</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_authenticateAccounts">Allows the app
-    to use the account authenticator capabilities of the
-    AccountManager, including creating accounts and getting and
-    setting their passwords.</string>
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_manageAccounts">add or remove accounts</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_manageAccounts">Allows the app to
-    perform operations like adding and removing accounts, and deleting
-    their password.</string>
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_useCredentials">use accounts on the device</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_useCredentials">Allows the app to request authentication tokens.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_accessNetworkState">view network connections</string>
@@ -1235,7 +1196,7 @@
     <!-- Message shown during fingerprint acquisision when the user removes their finger from the sensor too quickly -->
     <string name="fingerprint_acquired_too_fast">Finger moved too fast. Please try again.</string>
     <!-- Message shown during fingerprint acquisision when the user moves their finger too slowly -->
-    <string name="fingerprint_acquired_too_slow">Finger moved to slow. Please try again.</string>
+    <string name="fingerprint_acquired_too_slow">Finger moved too slow. Please try again.</string>
     <!-- Array containing custom messages shown during fingerprint acquisision from vendor.  Vendor is expected to add and translate these strings -->
     <string-array name="fingerprint_acquired_vendor">
     </string-array>
@@ -1253,9 +1214,15 @@
     <!-- Generic error message shown when the fingerprint hardware can't recognize the fingerprint -->
     <string name="fingerprint_error_unable_to_process">Try again.</string>
 
+    <!-- Template to be used to name enrolled fingerprints by default. -->
+    <string name="fingerprint_name_template">Finger <xliff:g id="fingerId" example="1">%d</xliff:g></string>
+
     <!-- Array containing custom error messages from vendor.  Vendor is expected to add and translate these strings -->
     <string-array name="fingerprint_error_vendor">
     </string-array>
+
+    <!-- Content description which should be used for the fingerprint icon. -->
+    <string name="fingerprint_icon_content_description">Fingerprint icon</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permlab_readSyncSettings">read sync settings</string>
@@ -1271,24 +1238,6 @@
     <string name="permlab_readSyncStats">read sync statistics</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
     <string name="permdesc_readSyncStats">Allows an app to read the sync stats for an account, including the history of sync events and how much data is synced. </string>
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_subscribedFeedsWrite">write subscribed feeds</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_subscribedFeedsWrite">Allows the app to modify
-        your currently synced feeds. Malicious apps may change your synced feeds.</string>
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_readDictionary">read terms you added to the dictionary</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_readDictionary">Allows the app to read all words,
-       names and phrases that the user may have stored in the user dictionary.</string>
-
-    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_writeDictionary">add words to user-defined dictionary</string>
-    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_writeDictionary">Allows the app to write new words into the
-      user dictionary.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. [CHAR LIMIT=30] -->
     <string name="permlab_sdcardRead" product="nosdcard">read the contents of your USB storage</string>
@@ -1411,9 +1360,14 @@
     <string name="permdesc_bindCarrierMessagingService">Allows the holder to bind to the top-level interface of a carrier messaging service. Should never be needed for normal apps.</string>
 
     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permlab_bindCarrierConfigService">bind to a carrier config service</string>
+    <string name="permlab_bindCarrierServices">bind to carrier services</string>
     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
-    <string name="permdesc_bindCarrierConfigService">Allows the holder to bind to a carrier config service. Should never be needed for normal apps.</string>
+    <string name="permdesc_bindCarrierServices">Allows the holder to bind to carrier services. Should never be needed for normal apps.</string>
+
+    <!-- Title of an application permission, for applications that wish to access notification policy. -->
+    <string name="permlab_access_notification_policy">access Do Not Disturb</string>
+    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+    <string name="permdesc_access_notification_policy">Allows the app to read and write Do Not Disturb configuration.</string>
 
     <!-- Policy administration -->
 
@@ -1485,10 +1439,10 @@
     <string name="policylab_disableCamera">Disable cameras</string>
     <!-- Description of policy access to disable all device cameras [CHAR LIMIT=110]-->
     <string name="policydesc_disableCamera">Prevent use of all device cameras.</string>
-    <!-- Title of policy access to disable all device cameras [CHAR LIMIT=30]-->
-    <string name="policylab_disableKeyguardFeatures">Disable features of screen lock</string>
-    <!-- Description of policy access to disable all device cameras [CHAR LIMIT=110]-->
-    <string name="policydesc_disableKeyguardFeatures">Prevent use of some features of screen lock.</string>
+    <!-- Title of policy access to disable keyguard features [CHAR LIMIT=30]-->
+    <string name="policylab_disableKeyguardFeatures">Disable some screen lock features</string>
+    <!-- Description of policy access to disable keyguard features. [CHAR LIMIT=110]-->
+    <string name="policydesc_disableKeyguardFeatures">Prevent use of some screen lock features.</string>
 
     <!-- The order of these is important, don't reorder without changing Contacts.java --> <skip />
     <!-- Phone number types from android.provider.Contacts. This could be used when adding a new phone number for a contact, for example. -->
@@ -1957,10 +1911,16 @@
     <string name="lockscreen_access_pattern_start">Pattern started</string>
     <!-- Accessibility description sent when the pattern times out and is cleared. [CHAR LIMIT=NONE] -->
     <string name="lockscreen_access_pattern_cleared">Pattern cleared</string>
-    <!-- Accessibility description sent when user adds a cell to the pattern. [CHAR LIMIT=NONE]  -->
+    <!-- Accessibility description sent when user adds a dot to the pattern. [CHAR LIMIT=NONE]  -->
     <string name="lockscreen_access_pattern_cell_added">Cell added</string>
+    <!-- Accessibility description sent when user adds a dot to the pattern. Announces the 
+    actual cell when headphones are connected [CHAR LIMIT=NONE]  -->
+    <string name="lockscreen_access_pattern_cell_added_verbose">
+            Cell <xliff:g id="cell_index" example="3">%1$s</xliff:g> added</string>
     <!-- Accessibility description sent when user completes drawing a pattern. [CHAR LIMIT=NONE] -->
     <string name="lockscreen_access_pattern_detected">Pattern completed</string>
+    <!-- Accessibility description of the unlock pattern area. [CHAR_LIMIT=none] -->
+    <string name="lockscreen_access_pattern_area" msgid="">Pattern area.</string>
 
     <!-- Accessibility description sent when user changes the current lock screen widget. [CHAR_LIMIT=none] -->
     <string name="keyguard_accessibility_widget_changed">%1$s. Widget %2$d of %3$d.</string>
@@ -2242,6 +2202,7 @@
 
     <!-- Label in a web form for "Emirate" [CHAR-LIMIT=NONE]  -->
     <string name="autofill_emirate">Emirate</string>
+
 
     <!-- Title of an application permission, listed so the user can choose whether
         they want to allow the application to do this. -->
@@ -2761,6 +2722,12 @@
     <!-- A notification is shown when a captive portal network is detected.  This is the notification's message. -->
     <string name="network_available_sign_in_detailed"><xliff:g id="network_ssid">%1$s</xliff:g></string>
 
+    <!-- A notification is shown when the user connects to a Wi-Fi network and the system detects that that network has no Internet access. This is the notification's title. -->
+    <string name="wifi_no_internet">Wi-Fi has no Internet access</string>
+
+    <!-- A notification is shown when the user connects to a Wi-Fi network and the system detects that that network has no Internet access. This is the notification's message. -->
+    <string name="wifi_no_internet_detailed">Touch for options</string>
+
      <!-- A notification is shown when a user's selected SSID is later disabled due to connectivity problems.  This is the notification's title / ticker. -->
      <string name="wifi_watchdog_network_disabled">Couldn\'t connect to Wi-Fi</string>
      <!-- A notification is shown when a user's selected SSID is later disabled due to connectivity problems.  The complete alert msg is: <hotspot name> + this string, i.e. "Linksys has a poor internet connection" -->
@@ -2914,31 +2881,18 @@
     <!-- USB_STORAGE_ERROR dialog  ok button-->
     <string name="dlg_ok">OK</string>
 
+    <!-- USB_PREFERENCES: Notification for when the user connected to the charger only.  This is the title -->
+    <string name="usb_charging_notification_title">USB for charging</string>
     <!-- USB_PREFERENCES: Notification for when the user connects the phone to a computer via USB in MTP mode.  This is the title -->
-    <string name="usb_mtp_notification_title">Connected as a media device</string>
+    <string name="usb_mtp_notification_title">USB for file transfer</string>
     <!-- USB_PREFERENCES: Notification for when the user connects the phone to a computer via USB in PTP mode.  This is the title -->
-    <string name="usb_ptp_notification_title">Connected as a camera</string>
+    <string name="usb_ptp_notification_title">USB for photo transfer</string>
     <!-- USB_PREFERENCES: Notification for when the user connects the phone to a computer via USB in MIDI mode.  This is the title -->
-    <string name="usb_midi_notification_title">Connected as a MIDI device</string>
-    <!-- USB_PREFERENCES: Notification for when the user connects the phone to a computer via USB in mass storage mode (for installer CD image).  This is the title -->
-    <string name="usb_cd_installer_notification_title">Connected as an installer</string>
+    <string name="usb_midi_notification_title">USB for MIDI</string>
     <!-- USB_PREFERENCES: Notification for when a USB accessory is attached.  This is the title -->
     <string name="usb_accessory_notification_title">Connected to a USB accessory</string>
     <!-- See USB_PREFERENCES. This is the message. -->
-    <string name="usb_notification_message">Touch for other USB options.</string>
-
-    <!-- External media format dialog strings -->
-    <!-- This is the label for the activity, and should never be visible to the user. -->
-    <!-- See EXTMEDIA_FORMAT.  EXTMEDIA_FORMAT_DIALOG:  After the user selects the notification, a dialog is shown asking if he wants to format the SD card.  This is the title. [CHAR LIMIT=20] -->
-    <string name="extmedia_format_title" product="nosdcard">Format USB storage?</string>
-    <!-- See EXTMEDIA_FORMAT.  EXTMEDIA_FORMAT_DIALOG:  After the user selects the notification, a dialog is shown asking if he wants to format the SD card.  This is the title. -->
-    <string name="extmedia_format_title" product="default">Format SD card?</string>
-    <!-- See EXTMEDIA_FORMAT.   This is the message. [CHAR LIMIT=NONE] -->
-    <string name="extmedia_format_message" product="nosdcard">All files stored in your USB storage will be erased. This action can\'t be reversed!</string>
-    <!-- See EXTMEDIA_FORMAT.   This is the message. -->
-    <string name="extmedia_format_message" product="default">All data on your card will be lost.</string>
-    <!-- See EXTMEDIA_FORMAT.    This is the button text to format the sd card. -->
-    <string name="extmedia_format_button_format">Format</string>
+    <string name="usb_notification_message">Touch for more options.</string>
 
     <!-- Title of notification shown when ADB is actively connected to the phone. -->
     <string name="adb_active_notification_title">USB debugging connected</string>
@@ -2986,9 +2940,14 @@
     <string name="ext_media_ready_notification_message">For transferring photos and media</string>
 
     <!-- Notification title when external media is unmountable (corrupt) [CHAR LIMIT=30] -->
-    <string name="ext_media_unmountable_notification_title">Damaged <xliff:g id="name" example="SD card">%s</xliff:g></string>
+    <string name="ext_media_unmountable_notification_title">Corrupted <xliff:g id="name" example="SD card">%s</xliff:g></string>
     <!-- Notification body when external media is unmountable (corrupt) [CHAR LIMIT=NONE] -->
-    <string name="ext_media_unmountable_notification_message"><xliff:g id="name" example="SD card">%s</xliff:g> is damaged; try reformatting it</string>
+    <string name="ext_media_unmountable_notification_message"><xliff:g id="name" example="SD card">%s</xliff:g> is corrupt. Touch to fix.</string>
+
+    <!-- Notification title when external media is unsupported [CHAR LIMIT=30] -->
+    <string name="ext_media_unsupported_notification_title">Unsupported <xliff:g id="name" example="SD card">%s</xliff:g></string>
+    <!-- Notification body when external media is unsupported [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unsupported_notification_message">This device doesn\u2019t support this <xliff:g id="name" example="SD card">%s</xliff:g>. Touch to set up in a supported format.</string>
 
     <!-- Notification title when external media is unsafely removed [CHAR LIMIT=30] -->
     <string name="ext_media_badremoval_notification_title"><xliff:g id="name" example="SD card">%s</xliff:g> unexpectedly removed</string>
@@ -3006,11 +2965,54 @@
     <string name="ext_media_unmounting_notification_message">Don\'t remove</string>
 
     <!-- Notification action to setup external media [CHAR LIMIT=20] -->
-    <string name="ext_media_init_action">Setup</string>
+    <string name="ext_media_init_action">Set up</string>
     <!-- Notification action to unmount external media [CHAR LIMIT=20] -->
     <string name="ext_media_unmount_action">Eject</string>
     <!-- Notification action to browse external media [CHAR LIMIT=20] -->
     <string name="ext_media_browse_action">Explore</string>
+
+    <!-- Notification title when external media is missing [CHAR LIMIT=30] -->
+    <string name="ext_media_missing_title"><xliff:g id="name" example="SD card">%s</xliff:g> missing</string>
+    <!-- Notification body when external media is missing [CHAR LIMIT=30] -->
+    <string name="ext_media_missing_message">Reinsert this device</string>
+
+    <!-- Notification title when moving an application to external storage [CHAR LIMIT=30] -->
+    <string name="ext_media_move_specific_title">Moving <xliff:g id="name" example="Calculator">%s</xliff:g></string>
+    <!-- Notification title when moving data to external storage [CHAR LIMIT=32] -->
+    <string name="ext_media_move_title">Moving data</string>
+
+    <!-- Notification title when moving data to external storage [CHAR LIMIT=32] -->
+    <string name="ext_media_move_success_title">Move complete</string>
+    <!-- Notification title when moving data to external storage [CHAR LIMIT=64] -->
+    <string name="ext_media_move_success_message">Data moved to <xliff:g id="name" example="SD card">%s</xliff:g></string>
+
+    <!-- Notification title when moving data to external storage failed [CHAR LIMIT=32] -->
+    <string name="ext_media_move_failure_title">Couldn\'t move data</string>
+    <!-- Notification title when moving data to external storage failed [CHAR LIMIT=64] -->
+    <string name="ext_media_move_failure_message">Data left at original location</string>
+
+    <!-- Short summary of storage media status when removed [CHAR LIMIT=32] -->
+    <string name="ext_media_status_removed">Removed</string>
+    <!-- Short summary of storage media status when unmounted [CHAR LIMIT=32] -->
+    <string name="ext_media_status_unmounted">Ejected</string>
+    <!-- Short summary of storage media status when checking [CHAR LIMIT=32] -->
+    <string name="ext_media_status_checking">Checking\u2026</string>
+    <!-- Short summary of storage media status when mounted [CHAR LIMIT=32] -->
+    <string name="ext_media_status_mounted">Ready</string>
+    <!-- Short summary of storage media status when mounted read-only [CHAR LIMIT=32] -->
+    <string name="ext_media_status_mounted_ro">Read-only</string>
+    <!-- Short summary of storage media status when removed unsafely [CHAR LIMIT=32] -->
+    <string name="ext_media_status_bad_removal">Removed unsafely</string>
+    <!-- Short summary of storage media status when unmountable [CHAR LIMIT=32] -->
+    <string name="ext_media_status_unmountable">Corrupted</string>
+    <!-- Short summary of storage media status when unsupported [CHAR LIMIT=32] -->
+    <string name="ext_media_status_unsupported">Unsupported</string>
+    <!-- Short summary of storage media status when ejecting [CHAR LIMIT=32] -->
+    <string name="ext_media_status_ejecting">Ejecting\u2026</string>
+    <!-- Short summary of storage media status when formatting [CHAR LIMIT=32] -->
+    <string name="ext_media_status_formatting">Formatting\u2026</string>
+    <!-- Short summary of storage media status when missing [CHAR LIMIT=32] -->
+    <string name="ext_media_status_missing">Not inserted</string>
 
     <!-- Shown in LauncherActivity when the requested target Intent didn't return any matching Activities, leaving the list empty. -->
     <string name="activity_list_empty">No matching activities found.</string>
@@ -3024,6 +3026,11 @@
     <string name="permlab_readInstallSessions">Read install sessions</string>
     <!-- Description of an application permission that lets it read install sessions. -->
     <string name="permdesc_readInstallSessions">Allows an application to read install sessions. This allows it to see details about active package installations.</string>
+
+    <!-- Title of an application permission that lets it read install sessions. -->
+    <string name="permlab_requestInstallPackages">Request install packages</string>
+    <!-- Description of an application permission that lets it read install sessions. -->
+    <string name="permdesc_requestInstallPackages">Allows an application to request installation of packages.</string>
 
     <!-- Shown in the tutorial for tap twice for zoom control. -->
     <string name="tutorial_double_tap_to_zoom_message_short">Touch twice for zoom control</string>
@@ -3166,33 +3173,11 @@
     <!-- Label for the "Done" button on the far left of action mode toolbars. -->
     <string name="action_mode_done">Done</string>
 
-    <!-- Strings for ExternalStorageFormatter service. -->
-    <!-- Text for progress dialog while unmounting USB storage volume [CHAR LIMIT=NONE] -->
-    <string name="progress_unmounting" product="nosdcard">Unmounting USB storage\u2026</string>
-    <!-- Text for progress dialog while unmounting SD card [CHAR LIMIT=NONE] -->
-    <string name="progress_unmounting" product="default">Unmounting SD card\u2026</string>
+    <!-- Strings for MasterClearReceiver. -->
     <!-- Text for progress dialog while erasing USB storage volume [CHAR LIMIT=NONE] -->
     <string name="progress_erasing" product="nosdcard">Erasing USB storage\u2026</string>
     <!-- Text for progress dialog while erasing SD card [CHAR LIMIT=NONE] -->
     <string name="progress_erasing" product="default">Erasing SD card\u2026</string>
-    <!-- Text for message to user that an error happened when formatting USB storage [CHAR LIMIT=NONE] -->
-    <string name="format_error" product="nosdcard">Couldn\'t erase USB storage.</string>
-    <!-- Text for message to user that an error happened when formatting SD card [CHAR LIMIT=NONE] -->
-    <string name="format_error" product="default">Couldn\'t erase SD card.</string>
-    <!-- Text for message to user that SD card has been removed while in use [CHAR LIMIT=NONE] -->
-    <string name="media_bad_removal">SD card was removed before being unmounted.</string>
-    <!-- Text for message to user USB storage is currently being checked [CHAR LIMIT=NONE] -->
-    <string name="media_checking" product="nosdcard">USB storage is currently being checked.</string>
-    <!-- Text for message to user SD card is currently being checked [CHAR LIMIT=NONE] -->
-    <string name="media_checking" product="default">SD card is currently being checked.</string>
-    <!-- Text for message to user SD card has been removed [CHAR LIMIT=NONE] -->
-    <string name="media_removed">SD card has been removed.</string>
-    <!-- Text for message to user USB storage is currently mounted on a computer [CHAR LIMIT=NONE] -->
-    <string name="media_shared" product="nosdcard">USB storage is currently in use by a computer.</string>
-    <!-- Text for message to user SD card is currently mounted on a computer [CHAR LIMIT=NONE] -->
-    <string name="media_shared" product="default">SD card is currently in use by a computer.</string>
-    <!-- Text for message for an unknown external media state [CHAR LIMIT=NONE] -->
-    <string name="media_unknown_state">External media in unknown state.</string>
 
     <!-- Text for WebView's text selection Action Mode -->
     <!-- ActionBar action to share the current selection [CHAR LIMIT=10] -->
@@ -3358,9 +3343,6 @@
 
     <!-- Storage description for USB storage. [CHAR LIMIT=NONE] -->
     <string name="storage_usb">USB storage</string>
-
-    <!-- Button text for the edit menu in input method extract mode. [CHAR LIMIT=16] -->
-    <string name="extract_edit_menu_button">Edit</string>
 
     <!-- Notification title when data usage has exceeded warning threshold. [CHAR LIMIT=32] -->
     <string name="data_usage_warning_title">Data usage warning</string>
@@ -3993,9 +3975,11 @@
     <!-- Lock-to-app unlock password string -->
     <string name="lock_to_app_unlock_password">Ask for password before unpinning</string>
 
-    <!-- Notification shown when device owner silently installs a package -->
+    <!-- Notification shown when device owner silently installs a package [CHAR LIMIT=NONE] -->
     <string name="package_installed_device_owner">Installed by your administrator</string>
-    <!-- Notification shown when device owner silently deletes a package -->
+    <!-- Notification shown when device owner silently updates a package [CHAR LIMIT=NONE] -->
+    <string name="package_updated_device_owner">Updated by your administrator</string>
+    <!-- Notification shown when device owner silently deletes a package [CHAR LIMIT=NONE] -->
     <string name="package_deleted_device_owner">Deleted by your administrator</string>
 
     <!-- [CHAR_LIMIT=NONE] Battery saver: Feature description -->
@@ -4007,10 +3991,22 @@
         <item quantity="other">For %1$d minutes (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
     </plurals>
 
+    <!-- Zen mode condition - summary: time duration in minutes (short version). [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_minutes_summary_short">
+        <item quantity="one">For 1 min (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+        <item quantity="other">For %1$d min (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+    </plurals>
+
     <!-- Zen mode condition - summary: time duration in hours. [CHAR LIMIT=NONE] -->
     <plurals name="zen_mode_duration_hours_summary">
         <item quantity="one">For one hour (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
         <item quantity="other">For %1$d hours (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+    </plurals>
+
+    <!-- Zen mode condition - summary: time duration in hours (short version). [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_hours_summary_short">
+        <item quantity="one">For 1 hr (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
+        <item quantity="other">For %1$d hr (until <xliff:g id="formattedTime" example="10:00 PM">%2$s</xliff:g>)</item>
     </plurals>
 
     <!-- Zen mode condition - line one: time duration in minutes. [CHAR LIMIT=NONE] -->
@@ -4019,17 +4015,35 @@
         <item quantity="other">For %d minutes</item>
     </plurals>
 
+    <!-- Zen mode condition - line one: time duration in minutes (short version). [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_minutes_short">
+        <item quantity="one">For 1 min</item>
+        <item quantity="other">For %d min</item>
+    </plurals>
+
     <!-- Zen mode condition - line one: time duration in hours. [CHAR LIMIT=NONE] -->
     <plurals name="zen_mode_duration_hours">
         <item quantity="one">For one hour</item>
         <item quantity="other">For %d hours</item>
     </plurals>
 
+    <!-- Zen mode condition - line one: time duration in hours (short version). [CHAR LIMIT=NONE] -->
+    <plurals name="zen_mode_duration_hours_short">
+        <item quantity="one">For 1 hr</item>
+        <item quantity="other">For %d hr</item>
+    </plurals>
+
     <!-- Zen mode condition - line two: ending time. [CHAR LIMIT=NONE] -->
     <string name="zen_mode_until">Until <xliff:g id="formattedTime" example="10:00 PM">%1$s</xliff:g></string>
 
+    <!-- Zen mode condition - line one: Until next alarm. [CHAR LIMIT=NONE] -->
+    <string name="zen_mode_alarm">Until <xliff:g id="formattedTime" example="10:00 PM">%1$s</xliff:g> (next alarm)</string>
+
     <!-- Zen mode condition: no exit criteria. [CHAR LIMIT=NONE] -->
     <string name="zen_mode_forever">Until you turn this off</string>
+
+    <!-- Zen mode condition: no exit criteria, includes the name of the feature for emphasis. [CHAR LIMIT=NONE] -->
+    <string name="zen_mode_forever_dnd">Until you turn off Do Not Disturb</string>
 
     <!-- Zen mode active automatic rule name separator. [CHAR LIMIT=NONE] -->
     <string name="zen_mode_rule_name_combination"><xliff:g id="first" example="Weeknights">%1$s</xliff:g> / <xliff:g id="rest" example="Meetings">%2$s</xliff:g></string>
@@ -4044,10 +4058,13 @@
     <string name="zen_mode_downtime_feature_name">Downtime</string>
 
     <!-- Zen mode - name of default automatic schedule for weeknights. [CHAR LIMIT=40] -->
-    <string name="zen_mode_default_weeknights_name">Weeknights</string>
+    <string name="zen_mode_default_weeknights_name">Weeknight</string>
 
     <!-- Zen mode - name of default automatic schedule for weekends. [CHAR LIMIT=40] -->
-    <string name="zen_mode_default_weekends_name">Weekends</string>
+    <string name="zen_mode_default_weekends_name">Weekend</string>
+
+    <!-- Zen mode - name of default automatic calendar event-based rule. [CHAR LIMIT=40] -->
+    <string name="zen_mode_default_events_name">Event</string>
 
     <!-- Indication that the current volume and other effects (vibration) are being suppressed by a third party, such as a notification listener. [CHAR LIMIT=30] -->
     <string name="muted_by">Muted by <xliff:g id="third_party">%1$s</xliff:g></string>
@@ -4066,6 +4083,9 @@
     <string name="stk_cc_ss_to_ussd">SS request is modified to USSD request.</string>
     <string name="stk_cc_ss_to_ss">SS request is modified to new SS request.</string>
 
+    <!-- Content description of the work profile icon in the notification. -->
+    <string name="notification_work_profile_content_description">Work profile</string>
+
     <!-- User visible name for USB MIDI Peripheral port -->
     <string name="usb_midi_peripheral_name">Android USB Peripheral Port</string>
     <!-- Manufacturer name for USB MIDI Peripheral port -->
@@ -4079,4 +4099,14 @@
     <!-- Content description for the button that closes the floating toolbar overflow. [CHAR LIMIT=NONE] -->
     <string name="floating_toolbar_close_overflow_description">Close overflow</string>
 
+    <!-- Ellipsis character to appear in notification templates, e.g.
+         notification_template_material_inbox.xml.
+         DO NOT TRANSLATE -->
+    <string name="notification_inbox_ellipsis">\u2026</string>
+
+    <!-- Label describing the number of selected items [CHAR LIMIT=48] -->
+    <plurals name="selected_count">
+        <item quantity="one"><xliff:g id="count" example="1">%1$d</xliff:g> selected</item>
+        <item quantity="other"><xliff:g id="count" example="3">%1$d</xliff:g> selected</item>
+    </plurals>
 </resources>

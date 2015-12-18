@@ -104,13 +104,9 @@ public class RecentsTaskLoadPlan {
         if (mRawTasks == null) {
             preloadRawTasks(isTopTaskHome);
         }
-        int firstStackId = -1;
         int taskCount = mRawTasks.size();
         for (int i = 0; i < taskCount; i++) {
             ActivityManager.RecentTaskInfo t = mRawTasks.get(i);
-            if (firstStackId < 0) {
-                firstStackId = t.stackId;
-            }
 
             // Compose the task key
             Task.TaskKey taskKey = new Task.TaskKey(t.persistentId, t.stackId, t.baseIntent,
@@ -130,6 +126,8 @@ public class RecentsTaskLoadPlan {
             // Load the label, icon, and color
             String activityLabel = loader.getAndUpdateActivityLabel(taskKey, t.taskDescription,
                     mSystemServicesProxy, infoHandle);
+            String contentDescription = loader.getAndUpdateContentDescription(taskKey,
+                    activityLabel, mSystemServicesProxy, res);
             Drawable activityIcon = loader.getAndUpdateActivityIcon(taskKey, t.taskDescription,
                     mSystemServicesProxy, res, infoHandle, false);
             int activityColor = loader.getActivityPrimaryColor(t.taskDescription, mConfig);
@@ -148,25 +146,25 @@ public class RecentsTaskLoadPlan {
 
             // Add the task to the stack
             Task task = new Task(taskKey, (t.id != RecentsTaskLoader.INVALID_TASK_ID),
-                    t.affiliatedTaskId, t.affiliatedTaskColor, activityLabel, activityIcon,
-                    activityColor, (i == (taskCount - 1)), mConfig.lockToAppEnabled, icon,
-                    iconFilename);
+                    t.affiliatedTaskId, t.affiliatedTaskColor, activityLabel, contentDescription,
+                    activityIcon, activityColor, (i == (taskCount - 1)), mConfig.lockToAppEnabled,
+                    icon, iconFilename);
             task.thumbnail = loader.getAndUpdateThumbnail(taskKey, mSystemServicesProxy, false);
             if (DEBUG) Log.d(TAG, "\tthumbnail: " + taskKey + ", " + task.thumbnail);
 
             if (!mConfig.multiStackEnabled ||
                     Constants.DebugFlags.App.EnableMultiStackToSingleStack) {
-                firstStackId = 0;
+                int firstStackId = 0;
                 ArrayList<Task> stackTasks = stacksTasks.get(firstStackId);
                 if (stackTasks == null) {
-                    stackTasks = new ArrayList<Task>();
+                    stackTasks = new ArrayList<>();
                     stacksTasks.put(firstStackId, stackTasks);
                 }
                 stackTasks.add(task);
             } else {
                 ArrayList<Task> stackTasks = stacksTasks.get(t.stackId);
                 if (stackTasks == null) {
-                    stackTasks = new ArrayList<Task>();
+                    stackTasks = new ArrayList<>();
                     stacksTasks.put(t.stackId, stackTasks);
                 }
                 stackTasks.add(task);

@@ -39,7 +39,7 @@ using namespace android;
  * given a mapping from resource ID to resource name.
  */
 struct ReferenceIdToNameVisitor : ValueVisitor {
-    ReferenceIdToNameVisitor(const std::shared_ptr<Resolver>& resolver,
+    ReferenceIdToNameVisitor(const std::shared_ptr<IResolver>& resolver,
                              std::map<ResourceId, ResourceName>* cache) :
             mResolver(resolver), mCache(cache) {
     }
@@ -96,34 +96,31 @@ private:
             reference.name = cacheIter->second;
             reference.id = 0;
         } else {
-            const android::ResTable& table = mResolver->getResTable();
-            android::ResTable::resource_name resourceName;
-            if (table.getResourceName(reference.id.id, false, &resourceName)) {
-                const ResourceType* type = parseResourceType(StringPiece16(resourceName.type,
-                                                                           resourceName.typeLen));
-                assert(type);
-                reference.name.package.assign(resourceName.package, resourceName.packageLen);
-                reference.name.type = *type;
-                reference.name.entry.assign(resourceName.name, resourceName.nameLen);
-                reference.id = 0;
+            Maybe<ResourceName> result = mResolver->findName(reference.id);
+            if (result) {
+                reference.name = result.value();
 
                 // Add to cache.
                 mCache->insert({reference.id, reference.name});
+
+                reference.id = 0;
             }
         }
     }
 
-    std::shared_ptr<Resolver> mResolver;
+    std::shared_ptr<IResolver> mResolver;
     std::map<ResourceId, ResourceName>* mCache;
 };
 
 
 BinaryResourceParser::BinaryResourceParser(const std::shared_ptr<ResourceTable>& table,
-                                           const std::shared_ptr<Resolver>& resolver,
+                                           const std::shared_ptr<IResolver>& resolver,
                                            const Source& source,
+                                           const std::u16string& defaultPackage,
                                            const void* data,
                                            size_t len) :
-        mTable(table), mResolver(resolver), mSource(source), mData(data), mDataLen(len) {
+        mTable(table), mResolver(resolver), mSource(source), mDefaultPackage(defaultPackage),
+        mData(data), mDataLen(len) {
 }
 
 bool BinaryResourceParser::parse() {
@@ -181,6 +178,9 @@ bool BinaryResourceParser::getSymbol(const void* data, ResourceNameRef* outSymbo
             const ResourceType* type = parseResourceType(typeStr);
             if (!type) {
                 return false;
+            }
+            if (outSymbol->package.empty()) {
+                outSymbol->package = mTable->getPackage();
             }
             outSymbol->type = *type;
 
@@ -355,7 +355,22 @@ bool BinaryResourceParser::parsePackage(const ResChunk_header* chunk) {
 
     size_t len = strnlen16(reinterpret_cast<const char16_t*>(packageHeader->name),
             sizeof(packageHeader->name) / sizeof(packageHeader->name[0]));
-    mTable->setPackage(StringPiece16(reinterpret_cast<const char16_t*>(packageHeader->name), len));
+    if (mTable->getPackage().empty() && len == 0) {
+        mTable->setPackage(mDefaultPackage);
+    } else if (len > 0) {
+        StringPiece16 thisPackage(reinterpret_cast<const char16_t*>(packageHeader->name), len);
+        if (mTable->getPackage().empty()) {
+            mTable->setPackage(thisPackage);
+        } else if (thisPackage != mTable->getPackage()) {
+            Logger::error(mSource)
+                    << "incompatible packages: "
+                    << mTable->getPackage()
+                    << " vs. "
+                    << thisPackage
+                    << std::endl;
+            return false;
+        }
+    }
 
     ResChunkPullParser parser(getChunkData(packageHeader->header),
                               getChunkDataLen(packageHeader->header));
@@ -401,6 +416,12 @@ bool BinaryResourceParser::parsePackage(const ResChunk_header* chunk) {
             }
             break;
 
+        case RES_TABLE_PUBLIC_TYPE:
+            if (!parsePublic(parser.getChunk())) {
+                return false;
+            }
+            break;
+
         default:
             Logger::warn(mSource)
                     << "unexpected chunk of type "
@@ -430,6 +451,62 @@ bool BinaryResourceParser::parsePackage(const ResChunk_header* chunk) {
                 configValue.value->accept(visitor, {});
             }
         }
+    }
+    return true;
+}
+
+bool BinaryResourceParser::parsePublic(const ResChunk_header* chunk) {
+    const Public_header* header = convertTo<Public_header>(chunk);
+
+    if (header->typeId == 0) {
+        Logger::error(mSource)
+                << "invalid type ID " << header->typeId << std::endl;
+        return false;
+    }
+
+    const ResourceType* parsedType = parseResourceType(util::getString(mTypePool,
+                                                                       header->typeId - 1));
+    if (!parsedType) {
+        Logger::error(mSource)
+                << "invalid type " << util::getString(mTypePool, header->typeId - 1) << std::endl;
+        return false;
+    }
+
+    const uintptr_t chunkEnd = reinterpret_cast<uintptr_t>(chunk) + chunk->size;
+    const Public_entry* entry = reinterpret_cast<const Public_entry*>(
+            getChunkData(header->header));
+    for (uint32_t i = 0; i < header->count; i++) {
+        if (reinterpret_cast<uintptr_t>(entry) + sizeof(*entry) > chunkEnd) {
+            Logger::error(mSource)
+                    << "Public_entry extends beyond chunk."
+                    << std::endl;
+            return false;
+        }
+
+        const ResourceId resId = { mTable->getPackageId(), header->typeId, entry->entryId };
+        const ResourceName name = {
+                mTable->getPackage(),
+                *parsedType,
+                util::getString(mKeyPool, entry->key.index).toString() };
+
+        SourceLine source;
+        if (mSourcePool.getError() == NO_ERROR) {
+            source.path = util::utf16ToUtf8(util::getString(mSourcePool, entry->source.index));
+            source.line = entry->sourceLine;
+        }
+
+        if (!mTable->markPublicAllowMangled(name, resId, source)) {
+            return false;
+        }
+
+        // Add this resource name->id mapping to the index so
+        // that we can resolve all ID references to name references.
+        auto cacheIter = mIdIndex.find(resId);
+        if (cacheIter == mIdIndex.end()) {
+            mIdIndex.insert({ resId, name });
+        }
+
+        entry++;
     }
     return true;
 }
@@ -561,12 +638,12 @@ bool BinaryResourceParser::parseType(const ResChunk_header* chunk) {
             source.line = sourceBlock->line;
         }
 
-        if (!mTable->addResource(name, config, source, std::move(resourceValue))) {
+        if (!mTable->addResourceAllowMangled(name, config, source, std::move(resourceValue))) {
             return false;
         }
 
         if ((entry->flags & ResTable_entry::FLAG_PUBLIC) != 0) {
-            if (!mTable->markPublic(name, resId, mSource.line(0))) {
+            if (!mTable->markPublicAllowMangled(name, resId, mSource.line(0))) {
                 return false;
             }
         }
@@ -585,6 +662,10 @@ std::unique_ptr<Item> BinaryResourceParser::parseValue(const ResourceNameRef& na
                                                        const ConfigDescription& config,
                                                        const Res_value* value,
                                                        uint16_t flags) {
+    if (name.type == ResourceType::kId) {
+        return util::make_unique<Id>();
+    }
+
     if (value->dataType == Res_value::TYPE_STRING) {
         StringPiece16 str = util::getString(mValuePool, value->data);
 
@@ -636,26 +717,14 @@ std::unique_ptr<Item> BinaryResourceParser::parseValue(const ResourceNameRef& na
 
         // This is not an unresolved symbol, so it must be the magic @null reference.
         Res_value nullType = {};
-        nullType.dataType = Res_value::TYPE_NULL;
-        nullType.data = Res_value::DATA_NULL_UNDEFINED;
+        nullType.dataType = Res_value::TYPE_REFERENCE;
         return util::make_unique<BinaryPrimitive>(nullType);
-    }
-
-    if (value->dataType == ExtendedTypes::TYPE_SENTINEL) {
-        return util::make_unique<Sentinel>();
     }
 
     if (value->dataType == ExtendedTypes::TYPE_RAW_STRING) {
         return util::make_unique<RawString>(
                 mTable->getValueStringPool().makeRef(util::getString(mValuePool, value->data),
                                                     StringPool::Context{ 1, config }));
-    }
-
-    if (name.type == ResourceType::kId ||
-            (value->dataType == Res_value::TYPE_NULL &&
-            value->data == Res_value::DATA_NULL_UNDEFINED &&
-            (flags & ResTable_entry::FLAG_WEAK) != 0)) {
-        return util::make_unique<Id>();
     }
 
     // Treat this as a raw binary primitive.
@@ -685,8 +754,7 @@ std::unique_ptr<Value> BinaryResourceParser::parseMapEntry(const ResourceNameRef
 std::unique_ptr<Style> BinaryResourceParser::parseStyle(const ResourceNameRef& name,
                                                         const ConfigDescription& config,
                                                         const ResTable_map_entry* map) {
-    const bool isWeak = (map->flags & ResTable_entry::FLAG_WEAK) != 0;
-    std::unique_ptr<Style> style = util::make_unique<Style>(isWeak);
+    std::unique_ptr<Style> style = util::make_unique<Style>();
     if (map->parent.ident == 0) {
         // The parent is either not set or it is an unresolved symbol.
         // Check to see if it is a symbol.
@@ -743,10 +811,21 @@ std::unique_ptr<Attribute> BinaryResourceParser::parseAttr(const ResourceNameRef
                 continue;
             }
 
-            attr->symbols.push_back(Attribute::Symbol{
-                    Reference(mapEntry.name.ident),
-                    mapEntry.value.data
-            });
+            Attribute::Symbol symbol;
+            symbol.value = mapEntry.value.data;
+            if (mapEntry.name.ident == 0) {
+                // The map entry's key (id) is not set. This must be
+                // a symbol reference, so resolve it.
+                ResourceNameRef symbolName;
+                bool result = getSymbol(&mapEntry.name.ident, &symbolName);
+                assert(result);
+                symbol.symbol.name = symbolName.toResourceName();
+            } else {
+                // The map entry's key (id) is a regular reference.
+                symbol.symbol.id = mapEntry.name.ident;
+            }
+
+            attr->symbols.push_back(std::move(symbol));
         }
     }
 

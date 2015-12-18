@@ -27,6 +27,9 @@
         <!-- ============== -->
         <eat-comment />
 
+        <!-- Specifies that a theme has a light background with dark text on top.  -->
+        <attr name="isLightTheme" format="boolean" />
+
         <!-- Default color of foreground imagery. -->
         <attr name="colorForeground" format="color" />
         <!-- Default color of foreground imagery on an inverted background. -->
@@ -550,6 +553,17 @@
         <attr name="windowTransitionBackgroundFadeDuration" format="integer"/>
 
         <!-- ============ -->
+        <!-- Floating toolbar styles -->
+        <!-- ============ -->
+       <eat-comment />
+       <attr name="floatingToolbarCloseDrawable" format="reference" />
+       <attr name="floatingToolbarForegroundColor" format="reference|color" />
+       <attr name="floatingToolbarItemBackgroundBorderlessDrawable" format="reference" />
+       <attr name="floatingToolbarItemBackgroundDrawable" format="reference" />
+       <attr name="floatingToolbarOpenDrawable" format="reference" />
+       <attr name="floatingToolbarPopupBackgroundDrawable" format="reference" />
+
+        <!-- ============ -->
         <!-- Alert Dialog styles -->
         <!-- ============ -->
         <eat-comment />
@@ -561,12 +575,18 @@
         <!-- Image elements -->
         <!-- ============== -->
         <eat-comment />
-
+i
         <!-- Background that can be used behind parts of a UI that provide
              details on data the user is selecting.  For example, this is
              the background element of PreferenceActivity's embedded
              preference fragment. -->
         <attr name="detailsElementBackground" format="reference" />
+
+        <!-- Icon that should be used to indicate that an app is waiting for a fingerprint scan.
+             This should be used whenever an app is requesting the user to place a finger on the
+             fingerprint sensor. It can be combined with other drawables such as colored circles, so
+             the appearance matches the branding of the app requesting the fingerprint scan.-->
+        <attr name="fingerprintAuthDrawable" format="reference" />
 
         <!-- ============ -->
         <!-- Panel styles -->
@@ -865,6 +885,8 @@
         <attr name="dialogPreferenceStyle" format="reference" />
         <!-- Default style for EditTextPreference. -->
         <attr name="editTextPreferenceStyle" format="reference" />
+        <!-- @hide Default style for SeekBarDialogPreference. -->
+        <attr name="seekBarDialogPreferenceStyle" format="reference" />
         <!-- Default style for RingtonePreference. -->
         <attr name="ringtonePreferenceStyle" format="reference" />
         <!-- The preference layout that has the child/tabbed effect. -->
@@ -1034,9 +1056,6 @@
 
         <!-- The color applied to framework switch thumbs in their normal state. -->
         <attr name="colorSwitchThumbNormal" format="color" />
-
-        <!-- @hide The background used by framework controls. -->
-        <attr name="controlBackground" format="reference" />
 
         <!-- The color applied to the edge effect on scrolling containers. -->
         <attr name="colorEdgeEffect" format="color" />
@@ -1787,6 +1806,10 @@
         <enum name="KEYCODE_NAVIGATE_NEXT" value="261" />
         <enum name="KEYCODE_NAVIGATE_IN" value="262" />
         <enum name="KEYCODE_NAVIGATE_OUT" value="263" />
+        <enum name="KEYCODE_MEDIA_SKIP_FORWARD" value="272" />
+        <enum name="KEYCODE_MEDIA_SKIP_BACKWARD" value="273" />
+        <enum name="KEYCODE_MEDIA_STEP_FORWARD" value="274" />
+        <enum name="KEYCODE_MEDIA_STEP_BACKWARD" value="275" />
     </attr>
 
     <!-- ***************************************************************** -->
@@ -1971,7 +1994,7 @@
              {@link android.R.attr#windowTranslucentStatus}.
              Corresponds to setting {@link android.view.View#SYSTEM_UI_FLAG_LIGHT_STATUS_BAR} on
              the decor view. -->
-        <attr name="windowHasLightStatusBar" format="boolean" />
+        <attr name="windowLightStatusBar" format="boolean" />
     </declare-styleable>
 
     <!-- The set of attributes that describe a AlertDialog's theme. -->
@@ -1996,6 +2019,13 @@
         <attr name="horizontalProgressLayout" format="reference" />
         <!-- @hide Whether fullDark, etc. should use default values if null. -->
         <attr name="needsDefaultBackgrounds" format="boolean" />
+    </declare-styleable>
+
+    <!-- @hide -->
+    <declare-styleable name="ButtonBarLayout">
+        <!-- Whether to automatically stack the buttons when there is not
+             enough space to lay them out side-by-side. -->
+        <attr name="allowStacking" format="boolean" />
     </declare-styleable>
 
     <!-- Fragment animation class attributes. -->
@@ -2329,6 +2359,9 @@
         <!-- Defines whether this view reacts to long click events. -->
         <attr name="longClickable" format="boolean" />
 
+        <!--  Defines whether this view reacts to context click events. -->
+        <attr name="contextClickable" format="boolean" />
+
         <!-- If false, no state will be saved for this view when it is being
              frozen. The default is true, allowing the view to be saved
              (however it also must have an ID assigned to it for its
@@ -2336,11 +2369,6 @@
              state for this view, not for its children which may still
              be saved. -->
         <attr name="saveEnabled" format="boolean" />
-
-        <!-- If true, no {@link android.view.ViewAssistStructure} data will be collected from
-             this view or any of its children.  The default is false, allowing assist structure
-             to be reported by it. -->
-        <attr name="assistBlocked" format="boolean" />
 
         <!-- Specifies whether to filter touches when the view's window is obscured by
              another visible window.  When set to true, the view will not receive touches
@@ -2712,6 +2740,28 @@
             <enum name="add" value="16" />
         </attr>
 
+        <!-- Defines which scroll indicators should be displayed when the view
+             can be scrolled. Multiple values may be combined using logical OR,
+             for example "top|bottom". -->
+        <attr name="scrollIndicators">
+            <!-- No scroll indicators are displayed. -->
+            <flag name="none" value="0x00" />
+            <!-- Displays top scroll indicator when view can be scrolled up. -->
+            <flag name="top" value="0x01" />
+            <!-- Displays bottom scroll indicator when vew can be scrolled down. -->
+            <flag name="bottom" value="0x02" />
+            <!-- Displays left scroll indicator when vew can be scrolled left. -->
+            <flag name="left" value="0x04" />
+            <!-- Displays right scroll indicator when vew can be scrolled right. -->
+            <flag name="right" value="0x08" />
+            <!-- Displays right scroll indicator when vew can be scrolled in the
+                 start direction. -->
+            <flag name="start" value="0x10" />
+            <!-- Displays right scroll indicator when vew can be scrolled in the
+                 end direction. -->
+            <flag name="end" value="0x20" />
+        </attr>
+
     </declare-styleable>
 
     <!-- Attributes that can be assigned to a tag for a particular View. -->
@@ -2722,12 +2772,11 @@
         <attr name="value" />
     </declare-styleable>
 
-    <!-- Attributes that can be assigned to an &lt;include&gt; tag. -->
+    <!-- Attributes that can be assigned to an &lt;include&gt; tag.
+         @hide -->
     <declare-styleable name="Include">
         <attr name="id" />
         <attr name="visibility" />
-        <attr name="layout_width" />
-        <attr name="layout_height" />
     </declare-styleable>
 
     <!-- Attributes that can be used with a {@link android.view.ViewGroup} or any
@@ -2745,8 +2794,9 @@
              to allow the children to draw outside of their bounds. The default value of
              this property is true. -->
         <attr name="clipChildren" format="boolean" />
-        <!-- Defines whether the ViewGroup will clip its children to its padding, if
-             padding is not zero. This property is set to true by default. -->
+        <!-- Defines whether the ViewGroup will clip its children and resize (but not clip) any
+             EdgeEffect to its padding, if padding is not zero. This property is set to true by
+             default. -->
         <attr name="clipToPadding" format="boolean" />
         <!-- Defines the layout animation to use the first time the ViewGroup is laid out.
              Layout animations can also be started manually after the first layout. -->
@@ -3076,6 +3126,10 @@
             <flag name="typeTouchInteractionEnd" value="0x00200000" />
             <!-- Receives {@link android.view.accessibility.AccessibilityEvent#TYPE_WINDOWS_CHANGED} events. -->
             <flag name="typeWindowsChanged" value="0x00400000" />
+            <!-- Receives {@link android.view.accessibility.AccessibilityEvent#TYPE_VIEW_CONTEXT_CLICKED} events. -->
+            <flag name="typeContextClicked" value="0x00800000" />
+            <!-- Receives {@link android.view.accessibility.AccessibilityEvent#TYPE_ASSIST_READING_CONTEXT} events. -->
+            <flag name="typeAssistReadingContext" value="0x01000000" />
             <!-- Receives {@link android.view.accessibility.AccessibilityEvent#TYPES_ALL_MASK} i.e. all events. -->
             <flag name="typeAllMask" value="0xffffffff" />
         </attr>
@@ -3196,8 +3250,6 @@
         <!-- A drawable that can be rendered in Android's system UI for representing
              the service. -->
         <attr name="apduServiceBanner" format="reference"/>
-        <!-- Allows the app to update the description and service banner at run-time -->
-        <attr name="dynamicResources" format="boolean"/>
         <!-- Component name of an activity that allows the user to modify
              the settings for this service. -->
         <attr name="settingsActivity"/>
@@ -3214,8 +3266,6 @@
         <!-- A drawable that can be rendered in Android's system UI for representing
              the service. -->
         <attr name="apduServiceBanner"/>
-        <!-- Allows the app to update the description and service banner at run-time -->
-        <attr name="dynamicResources"/>
         <!-- Component name of an activity that allows the user to modify
              the settings for this service. -->
         <attr name="settingsActivity"/>
@@ -3880,6 +3930,11 @@
         <attr name="thumbOffset" format="dimension" />
         <!-- Whether to split the track and leave a gap for the thumb drawable. -->
         <attr name="splitTrack" format="boolean" />
+        <!-- Whether to force the track's alpha to ?android:attr/disabledAlpha
+             when disabled. This is required for Holo and Gingerbread, but
+             should always be false for Material and  beyond.
+             @hide Developers shouldn't need to change this. -->
+        <attr name="useDisabledAlpha" format="boolean" />
         <!-- Tint to apply to the button graphic. -->
         <attr name="thumbTint" format="color" />
         <!-- Blending mode used to apply the button graphic tint. -->
@@ -4338,13 +4393,24 @@
             <enum name="simple" value="0" />
             <!-- Line breaking uses high-quality strategy, including hyphenation. -->
             <enum name="high_quality" value="1" />
-            <!-- Line breaking stratgegy balances line lengths. -->
+            <!-- Line breaking strategy balances line lengths. -->
             <enum name="balanced" value="2" />
         </attr>
-        <!-- Array of indents, one dimension value per line, left side. -->
-        <attr name="leftIndents" format="reference" />
-        <!-- Array of indents, one dimension value per line, right side. -->
-        <attr name="rightIndents" format="reference" />
+        <!-- Frequency of automatic hyphenation. -->
+        <attr name="hyphenationFrequency">
+            <!-- No hyphenation. -->
+            <enum name="none" value="0" />
+            <!-- Less frequent hyphenation, useful for informal use cases, such
+            as chat messages. -->
+            <enum name="normal" value="1" />
+            <!-- Standard amount of hyphenation, useful for running text and for
+            screens with limited space for text. -->
+            <enum name="full" value="2" />
+        </attr>
+        <!-- Placeholder for a deleted attribute. This should be removed before M release. -->
+        <attr name="__removeBeforeMRelease_leftIndents" format="reference" />
+        <!-- Placeholder for a deleted attribute. This should be removed before M release. -->
+        <attr name="__removeBeforeMRelease_rightIndents" format="reference" />
     </declare-styleable>
     <declare-styleable name="TextViewAppearance">
         <!-- Base text color, typeface, size, and style. -->
@@ -5078,6 +5144,18 @@
         <!-- When a tint color is set, specifies its Porter-Duff blending mode. The
              default value is src_in, which treats the drawable as an alpha mask. -->
         <attr name="tintMode" />
+        <!-- Left optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetLeft" />
+        <!-- Top optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetTop" />
+        <!-- Right optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetRight" />
+        <!-- Bottom optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetBottom" />
     </declare-styleable>
 
     <!-- Used to specify the size of the shape for GradientDrawable. -->
@@ -5539,6 +5617,18 @@
         <!-- The opacity of the whole vector drawable, as a value between 0
              (completely transparent) and 1 (completely opaque). -->
         <attr name="alpha" />
+        <!-- Left optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetLeft" format="dimension" />
+        <!-- Top optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetTop" format="dimension" />
+        <!-- Right optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetRight" format="dimension" />
+        <!-- Bottom optical inset.
+             @hide Until optical insets are fully supported. -->
+        <attr name="opticalInsetBottom" format="dimension" />
     </declare-styleable>
 
     <!-- Defines the group used in VectorDrawables. -->
@@ -5844,16 +5934,9 @@
     </declare-styleable>
 
     <!-- @hide For internal use only. Use only as directed. -->
-    <declare-styleable name="EpicenterClipReveal">
-        <attr name="centerClipBounds" format="boolean" />
+    <declare-styleable name="EpicenterTranslateClipReveal">
         <attr name="interpolatorX" format="reference" />
         <attr name="interpolatorY" format="reference" />
-    </declare-styleable>
-
-    <!-- @hide For internal use only. Use only as directed. -->
-    <declare-styleable name="EpicenterTranslate">
-        <attr name="interpolatorX" />
-        <attr name="interpolatorY" />
         <attr name="interpolatorZ" format="reference" />
     </declare-styleable>
 
@@ -6588,33 +6671,6 @@
              for more info. -->
         <attr name="actionProviderClass" format="string" />
 
-        <!-- An optional tint for the item's icon.
-             See {@link android.view.MenuItem#setIconTintList(android.content.res.ColorStateList)}
-             for more info. -->
-        <attr name="iconTint" format="color" />
-
-        <!-- The blending mode used for tinting the item's icon
-             See {@link android.view.MenuItem#setIconTintMode(android.graphics.PorterDuff.Mode)}
-             for more info. -->
-        <attr name="iconTintMode">
-            <!-- The tint is drawn on top of the drawable.
-                 [Sa + (1 - Sa)*Da, Rc = Sc + (1 - Sa)*Dc] -->
-            <enum name="src_over" value="3" />
-            <!-- The tint is masked by the alpha channel of the drawable. The drawable’s
-                 color channels are thrown out. [Sa * Da, Sc * Da] -->
-            <enum name="src_in" value="5" />
-            <!-- The tint is drawn above the drawable, but with the drawable’s alpha
-                 channel masking the result. [Da, Sc * Da + (1 - Sa) * Dc] -->
-            <enum name="src_atop" value="9" />
-            <!-- Multiplies the color and alpha channels of the drawable with those of
-                 the tint. [Sa * Da, Sc * Dc] -->
-            <enum name="multiply" value="14" />
-            <!-- [Sa + Da - Sa * Da, Sc + Dc - Sc * Dc] -->
-            <enum name="screen" value="15" />
-            <!-- Combines the tint and drawable color and alpha channels, clamping the
-                 result to valid color values. Saturate(S + D) -->
-            <enum name="add" value="16" />
-        </attr>
     </declare-styleable>
 
     <!-- Attrbitutes for a ActvityChooserView. -->
@@ -7300,8 +7356,11 @@
         <attr name="recognitionService" format="string" />
         <attr name="settingsActivity" />
         <!-- Flag indicating whether this voice interaction service is capable of handling the
-             assist gesture. -->
-        <attr name="supportsAssistGesture" format="boolean" />
+             assist action. -->
+        <attr name="supportsAssist" format="boolean" />
+        <!-- Flag indicating whether this voice interaction service is capable of being launched
+             from the keyguard. -->
+        <attr name="supportsLaunchVoiceAssistFromKeyguard" format="boolean" />
     </declare-styleable>
 
     <!-- Use <code>voice-enrollment-application</code>
@@ -7430,6 +7489,10 @@
         <attr name="maxWidth" />
         <!-- An optional query hint string to be displayed in the empty query field. -->
         <attr name="queryHint" format="string" />
+        <!-- Default query hint used when {@code queryHint} is undefined and
+             the search view's {@code SearchableInfo} does not provide a hint.
+             @hide -->
+        <attr name="defaultQueryHint" format="string" />
         <!-- The IME options to set on the query text field. -->
         <attr name="imeOptions" />
         <!-- The input type to set on the query text field. -->
@@ -7721,52 +7784,16 @@
         <!-- Text to set as the content description for the navigation button
              located at the start of the toolbar. -->
         <attr name="navigationContentDescription" format="string" />
-
-        <!-- Tint used for the navigation button -->
-        <attr name="navigationTint" format="color" />
-        <!-- The blending mode used for tinting the navigation button -->
-        <attr name="navigationTintMode">
-            <!-- The tint is drawn on top of the drawable.
-                 [Sa + (1 - Sa)*Da, Rc = Sc + (1 - Sa)*Dc] -->
-            <enum name="src_over" value="3" />
-            <!-- The tint is masked by the alpha channel of the drawable. The drawable’s
-                 color channels are thrown out. [Sa * Da, Sc * Da] -->
-            <enum name="src_in" value="5" />
-            <!-- The tint is drawn above the drawable, but with the drawable’s alpha
-                 channel masking the result. [Da, Sc * Da + (1 - Sa) * Dc] -->
-            <enum name="src_atop" value="9" />
-            <!-- Multiplies the color and alpha channels of the drawable with those of
-                 the tint. [Sa * Da, Sc * Dc] -->
-            <enum name="multiply" value="14" />
-            <!-- [Sa + Da - Sa * Da, Sc + Dc - Sc * Dc] -->
-            <enum name="screen" value="15" />
-            <!-- Combines the tint and drawable color and alpha channels, clamping the
-                 result to valid color values. Saturate(S + D). Only works on APIv 11+ -->
-            <enum name="add" value="16" />
-        </attr>
-
-        <!-- Tint used for the overflow button -->
-        <attr name="overflowTint" format="color" />
-        <!-- The blending mode used for tinting the overflow button -->
-        <attr name="overflowTintMode">
-            <!-- The tint is drawn on top of the drawable.
-                 [Sa + (1 - Sa)*Da, Rc = Sc + (1 - Sa)*Dc] -->
-            <enum name="src_over" value="3" />
-            <!-- The tint is masked by the alpha channel of the drawable. The drawable’s
-                 color channels are thrown out. [Sa * Da, Sc * Da] -->
-            <enum name="src_in" value="5" />
-            <!-- The tint is drawn above the drawable, but with the drawable’s alpha
-                 channel masking the result. [Da, Sc * Da + (1 - Sa) * Dc] -->
-            <enum name="src_atop" value="9" />
-            <!-- Multiplies the color and alpha channels of the drawable with those of
-                 the tint. [Sa * Da, Sc * Dc] -->
-            <enum name="multiply" value="14" />
-            <!-- [Sa + Da - Sa * Da, Sc + Dc - Sc * Dc] -->
-            <enum name="screen" value="15" />
-            <!-- Combines the tint and drawable color and alpha channels, clamping the
-                 result to valid color values. Saturate(S + D). Only works on APIv 11+ -->
-            <enum name="add" value="16" />
-        </attr>
+        <!-- Drawable to set as the logo that appears at the starting side of
+             the Toolbar, just after the navigation button. -->
+        <attr name="logo" />
+        <!-- A content description string to describe the appearance of the
+             associated logo image. -->
+        <attr name="logoDescription" format="string" />
+        <!-- A color to apply to the title string. -->
+        <attr name="titleTextColor" format="color" />
+        <!-- A color to apply to the subtitle string. -->
+        <attr name="subtitleTextColor" format="color" />
     </declare-styleable>
 
     <declare-styleable name="Toolbar_LayoutParams">

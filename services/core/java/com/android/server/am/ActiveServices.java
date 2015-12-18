@@ -26,8 +26,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 import android.app.ActivityThread;
+import android.app.AppOpsManager;
 import android.os.Build;
 import android.os.DeadObjectException;
 import android.os.Handler;
@@ -119,14 +121,13 @@ public final class ActiveServices {
     // at the same time.
     final int mMaxStartingBackground;
 
-    final SparseArray<ServiceMap> mServiceMap = new SparseArray<ServiceMap>();
+    final SparseArray<ServiceMap> mServiceMap = new SparseArray<>();
 
     /**
      * All currently bound service connections.  Keys are the IBinder of
      * the client's IServiceConnection.
      */
-    final ArrayMap<IBinder, ArrayList<ConnectionRecord>> mServiceConnections
-            = new ArrayMap<IBinder, ArrayList<ConnectionRecord>>();
+    final ArrayMap<IBinder, ArrayList<ConnectionRecord>> mServiceConnections = new ArrayMap<>();
 
     /**
      * List of services that we have been asked to start,
@@ -134,20 +135,20 @@ public final class ActiveServices {
      * while waiting for their corresponding application thread to get
      * going.
      */
-    final ArrayList<ServiceRecord> mPendingServices
-            = new ArrayList<ServiceRecord>();
+    final ArrayList<ServiceRecord> mPendingServices = new ArrayList<>();
 
     /**
      * List of services that are scheduled to restart following a crash.
      */
-    final ArrayList<ServiceRecord> mRestartingServices
-            = new ArrayList<ServiceRecord>();
+    final ArrayList<ServiceRecord> mRestartingServices = new ArrayList<>();
 
     /**
      * List of services that are in the process of being destroyed.
      */
-    final ArrayList<ServiceRecord> mDestroyingServices
-            = new ArrayList<ServiceRecord>();
+    final ArrayList<ServiceRecord> mDestroyingServices = new ArrayList<>();
+
+    /** Temporary list for holding the results of calls to {@link #collectPackageServicesLocked} */
+    private ArrayList<ServiceRecord> mTmpCollectionResults = null;
 
     /** Amount of time to allow a last ANR message to exist before freeing the memory. */
     static final int LAST_ANR_LIFETIME_DURATION_MSECS = 2 * 60 * 60 * 1000; // Two hours
@@ -161,10 +162,6 @@ public final class ActiveServices {
             }
         }
     };
-
-    static final class DelayingProcess extends ArrayList<ServiceRecord> {
-        long timeoout;
-    }
 
     /**
      * Information about services for a single user.
@@ -306,8 +303,8 @@ public final class ActiveServices {
         return getServiceMap(callingUser).mServicesByName;
     }
 
-    ComponentName startServiceLocked(IApplicationThread caller, Intent service,
-            String resolvedType, int callingPid, int callingUid, int userId)
+    ComponentName startServiceLocked(IApplicationThread caller, Intent service, String resolvedType,
+            int callingPid, int callingUid, String callingPackage, int userId)
             throws TransactionTooLargeException {
         if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "startService: " + service
                 + " type=" + resolvedType + " args=" + service.getExtras());
@@ -328,7 +325,7 @@ public final class ActiveServices {
 
 
         ServiceLookupResult res =
-            retrieveServiceLocked(service, resolvedType,
+            retrieveServiceLocked(service, resolvedType, callingPackage,
                     callingPid, callingUid, userId, true, callerFg);
         if (res == null) {
             return null;
@@ -494,7 +491,7 @@ public final class ActiveServices {
         }
 
         // If this service is active, make sure it is stopped.
-        ServiceLookupResult r = retrieveServiceLocked(service, resolvedType,
+        ServiceLookupResult r = retrieveServiceLocked(service, resolvedType, null,
                 Binder.getCallingPid(), Binder.getCallingUid(), userId, false, false);
         if (r != null) {
             if (r.record != null) {
@@ -512,8 +509,8 @@ public final class ActiveServices {
         return 0;
     }
 
-    IBinder peekServiceLocked(Intent service, String resolvedType) {
-        ServiceLookupResult r = retrieveServiceLocked(service, resolvedType,
+    IBinder peekServiceLocked(Intent service, String resolvedType, String callingPackage) {
+        ServiceLookupResult r = retrieveServiceLocked(service, resolvedType, callingPackage,
                 Binder.getCallingPid(), Binder.getCallingUid(),
                 UserHandle.getCallingUserId(), false, false);
 
@@ -522,7 +519,7 @@ public final class ActiveServices {
             // r.record is null if findServiceLocked() failed the caller permission check
             if (r.record == null) {
                 throw new SecurityException(
-                        "Permission Denial: Accessing service " + r.record.name
+                        "Permission Denial: Accessing service"
                         + " from pid=" + Binder.getCallingPid()
                         + ", uid=" + Binder.getCallingUid()
                         + " requires " + r.permission);
@@ -698,8 +695,8 @@ public final class ActiveServices {
     }
 
     int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
-            String resolvedType, IServiceConnection connection, int flags, int userId)
-            throws TransactionTooLargeException {
+            String resolvedType, IServiceConnection connection, int flags,
+            String callingPackage, int userId) throws TransactionTooLargeException {
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "bindService: " + service
                 + " type=" + resolvedType + " conn=" + connection.asBinder()
                 + " flags=0x" + Integer.toHexString(flags));
@@ -750,7 +747,7 @@ public final class ActiveServices {
         final boolean callerFg = callerApp.setSchedGroup != Process.THREAD_GROUP_BG_NONINTERACTIVE;
 
         ServiceLookupResult res =
-            retrieveServiceLocked(service, resolvedType,
+            retrieveServiceLocked(service, resolvedType, callingPackage,
                     Binder.getCallingPid(), Binder.getCallingUid(), userId, true, callerFg);
         if (res == null) {
             return 0;
@@ -1026,7 +1023,7 @@ public final class ActiveServices {
     }
 
     private ServiceLookupResult retrieveServiceLocked(Intent service,
-            String resolvedType, int callingPid, int callingUid, int userId,
+            String resolvedType, String callingPackage, int callingPid, int callingUid, int userId,
             boolean createIfNeeded, boolean callingFromFg) {
         ServiceRecord r = null;
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "retrieveServiceLocked: " + service
@@ -1116,7 +1113,18 @@ public final class ActiveServices {
                         + ", uid=" + callingUid
                         + " requires " + r.permission);
                 return new ServiceLookupResult(null, r.permission);
+            } else if (r.permission != null && callingPackage != null) {
+                final int opCode = AppOpsManager.permissionToOpCode(r.permission);
+                if (opCode != AppOpsManager.OP_NONE && mAm.mAppOpsService.noteOperation(
+                        opCode, callingUid, callingPackage) != AppOpsManager.MODE_ALLOWED) {
+                    Slog.w(TAG, "Appop Denial: Accessing service " + r.name
+                            + " from pid=" + callingPid
+                            + ", uid=" + callingUid
+                            + " requires appop " + AppOpsManager.opToName(opCode));
+                    return null;
+                }
             }
+
             if (!mAm.mIntentFirewall.checkService(r.name, service, callingUid, callingPid,
                     resolvedType, r.appInfo)) {
                 return null;
@@ -1304,6 +1312,15 @@ public final class ActiveServices {
 
     final void performServiceRestartLocked(ServiceRecord r) {
         if (!mRestartingServices.contains(r)) {
+            return;
+        }
+        if (!isServiceNeeded(r, false, false)) {
+            // Paranoia: is this service actually needed?  In theory a service that is not
+            // needed should never remain on the restart list.  In practice...  well, there
+            // have been bugs where this happens, and bad things happen because the process
+            // ends up just being cached, so quickly killed, then restarted again and again.
+            // Let's not let that happen.
+            Slog.wtf(TAG, "Restarting service that is not needed: " + r);
             return;
         }
         try {
@@ -2035,6 +2052,13 @@ public final class ActiveServices {
                             mAm.mProcessStats);
                     realStartServiceLocked(sr, proc, sr.createdFromFg);
                     didSomething = true;
+                    if (!isServiceNeeded(sr, false, false)) {
+                        // We were waiting for this service to start, but it is actually no
+                        // longer needed.  This could happen because bringDownServiceIfNeeded
+                        // won't bring down a service that is pending...  so now the pending
+                        // is done, so let's drop it.
+                        bringDownServiceLocked(sr);
+                    }
                 }
             } catch (RemoteException e) {
                 Slog.w(TAG, "Exception in new application when starting service "
@@ -2047,7 +2071,7 @@ public final class ActiveServices {
         // be weird to bring up the process but arbitrarily not let the services
         // run at this point just because their restart time hasn't come up.
         if (mRestartingServices.size() > 0) {
-            ServiceRecord sr = null;
+            ServiceRecord sr;
             for (int i=0; i<mRestartingServices.size(); i++) {
                 sr = mRestartingServices.get(i);
                 if (proc != sr.isolatedProc && (proc.uid != sr.appInfo.uid
@@ -2076,14 +2100,17 @@ public final class ActiveServices {
         }
     }
 
-    private boolean collectForceStopServicesLocked(String name, int userId,
-            boolean evenPersistent, boolean doit,
-            ArrayMap<ComponentName, ServiceRecord> services,
-            ArrayList<ServiceRecord> result) {
+    private boolean collectPackageServicesLocked(String packageName, Set<String> filterByClasses,
+            boolean evenPersistent, boolean doit, boolean killProcess,
+            ArrayMap<ComponentName, ServiceRecord> services) {
         boolean didSomething = false;
-        for (int i=0; i<services.size(); i++) {
+        for (int i = services.size() - 1; i >= 0; i--) {
             ServiceRecord service = services.valueAt(i);
-            if ((name == null || service.packageName.equals(name))
+            final boolean sameComponent = packageName == null
+                    || (service.packageName.equals(packageName)
+                        && (filterByClasses == null
+                            || filterByClasses.contains(service.name.getClassName())));
+            if (sameComponent
                     && (service.app == null || evenPersistent || !service.app.persistent)) {
                 if (!doit) {
                     return true;
@@ -2091,26 +2118,34 @@ public final class ActiveServices {
                 didSomething = true;
                 Slog.i(TAG, "  Force stopping service " + service);
                 if (service.app != null) {
-                    service.app.removed = true;
+                    service.app.removed = killProcess;
                     if (!service.app.persistent) {
                         service.app.services.remove(service);
                     }
                 }
                 service.app = null;
                 service.isolatedProc = null;
-                result.add(service);
+                if (mTmpCollectionResults == null) {
+                    mTmpCollectionResults = new ArrayList<>();
+                }
+                mTmpCollectionResults.add(service);
             }
         }
         return didSomething;
     }
 
-    boolean forceStopLocked(String name, int userId, boolean evenPersistent, boolean doit) {
+    boolean bringDownDisabledPackageServicesLocked(String packageName, Set<String> filterByClasses,
+            int userId, boolean evenPersistent, boolean killProcess, boolean doit) {
         boolean didSomething = false;
-        ArrayList<ServiceRecord> services = new ArrayList<ServiceRecord>();
+
+        if (mTmpCollectionResults != null) {
+            mTmpCollectionResults.clear();
+        }
+
         if (userId == UserHandle.USER_ALL) {
-            for (int i=0; i<mServiceMap.size(); i++) {
-                didSomething |= collectForceStopServicesLocked(name, userId, evenPersistent,
-                        doit, mServiceMap.valueAt(i).mServicesByName, services);
+            for (int i = mServiceMap.size() - 1; i >= 0; i--) {
+                didSomething |= collectPackageServicesLocked(packageName, filterByClasses,
+                        evenPersistent, doit, killProcess, mServiceMap.valueAt(i).mServicesByName);
                 if (!doit && didSomething) {
                     return true;
                 }
@@ -2119,22 +2154,24 @@ public final class ActiveServices {
             ServiceMap smap = mServiceMap.get(userId);
             if (smap != null) {
                 ArrayMap<ComponentName, ServiceRecord> items = smap.mServicesByName;
-                didSomething = collectForceStopServicesLocked(name, userId, evenPersistent,
-                        doit, items, services);
+                didSomething = collectPackageServicesLocked(packageName, filterByClasses,
+                        evenPersistent, doit, killProcess, items);
             }
         }
 
-        int N = services.size();
-        for (int i=0; i<N; i++) {
-            bringDownServiceLocked(services.get(i));
+        if (mTmpCollectionResults != null) {
+            for (int i = mTmpCollectionResults.size() - 1; i >= 0; i--) {
+                bringDownServiceLocked(mTmpCollectionResults.get(i));
+            }
+            mTmpCollectionResults.clear();
         }
         return didSomething;
     }
 
     void cleanUpRemovedTaskLocked(TaskRecord tr, ComponentName component, Intent baseIntent) {
-        ArrayList<ServiceRecord> services = new ArrayList<ServiceRecord>();
+        ArrayList<ServiceRecord> services = new ArrayList<>();
         ArrayMap<ComponentName, ServiceRecord> alls = getServices(tr.userId);
-        for (int i=0; i<alls.size(); i++) {
+        for (int i = alls.size() - 1; i >= 0; i--) {
             ServiceRecord sr = alls.valueAt(i);
             if (sr.packageName.equals(component.getPackageName())) {
                 services.add(sr);
@@ -2142,7 +2179,7 @@ public final class ActiveServices {
         }
 
         // Take care of any running services associated with the app.
-        for (int i=0; i<services.size(); i++) {
+        for (int i = services.size() - 1; i >= 0; i--) {
             ServiceRecord sr = services.get(i);
             if (sr.startRequested) {
                 if ((sr.serviceInfo.flags&ServiceInfo.FLAG_STOP_WITH_TASK) != 0) {

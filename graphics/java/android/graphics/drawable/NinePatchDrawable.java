@@ -374,11 +374,6 @@ public class NinePatchDrawable extends Drawable {
     }
 
     @Override
-    public boolean getDither() {
-        return mPaint == null ? DEFAULT_DITHER : mPaint.isDither();
-    }
-
-    @Override
     public void setAutoMirrored(boolean mirrored) {
         mNinePatchState.mAutoMirrored = mirrored;
     }
@@ -396,6 +391,14 @@ public class NinePatchDrawable extends Drawable {
     public void setFilterBitmap(boolean filter) {
         getPaint().setFilterBitmap(filter);
         invalidateSelf();
+    }
+
+    @Override
+    public boolean isFilterBitmap() {
+        if (mPaint == null) {
+            return false;
+        }
+        return getPaint().isFilterBitmap();
     }
 
     @Override
@@ -474,6 +477,9 @@ public class NinePatchDrawable extends Drawable {
         if (tint != null) {
             state.mTint = tint;
         }
+
+        final int densityDpi = r.getDisplayMetrics().densityDpi;
+        state.mTargetDensity = densityDpi == 0 ? DisplayMetrics.DENSITY_DEFAULT : densityDpi;
     }
 
     @Override
@@ -705,7 +711,8 @@ public class NinePatchDrawable extends Drawable {
         final NinePatchState state = mNinePatchState;
 
         if (res != null) {
-            mTargetDensity = res.getDisplayMetrics().densityDpi;
+            final int densityDpi = res.getDisplayMetrics().densityDpi;
+            mTargetDensity = densityDpi == 0 ? DisplayMetrics.DENSITY_DEFAULT : densityDpi;
         } else {
             mTargetDensity = state.mTargetDensity;
         }

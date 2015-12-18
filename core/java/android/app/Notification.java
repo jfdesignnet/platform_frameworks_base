@@ -30,6 +30,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.session.MediaSession;
@@ -165,8 +166,10 @@ public class Notification implements Parcelable
 
     /**
      * The resource id of a drawable to use as the icon in the status bar.
-     * This is required; notifications with an invalid icon resource will not be shown.
+     *
+     * @deprecated Use {@link Builder#setSmallIcon(Icon)} instead.
      */
+    @Deprecated
     @DrawableRes
     public int icon;
 
@@ -268,8 +271,11 @@ public class Notification implements Parcelable
     public RemoteViews headsUpContentView;
 
     /**
-     * The bitmap that may escape the bounds of the panel and bar.
+     * A large bitmap to be shown in the notification content area.
+     *
+     * @deprecated Use {@link Builder#setLargeIcon(Icon)} instead.
      */
+    @Deprecated
     public Bitmap largeIcon;
 
     /**
@@ -885,6 +891,9 @@ public class Notification implements Parcelable
      */
     public static final int HEADS_UP_REQUESTED = 2;
 
+    private Icon mSmallIcon;
+    private Icon mLargeIcon;
+
     /**
      * Structure to encapsulate a named action that can be shown as part of this notification.
      * It must include an icon, a label, and a {@link PendingIntent} to be fired when the action is
@@ -896,11 +905,15 @@ public class Notification implements Parcelable
      */
     public static class Action implements Parcelable {
         private final Bundle mExtras;
+        private Icon mIcon;
         private final RemoteInput[] mRemoteInputs;
 
         /**
          * Small icon representing the action.
+         *
+         * @deprecated Use {@link Action#getIcon()} instead.
          */
+        @Deprecated
         public int icon;
 
         /**
@@ -915,7 +928,12 @@ public class Notification implements Parcelable
         public PendingIntent actionIntent;
 
         private Action(Parcel in) {
-            icon = in.readInt();
+            if (in.readInt() != 0) {
+                mIcon = Icon.CREATOR.createFromParcel(in);
+                if (mIcon.getType() == Icon.TYPE_RESOURCE) {
+                    icon = mIcon.getResId();
+                }
+            }
             title = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(in);
             if (in.readInt() == 1) {
                 actionIntent = PendingIntent.CREATOR.createFromParcel(in);
@@ -925,19 +943,31 @@ public class Notification implements Parcelable
         }
 
         /**
-         * Use {@link Notification.Builder#addAction(int, CharSequence, PendingIntent)}.
+         * @deprecated Use {@link android.app.Notification.Action.Builder}.
          */
+        @Deprecated
         public Action(int icon, CharSequence title, PendingIntent intent) {
-            this(icon, title, intent, new Bundle(), null);
+            this(Icon.createWithResource("", icon), title, intent, new Bundle(), null);
         }
 
-        private Action(int icon, CharSequence title, PendingIntent intent, Bundle extras,
+        private Action(Icon icon, CharSequence title, PendingIntent intent, Bundle extras,
                 RemoteInput[] remoteInputs) {
-            this.icon = icon;
+            this.mIcon = icon;
             this.title = title;
             this.actionIntent = intent;
             this.mExtras = extras != null ? extras : new Bundle();
             this.mRemoteInputs = remoteInputs;
+        }
+
+        /**
+         * Return an icon representing the action.
+         */
+        public Icon getIcon() {
+            if (mIcon == null && icon != 0) {
+                // you snuck an icon in here without using the builder; let's try to keep it
+                mIcon = Icon.createWithResource("", icon);
+            }
+            return mIcon;
         }
 
         /**
@@ -959,7 +989,7 @@ public class Notification implements Parcelable
          * Builder class for {@link Action} objects.
          */
         public static final class Builder {
-            private final int mIcon;
+            private final Icon mIcon;
             private final CharSequence mTitle;
             private final PendingIntent mIntent;
             private final Bundle mExtras;
@@ -971,7 +1001,18 @@ public class Notification implements Parcelable
              * @param title the title of the action
              * @param intent the {@link PendingIntent} to fire when users trigger this action
              */
+            @Deprecated
             public Builder(int icon, CharSequence title, PendingIntent intent) {
+                this(Icon.createWithResource("", icon), title, intent, new Bundle(), null);
+            }
+
+            /**
+             * Construct a new builder for {@link Action} object.
+             * @param icon icon to show for this action
+             * @param title the title of the action
+             * @param intent the {@link PendingIntent} to fire when users trigger this action
+             */
+            public Builder(Icon icon, CharSequence title, PendingIntent intent) {
                 this(icon, title, intent, new Bundle(), null);
             }
 
@@ -981,11 +1022,11 @@ public class Notification implements Parcelable
              * @param action the action to read fields from.
              */
             public Builder(Action action) {
-                this(action.icon, action.title, action.actionIntent, new Bundle(action.mExtras),
+                this(action.getIcon(), action.title, action.actionIntent, new Bundle(action.mExtras),
                         action.getRemoteInputs());
             }
 
-            private Builder(int icon, CharSequence title, PendingIntent intent, Bundle extras,
+            private Builder(Icon icon, CharSequence title, PendingIntent intent, Bundle extras,
                     RemoteInput[] remoteInputs) {
                 mIcon = icon;
                 mTitle = title;
@@ -1059,7 +1100,7 @@ public class Notification implements Parcelable
         @Override
         public Action clone() {
             return new Action(
-                    icon,
+                    getIcon(),
                     title,
                     actionIntent, // safe to alias
                     new Bundle(mExtras),
@@ -1071,7 +1112,13 @@ public class Notification implements Parcelable
         }
         @Override
         public void writeToParcel(Parcel out, int flags) {
-            out.writeInt(icon);
+            final Icon ic = getIcon();
+            if (ic != null) {
+                out.writeInt(1);
+                ic.writeToParcel(out, 0);
+            } else {
+                out.writeInt(0);
+            }
             TextUtils.writeToParcel(title, out, flags);
             if (actionIntent != null) {
                 out.writeInt(1);
@@ -1327,11 +1374,14 @@ public class Notification implements Parcelable
     public Notification(Context context, int icon, CharSequence tickerText, long when,
             CharSequence contentTitle, CharSequence contentText, Intent contentIntent)
     {
-        this.when = when;
-        this.icon = icon;
-        this.tickerText = tickerText;
-        setLatestEventInfo(context, contentTitle, contentText,
-                PendingIntent.getActivity(context, 0, contentIntent, 0));
+        new Builder(context)
+                .setWhen(when)
+                .setSmallIcon(icon)
+                .setTicker(tickerText)
+                .setContentTitle(contentTitle)
+                .setContentText(contentText)
+                .setContentIntent(PendingIntent.getActivity(context, 0, contentIntent, 0))
+                .buildInto(this);
     }
 
     /**
@@ -1362,7 +1412,12 @@ public class Notification implements Parcelable
         int version = parcel.readInt();
 
         when = parcel.readLong();
-        icon = parcel.readInt();
+        if (parcel.readInt() != 0) {
+            mSmallIcon = Icon.CREATOR.createFromParcel(parcel);
+            if (mSmallIcon.getType() == Icon.TYPE_RESOURCE) {
+                icon = mSmallIcon.getResId();
+            }
+        }
         number = parcel.readInt();
         if (parcel.readInt() != 0) {
             contentIntent = PendingIntent.CREATOR.createFromParcel(parcel);
@@ -1380,7 +1435,7 @@ public class Notification implements Parcelable
             contentView = RemoteViews.CREATOR.createFromParcel(parcel);
         }
         if (parcel.readInt() != 0) {
-            largeIcon = Bitmap.CREATOR.createFromParcel(parcel);
+            mLargeIcon = Icon.CREATOR.createFromParcel(parcel);
         }
         defaults = parcel.readInt();
         flags = parcel.readInt();
@@ -1445,7 +1500,7 @@ public class Notification implements Parcelable
      */
     public void cloneInto(Notification that, boolean heavy) {
         that.when = this.when;
-        that.icon = this.icon;
+        that.mSmallIcon = this.mSmallIcon;
         that.number = this.number;
 
         // PendingIntents are global, so there's no reason (or way) to clone them.
@@ -1462,8 +1517,8 @@ public class Notification implements Parcelable
         if (heavy && this.contentView != null) {
             that.contentView = this.contentView.clone();
         }
-        if (heavy && this.largeIcon != null) {
-            that.largeIcon = Bitmap.createBitmap(this.largeIcon);
+        if (heavy && this.mLargeIcon != null) {
+            that.mLargeIcon = this.mLargeIcon;
         }
         that.iconLevel = this.iconLevel;
         that.sound = this.sound; // android.net.Uri is immutable
@@ -1544,7 +1599,7 @@ public class Notification implements Parcelable
         contentView = null;
         bigContentView = null;
         headsUpContentView = null;
-        largeIcon = null;
+        mLargeIcon = null;
         if (extras != null) {
             extras.remove(Notification.EXTRA_LARGE_ICON);
             extras.remove(Notification.EXTRA_LARGE_ICON_BIG);
@@ -1579,14 +1634,23 @@ public class Notification implements Parcelable
     }
 
     /**
-     * Flatten this notification from a parcel.
+     * Flatten this notification into a parcel.
      */
     public void writeToParcel(Parcel parcel, int flags)
     {
         parcel.writeInt(1);
 
         parcel.writeLong(when);
-        parcel.writeInt(icon);
+        if (mSmallIcon == null && icon != 0) {
+            // you snuck an icon in here without using the builder; let's try to keep it
+            mSmallIcon = Icon.createWithResource("", icon);
+        }
+        if (mSmallIcon != null) {
+            parcel.writeInt(1);
+            mSmallIcon.writeToParcel(parcel, 0);
+        } else {
+            parcel.writeInt(0);
+        }
         parcel.writeInt(number);
         if (contentIntent != null) {
             parcel.writeInt(1);
@@ -1618,9 +1682,9 @@ public class Notification implements Parcelable
         } else {
             parcel.writeInt(0);
         }
-        if (largeIcon != null) {
+        if (mLargeIcon != null) {
             parcel.writeInt(1);
-            largeIcon.writeToParcel(parcel, 0);
+            mLargeIcon.writeToParcel(parcel, 0);
         } else {
             parcel.writeInt(0);
         }
@@ -1728,6 +1792,7 @@ public class Notification implements Parcelable
      * Stack</a> document.
      *
      * @deprecated Use {@link Builder} instead.
+     * @removed
      */
     @Deprecated
     public void setLatestEventInfo(Context context,
@@ -1797,6 +1862,9 @@ public class Notification implements Parcelable
         } else {
             sb.append("null");
         }
+        if (this.tickerText != null) {
+            sb.append(" tick");
+        }
         sb.append(" defaults=0x");
         sb.append(Integer.toHexString(this.defaults));
         sb.append(" flags=0x");
@@ -1862,6 +1930,35 @@ public class Notification implements Parcelable
             default:
                 return "UNKNOWN(" + String.valueOf(pri) + ")";
         }
+    }
+
+    /**
+     * The small icon representing this notification in the status bar and content view.
+     *
+     * @return the small icon representing this notification.
+     *
+     * @see Builder#getSmallIcon()
+     * @see Builder#setSmallIcon(Icon)
+     */
+    public Icon getSmallIcon() {
+        return mSmallIcon;
+    }
+
+    /**
+     * Used when notifying to clean up legacy small icons.
+     * @hide
+     */
+    public void setSmallIcon(Icon icon) {
+        mSmallIcon = icon;
+    }
+
+    /**
+     * The large icon shown in this notification's content view.
+     * @see Builder#getLargeIcon()
+     * @see Builder#setLargeIcon(Icon)
+     */
+    public Icon getLargeIcon() {
+        return mLargeIcon;
     }
 
     /**
@@ -1966,7 +2063,7 @@ public class Notification implements Parcelable
         private Context mContext;
 
         private long mWhen;
-        private int mSmallIcon;
+        private Icon mSmallIcon, mLargeIcon;
         private int mSmallIconLevel;
         private int mNumber;
         private CharSequence mContentTitle;
@@ -1979,7 +2076,6 @@ public class Notification implements Parcelable
         private PendingIntent mFullScreenIntent;
         private CharSequence mTickerText;
         private RemoteViews mTickerView;
-        private Bitmap mLargeIcon;
         private Uri mSound;
         private int mAudioStreamType;
         private AudioAttributes mAudioAttributes;
@@ -2095,6 +2191,7 @@ public class Notification implements Parcelable
 
                 try {
                     Constructor<? extends Style> constructor = styleClass.getConstructor();
+                    constructor.setAccessible(true);
                     style = constructor.newInstance();
                     style.restoreFromExtras(extras);
                 } catch (Throwable t) {
@@ -2159,8 +2256,9 @@ public class Notification implements Parcelable
          * @see Notification#icon
          */
         public Builder setSmallIcon(@DrawableRes int icon) {
-            mSmallIcon = icon;
-            return this;
+            return setSmallIcon(icon != 0
+                    ? Icon.createWithResource(mContext, icon)
+                    : null);
         }
 
         /**
@@ -2175,8 +2273,20 @@ public class Notification implements Parcelable
          * @see Notification#iconLevel
          */
         public Builder setSmallIcon(@DrawableRes int icon, int level) {
-            mSmallIcon = icon;
             mSmallIconLevel = level;
+            return setSmallIcon(icon);
+        }
+
+        /**
+         * Set the small icon, which will be used to represent the notification in the
+         * status bar and content view (unless overriden there by a
+         * {@link #setLargeIcon(Bitmap) large icon}).
+         *
+         * @param icon An Icon object to use.
+         * @see Notification#icon
+         */
+        public Builder setSmallIcon(Icon icon) {
+            mSmallIcon = icon;
             return this;
         }
 
@@ -2323,14 +2433,24 @@ public class Notification implements Parcelable
         }
 
         /**
-         * Add a large icon to the notification (and the ticker on some devices).
+         * Add a large icon to the notification content view.
          *
          * In the platform template, this image will be shown on the left of the notification view
-         * in place of the {@link #setSmallIcon(int) small icon} (which will move to the right side).
-         *
-         * @see Notification#largeIcon
+         * in place of the {@link #setSmallIcon(Icon) small icon} (which will be placed in a small
+         * badge atop the large icon).
          */
-        public Builder setLargeIcon(Bitmap icon) {
+        public Builder setLargeIcon(Bitmap b) {
+            return setLargeIcon(b != null ? Icon.createWithBitmap(b) : null);
+        }
+
+        /**
+         * Add a large icon to the notification content view.
+         *
+         * In the platform template, this image will be shown on the left of the notification view
+         * in place of the {@link #setSmallIcon(Icon) small icon} (which will be placed in a small
+         * badge atop the large icon).
+         */
+        public Builder setLargeIcon(Icon icon) {
             mLargeIcon = icon;
             return this;
         }
@@ -2651,7 +2771,10 @@ public class Notification implements Parcelable
          * @param icon Resource ID of a drawable that represents the action.
          * @param title Text describing the action.
          * @param intent PendingIntent to be fired when the action is invoked.
+         *
+         * @deprecated Use {@link #addAction(Action)} instead.
          */
+        @Deprecated
         public Builder addAction(int icon, CharSequence title, PendingIntent intent) {
             mActions.add(new Action(icon, safeCharSequence(title), intent));
             return this;
@@ -2725,7 +2848,10 @@ public class Notification implements Parcelable
             return this;
         }
 
-        private void setFlag(int mask, boolean value) {
+        /**
+         * @hide
+         */
+        public void setFlag(int mask, boolean value) {
             if (value) {
                 mFlags |= mask;
             } else {
@@ -2839,13 +2965,13 @@ public class Notification implements Parcelable
             boolean contentTextInLine2 = false;
 
             if (mLargeIcon != null) {
-                contentView.setImageViewBitmap(R.id.icon, mLargeIcon);
+                contentView.setImageViewIcon(R.id.icon, mLargeIcon);
                 processLargeLegacyIcon(mLargeIcon, contentView);
-                contentView.setImageViewResource(R.id.right_icon, mSmallIcon);
+                contentView.setImageViewIcon(R.id.right_icon, mSmallIcon);
                 contentView.setViewVisibility(R.id.right_icon, View.VISIBLE);
                 processSmallRightIcon(mSmallIcon, contentView);
             } else { // small icon at left
-                contentView.setImageViewResource(R.id.icon, mSmallIcon);
+                contentView.setImageViewIcon(R.id.icon, mSmallIcon);
                 contentView.setViewVisibility(R.id.icon, View.VISIBLE);
                 processSmallIconAsLarge(mSmallIcon, contentView);
             }
@@ -3045,10 +3171,11 @@ public class Notification implements Parcelable
 
         private RemoteViews generateActionButton(Action action) {
             final boolean tombstone = (action.actionIntent == null);
-            RemoteViews button = new RemoteViews(mContext.getPackageName(),
+            RemoteViews button = new BuilderRemoteViews(mContext.getApplicationInfo(),
                     tombstone ? getActionTombstoneLayoutResource()
                               : getActionLayoutResource());
-            button.setTextViewCompoundDrawablesRelative(R.id.action0, action.icon, 0, 0, 0);
+            final Icon ai = action.getIcon();
+            button.setTextViewCompoundDrawablesRelative(R.id.action0, ai, null, null, null);
             button.setTextViewText(R.id.action0, processLegacyText(action.title));
             if (!tombstone) {
                 button.setOnClickPendingIntent(R.id.action0, action.actionIntent);
@@ -3067,7 +3194,7 @@ public class Notification implements Parcelable
         }
 
         private void processLegacyAction(Action action, RemoteViews button) {
-            if (!isLegacy() || mColorUtil.isGrayscaleIcon(mContext, action.icon)) {
+            if (!isLegacy() || mColorUtil.isGrayscaleIcon(mContext, action.getIcon())) {
                 button.setTextViewCompoundDrawablesRelativeColorFilter(R.id.action0, 0,
                         mContext.getColor(R.color.notification_action_color_filter),
                         PorterDuff.Mode.MULTIPLY);
@@ -3085,14 +3212,16 @@ public class Notification implements Parcelable
         /**
          * Apply any necessary background to smallIcons being used in the largeIcon spot.
          */
-        private void processSmallIconAsLarge(int largeIconId, RemoteViews contentView) {
+        private void processSmallIconAsLarge(Icon largeIcon, RemoteViews contentView) {
             if (!isLegacy()) {
                 contentView.setDrawableParameters(R.id.icon, false, -1,
                         0xFFFFFFFF,
                         PorterDuff.Mode.SRC_ATOP, -1);
-            }
-            if (!isLegacy() || mColorUtil.isGrayscaleIcon(mContext, largeIconId)) {
                 applyLargeIconBackground(contentView);
+            } else {
+                if (mColorUtil.isGrayscaleIcon(mContext, largeIcon)) {
+                    applyLargeIconBackground(contentView);
+                }
             }
         }
 
@@ -3101,8 +3230,9 @@ public class Notification implements Parcelable
          * if it's grayscale).
          */
         // TODO: also check bounds, transparency, that sort of thing.
-        private void processLargeLegacyIcon(Bitmap largeIcon, RemoteViews contentView) {
-            if (isLegacy() && mColorUtil.isGrayscaleIcon(largeIcon)) {
+        private void processLargeLegacyIcon(Icon largeIcon, RemoteViews contentView) {
+            if (largeIcon != null && isLegacy()
+                    && mColorUtil.isGrayscaleIcon(mContext, largeIcon)) {
                 applyLargeIconBackground(contentView);
             } else {
                 removeLargeIconBackground(contentView);
@@ -3136,14 +3266,16 @@ public class Notification implements Parcelable
         /**
          * Recolor small icons when used in the R.id.right_icon slot.
          */
-        private void processSmallRightIcon(int smallIconDrawableId,
-                RemoteViews contentView) {
+        private void processSmallRightIcon(Icon smallIcon, RemoteViews contentView) {
             if (!isLegacy()) {
                 contentView.setDrawableParameters(R.id.right_icon, false, -1,
                         0xFFFFFFFF,
                         PorterDuff.Mode.SRC_ATOP, -1);
             }
-            if (!isLegacy() || mColorUtil.isGrayscaleIcon(mContext, smallIconDrawableId)) {
+            final boolean gray = isLegacy()
+                    && smallIcon.getType() == Icon.TYPE_RESOURCE
+                    && mColorUtil.isGrayscaleIcon(mContext, smallIcon.getResId());
+            if (!isLegacy() || gray) {
                 contentView.setInt(R.id.right_icon,
                         "setBackgroundResource",
                         R.drawable.notification_icon_legacy_bg);
@@ -3179,7 +3311,10 @@ public class Notification implements Parcelable
         public Notification buildUnstyled() {
             Notification n = new Notification();
             n.when = mWhen;
-            n.icon = mSmallIcon;
+            n.mSmallIcon = mSmallIcon;
+            if (mSmallIcon != null && mSmallIcon.getType() == Icon.TYPE_RESOURCE) {
+                n.icon = mSmallIcon.getResId();
+            }
             n.iconLevel = mSmallIconLevel;
             n.number = mNumber;
 
@@ -3191,7 +3326,10 @@ public class Notification implements Parcelable
             n.fullScreenIntent = mFullScreenIntent;
             n.tickerText = mTickerText;
             n.tickerView = makeTickerView();
-            n.largeIcon = mLargeIcon;
+            n.mLargeIcon = mLargeIcon;
+            if (mLargeIcon != null && mLargeIcon.getType() == Icon.TYPE_BITMAP) {
+                n.largeIcon = mLargeIcon.getBitmap();
+            }
             n.sound = mSound;
             n.audioStreamType = mAudioStreamType;
             n.audioAttributes = mAudioAttributes;
@@ -3241,7 +3379,7 @@ public class Notification implements Parcelable
             extras.putCharSequence(EXTRA_TEXT, mContentText);
             extras.putCharSequence(EXTRA_SUB_TEXT, mSubText);
             extras.putCharSequence(EXTRA_INFO_TEXT, mContentInfo);
-            extras.putInt(EXTRA_SMALL_ICON, mSmallIcon);
+            extras.putParcelable(EXTRA_SMALL_ICON, mSmallIcon);
             extras.putInt(EXTRA_PROGRESS, mProgress);
             extras.putInt(EXTRA_PROGRESS_MAX, mProgressMax);
             extras.putBoolean(EXTRA_PROGRESS_INDETERMINATE, mProgressIndeterminate);
@@ -3429,7 +3567,7 @@ public class Notification implements Parcelable
 
             // Notification fields.
             mWhen = n.when;
-            mSmallIcon = n.icon;
+            mSmallIcon = n.mSmallIcon;
             mSmallIconLevel = n.iconLevel;
             mNumber = n.number;
 
@@ -3440,7 +3578,7 @@ public class Notification implements Parcelable
             mFullScreenIntent = n.fullScreenIntent;
             mTickerText = n.tickerText;
             mTickerView = n.tickerView;
-            mLargeIcon = n.largeIcon;
+            mLargeIcon = n.mLargeIcon;
             mSound = n.sound;
             mAudioStreamType = n.audioStreamType;
             mAudioAttributes = n.audioAttributes;
@@ -3471,7 +3609,6 @@ public class Notification implements Parcelable
             mContentText = extras.getCharSequence(EXTRA_TEXT);
             mSubText = extras.getCharSequence(EXTRA_SUB_TEXT);
             mContentInfo = extras.getCharSequence(EXTRA_INFO_TEXT);
-            mSmallIcon = extras.getInt(EXTRA_SMALL_ICON);
             mProgress = extras.getInt(EXTRA_PROGRESS);
             mProgressMax = extras.getInt(EXTRA_PROGRESS_MAX);
             mProgressIndeterminate = extras.getBoolean(EXTRA_PROGRESS_INDETERMINATE);
@@ -3499,12 +3636,19 @@ public class Notification implements Parcelable
          * object.
          */
         public Notification build() {
+            if (mSmallIcon != null) {
+                mSmallIcon.convertToAshmem();
+            }
+            if (mLargeIcon != null) {
+                mLargeIcon.convertToAshmem();
+            }
             mOriginatingUserId = mContext.getUserId();
             mHasThreeLines = hasThreeLines();
 
             Notification n = buildUnstyled();
 
             if (mStyle != null) {
+                mStyle.purgeResources();
                 n = mStyle.buildStyled(n);
             }
 
@@ -3703,6 +3847,11 @@ public class Notification implements Parcelable
             return wip;
         }
 
+        /**
+         * @hide
+         */
+        public void purgeResources() {}
+
         // The following methods are split out so we can re-create notification partially.
         /**
          * @hide
@@ -3763,7 +3912,7 @@ public class Notification implements Parcelable
      */
     public static class BigPictureStyle extends Style {
         private Bitmap mPicture;
-        private Bitmap mBigLargeIcon;
+        private Icon mBigLargeIcon;
         private boolean mBigLargeIconSet = false;
 
         public BigPictureStyle() {
@@ -3802,19 +3951,44 @@ public class Notification implements Parcelable
          * Override the large icon when the big notification is shown.
          */
         public BigPictureStyle bigLargeIcon(Bitmap b) {
+            return bigLargeIcon(b != null ? Icon.createWithBitmap(b) : null);
+        }
+
+        /**
+         * Override the large icon when the big notification is shown.
+         */
+        public BigPictureStyle bigLargeIcon(Icon icon) {
             mBigLargeIconSet = true;
-            mBigLargeIcon = b;
+            mBigLargeIcon = icon;
             return this;
         }
 
-        private RemoteViews makeBigContentView() {
+        /** @hide */
+        public static final int MIN_ASHMEM_BITMAP_SIZE = 128 * (1 << 10);
 
+        /**
+         * @hide
+         */
+        @Override
+        public void purgeResources() {
+            super.purgeResources();
+            if (mPicture != null &&
+                mPicture.isMutable() &&
+                mPicture.getAllocationByteCount() >= MIN_ASHMEM_BITMAP_SIZE) {
+                mPicture = mPicture.createAshmemBitmap();
+            }
+            if (mBigLargeIcon != null) {
+                mBigLargeIcon.convertToAshmem();
+            }
+        }
+
+        private RemoteViews makeBigContentView() {
             // Replace mLargeIcon with mBigLargeIcon if mBigLargeIconSet
             // This covers the following cases:
             //   1. mBigLargeIconSet -> mBigLargeIcon (null or non-null) applies, overrides
             //          mLargeIcon
             //   2. !mBigLargeIconSet -> mLargeIcon applies
-            Bitmap oldLargeIcon = null;
+            Icon oldLargeIcon = null;
             if (mBigLargeIconSet) {
                 oldLargeIcon = mBuilder.mLargeIcon;
                 mBuilder.mLargeIcon = mBigLargeIcon;
@@ -4145,7 +4319,7 @@ public class Notification implements Parcelable
      *
      * In the expanded form, {@link Notification#bigContentView}, up to 5
      * {@link Notification.Action}s specified with
-     * {@link Notification.Builder#addAction(int, CharSequence, PendingIntent) addAction} will be
+     * {@link Notification.Builder#addAction(Action) addAction} will be
      * shown as icon-only pushbuttons, suitable for transport controls. The Bitmap given to
      * {@link Notification.Builder#setLargeIcon(android.graphics.Bitmap) setLargeIcon()} will be
      * treated as album artwork.
@@ -4271,9 +4445,9 @@ public class Notification implements Parcelable
 
         private RemoteViews generateMediaActionButton(Action action) {
             final boolean tombstone = (action.actionIntent == null);
-            RemoteViews button = new RemoteViews(mBuilder.mContext.getPackageName(),
+            RemoteViews button = new BuilderRemoteViews(mBuilder.mContext.getApplicationInfo(),
                     R.layout.notification_material_media_action);
-            button.setImageViewResource(R.id.action0, action.icon);
+            button.setImageViewIcon(R.id.action0, action.getIcon());
             button.setDrawableParameters(R.id.action0, false, -1,
                     0xFFFFFFFF,
                     PorterDuff.Mode.SRC_ATOP, -1);
@@ -5489,477 +5663,6 @@ public class Notification implements Parcelable
                 return new UnreadConversation(messages, mRemoteInput, mReplyPendingIntent,
                         mReadPendingIntent, participants, mLatestTimestamp);
             }
-        }
-    }
-
-    /**
-     * <p>
-     * Helper class to add content info extensions to notifications. To create a notification with
-     * content info extensions:
-     * <ol>
-     * <li>Create an {@link Notification.Builder}, setting any desired properties.
-     * <li>Create a {@link ContentInfoExtender}.
-     * <li>Set content info specific properties using the {@code add} and {@code set} methods of
-     * {@link ContentInfoExtender}.
-     * <li>Call {@link Notification.Builder#extend(Notification.Extender)} to apply the extensions
-     * to a notification.
-     * </ol>
-     *
-     * <pre class="prettyprint">Notification notification = new Notification.Builder(context) * ... * .extend(new ContentInfoExtender() * .set*(...)) * .build(); * </pre>
-     * <p>
-     * Content info extensions can be accessed on an existing notification by using the
-     * {@code ContentInfoExtender(Notification)} constructor, and then using the {@code get} methods
-     * to access values.
-     */
-    public static final class ContentInfoExtender implements Extender {
-        private static final String TAG = "ContentInfoExtender";
-
-        // Key for the Content info extensions bundle in the main Notification extras bundle
-        private static final String EXTRA_CONTENT_INFO_EXTENDER = "android.CONTENT_INFO_EXTENSIONS";
-
-        // Keys within EXTRA_CONTENT_INFO_EXTENDER for individual content info options.
-
-        private static final String KEY_CONTENT_TYPE = "android.contentType";
-
-        private static final String KEY_CONTENT_GENRES = "android.contentGenre";
-
-        private static final String KEY_CONTENT_PRICING_TYPE = "android.contentPricing.type";
-
-        private static final String KEY_CONTENT_PRICING_VALUE = "android.contentPricing.value";
-
-        private static final String KEY_CONTENT_STATUS = "android.contentStatus";
-
-        private static final String KEY_CONTENT_MATURITY_RATING = "android.contentMaturity";
-
-        private static final String KEY_CONTENT_RUN_LENGTH = "android.contentLength";
-
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a video clip.
-         */
-        public static final String CONTENT_TYPE_VIDEO = "android.contentType.video";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a movie.
-         */
-        public static final String CONTENT_TYPE_MOVIE = "android.contentType.movie";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a trailer.
-         */
-        public static final String CONTENT_TYPE_TRAILER = "android.contentType.trailer";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is serial. It can refer to an entire show, a single season or
-         * series, or a single episode.
-         */
-        public static final String CONTENT_TYPE_SERIAL = "android.contentType.serial";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a song or album.
-         */
-        public static final String CONTENT_TYPE_MUSIC = "android.contentType.music";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a radio station.
-         */
-        public static final String CONTENT_TYPE_RADIO = "android.contentType.radio";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a podcast.
-         */
-        public static final String CONTENT_TYPE_PODCAST = "android.contentType.podcast";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a news item.
-         */
-        public static final String CONTENT_TYPE_NEWS = "android.contentType.news";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is sports.
-         */
-        public static final String CONTENT_TYPE_SPORTS = "android.contentType.sports";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is an application.
-         */
-        public static final String CONTENT_TYPE_APP = "android.contentType.app";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a game.
-         */
-        public static final String CONTENT_TYPE_GAME = "android.contentType.game";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a book.
-         */
-        public static final String CONTENT_TYPE_BOOK = "android.contentType.book";
-        
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a comic book.
-         */
-        public static final String CONTENT_TYPE_COMIC = "android.contentType.comic";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a magazine.
-         */
-        public static final String CONTENT_TYPE_MAGAZINE = "android.contentType.magazine";
-
-        /**
-         * Value to be used with {@link #setContentTypes} to indicate that the content referred by
-         * the notification item is a website.
-         */
-        public static final String CONTENT_TYPE_WEBSITE = "android.contentType.website";
-
-
-        /**
-         * Value to be used with {@link #setPricingInformation} to indicate that the content
-         * referred by the notification item is free to consume.
-         */
-        public static final String CONTENT_PRICING_FREE = "android.contentPrice.free";
-
-        /**
-         * Value to be used with {@link #setPricingInformation} to indicate that the content
-         * referred by the notification item is available as a rental, and the price value provided
-         * is the rental price for the item.
-         */
-        public static final String CONTENT_PRICING_RENTAL = "android.contentPrice.rental";
-
-        /**
-         * Value to be used with {@link #setPricingInformation} to indicate that the content
-         * referred by the notification item is available for purchase, and the price value provided
-         * is the purchase price for the item.
-         */
-        public static final String CONTENT_PRICING_PURCHASE = "android.contentPrice.purchase";
-
-        /**
-         * Value to be used with {@link #setPricingInformation} to indicate that the content
-         * referred by the notification item is available currently as a pre-order, and the price
-         * value provided is the purchase price for the item.
-         */
-        public static final String CONTENT_PRICING_PREORDER = "android.contentPrice.preorder";
-
-        /**
-         * Value to be used with {@link #setPricingInformation} to indicate that the content
-         * referred by the notification item is available as part of a subscription based service,
-         * and the price value provided is the subscription price for the service.
-         */
-        public static final String CONTENT_PRICING_SUBSCRIPTION =
-                "android.contentPrice.subscription";
-
-        /**
-         * Value to be used with {@link #setStatus} to indicate that the content referred by the
-         * notification is available and ready to be consumed immediately.
-         */
-        public static final int CONTENT_STATUS_READY = 0;
-
-        /**
-         * Value to be used with {@link #setStatus} to indicate that the content referred by the
-         * notification is pending, waiting on either a download or purchase operation to complete
-         * before it can be consumed.
-         */
-        public static final int CONTENT_STATUS_PENDING = 1;
-
-        /**
-         * Value to be used with {@link #setStatus} to indicate that the content referred by the
-         * notification is available, but needs to be first purchased, rented, subscribed or
-         * downloaded before it can be consumed.
-         */
-        public static final int CONTENT_STATUS_AVAILABLE = 2;
-
-        /**
-         * Value to be used with {@link #setStatus} to indicate that the content referred by the
-         * notification is not available. This could be content not available in a certain region or
-         * incompatible with the device in use.
-         */
-        public static final int CONTENT_STATUS_UNAVAILABLE = 3;
-
-        /**
-         * Value to be used with {@link #setMaturityRating} to indicate that the content referred by
-         * the notification is suitable for all audiences.
-         */
-        public static final String CONTENT_MATURITY_ALL = "android.contentMaturity.all";
-
-        /**
-         * Value to be used with {@link #setMaturityRating} to indicate that the content
-         * referred by the notification is suitable for audiences of low maturity and above.
-         */
-        public static final String CONTENT_MATURITY_LOW = "android.contentMaturity.low";
-
-        /**
-         * Value to be used with {@link #setMaturityRating} to indicate that the content
-         * referred by the notification is suitable for audiences of medium maturity and above.
-         */
-        public static final String CONTENT_MATURITY_MEDIUM = "android.contentMaturity.medium";
-
-        /**
-         * Value to be used with {@link #setMaturityRating} to indicate that the content
-         * referred by the notification is suitable for audiences of high maturity and above.
-         */
-        public static final String CONTENT_MATURITY_HIGH = "android.contentMaturity.high";
-
-        private String[] mTypes;
-        private String[] mGenres;
-        private String mPricingType;
-        private String mPricingValue;
-        private int mContentStatus = -1;
-        private String mMaturityRating;
-        private long mRunLength = -1;
-
-        /**
-         * Create a {@link ContentInfoExtender} with default options.
-         */
-        public ContentInfoExtender() {
-        }
-
-        /**
-         * Create a {@link ContentInfoExtender} from the ContentInfoExtender options of an existing
-         * Notification.
-         *
-         * @param notif The notification from which to copy options.
-         */
-        public ContentInfoExtender(Notification notif) {
-            Bundle contentBundle = notif.extras == null ?
-                    null : notif.extras.getBundle(EXTRA_CONTENT_INFO_EXTENDER);
-            if (contentBundle != null) {
-                mTypes = contentBundle.getStringArray(KEY_CONTENT_TYPE);
-                mGenres = contentBundle.getStringArray(KEY_CONTENT_GENRES);
-                mPricingType = contentBundle.getString(KEY_CONTENT_PRICING_TYPE);
-                mPricingValue = contentBundle.getString(KEY_CONTENT_PRICING_VALUE);
-                mContentStatus = contentBundle.getInt(KEY_CONTENT_STATUS, -1);
-                mMaturityRating = contentBundle.getString(KEY_CONTENT_MATURITY_RATING);
-                mRunLength = contentBundle.getLong(KEY_CONTENT_RUN_LENGTH, -1);
-            }
-        }
-
-        /**
-         * Apply content extensions to a notification that is being built. This is typically called
-         * by the {@link Notification.Builder#extend(Notification.Extender)} method of
-         * {@link Notification.Builder}.
-         */
-        @Override
-        public Notification.Builder extend(Notification.Builder builder) {
-            Bundle contentBundle = new Bundle();
-
-            if (mTypes != null) {
-                contentBundle.putStringArray(KEY_CONTENT_TYPE, mTypes);
-            }
-            if (mGenres != null) {
-                contentBundle.putStringArray(KEY_CONTENT_GENRES, mGenres);
-            }
-            if (mPricingType != null) {
-                contentBundle.putString(KEY_CONTENT_PRICING_TYPE, mPricingType);
-            }
-            if (mPricingValue != null) {
-                contentBundle.putString(KEY_CONTENT_PRICING_VALUE, mPricingValue);
-            }
-            if (mContentStatus != -1) {
-                contentBundle.putInt(KEY_CONTENT_STATUS, mContentStatus);
-            }
-            if (mMaturityRating != null) {
-                contentBundle.putString(KEY_CONTENT_MATURITY_RATING, mMaturityRating);
-            }
-            if (mRunLength > 0) {
-                contentBundle.putLong(KEY_CONTENT_RUN_LENGTH, mRunLength);
-            }
-
-            builder.getExtras().putBundle(EXTRA_CONTENT_INFO_EXTENDER, contentBundle);
-            return builder;
-        }
-
-        /**
-         * Sets the content types associated with the notification content. The first tag entry will
-         * be considered the primary type for the content and will be used for ranking purposes.
-         * Other secondary type tags may be provided, if applicable, and may be used for filtering
-         * purposes.
-         *
-         * @param types Array of predefined type tags (see the <code>CONTENT_TYPE_*</code>
-         *            constants) that describe the content referred to by a notification.
-         */
-        public ContentInfoExtender setContentTypes(String[] types) {
-            mTypes = types;
-            return this;
-        }
-
-        /**
-         * Returns an array containing the content types that describe the content associated with
-         * the notification. The first tag entry is considered the primary type for the content, and
-         * is used for content ranking purposes.
-         *
-         * @return An array of predefined type tags (see the <code>CONTENT_TYPE_*</code> constants)
-         *         that describe the content associated with the notification.
-         * @see ContentInfoExtender#setContentTypes
-         */
-        public String[] getContentTypes() {
-            return mTypes;
-        }
-
-        /**
-         * Returns the primary content type tag for the content associated with the notification.
-         *
-         * @return A predefined type tag (see the <code>CONTENT_TYPE_*</code> constants) indicating
-         *         the primary type for the content associated with the notification.
-         * @see ContentInfoExtender#setContentTypes
-         */
-        public String getPrimaryContentType() {
-            if (mTypes == null || mTypes.length == 0) {
-                return null;
-            }
-            return mTypes[0];
-        }
-
-        /**
-         * Sets the content genres associated with the notification content. These genres may be
-         * used for content ranking. Genres are open ended String tags.
-         * <p>
-         * Some examples: "comedy", "action", "dance", "electronica", "racing", etc.
-         *
-         * @param genres Array of genre string tags that describe the content referred to by a
-         *            notification.
-         */
-        public ContentInfoExtender setGenres(String[] genres) {
-            mGenres = genres;
-            return this;
-        }
-
-        /**
-         * Returns an array containing the content genres that describe the content associated with
-         * the notification.
-         *
-         * @return An array of genre tags that describe the content associated with the
-         *         notification.
-         * @see ContentInfoExtender#setGenres
-         */
-        public String[] getGenres() {
-            return mGenres;
-        }
-
-        /**
-         * Sets the pricing and availability information for the content associated with the
-         * notification. The provided information will indicate the access model for the content
-         * (free, rental, purchase or subscription) and the price value (if not free).
-         *
-         * @param priceType Pricing type for this content. Must be one of the predefined pricing
-         *            type tags (see the <code>CONTENT_PRICING_*</code> constants).
-         * @param priceValue A string containing a representation of the content price in the
-         *            current locale and currency.
-         * @return This object for method chaining.
-         */
-        public ContentInfoExtender setPricingInformation(String priceType, String priceValue) {
-            mPricingType = priceType;
-            mPricingValue = priceValue;
-            return this;
-        }
-
-        /**
-         * Gets the pricing type for the content associated with the notification.
-         *
-         * @return A predefined tag indicating the pricing type for the content (see the <code>
-         *         CONTENT_PRICING_*</code> constants).
-         * @see ContentInfoExtender#setPricingInformation
-         */
-        public String getPricingType() {
-            return mPricingType;
-        }
-
-        /**
-         * Gets the price value (when applicable) for the content associated with a notification.
-         * The value will be provided as a String containing the price in the appropriate currency
-         * for the current locale.
-         *
-         * @return A string containing a representation of the content price in the current locale
-         *         and currency.
-         * @see ContentInfoExtender#setPricingInformation
-         */
-        public String getPricingValue() {
-            if (mPricingType == null || CONTENT_PRICING_FREE.equals(mPricingType)) {
-                return null;
-            }
-            return mPricingValue;
-        }
-
-        /**
-         * Sets the availability status for the content associated with the notification. This
-         * status indicates whether the referred content is ready to be consumed on the device, or
-         * if the user must first purchase, rent, subscribe to, or download the content.
-         *
-         * @param contentStatus The status value for this content. Must be one of the predefined
-         *            content status values (see the <code>CONTENT_STATUS_*</code> constants).
-         */
-        public ContentInfoExtender setStatus(int contentStatus) {
-            mContentStatus = contentStatus;
-            return this;
-        }
-
-        /**
-         * Returns status value for the content associated with the notification. This status
-         * indicates whether the referred content is ready to be consumed on the device, or if the
-         * user must first purchase, rent, subscribe to, or download the content.
-         *
-         * @return The status value for this content, or -1 is a valid status has not been specified
-         *         (see the <code>CONTENT_STATUS_*</code> for the defined valid status values).
-         * @see ContentInfoExtender#setStatus
-         */
-        public int getStatus() {
-            return mContentStatus;
-        }
-
-        /**
-         * Sets the maturity level rating for the content associated with the notification.
-         *
-         * @param maturityRating A tag indicating the maturity level rating for the content. This
-         *            tag must be one of the predefined maturity rating tags (see the <code>
-         *            CONTENT_MATURITY_*</code> constants).
-         */
-        public ContentInfoExtender setMaturityRating(String maturityRating) {
-            mMaturityRating = maturityRating;
-            return this;
-        }
-
-        /**
-         * Returns the maturity level rating for the content associated with the notification.
-         *
-         * @return returns a predefined tag indicating the maturity level rating for the content
-         *         (see the <code> CONTENT_MATURITY_*</code> constants).
-         * @see ContentInfoExtender#setMaturityRating
-         */
-        public String getMaturityRating() {
-            return mMaturityRating;
-        }
-
-        /**
-         * Sets the running time (when applicable) for the content associated with the notification.
-         *
-         * @param length The runing time, in seconds, of the content associated with the
-         *            notification.
-         */
-        public ContentInfoExtender setRunningTime(long length) {
-            mRunLength = length;
-            return this;
-        }
-
-        /**
-         * Returns the running time for the content associated with the notification.
-         *
-         * @return The running time, in seconds, of the content associated with the notification.
-         * @see ContentInfoExtender#setRunningTime
-         */
-        public long getRunningTime() {
-            return mRunLength;
         }
     }
 

@@ -31,7 +31,7 @@ public:
     RingBuffer() {}
     ~RingBuffer() {}
 
-    size_t capacity() { return SIZE; }
+    constexpr size_t capacity() const { return SIZE; }
     size_t size() { return mCount; }
 
     T& next() {
@@ -43,11 +43,11 @@ public:
     }
 
     T& front() {
-        return this[0];
+        return (*this)[0];
     }
 
     T& back() {
-        return this[size() - 1];
+        return (*this)[size() - 1];
     }
 
     T& operator[](size_t index) {

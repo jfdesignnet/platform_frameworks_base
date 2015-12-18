@@ -31,6 +31,7 @@ import android.graphics.PorterDuff.Mode;
 import android.os.SystemClock;
 import android.util.LayoutDirection;
 import android.util.SparseArray;
+import android.view.View;
 
 import java.util.Collection;
 
@@ -166,11 +167,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public boolean getDither() {
-        return mDrawableContainerState.mDither;
-    }
-
-    @Override
     public void setColorFilter(ColorFilter colorFilter) {
         mDrawableContainerState.mHasColorFilter = true;
 
@@ -295,9 +291,9 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     @Override
     public void setHotspotBounds(int left, int top, int right, int bottom) {
         if (mHotspotBounds == null) {
-            mHotspotBounds = new Rect(left, top, bottom, right);
+            mHotspotBounds = new Rect(left, top, right, bottom);
         } else {
-            mHotspotBounds.set(left, top, bottom, right);
+            mHotspotBounds.set(left, top, right, bottom);
         }
 
         if (mCurrDrawable != null) {
@@ -337,7 +333,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public boolean onLayoutDirectionChange(int layoutDirection) {
+    public boolean onLayoutDirectionChanged(@View.ResolvedLayoutDir int layoutDirection) {
         // Let the container handle setting its own layout direction. Otherwise,
         // we're accessing potentially unused states.
         return mDrawableContainerState.setLayoutDirection(layoutDirection, getCurrentIndex());
@@ -734,7 +730,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                 if (origDf != null) {
                     mDrawableFutures = origDf.clone();
                 } else {
-                    mDrawableFutures = new SparseArray<ConstantStateFuture>(mNumChildren);
+                    mDrawableFutures = new SparseArray<>(mNumChildren);
                 }
 
                 // Create futures for drawables with constant states. If a
@@ -827,6 +823,9 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                     final Drawable prepared = mDrawableFutures.valueAt(keyIndex).get(this);
                     mDrawables[index] = prepared;
                     mDrawableFutures.removeAt(keyIndex);
+                    if (mDrawableFutures.size() == 0) {
+                        mDrawableFutures = null;
+                    }
                     return prepared;
                 }
             }

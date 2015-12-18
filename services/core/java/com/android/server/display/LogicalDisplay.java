@@ -73,8 +73,8 @@ final class LogicalDisplay {
     // True if the logical display has unique content.
     private boolean mHasContent;
 
-    // The pending requested refresh rate. 0 if no request is pending.
-    private float mRequestedRefreshRate;
+    private int mRequestedModeId;
+    private int mRequestedColorTransformId;
 
     // The display offsets to apply to the display projection.
     private int mDisplayOffsetX;
@@ -118,14 +118,24 @@ final class LogicalDisplay {
     public DisplayInfo getDisplayInfoLocked() {
         if (mInfo == null) {
             mInfo = new DisplayInfo();
+            mInfo.copyFrom(mBaseDisplayInfo);
             if (mOverrideDisplayInfo != null) {
-                mInfo.copyFrom(mOverrideDisplayInfo);
-                mInfo.layerStack = mBaseDisplayInfo.layerStack;
-                mInfo.name = mBaseDisplayInfo.name;
-                mInfo.uniqueId = mBaseDisplayInfo.uniqueId;
-                mInfo.state = mBaseDisplayInfo.state;
-            } else {
-                mInfo.copyFrom(mBaseDisplayInfo);
+                mInfo.appWidth = mOverrideDisplayInfo.appWidth;
+                mInfo.appHeight = mOverrideDisplayInfo.appHeight;
+                mInfo.smallestNominalAppWidth = mOverrideDisplayInfo.smallestNominalAppWidth;
+                mInfo.smallestNominalAppHeight = mOverrideDisplayInfo.smallestNominalAppHeight;
+                mInfo.largestNominalAppWidth = mOverrideDisplayInfo.largestNominalAppWidth;
+                mInfo.largestNominalAppHeight = mOverrideDisplayInfo.largestNominalAppHeight;
+                mInfo.logicalWidth = mOverrideDisplayInfo.logicalWidth;
+                mInfo.logicalHeight = mOverrideDisplayInfo.logicalHeight;
+                mInfo.overscanLeft = mOverrideDisplayInfo.overscanLeft;
+                mInfo.overscanTop = mOverrideDisplayInfo.overscanTop;
+                mInfo.overscanRight = mOverrideDisplayInfo.overscanRight;
+                mInfo.overscanBottom = mOverrideDisplayInfo.overscanBottom;
+                mInfo.rotation = mOverrideDisplayInfo.rotation;
+                mInfo.logicalDensityDpi = mOverrideDisplayInfo.logicalDensityDpi;
+                mInfo.physicalXDpi = mOverrideDisplayInfo.physicalXDpi;
+                mInfo.physicalYDpi = mOverrideDisplayInfo.physicalYDpi;
             }
         }
         return mInfo;
@@ -210,6 +220,9 @@ final class LogicalDisplay {
             if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_PRESENTATION) != 0) {
                 mBaseDisplayInfo.flags |= Display.FLAG_PRESENTATION;
             }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_ROUND) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_ROUND;
+            }
             mBaseDisplayInfo.type = deviceInfo.type;
             mBaseDisplayInfo.address = deviceInfo.address;
             mBaseDisplayInfo.name = deviceInfo.name;
@@ -219,9 +232,15 @@ final class LogicalDisplay {
             mBaseDisplayInfo.logicalWidth = deviceInfo.width;
             mBaseDisplayInfo.logicalHeight = deviceInfo.height;
             mBaseDisplayInfo.rotation = Surface.ROTATION_0;
-            mBaseDisplayInfo.refreshRate = deviceInfo.refreshRate;
-            mBaseDisplayInfo.supportedRefreshRates = Arrays.copyOf(
-                    deviceInfo.supportedRefreshRates, deviceInfo.supportedRefreshRates.length);
+            mBaseDisplayInfo.modeId = deviceInfo.modeId;
+            mBaseDisplayInfo.defaultModeId = deviceInfo.defaultModeId;
+            mBaseDisplayInfo.supportedModes = Arrays.copyOf(
+                    deviceInfo.supportedModes, deviceInfo.supportedModes.length);
+            mBaseDisplayInfo.colorTransformId = deviceInfo.colorTransformId;
+            mBaseDisplayInfo.defaultColorTransformId = deviceInfo.defaultColorTransformId;
+            mBaseDisplayInfo.supportedColorTransforms = Arrays.copyOf(
+                    deviceInfo.supportedColorTransforms,
+                    deviceInfo.supportedColorTransforms.length);
             mBaseDisplayInfo.logicalDensityDpi = deviceInfo.densityDpi;
             mBaseDisplayInfo.physicalXDpi = deviceInfo.xDpi;
             mBaseDisplayInfo.physicalYDpi = deviceInfo.yDpi;
@@ -259,14 +278,20 @@ final class LogicalDisplay {
      */
     public void configureDisplayInTransactionLocked(DisplayDevice device,
             boolean isBlanked) {
-        final DisplayInfo displayInfo = getDisplayInfoLocked();
-        final DisplayDeviceInfo displayDeviceInfo = device.getDisplayDeviceInfoLocked();
-
         // Set the layer stack.
         device.setLayerStackInTransactionLocked(isBlanked ? BLANK_LAYER_STACK : mLayerStack);
 
-        // Set the refresh rate
-        device.requestRefreshRateLocked(mRequestedRefreshRate);
+        // Set the color transform and mode.
+        if (device == mPrimaryDisplayDevice) {
+            device.requestColorTransformAndModeInTransactionLocked(
+                    mRequestedColorTransformId, mRequestedModeId);
+        } else {
+            device.requestColorTransformAndModeInTransactionLocked(0, 0);  // Revert to default.
+        }
+
+        // Only grab the display info now as it may have been changed based on the requests above.
+        final DisplayInfo displayInfo = getDisplayInfoLocked();
+        final DisplayDeviceInfo displayDeviceInfo = device.getDisplayDeviceInfoLocked();
 
         // Set the viewport.
         // This is the area of the logical display that we intend to show on the
@@ -351,20 +376,29 @@ final class LogicalDisplay {
     }
 
     /**
-     * Requests the given refresh rate.
-     * @param requestedRefreshRate The desired refresh rate.
+     * Requests the given mode.
      */
-    public void setRequestedRefreshRateLocked(float requestedRefreshRate) {
-        mRequestedRefreshRate = requestedRefreshRate;
+    public void setRequestedModeIdLocked(int modeId) {
+        mRequestedModeId = modeId;
     }
 
     /**
-     * Gets the pending requested refresh rate.
-     *
-     * @return The pending refresh rate requested
+     * Returns the pending requested mode.
      */
-    public float getRequestedRefreshRateLocked() {
-        return mRequestedRefreshRate;
+    public int getRequestedModeIdLocked() {
+        return mRequestedModeId;
+    }
+
+    /**
+     * Requests the given color transform.
+     */
+    public void setRequestedColorTransformIdLocked(int colorTransformId) {
+        mRequestedColorTransformId = colorTransformId;
+    }
+
+    /** Returns the pending requested color transform. */
+    public int getRequestedColorTransformIdLocked() {
+        return mRequestedColorTransformId;
     }
 
     /**
@@ -393,7 +427,8 @@ final class LogicalDisplay {
         pw.println("mDisplayId=" + mDisplayId);
         pw.println("mLayerStack=" + mLayerStack);
         pw.println("mHasContent=" + mHasContent);
-        pw.println("mRequestedRefreshRate=" + mRequestedRefreshRate);
+        pw.println("mRequestedMode=" + mRequestedModeId);
+        pw.println("mRequestedColorTransformId=" + mRequestedColorTransformId);
         pw.println("mDisplayOffset=(" + mDisplayOffsetX + ", " + mDisplayOffsetY + ")");
         pw.println("mPrimaryDisplayDevice=" + (mPrimaryDisplayDevice != null ?
                 mPrimaryDisplayDevice.getNameLocked() : "null"));

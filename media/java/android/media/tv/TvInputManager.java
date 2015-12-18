@@ -20,14 +20,16 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.graphics.Rect;
-import android.media.MediaPlayer;
+import android.media.PlaybackParams;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Pools.Pool;
@@ -54,6 +56,25 @@ import java.util.Map;
  */
 public final class TvInputManager {
     private static final String TAG = "TvInputManager";
+
+    static final int DVB_DEVICE_START = 0;
+    static final int DVB_DEVICE_END = 2;
+
+    /**
+     * A demux device of DVB API for controlling the filters of DVB hardware/software.
+     * @hide
+     */
+    public static final int DVB_DEVICE_DEMUX = DVB_DEVICE_START;
+     /**
+     * A DVR device of DVB API for reading transport streams.
+     * @hide
+     */
+    public static final int DVB_DEVICE_DVR = 1;
+    /**
+     * A frontend device of DVB API for controlling the tuner and DVB demodulator hardware.
+     * @hide
+     */
+    public static final int DVB_DEVICE_FRONTEND = DVB_DEVICE_END;
 
     static final int VIDEO_UNAVAILABLE_REASON_START = 0;
     static final int VIDEO_UNAVAILABLE_REASON_END = 4;
@@ -201,24 +222,21 @@ public final class TvInputManager {
     private final Object mLock = new Object();
 
     // @GuardedBy("mLock")
-    private final List<TvInputCallbackRecord> mCallbackRecords =
-            new LinkedList<TvInputCallbackRecord>();
+    private final List<TvInputCallbackRecord> mCallbackRecords = new LinkedList<>();
 
     // A mapping from TV input ID to the state of corresponding input.
     // @GuardedBy("mLock")
-    private final Map<String, Integer> mStateMap = new ArrayMap<String, Integer>();
+    private final Map<String, Integer> mStateMap = new ArrayMap<>();
 
     // A mapping from the sequence number of a session to its SessionCallbackRecord.
     private final SparseArray<SessionCallbackRecord> mSessionCallbackRecordMap =
-            new SparseArray<SessionCallbackRecord>();
+            new SparseArray<>();
 
     // A sequence number for the next session to be created. Should be protected by a lock
     // {@code mSessionCallbackRecordMap}.
     private int mNextSeq;
 
     private final ITvInputClient mClient;
-
-    private final ITvInputManagerCallback mManagerCallback;
 
     private final int mUserId;
 
@@ -859,7 +877,7 @@ public final class TvInputManager {
                 }
             }
         };
-        mManagerCallback = new ITvInputManagerCallback.Stub() {
+        ITvInputManagerCallback managerCallback = new ITvInputManagerCallback.Stub() {
             @Override
             public void onInputStateChanged(String inputId, int state) {
                 synchronized (mLock) {
@@ -901,7 +919,7 @@ public final class TvInputManager {
         };
         try {
             if (mService != null) {
-                mService.registerCallback(mManagerCallback, mUserId);
+                mService.registerCallback(managerCallback, mUserId);
                 List<TvInputInfo> infos = mService.getTvInputList(mUserId);
                 synchronized (mLock) {
                     for (TvInputInfo info : infos) {
@@ -965,7 +983,7 @@ public final class TvInputManager {
                 Log.w(TAG, "Unrecognized input ID: " + inputId);
                 return INPUT_STATE_DISCONNECTED;
             }
-            return state.intValue();
+            return state;
         }
     }
 
@@ -1035,7 +1053,7 @@ public final class TvInputManager {
     /**
      * Checks whether a given TV content rating is blocked by the user.
      *
-     * @param rating The TV content rating to check.
+     * @param rating The TV content rating to check. Can be {@link TvContentRating#UNRATED}.
      * @return {@code true} if the given TV content rating is blocked, {@code false} otherwise.
      */
     public boolean isRatingBlocked(@NonNull TvContentRating rating) {
@@ -1056,7 +1074,7 @@ public final class TvInputManager {
     @SystemApi
     public List<TvContentRating> getBlockedRatings() {
         try {
-            List<TvContentRating> ratings = new ArrayList<TvContentRating>();
+            List<TvContentRating> ratings = new ArrayList<>();
             for (String rating : mService.getBlockedRatings(mUserId)) {
                 ratings.add(TvContentRating.unflattenFromString(rating));
             }
@@ -1258,6 +1276,43 @@ public final class TvInputManager {
     }
 
     /**
+     * Returns the list of currently available DVB devices on the system.
+     *
+     * @return the list of {@link DvbDeviceInfo} objects representing available DVB devices.
+     * @hide
+     */
+    public List<DvbDeviceInfo> getDvbDeviceList() {
+        try {
+            return mService.getDvbDeviceList();
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Returns a {@link ParcelFileDescriptor} of a specified DVB device for a given
+     * {@link DvbDeviceInfo}
+     *
+     * @param info A {@link DvbDeviceInfo} to open a DVB device.
+     * @param device A DVB device. The DVB device can be {@link #DVB_DEVICE_DEMUX},
+     *            {@link #DVB_DEVICE_DVR} or {@link #DVB_DEVICE_FRONTEND}.
+     * @return a {@link ParcelFileDescriptor} of a specified DVB device for a given
+     *         {@link DvbDeviceInfo}, or {@code null} if the given {@link DvbDeviceInfo} was invalid
+     *         or the specified DVB device was busy with a previous request.
+     * @hide
+     */
+    public ParcelFileDescriptor openDvbDevice(DvbDeviceInfo info, int device) {
+        try {
+            if (DVB_DEVICE_START > device || DVB_DEVICE_END < device) {
+                throw new IllegalArgumentException("Invalid DVB device: " + device);
+            }
+            return mService.openDvbDevice(info, device);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * The Session provides the per-session functionality of TV inputs.
      * @hide
      */
@@ -1277,8 +1332,8 @@ public final class TvInputManager {
         // protect pending input events and the input channel.
         private final InputEventHandler mHandler = new InputEventHandler(Looper.getMainLooper());
 
-        private final Pool<PendingEvent> mPendingEventPool = new SimplePool<PendingEvent>(20);
-        private final SparseArray<PendingEvent> mPendingEvents = new SparseArray<PendingEvent>(20);
+        private final Pool<PendingEvent> mPendingEventPool = new SimplePool<>(20);
+        private final SparseArray<PendingEvent> mPendingEvents = new SparseArray<>(20);
         private final SparseArray<SessionCallbackRecord> mSessionCallbackRecordMap;
 
         private IBinder mToken;
@@ -1287,11 +1342,11 @@ public final class TvInputManager {
 
         private final Object mMetadataLock = new Object();
         // @GuardedBy("mMetadataLock")
-        private final List<TvTrackInfo> mAudioTracks = new ArrayList<TvTrackInfo>();
+        private final List<TvTrackInfo> mAudioTracks = new ArrayList<>();
         // @GuardedBy("mMetadataLock")
-        private final List<TvTrackInfo> mVideoTracks = new ArrayList<TvTrackInfo>();
+        private final List<TvTrackInfo> mVideoTracks = new ArrayList<>();
         // @GuardedBy("mMetadataLock")
-        private final List<TvTrackInfo> mSubtitleTracks = new ArrayList<TvTrackInfo>();
+        private final List<TvTrackInfo> mSubtitleTracks = new ArrayList<>();
         // @GuardedBy("mMetadataLock")
         private String mSelectedAudioTrackId;
         // @GuardedBy("mMetadataLock")
@@ -1367,12 +1422,12 @@ public final class TvInputManager {
         }
 
         /**
-         * Notifies of any structural changes (format or size) of the {@link Surface}
-         * passed by {@link #setSurface}.
+         * Notifies of any structural changes (format or size) of the surface passed in
+         * {@link #setSurface}.
          *
-         * @param format The new PixelFormat of the {@link Surface}.
-         * @param width The new width of the {@link Surface}.
-         * @param height The new height of the {@link Surface}.
+         * @param format The new PixelFormat of the surface.
+         * @param width The new width of the surface.
+         * @param height The new height of the surface.
          * @hide
          */
         @SystemApi
@@ -1532,17 +1587,17 @@ public final class TvInputManager {
                     if (mAudioTracks == null) {
                         return null;
                     }
-                    return new ArrayList<TvTrackInfo>(mAudioTracks);
+                    return new ArrayList<>(mAudioTracks);
                 } else if (type == TvTrackInfo.TYPE_VIDEO) {
                     if (mVideoTracks == null) {
                         return null;
                     }
-                    return new ArrayList<TvTrackInfo>(mVideoTracks);
+                    return new ArrayList<>(mVideoTracks);
                 } else if (type == TvTrackInfo.TYPE_SUBTITLE) {
                     if (mSubtitleTracks == null) {
                         return null;
                     }
-                    return new ArrayList<TvTrackInfo>(mSubtitleTracks);
+                    return new ArrayList<>(mSubtitleTracks);
                 }
             }
             throw new IllegalArgumentException("invalid type: " + type);
@@ -1598,14 +1653,16 @@ public final class TvInputManager {
          */
         boolean updateTrackSelection(int type, String trackId) {
             synchronized (mMetadataLock) {
-                if (type == TvTrackInfo.TYPE_AUDIO && trackId != mSelectedAudioTrackId) {
+                if (type == TvTrackInfo.TYPE_AUDIO
+                        && !TextUtils.equals(trackId, mSelectedAudioTrackId)) {
                     mSelectedAudioTrackId = trackId;
                     return true;
-                } else if (type == TvTrackInfo.TYPE_VIDEO && trackId != mSelectedVideoTrackId) {
+                } else if (type == TvTrackInfo.TYPE_VIDEO
+                        && !TextUtils.equals(trackId, mSelectedVideoTrackId)) {
                     mSelectedVideoTrackId = trackId;
                     return true;
                 } else if (type == TvTrackInfo.TYPE_SUBTITLE
-                        && trackId != mSelectedSubtitleTrackId) {
+                        && !TextUtils.equals(trackId, mSelectedSubtitleTrackId)) {
                     mSelectedSubtitleTrackId = trackId;
                     return true;
                 }
@@ -1691,24 +1748,17 @@ public final class TvInputManager {
         }
 
         /**
-         * Sets playback rate and audio mode.
+         * Sets playback rate using {@link android.media.PlaybackParams}.
          *
-         * @param rate The ratio between desired playback rate and normal one.
-         * @param audioMode Audio playback mode. Must be one of the supported audio modes:
-         * <ul>
-         * <li> {@link android.media.MediaPlayer#PLAYBACK_RATE_AUDIO_MODE_RESAMPLE}
-         * </ul>
+         * @param params The playback params.
          */
-        void timeShiftSetPlaybackRate(float rate, int audioMode) {
+        void timeShiftSetPlaybackParams(PlaybackParams params) {
             if (mToken == null) {
                 Log.w(TAG, "The session has been already released");
                 return;
             }
-            if (audioMode != MediaPlayer.PLAYBACK_RATE_AUDIO_MODE_RESAMPLE) {
-                throw new IllegalArgumentException("Unknown audio playback mode " + audioMode);
-            }
             try {
-                mService.timeShiftSetPlaybackRate(mToken, rate, audioMode, mUserId);
+                mService.timeShiftSetPlaybackParams(mToken, params, mUserId);
             } catch (RemoteException e) {
                 throw new RuntimeException(e);
             }
@@ -1818,14 +1868,14 @@ public final class TvInputManager {
         /**
          * Requests to unblock content blocked by parental controls.
          */
-        void requestUnblockContent(@NonNull TvContentRating unblockedRating) {
+        void unblockContent(@NonNull TvContentRating unblockedRating) {
             Preconditions.checkNotNull(unblockedRating);
             if (mToken == null) {
                 Log.w(TAG, "The session has been already released");
                 return;
             }
             try {
-                mService.requestUnblockContent(mToken, unblockedRating.flattenToString(), mUserId);
+                mService.unblockContent(mToken, unblockedRating.flattenToString(), mUserId);
             } catch (RemoteException e) {
                 throw new RuntimeException(e);
             }
@@ -1882,7 +1932,7 @@ public final class TvInputManager {
              * @param handled {@code true} if the dispatched input event was handled properly.
              *            {@code false} otherwise.
              */
-            public void onFinishedInputEvent(Object token, boolean handled);
+            void onFinishedInputEvent(Object token, boolean handled);
         }
 
         // Must be called on the main looper
@@ -1931,7 +1981,7 @@ public final class TvInputManager {
                 mPendingEvents.removeAt(index);
 
                 if (timeout) {
-                    Log.w(TAG, "Timeout waiting for seesion to handle input event after "
+                    Log.w(TAG, "Timeout waiting for session to handle input event after "
                             + INPUT_SESSION_NOT_RESPONDING_TIMEOUT + " ms: " + mToken);
                 } else {
                     mHandler.removeMessages(InputEventHandler.MSG_TIMEOUT_INPUT_EVENT, p);

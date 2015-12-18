@@ -28,6 +28,7 @@
 #include "DeferredDisplayList.h"
 #include "DisplayListOp.h"
 #include "OpenGLRenderer.h"
+#include "Properties.h"
 #include "utils/MathUtils.h"
 
 #if DEBUG_DEFER
@@ -194,6 +195,7 @@ public:
         // Identical round rect clip state means both ops will clip in the same way, or not at all.
         // As the state objects are const, we can compare their pointers to determine mergeability
         if (lhs->mRoundRectClipState != rhs->mRoundRectClipState) return false;
+        if (lhs->mProjectionPathMask != rhs->mProjectionPathMask) return false;
 
         /* Clipping compatibility check
          *
@@ -492,7 +494,9 @@ void DeferredDisplayList::addDrawOp(OpenGLRenderer& renderer, DrawOp* op) {
     // complex clip has a complex set of expectations on the renderer state - for now, avoid taking
     // the merge path in those cases
     deferInfo.mergeable &= !recordingComplexClip();
-    deferInfo.opaqueOverBounds &= !recordingComplexClip() && mSaveStack.isEmpty();
+    deferInfo.opaqueOverBounds &= !recordingComplexClip()
+            && mSaveStack.isEmpty()
+            && !state->mRoundRectClipState;
 
     if (CC_LIKELY(mAvoidOverdraw) && mBatches.size() &&
             state->mClipSideFlags != kClipSide_ConservativeFull &&
@@ -502,7 +506,7 @@ void DeferredDisplayList::addDrawOp(OpenGLRenderer& renderer, DrawOp* op) {
         resetBatchingState();
     }
 
-    if (CC_UNLIKELY(renderer.getCaches().drawReorderDisabled)) {
+    if (CC_UNLIKELY(Properties::drawReorderDisabled)) {
         // TODO: elegant way to reuse batches?
         DrawBatch* b = new DrawBatch(deferInfo);
         b->add(op, state, deferInfo.opaqueOverBounds);
@@ -638,8 +642,7 @@ void DeferredDisplayList::flush(OpenGLRenderer& renderer, Rect& dirty) {
     DEFER_LOGD("--flushing");
     renderer.eventMark("Flush");
 
-    // save and restore (with draw modifiers) so that reordering doesn't affect final state
-    DrawModifiers restoreDrawModifiers = renderer.getDrawModifiers();
+    // save and restore so that reordering doesn't affect final state
     renderer.save(SkCanvas::kMatrix_SaveFlag | SkCanvas::kClip_SaveFlag);
 
     if (CC_LIKELY(mAvoidOverdraw)) {
@@ -654,7 +657,6 @@ void DeferredDisplayList::flush(OpenGLRenderer& renderer, Rect& dirty) {
     replayBatchList(mBatches, renderer, dirty);
 
     renderer.restoreToCount(1);
-    renderer.setDrawModifiers(restoreDrawModifiers);
 
     DEFER_LOGD("--flush complete, returning %x", status);
     clear();

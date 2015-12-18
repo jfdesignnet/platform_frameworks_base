@@ -281,8 +281,16 @@ public class GpsLocationProvider implements LocationProviderInterface {
     // current setting 24 hours
     private static final long NTP_INTERVAL = 24*60*60*1000;
     // how long to wait if we have a network error in NTP or XTRA downloading
+    // the initial value of the exponential backoff
     // current setting - 5 minutes
     private static final long RETRY_INTERVAL = 5*60*1000;
+    // how long to wait if we have a network error in NTP or XTRA downloading
+    // the max value of the exponential backoff
+    // current setting - 4 hours
+    private static final long MAX_RETRY_INTERVAL = 4*60*60*1000;
+
+    private BackOff mNtpBackOff = new BackOff(RETRY_INTERVAL, MAX_RETRY_INTERVAL);
+    private BackOff mXtraBackOff = new BackOff(RETRY_INTERVAL, MAX_RETRY_INTERVAL);
 
     // true if we are enabled, protected by this
     private boolean mEnabled;
@@ -436,7 +444,8 @@ public class GpsLocationProvider implements LocationProviderInterface {
                 checkSmsSuplInit(intent);
             } else if (action.equals(Intents.WAP_PUSH_RECEIVED_ACTION)) {
                 checkWapSuplInit(intent);
-            } else if (action.equals(ConnectivityManager.CONNECTIVITY_ACTION)) {
+            } else if (action.equals(ConnectivityManager.CONNECTIVITY_ACTION)
+                    || action.equals(ConnectivityManager.CONNECTIVITY_ACTION_SUPL)) {
                 // retrieve NetworkInfo result for this UID
                 NetworkInfo info =
                         intent.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK_INFO);
@@ -446,15 +455,15 @@ public class GpsLocationProvider implements LocationProviderInterface {
 
                 int networkState;
                 if (intent.getBooleanExtra(ConnectivityManager.EXTRA_NO_CONNECTIVITY, false) ||
-                    !info.isConnected()) {
+                        !info.isConnected()) {
                     networkState = LocationProvider.TEMPORARILY_UNAVAILABLE;
                 } else {
                     networkState = LocationProvider.AVAILABLE;
                 }
 
-
                 updateNetworkState(networkState, info);
             } else if (PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(action)
+                    || PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)
                     || Intent.ACTION_SCREEN_OFF.equals(action)
                     || Intent.ACTION_SCREEN_ON.equals(action)) {
                 updateLowPowerMode();
@@ -473,7 +482,7 @@ public class GpsLocationProvider implements LocationProviderInterface {
     };
 
     private void subscriptionOrSimChanged(Context context) {
-        Log.d(TAG, "received SIM realted action: ");
+        Log.d(TAG, "received SIM related action: ");
         TelephonyManager phone = (TelephonyManager)
                 mContext.getSystemService(Context.TELEPHONY_SERVICE);
         String mccMnc = phone.getSimOperator();
@@ -502,14 +511,14 @@ public class GpsLocationProvider implements LocationProviderInterface {
     }
 
     private void updateLowPowerMode() {
-        final boolean disableGps;
+        // Disable GPS if we are in device idle mode.
+        boolean disableGps = mPowerManager.isDeviceIdleMode();
         switch (Settings.Secure.getInt(mContext.getContentResolver(), BATTERY_SAVER_GPS_MODE,
                 BATTERY_SAVER_MODE_DISABLED_WHEN_SCREEN_OFF)) {
             case BATTERY_SAVER_MODE_DISABLED_WHEN_SCREEN_OFF:
-                disableGps = mPowerManager.isPowerSaveMode() && !mPowerManager.isInteractive();
+                // If we are in battery saver mode and the screen is off, disable GPS.
+                disableGps |= mPowerManager.isPowerSaveMode() && !mPowerManager.isInteractive();
                 break;
-            default:
-                disableGps = false;
         }
         if (disableGps != mDisableGps) {
             mDisableGps = disableGps;
@@ -832,9 +841,10 @@ public class GpsLocationProvider implements LocationProviderInterface {
 
                     native_inject_time(time, timeReference, (int) certainty);
                     delay = NTP_INTERVAL;
+                    mNtpBackOff.reset();
                 } else {
                     if (DEBUG) Log.d(TAG, "requestTime failed");
-                    delay = RETRY_INTERVAL;
+                    delay = mNtpBackOff.nextBackoffMillis();
                 }
 
                 sendMessage(INJECT_NTP_TIME_FINISHED, 0, null);
@@ -875,6 +885,7 @@ public class GpsLocationProvider implements LocationProviderInterface {
                         Log.d(TAG, "calling native_inject_xtra_data");
                     }
                     native_inject_xtra_data(data, data.length);
+                    mXtraBackOff.reset();
                 }
 
                 sendMessage(DOWNLOAD_XTRA_DATA_FINISHED, 0, null);
@@ -882,7 +893,8 @@ public class GpsLocationProvider implements LocationProviderInterface {
                 if (data == null) {
                     // try again later
                     // since this is delayed and not urgent we do not hold a wake lock here
-                    mHandler.sendEmptyMessageDelayed(DOWNLOAD_XTRA_DATA, RETRY_INTERVAL);
+                    mHandler.sendEmptyMessageDelayed(DOWNLOAD_XTRA_DATA,
+                            mXtraBackOff.nextBackoffMillis());
                 }
 
                 // release wake lock held by task
@@ -952,13 +964,18 @@ public class GpsLocationProvider implements LocationProviderInterface {
                     return GPS_POSITION_MODE_STANDALONE;
                 }
             }
+            // MS-Based is the preferred mode for Assisted-GPS position computation, so we favor
+            // such mode when it is available
+            if (hasCapability(GPS_CAPABILITY_MSB) && (suplMode & AGPS_SUPL_MODE_MSB) != 0) {
+                return GPS_POSITION_MODE_MS_BASED;
+            }
+            // for now, just as the legacy code did, we fallback to MS-Assisted if it is available,
+            // do fallback only for single-shot requests, because it is too expensive to do for
+            // periodic requests as well
             if (singleShot
                     && hasCapability(GPS_CAPABILITY_MSA)
                     && (suplMode & AGPS_SUPL_MODE_MSA) != 0) {
                 return GPS_POSITION_MODE_MS_ASSISTED;
-            } else if (hasCapability(GPS_CAPABILITY_MSB)
-                    && (suplMode & AGPS_SUPL_MODE_MSB) != 0) {
-                return GPS_POSITION_MODE_MS_BASED;
             }
         }
         return GPS_POSITION_MODE_STANDALONE;
@@ -2029,7 +2046,9 @@ public class GpsLocationProvider implements LocationProviderInterface {
             intentFilter.addAction(ALARM_WAKEUP);
             intentFilter.addAction(ALARM_TIMEOUT);
             intentFilter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+            intentFilter.addAction(ConnectivityManager.CONNECTIVITY_ACTION_SUPL);
             intentFilter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
+            intentFilter.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
             intentFilter.addAction(Intent.ACTION_SCREEN_OFF);
             intentFilter.addAction(Intent.ACTION_SCREEN_ON);
             intentFilter.addAction(SIM_STATE_CHANGED);
@@ -2182,6 +2201,36 @@ public class GpsLocationProvider implements LocationProviderInterface {
 
         s.append(native_get_internal_state());
         pw.append(s);
+    }
+
+    /**
+     * A simple implementation of exponential backoff.
+     */
+    private static final class BackOff {
+        private static final int MULTIPLIER = 2;
+        private final long mInitIntervalMillis;
+        private final long mMaxIntervalMillis;
+        private long mCurrentIntervalMillis;
+
+        public BackOff(long initIntervalMillis, long maxIntervalMillis) {
+            mInitIntervalMillis = initIntervalMillis;
+            mMaxIntervalMillis = maxIntervalMillis;
+
+            mCurrentIntervalMillis = mInitIntervalMillis / MULTIPLIER;
+        }
+
+        public long nextBackoffMillis() {
+            if (mCurrentIntervalMillis > mMaxIntervalMillis) {
+                return mMaxIntervalMillis;
+            }
+
+            mCurrentIntervalMillis *= MULTIPLIER;
+            return mCurrentIntervalMillis;
+        }
+
+        public void reset() {
+            mCurrentIntervalMillis = mInitIntervalMillis / MULTIPLIER;
+        }
     }
 
     // for GPS SV statistics

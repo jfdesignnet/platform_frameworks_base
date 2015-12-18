@@ -175,7 +175,5 @@
     <color name="Red_700">#ffc53929</color>
     <color name="Red_800">#ffb93221</color>
 
-    <!-- Floating toolbar colors -->
-    <color name="floating_toolbar_text_color">#DD000000</color>
-    <color name="floating_toolbar_background_color">#FAFAFA</color>
+    <color name="chooser_service_row_background_color">#fff5f5f5</color>
 </resources>

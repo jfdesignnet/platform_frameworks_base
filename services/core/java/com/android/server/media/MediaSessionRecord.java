@@ -27,9 +27,6 @@ import android.media.MediaDescription;
 import android.media.MediaMetadata;
 import android.media.Rating;
 import android.media.VolumeProvider;
-import android.media.routing.IMediaRouter;
-import android.media.routing.IMediaRouterDelegate;
-import android.media.routing.IMediaRouterStateCallback;
 import android.media.session.ISession;
 import android.media.session.ISessionCallback;
 import android.media.session.ISessionController;
@@ -244,21 +241,10 @@ public class MediaSessionRecord implements IBinder.DeathRecipient {
             flags &= ~AudioManager.FLAG_PLAY_SOUND;
         }
         if (mVolumeType == PlaybackInfo.PLAYBACK_TYPE_LOCAL) {
+            // Adjust the volume with a handler not to be blocked by other system service.
             int stream = AudioAttributes.toLegacyStreamType(mAudioAttrs);
-            if (useSuggested) {
-                if (AudioSystem.isStreamActive(stream, 0)) {
-                    mAudioManagerInternal.adjustSuggestedStreamVolumeForUid(stream, direction,
-                            flags, packageName, uid);
-                } else {
-                    flags |= previousFlagPlaySound;
-                    mAudioManagerInternal.adjustSuggestedStreamVolumeForUid(
-                            AudioManager.USE_DEFAULT_STREAM_TYPE, direction, flags, packageName,
-                            uid);
-                }
-            } else {
-                mAudioManagerInternal.adjustStreamVolumeForUid(stream, direction, flags,
-                        packageName, uid);
-            }
+            postAdjustLocalVolume(stream, direction, flags, packageName, uid, useSuggested,
+                    previousFlagPlaySound);
         } else {
             if (mVolumeControlType == VolumeProvider.VOLUME_CONTROL_FIXED) {
                 // Nothing to do, the volume cannot be changed
@@ -462,6 +448,29 @@ public class MediaSessionRecord implements IBinder.DeathRecipient {
     @Override
     public String toString() {
         return mPackageName + "/" + mTag;
+    }
+
+    private void postAdjustLocalVolume(final int stream, final int direction, final int flags,
+            final String packageName, final int uid, final boolean useSuggested,
+            final int previousFlagPlaySound) {
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (useSuggested) {
+                    if (AudioSystem.isStreamActive(stream, 0)) {
+                        mAudioManagerInternal.adjustSuggestedStreamVolumeForUid(stream, direction,
+                                flags, packageName, uid);
+                    } else {
+                        mAudioManagerInternal.adjustSuggestedStreamVolumeForUid(
+                                AudioManager.USE_DEFAULT_STREAM_TYPE, direction,
+                                flags | previousFlagPlaySound, packageName, uid);
+                    }
+                } else {
+                    mAudioManagerInternal.adjustStreamVolumeForUid(stream, direction, flags,
+                            packageName, uid);
+                }
+            }
+        });
     }
 
     private String getShortMetadataString() {
@@ -714,11 +723,6 @@ public class MediaSessionRecord implements IBinder.DeathRecipient {
                 mService.enforcePhoneStatePermission(pid, uid);
             }
             mFlags = flags;
-            mHandler.post(MessageHandler.MSG_UPDATE_SESSION_STATE);
-        }
-
-        @Override
-        public void setMediaRouter(IMediaRouter router) {
             mHandler.post(MessageHandler.MSG_UPDATE_SESSION_STATE);
         }
 
@@ -1055,23 +1059,22 @@ public class MediaSessionRecord implements IBinder.DeathRecipient {
 
         @Override
         public ParcelableVolumeInfo getVolumeAttributes() {
+            int volumeType;
+            AudioAttributes attributes;
             synchronized (mLock) {
-                int type;
-                int max;
-                int current;
                 if (mVolumeType == PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
-                    type = mVolumeControlType;
-                    max = mMaxVolume;
-                    current = mOptimisticVolume != -1 ? mOptimisticVolume
-                            : mCurrentVolume;
-                } else {
-                    int stream = AudioAttributes.toLegacyStreamType(mAudioAttrs);
-                    type = VolumeProvider.VOLUME_CONTROL_ABSOLUTE;
-                    max = mAudioManager.getStreamMaxVolume(stream);
-                    current = mAudioManager.getStreamVolume(stream);
+                    int current = mOptimisticVolume != -1 ? mOptimisticVolume : mCurrentVolume;
+                    return new ParcelableVolumeInfo(
+                            mVolumeType, mAudioAttrs, mVolumeControlType, mMaxVolume, current);
                 }
-                return new ParcelableVolumeInfo(mVolumeType, mAudioAttrs, type, max, current);
+                volumeType = mVolumeType;
+                attributes = mAudioAttrs;
             }
+            int stream = AudioAttributes.toLegacyStreamType(attributes);
+            int max = mAudioManager.getStreamMaxVolume(stream);
+            int current = mAudioManager.getStreamVolume(stream);
+            return new ParcelableVolumeInfo(
+                    volumeType, attributes, VolumeProvider.VOLUME_CONTROL_ABSOLUTE, max, current);
         }
 
         @Override
@@ -1208,13 +1211,6 @@ public class MediaSessionRecord implements IBinder.DeathRecipient {
         @Override
         public boolean isTransportControlEnabled() {
             return MediaSessionRecord.this.isTransportControlEnabled();
-        }
-
-        @Override
-        public IMediaRouterDelegate createMediaRouterDelegate(
-                IMediaRouterStateCallback callback) {
-            // todo
-            return null;
         }
     }
 

@@ -144,7 +144,11 @@ public class TaskStack {
                 bounds = mTmpRect;
                 mFullscreen = true;
             } else {
-                bounds.intersect(mTmpRect); // ensure bounds are entirely within the display rect
+                // ensure bounds are entirely within the display rect
+                if (!bounds.intersect(mTmpRect)) {
+                    // Can't set bounds outside the containing display.. Sorry!
+                    return false;
+                }
                 mFullscreen = mTmpRect.equals(bounds);
             }
         }
@@ -371,7 +375,10 @@ public class TaskStack {
             for (int appNdx = appWindowTokens.size() - 1; appNdx >= 0; --appNdx) {
                 final WindowList appWindows = appWindowTokens.get(appNdx).allAppWindows;
                 for (int winNdx = appWindows.size() - 1; winNdx >= 0; --winNdx) {
-                    mService.removeWindowInnerLocked(appWindows.get(winNdx));
+                    // We are in the middle of changing the state of displays/stacks/tasks. We need
+                    // to finish that, before we let layout interfere with it.
+                    mService.removeWindowInnerLocked(appWindows.get(winNdx),
+                            false /* performLayout */);
                     doAnotherLayoutPass = true;
                 }
             }
@@ -381,8 +388,6 @@ public class TaskStack {
         }
 
         close();
-
-        mDisplayContent = null;
     }
 
     void resetAnimationBackgroundAnimator() {
@@ -514,6 +519,7 @@ public class TaskStack {
             mDimLayer.destroySurface();
             mDimLayer = null;
         }
+        mDisplayContent = null;
     }
 
     public void dump(String prefix, PrintWriter pw) {

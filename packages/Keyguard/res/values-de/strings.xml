@@ -31,6 +31,8 @@
     <string name="keyguard_password_wrong_pin_code" msgid="2422225591006134936">"Falscher PIN-Code"</string>
     <string name="keyguard_charged" msgid="3272223906073492454">"Aufgeladen"</string>
     <string name="keyguard_plugged_in" msgid="9087497435553252863">"Wird aufgeladen"</string>
+    <string name="keyguard_plugged_in_charging_fast" msgid="6671162730167305479">"Schnelles Aufladen"</string>
+    <string name="keyguard_plugged_in_charging_slowly" msgid="1964714661071163229">"Langsames Aufladen"</string>
     <string name="keyguard_low_battery" msgid="8143808018719173859">"Bitte Ladegerät anschließen"</string>
     <string name="keyguard_instructions_when_pattern_disabled" msgid="1332288268600329841">"Zum Entsperren die Menütaste drücken"</string>
     <string name="keyguard_network_locked_message" msgid="9169717779058037168">"Netzwerk gesperrt"</string>
@@ -45,7 +47,6 @@
     <string name="keyguard_sim_puk_locked_message" msgid="3747232467471801633">"SIM-Karte ist gesperrt. PUK-Eingabe erforderlich."</string>
     <string name="keyguard_sim_unlock_progress_dialog_message" msgid="7975221805033614426">"SIM-Karte wird entsperrt…"</string>
     <string name="keyguard_accessibility_pattern_unlock" msgid="1490840706075246612">"Entsperrung mit Muster"</string>
-    <string name="keyguard_accessibility_face_unlock" msgid="4817282543351718535">"Face Unlock"</string>
     <string name="keyguard_accessibility_pin_unlock" msgid="2469687111784035046">"Entsperrung mit PIN"</string>
     <string name="keyguard_accessibility_password_unlock" msgid="7675777623912155089">"Entsperrung mit Passwort"</string>
     <string name="keyguard_accessibility_pattern_area" msgid="7679891324509597904">"Bereich für Muster"</string>
@@ -109,5 +110,26 @@
     <string name="keyguard_carrier_default" msgid="8700650403054042153">"Kein Dienst"</string>
     <string name="accessibility_ime_switch_button" msgid="5032926134740456424">"Schaltfläche zum Ändern der Eingabemethode"</string>
     <string name="airplane_mode" msgid="3122107900897202805">"Flugmodus"</string>
+    <string name="kg_prompt_reason_restart_pattern" msgid="489430505491862444">"Beim Neustart des Geräts ist die Eingabe des Musters erforderlich."</string>
+    <string name="kg_prompt_reason_restart_pin" msgid="994878216570694974">"Beim Neustart des Geräts ist die Eingabe der PIN erforderlich."</string>
+    <string name="kg_prompt_reason_restart_password" msgid="2375742919528461664">"Beim Neustart des Geräts ist die Eingabe des Passworts erforderlich."</string>
+    <string name="kg_prompt_reason_timeout_pattern" msgid="8930047492617900785">"Zur Verbesserung der Sicherheit ist ein Muster erforderlich."</string>
+    <string name="kg_prompt_reason_timeout_pin" msgid="7470468607947726377">"Zur Verbesserung der Sicherheit ist eine PIN erforderlich."</string>
+    <string name="kg_prompt_reason_timeout_password" msgid="1177412542773936957">"Zur Verbesserung der Sicherheit ist ein Passwort erforderlich."</string>
+    <string name="kg_prompt_reason_switch_profiles_pattern" msgid="3802056699323773969">"Beim Profilwechsel ist die Eingabe des Musters erforderlich."</string>
+    <string name="kg_prompt_reason_switch_profiles_pin" msgid="8108020184731052246">"Beim Profilwechsel ist die Eingabe der PIN erforderlich."</string>
+    <string name="kg_prompt_reason_switch_profiles_password" msgid="6755997057852042672">"Beim Profilwechsel ist die Eingabe des Passworts erforderlich."</string>
+    <plurals name="kg_prompt_reason_time_pattern" formatted="false" msgid="2697444392228541853">
+      <item quantity="other">Das Gerät wurde seit <xliff:g id="NUMBER_1">%d</xliff:g> Stunden nicht mehr entsperrt. Bestätigen Sie das Muster.</item>
+      <item quantity="one">Das Gerät wurde seit <xliff:g id="NUMBER_0">%d</xliff:g> Stunde nicht mehr entsperrt. Bestätigen Sie das Muster.</item>
+    </plurals>
+    <plurals name="kg_prompt_reason_time_pin" formatted="false" msgid="2118758475374354849">
+      <item quantity="other">Das Gerät wurde seit <xliff:g id="NUMBER_1">%d</xliff:g> Stunden nicht mehr entsperrt. Bestätigen Sie die PIN.</item>
+      <item quantity="one">Das Gerät wurde seit <xliff:g id="NUMBER_0">%d</xliff:g> Stunde nicht mehr entsperrt. Bestätigen Sie die PIN.</item>
+    </plurals>
+    <plurals name="kg_prompt_reason_time_password" formatted="false" msgid="5132693663364913675">
+      <item quantity="other">Das Gerät wurde seit <xliff:g id="NUMBER_1">%d</xliff:g> Stunden nicht mehr entsperrt. Bestätigen Sie das Passwort.</item>
+      <item quantity="one">Das Gerät wurde seit <xliff:g id="NUMBER_0">%d</xliff:g> Stunde nicht mehr entsperrt. Bestätigen Sie das Passwort.</item>
+    </plurals>
     <string name="fingerprint_not_recognized" msgid="2690661881608146617">"Nicht erkannt"</string>
 </resources>

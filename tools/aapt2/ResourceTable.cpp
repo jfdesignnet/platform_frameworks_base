@@ -42,6 +42,8 @@ static bool lessThanEntry(const std::unique_ptr<ResourceEntry>& lhs, const Strin
 }
 
 ResourceTable::ResourceTable() : mPackageId(kUnsetPackageId) {
+    // Make sure attrs always have type ID 1.
+    findOrCreateType(ResourceType::kAttr)->typeId = 1;
 }
 
 std::unique_ptr<ResourceTableType>& ResourceTable::findOrCreateType(ResourceType type) {
@@ -142,10 +144,30 @@ static int defaultCollisionHandler(const Value& existing, const Value& incoming)
 }
 
 static constexpr const char16_t* kValidNameChars = u"._-";
+static constexpr const char16_t* kValidNameMangledChars = u"._-$";
+
+bool ResourceTable::addResource(const ResourceNameRef& name, const ConfigDescription& config,
+                                const SourceLine& source, std::unique_ptr<Value> value) {
+    return addResourceImpl(name, ResourceId{}, config, source, std::move(value), kValidNameChars);
+}
 
 bool ResourceTable::addResource(const ResourceNameRef& name, const ResourceId resId,
-        const ConfigDescription& config, const SourceLine& source,
-        std::unique_ptr<Value> value) {
+                                const ConfigDescription& config, const SourceLine& source,
+                                std::unique_ptr<Value> value) {
+    return addResourceImpl(name, resId, config, source, std::move(value), kValidNameChars);
+}
+
+bool ResourceTable::addResourceAllowMangled(const ResourceNameRef& name,
+                                            const ConfigDescription& config,
+                                            const SourceLine& source,
+                                            std::unique_ptr<Value> value) {
+    return addResourceImpl(name, ResourceId{}, config, source, std::move(value),
+                           kValidNameMangledChars);
+}
+
+bool ResourceTable::addResourceImpl(const ResourceNameRef& name, const ResourceId resId,
+                                    const ConfigDescription& config, const SourceLine& source,
+                                    std::unique_ptr<Value> value, const char16_t* validChars) {
     if (!name.package.empty() && name.package != mPackage) {
         Logger::error(source)
                 << "resource '"
@@ -157,7 +179,7 @@ bool ResourceTable::addResource(const ResourceNameRef& name, const ResourceId re
         return false;
     }
 
-    auto badCharIter = util::findNonAlphaNumericAndNotInSet(name.entry, kValidNameChars);
+    auto badCharIter = util::findNonAlphaNumericAndNotInSet(name.entry, validChars);
     if (badCharIter != name.entry.end()) {
         Logger::error(source)
                 << "resource '"
@@ -233,13 +255,18 @@ bool ResourceTable::addResource(const ResourceNameRef& name, const ResourceId re
     return true;
 }
 
-bool ResourceTable::addResource(const ResourceNameRef& name, const ConfigDescription& config,
-                                const SourceLine& source, std::unique_ptr<Value> value) {
-    return addResource(name, ResourceId{}, config, source, std::move(value));
-}
-
 bool ResourceTable::markPublic(const ResourceNameRef& name, const ResourceId resId,
                                const SourceLine& source) {
+    return markPublicImpl(name, resId, source, kValidNameChars);
+}
+
+bool ResourceTable::markPublicAllowMangled(const ResourceNameRef& name, const ResourceId resId,
+                                           const SourceLine& source) {
+    return markPublicImpl(name, resId, source, kValidNameMangledChars);
+}
+
+bool ResourceTable::markPublicImpl(const ResourceNameRef& name, const ResourceId resId,
+                                   const SourceLine& source, const char16_t* validChars) {
     if (!name.package.empty() && name.package != mPackage) {
         Logger::error(source)
                 << "resource '"
@@ -251,7 +278,7 @@ bool ResourceTable::markPublic(const ResourceNameRef& name, const ResourceId res
         return false;
     }
 
-    auto badCharIter = util::findNonAlphaNumericAndNotInSet(name.entry, kValidNameChars);
+    auto badCharIter = util::findNonAlphaNumericAndNotInSet(name.entry, validChars);
     if (badCharIter != name.entry.end()) {
         Logger::error(source)
                 << "resource '"
@@ -299,15 +326,11 @@ bool ResourceTable::markPublic(const ResourceNameRef& name, const ResourceId res
 
     type->publicStatus.isPublic = true;
     entry->publicStatus.isPublic = true;
+    entry->publicStatus.source = source;
 
     if (resId.isValid()) {
         type->typeId = resId.typeId();
         entry->entryId = resId.entryId();
-    }
-
-    if (entry->values.empty()) {
-        entry->values.push_back(ResourceConfigValue{ {}, source, {},
-                                    util::make_unique<Sentinel>() });
     }
     return true;
 }
@@ -318,12 +341,16 @@ bool ResourceTable::merge(ResourceTable&& other) {
 
     for (auto& otherType : other) {
         std::unique_ptr<ResourceTableType>& type = findOrCreateType(otherType->type);
-        if (type->publicStatus.isPublic && otherType->publicStatus.isPublic &&
-                type->typeId != otherType->typeId) {
-            Logger::error() << "can not merge type '" << type->type << "': conflicting public IDs "
-                            << "(" << type->typeId << " vs " << otherType->typeId << ")."
-                            << std::endl;
-            return false;
+        if (otherType->publicStatus.isPublic) {
+            if (type->publicStatus.isPublic && type->typeId != otherType->typeId) {
+                Logger::error() << "can not merge type '" << type->type
+                                << "': conflicting public IDs "
+                                << "(" << type->typeId << " vs " << otherType->typeId << ")."
+                                << std::endl;
+                return false;
+            }
+            type->publicStatus = std::move(otherType->publicStatus);
+            type->typeId = otherType->typeId;
         }
 
         for (auto& otherEntry : otherType->entries) {
@@ -335,13 +362,16 @@ bool ResourceTable::merge(ResourceTable&& other) {
             }
 
             std::unique_ptr<ResourceEntry>& entry = findOrCreateEntry(type, *nameToAdd);
-            if (entry->publicStatus.isPublic && otherEntry->publicStatus.isPublic &&
-                    entry->entryId != otherEntry->entryId) {
-                Logger::error() << "can not merge entry '" << type->type << "/" << entry->name
-                                << "': conflicting public IDs "
-                                << "(" << entry->entryId << " vs " << entry->entryId << ")."
-                                << std::endl;
-                return false;
+            if (otherEntry->publicStatus.isPublic) {
+                if (entry->publicStatus.isPublic && entry->entryId != otherEntry->entryId) {
+                    Logger::error() << "can not merge entry '" << type->type << "/" << entry->name
+                                    << "': conflicting public IDs "
+                                    << "(" << entry->entryId << " vs " << entry->entryId << ")."
+                                    << std::endl;
+                    return false;
+                }
+                entry->publicStatus = std::move(otherEntry->publicStatus);
+                entry->entryId = otherEntry->entryId;
             }
 
             for (ResourceConfigValue& otherValue : otherEntry->values) {

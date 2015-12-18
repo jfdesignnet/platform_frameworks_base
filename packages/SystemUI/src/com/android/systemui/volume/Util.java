@@ -16,11 +16,13 @@
 
 package com.android.systemui.volume;
 
+import android.content.Context;
 import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.VolumeProvider;
 import android.media.session.MediaController.PlaybackInfo;
 import android.media.session.PlaybackState;
+import android.telephony.TelephonyManager;
 import android.view.View;
 import android.widget.TextView;
 
@@ -144,9 +146,14 @@ class Util {
         return HMMAA.format(new Date(millis));
     }
 
-    public static void setText(TextView tv, CharSequence text) {
-        if (Objects.equals(tv.getText(), text)) return;
+    private static CharSequence emptyToNull(CharSequence str) {
+        return str == null || str.length() == 0 ? null : str;
+    }
+
+    public static boolean setText(TextView tv, CharSequence text) {
+        if (Objects.equals(emptyToNull(tv.getText()), emptyToNull(text))) return false;
         tv.setText(text);
+        return true;
     }
 
     public static final void setVisOrGone(View v, boolean vis) {
@@ -159,4 +166,9 @@ class Util {
         v.setVisibility(vis ? View.VISIBLE : View.INVISIBLE);
     }
 
+    public static boolean isVoiceCapable(Context context) {
+        final TelephonyManager telephony =
+                (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        return telephony != null && telephony.isVoiceCapable();
+    }
 }

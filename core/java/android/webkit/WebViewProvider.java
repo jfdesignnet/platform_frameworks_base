@@ -32,7 +32,6 @@ import android.print.PrintDocumentAdapter;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewAssistStructure;
 import android.view.ViewGroup.LayoutParams;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -71,12 +70,16 @@ public interface WebViewProvider {
     public void init(Map<String, Object> javaScriptInterfaces,
             boolean privateBrowsing);
 
+    // Deprecated - should never be called
     public void setHorizontalScrollbarOverlay(boolean overlay);
 
+    // Deprecated - should never be called
     public void setVerticalScrollbarOverlay(boolean overlay);
 
+    // Deprecated - should never be called
     public boolean overlayHorizontalScrollbar();
 
+    // Deprecated - should never be called
     public boolean overlayVerticalScrollbar();
 
     public int getVisibleTitleHeight();
@@ -299,7 +302,7 @@ public interface WebViewProvider {
     interface ViewDelegate {
         public boolean shouldDelayChildPressedState();
 
-        public void onProvideVirtualAssistStructure(ViewAssistStructure structure);
+        public void onProvideVirtualStructure(android.view.ViewStructure structure);
 
         public AccessibilityNodeProvider getAccessibilityNodeProvider();
 

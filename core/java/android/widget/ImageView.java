@@ -17,6 +17,7 @@
 package android.widget;
 
 import android.annotation.DrawableRes;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -35,14 +36,17 @@ import android.graphics.RectF;
 import android.graphics.Xfermode;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.RemotableViewMethod;
 import android.view.View;
 import android.view.ViewDebug;
+import android.view.ViewHierarchyEncoder;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.RemoteViews.RemoteView;
 
@@ -87,6 +91,7 @@ public class ImageView extends View {
     private boolean mColorMod = false;
 
     private Drawable mDrawable = null;
+    private ImageViewBitmapDrawable mRecycleableBitmapDrawable = null;
     private ColorStateList mDrawableTintList = null;
     private PorterDuff.Mode mDrawableTintMode = null;
     private boolean mHasDrawableTint = false;
@@ -212,7 +217,7 @@ public class ImageView extends View {
     protected boolean verifyDrawable(Drawable dr) {
         return mDrawable == dr || super.verifyDrawable(dr);
     }
-    
+
     @Override
     public void jumpDrawablesToCurrentState() {
         super.jumpDrawablesToCurrentState();
@@ -222,6 +227,17 @@ public class ImageView extends View {
     @Override
     public void invalidateDrawable(Drawable dr) {
         if (dr == mDrawable) {
+            if (dr != null) {
+                // update cached drawable dimensions if they've changed
+                final int w = dr.getIntrinsicWidth();
+                final int h = dr.getIntrinsicHeight();
+                if (w != mDrawableWidth || h != mDrawableHeight) {
+                    mDrawableWidth = w;
+                    mDrawableHeight = h;
+                    // updates the matrix, which is dependent on the bounds
+                    configureBounds();
+                }
+            }
             /* we invalidate the whole view in this case because it's very
              * hard to know where the drawable actually is. This is made
              * complicated because of the offsets and transformations that
@@ -370,6 +386,10 @@ public class ImageView extends View {
         assigned.
     */
     public Drawable getDrawable() {
+        if (mDrawable == mRecycleableBitmapDrawable) {
+            // Consider our cached version dirty since app code now has a reference to it
+            mRecycleableBitmapDrawable = null;
+        }
         return mDrawable;
     }
 
@@ -410,14 +430,14 @@ public class ImageView extends View {
      *
      * <p class="note">This does Bitmap reading and decoding on the UI
      * thread, which can cause a latency hiccup.  If that's a concern,
-     * consider using {@link #setImageDrawable(android.graphics.drawable.Drawable)} or
+     * consider using {@link #setImageDrawable(Drawable)} or
      * {@link #setImageBitmap(android.graphics.Bitmap)} and
      * {@link android.graphics.BitmapFactory} instead.</p>
      *
-     * @param uri The Uri of an image
+     * @param uri the Uri of an image, or {@code null} to clear the content
      */
     @android.view.RemotableViewMethod
-    public void setImageURI(Uri uri) {
+    public void setImageURI(@Nullable Uri uri) {
         if (mResource != 0 ||
                 (mUri != uri &&
                  (uri == null || mUri == null || !uri.equals(mUri)))) {
@@ -440,9 +460,10 @@ public class ImageView extends View {
     /**
      * Sets a drawable as the content of this ImageView.
      * 
-     * @param drawable The drawable to set
+     * @param drawable the Drawable to set, or {@code null} to clear the
+     *                 content
      */
-    public void setImageDrawable(Drawable drawable) {
+    public void setImageDrawable(@Nullable Drawable drawable) {
         if (mDrawable != drawable) {
             mResource = 0;
             mUri = null;
@@ -457,6 +478,24 @@ public class ImageView extends View {
             }
             invalidate();
         }
+    }
+
+    /**
+     * Sets the content of this ImageView to the specified Icon.
+     *
+     * <p class="note">Depending on the Icon type, this may do Bitmap reading
+     * and decoding on the UI thread, which can cause UI jank.  If that's a
+     * concern, consider using
+     * {@link Icon#loadDrawableAsync(Context, Icon.OnDrawableLoadedListener, Handler)}
+     * and then {@link #setImageDrawable(android.graphics.drawable.Drawable)}
+     * instead.</p>
+     *
+     * @param icon an Icon holding the desired image, or {@code null} to clear
+     *             the content
+     */
+    @android.view.RemotableViewMethod
+    public void setImageIcon(@Nullable Icon icon) {
+        setImageDrawable(icon == null ? null : icon.loadDrawable(mContext));
     }
 
     /**
@@ -538,6 +577,17 @@ public class ImageView extends View {
         }
     }
 
+    private static class ImageViewBitmapDrawable extends BitmapDrawable {
+        public ImageViewBitmapDrawable(Resources res, Bitmap bitmap) {
+            super(res, bitmap);
+        }
+
+        @Override
+        public void setBitmap(Bitmap bitmap) {
+            super.setBitmap(bitmap);
+        }
+    };
+
     /**
      * Sets a Bitmap as the content of this ImageView.
      * 
@@ -545,9 +595,16 @@ public class ImageView extends View {
      */
     @android.view.RemotableViewMethod
     public void setImageBitmap(Bitmap bm) {
-        // if this is used frequently, may handle bitmaps explicitly
-        // to reduce the intermediate drawable object
-        setImageDrawable(new BitmapDrawable(mContext.getResources(), bm));
+        // Hacky fix to force setImageDrawable to do a full setImageDrawable
+        // instead of doing an object reference comparison
+        mDrawable = null;
+        if (mRecycleableBitmapDrawable == null) {
+            mRecycleableBitmapDrawable = new ImageViewBitmapDrawable(
+                    mContext.getResources(), bm);
+        } else {
+            mRecycleableBitmapDrawable.setBitmap(bm);
+        }
+        setImageDrawable(mRecycleableBitmapDrawable);
     }
 
     public void setImageState(int[] state, boolean merge) {
@@ -816,6 +873,10 @@ public class ImageView extends View {
     }
 
     private void updateDrawable(Drawable d) {
+        if (d != mRecycleableBitmapDrawable && mRecycleableBitmapDrawable != null) {
+            mRecycleableBitmapDrawable.setBitmap(null);
+        }
+
         if (mDrawable != null) {
             mDrawable.setCallback(null);
             unscheduleDrawable(mDrawable);
@@ -1069,8 +1130,8 @@ public class ImageView extends View {
             } else if (ScaleType.CENTER == mScaleType) {
                 // Center bitmap in view, no scaling.
                 mDrawMatrix = mMatrix;
-                mDrawMatrix.setTranslate((int) ((vwidth - dwidth) * 0.5f + 0.5f),
-                                         (int) ((vheight - dheight) * 0.5f + 0.5f));
+                mDrawMatrix.setTranslate(Math.round((vwidth - dwidth) * 0.5f),
+                                         Math.round((vheight - dheight) * 0.5f));
             } else if (ScaleType.CENTER_CROP == mScaleType) {
                 mDrawMatrix = mMatrix;
 
@@ -1086,7 +1147,7 @@ public class ImageView extends View {
                 }
 
                 mDrawMatrix.setScale(scale, scale);
-                mDrawMatrix.postTranslate((int) (dx + 0.5f), (int) (dy + 0.5f));
+                mDrawMatrix.postTranslate(Math.round(dx), Math.round(dy));
             } else if (ScaleType.CENTER_INSIDE == mScaleType) {
                 mDrawMatrix = mMatrix;
                 float scale;
@@ -1100,8 +1161,8 @@ public class ImageView extends View {
                             (float) vheight / (float) dheight);
                 }
                 
-                dx = (int) ((vwidth - dwidth * scale) * 0.5f + 0.5f);
-                dy = (int) ((vheight - dheight * scale) * 0.5f + 0.5f);
+                dx = Math.round((vwidth - dwidth * scale) * 0.5f);
+                dy = Math.round((vheight - dheight * scale) * 0.5f);
 
                 mDrawMatrix.setScale(scale, scale);
                 mDrawMatrix.postTranslate(dx, dy);
@@ -1430,5 +1491,12 @@ public class ImageView extends View {
     @Override
     public CharSequence getAccessibilityClassName() {
         return ImageView.class.getName();
+    }
+
+    /** @hide */
+    @Override
+    protected void encodeProperties(@NonNull ViewHierarchyEncoder stream) {
+        super.encodeProperties(stream);
+        stream.addProperty("layout:baseline", getBaseline());
     }
 }

@@ -134,6 +134,8 @@ public class RttManager {
     public static final int REASON_NOT_AVAILABLE            = -2;
     public static final int REASON_INVALID_LISTENER         = -3;
     public static final int REASON_INVALID_REQUEST          = -4;
+    /** Do not have required permission */
+    public static final int REASON_PERMISSION_DENIED        = -5;
 
     public static final String DESCRIPTION_KEY  = "android.net.wifi.RttManager.Description";
 
@@ -827,7 +829,8 @@ public class RttManager {
             Log.e(TAG, "Request " + index + ": two side RTT is not supported");
             return false;
         }  else if(params.bssid == null || params.bssid.isEmpty()) {
-            Log.e(TAG,"No BSSID is input");
+            Log.e(TAG,"No BSSID in params");
+            return false;
         } else if ( params.numberBurst != 0 ) {
             Log.e(TAG, "Request " + index + ": Illegal number of burst: " + params.numberBurst);
             return false;
@@ -956,7 +959,7 @@ public class RttManager {
                     return;
                 }
 
-                sHandlerThread = new HandlerThread("WifiScanner");
+                sHandlerThread = new HandlerThread("RttManager");
                 sAsyncChannel = new AsyncChannel();
                 sConnected = new CountDownLatch(1);
 

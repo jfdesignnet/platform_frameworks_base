@@ -22,10 +22,12 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Slog;
 
+import com.android.internal.policy.IKeyguardDrawnCallback;
 import com.android.internal.policy.IKeyguardExitCallback;
 import com.android.internal.policy.IKeyguardService;
-import com.android.internal.policy.IKeyguardShowCallback;
 import com.android.internal.policy.IKeyguardStateCallback;
+
+import java.io.PrintWriter;
 
 /**
  * A wrapper class for KeyguardService.  It implements IKeyguardService to ensure the interface
@@ -105,19 +107,55 @@ public class KeyguardServiceWrapper implements IKeyguardService {
         }
     }
 
-    @Override // Binder interface
-    public void onScreenTurnedOff(int reason) {
+    @Override
+    public void onStartedGoingToSleep(int reason) {
         try {
-            mService.onScreenTurnedOff(reason);
+            mService.onStartedGoingToSleep(reason);
         } catch (RemoteException e) {
             Slog.w(TAG , "Remote Exception", e);
         }
     }
 
-    @Override // Binder interface
-    public void onScreenTurnedOn(IKeyguardShowCallback result) {
+    @Override
+    public void onFinishedGoingToSleep(int reason) {
         try {
-            mService.onScreenTurnedOn(result);
+            mService.onFinishedGoingToSleep(reason);
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onStartedWakingUp() {
+        try {
+            mService.onStartedWakingUp();
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onScreenTurningOn(IKeyguardDrawnCallback callback) {
+        try {
+            mService.onScreenTurningOn(callback);
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onScreenTurnedOn() {
+        try {
+            mService.onScreenTurnedOn();
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onScreenTurnedOff() {
+        try {
+            mService.onScreenTurnedOff();
         } catch (RemoteException e) {
             Slog.w(TAG , "Remote Exception", e);
         }
@@ -202,5 +240,9 @@ public class KeyguardServiceWrapper implements IKeyguardService {
 
     public boolean isInputRestricted() {
         return mKeyguardStateMonitor.isInputRestricted();
+    }
+
+    public void dump(String prefix, PrintWriter pw) {
+        mKeyguardStateMonitor.dump(prefix, pw);
     }
 }

@@ -43,6 +43,8 @@ public abstract class ExpandableView extends FrameLayout {
     private ArrayList<View> mMatchParentViews = new ArrayList<View>();
     private int mClipTopOptimization;
     private static Rect mClipRect = new Rect();
+    private boolean mWillBeGone;
+    private int mMinClipTopAmount = 0;
 
     public ExpandableView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -61,10 +63,9 @@ public abstract class ExpandableView extends FrameLayout {
         int ownMaxHeight = mMaxViewHeight;
         int heightMode = MeasureSpec.getMode(heightMeasureSpec);
         boolean hasFixedHeight = heightMode == MeasureSpec.EXACTLY;
-        boolean isHeightLimited = heightMode == MeasureSpec.AT_MOST;
-        if (hasFixedHeight || isHeightLimited) {
-            int size = MeasureSpec.getSize(heightMeasureSpec);
-            ownMaxHeight = Math.min(ownMaxHeight, size);
+        if (hasFixedHeight) {
+            // We have a height set in our layout, so we want to be at most as big as given
+            ownMaxHeight = Math.min(MeasureSpec.getSize(heightMeasureSpec), ownMaxHeight);
         }
         int newHeightSpec = MeasureSpec.makeMeasureSpec(ownMaxHeight, MeasureSpec.AT_MOST);
         int maxChildHeight = 0;
@@ -92,8 +93,7 @@ public abstract class ExpandableView extends FrameLayout {
                 mMatchParentViews.add(child);
             }
         }
-        int ownHeight = hasFixedHeight ? ownMaxHeight :
-                isHeightLimited ? Math.min(ownMaxHeight, maxChildHeight) : maxChildHeight;
+        int ownHeight = hasFixedHeight ? ownMaxHeight : Math.min(ownMaxHeight, maxChildHeight);
         newHeightSpec = MeasureSpec.makeMeasureSpec(ownHeight, MeasureSpec.EXACTLY);
         for (View child : mMatchParentViews) {
             child.measure(getChildMeasureSpec(
@@ -135,6 +135,14 @@ public abstract class ExpandableView extends FrameLayout {
     }
 
     @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent ev) {
+        if (filterMotionEvent(ev)) {
+            return super.dispatchGenericMotionEvent(ev);
+        }
+        return false;
+    }
+
+    @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
         if (filterMotionEvent(ev)) {
             return super.dispatchTouchEvent(ev);
@@ -144,6 +152,8 @@ public abstract class ExpandableView extends FrameLayout {
 
     protected boolean filterMotionEvent(MotionEvent event) {
         return event.getActionMasked() != MotionEvent.ACTION_DOWN
+                && event.getActionMasked() != MotionEvent.ACTION_HOVER_ENTER
+                && event.getActionMasked() != MotionEvent.ACTION_HOVER_MOVE
                 || event.getY() > mClipTopAmount && event.getY() < mActualHeight;
     }
 
@@ -341,6 +351,13 @@ public abstract class ExpandableView extends FrameLayout {
         outRect.top += getTranslationY() + getClipTopAmount();
     }
 
+    @Override
+    public void getBoundsOnScreen(Rect outRect, boolean clipToParent) {
+        super.getBoundsOnScreen(outRect, clipToParent);
+        outRect.bottom = outRect.top + getActualHeight();
+        outRect.top += getClipTopOptimization();
+    }
+
     public int getContentHeight() {
         return mActualHeight - getBottomDecorHeight();
     }
@@ -357,7 +374,11 @@ public abstract class ExpandableView extends FrameLayout {
     }
 
     private void updateClipping() {
-        mClipRect.set(0, mClipTopOptimization, getWidth(), getActualHeight());
+        int top = mClipTopOptimization;
+        if (top >= getActualHeight()) {
+            top = getActualHeight() - 1;
+        }
+        mClipRect.set(0, top, getWidth(), getActualHeight());
         setClipBounds(mClipRect);
     }
 
@@ -374,6 +395,22 @@ public abstract class ExpandableView extends FrameLayout {
     public void setClipTopOptimization(int clipTopOptimization) {
         mClipTopOptimization = clipTopOptimization;
         updateClipping();
+    }
+
+    public boolean willBeGone() {
+        return mWillBeGone;
+    }
+
+    public void setWillBeGone(boolean willBeGone) {
+        mWillBeGone = willBeGone;
+    }
+
+    public int getMinClipTopAmount() {
+        return mMinClipTopAmount;
+    }
+
+    public void setMinClipTopAmount(int minClipTopAmount) {
+        mMinClipTopAmount = minClipTopAmount;
     }
 
     /**

@@ -19,11 +19,13 @@ package android.app.admin;
 import android.accounts.AccountManager;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SystemApi;
 import android.app.Service;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.security.KeyChain;
 
@@ -226,14 +228,15 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
             "android.app.action.PROFILE_PROVISIONING_COMPLETE";
 
     /**
+     * @hide
      * Broadcast Action: This broadcast is sent to indicate that the system is ready for the device
      * initializer to perform user setup tasks. This is only applicable to devices managed by a
      * device owner app.
      *
      * <p>The broadcast will be limited to the {@link DeviceAdminReceiver} component specified in
-     * the (@link DevicePolicyManager#EXTRA_PROVISIONING_DEVICE_INITIALIZER_COMPONENT_NAME) field
-     * of the original intent or NFC bump that started the provisioning process. You will generally
-     * handle this in {@link DeviceAdminReceiver#onReadyForUserInitialization}.
+     * the device initializer field of the original intent or NFC bump that started the provisioning
+     * process. You will generally handle this in
+     * {@link DeviceAdminReceiver#onReadyForUserInitialization}.
      *
      * <p>Input: Nothing.</p>
      * <p>Output: Nothing</p>
@@ -249,13 +252,7 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
     public static final String EXTRA_CHOOSE_PRIVATE_KEY_SENDER_UID = "android.app.extra.CHOOSE_PRIVATE_KEY_SENDER_UID";
 
     /** @hide */
-    public static final String EXTRA_CHOOSE_PRIVATE_KEY_HOST = "android.app.extra.CHOOSE_PRIVATE_KEY_HOST";
-
-    /** @hide */
-    public static final String EXTRA_CHOOSE_PRIVATE_KEY_PORT = "android.app.extra.CHOOSE_PRIVATE_KEY_PORT";
-
-    /** @hide */
-    public static final String EXTRA_CHOOSE_PRIVATE_KEY_URL = "android.app.extra.CHOOSE_PRIVATE_KEY_URL";
+    public static final String EXTRA_CHOOSE_PRIVATE_KEY_URI = "android.app.extra.CHOOSE_PRIVATE_KEY_URI";
 
     /** @hide */
     public static final String EXTRA_CHOOSE_PRIVATE_KEY_ALIAS = "android.app.extra.CHOOSE_PRIVATE_KEY_ALIAS";
@@ -440,23 +437,22 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
      * Called during provisioning of a managed device to allow the device initializer to perform
      * user setup steps. Only device initializers should override this method.
      *
-     * <p> Called when the DeviceAdminReceiver receives a
-     * {@link #ACTION_READY_FOR_USER_INITIALIZATION} broadcast. As a prerequisite for the execution
-     * of this callback the {@link DeviceAdminReceiver} has
-     * to declare an intent filter for {@link #ACTION_READY_FOR_USER_INITIALIZATION}. Only the
-     * component specified in the
-     * {@link DevicePolicyManager#EXTRA_PROVISIONING_DEVICE_INITIALIZER_COMPONENT_NAME} field of the
+     * <p> Called when the DeviceAdminReceiver receives an
+     * android.app.action.ACTION_READY_FOR_USER_INITIALIZATION broadcast. As a prerequisite for the
+     * execution of this callback the {@link DeviceAdminReceiver} has
+     * to declare an intent filter for android.app.action.ACTION_READY_FOR_USER_INITIALIZATION. Only
+     * the component specified in the device initializer component name field of the
      * original intent or NFC bump that started the provisioning process will receive this callback.
      *
      * <p>It is not assumed that the device initializer is finished when it returns from
-     * this call, as it may do additional setup asynchronously. The device initializer must call
-     * {DevicePolicyManager#setUserEnabled(ComponentName admin)} when it has finished any additional
-     * setup (such as adding an account by using the {@link AccountManager}) in order for the user
-     * to be functional.
+     * this call, as it may do additional setup asynchronously. The device initializer must enable
+     * the current user when it has finished any additional setup (such as adding an account by
+     * using the {@link AccountManager}) in order for the user to be functional.
      *
      * @param context The running context as per {@link #onReceive}.
      * @param intent The received intent as per {@link #onReceive}.
      */
+    @SystemApi
     public void onReadyForUserInitialization(Context context, Intent intent) {
     }
 
@@ -487,15 +483,13 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
      * @param context The running context as per {@link #onReceive}.
      * @param intent The received intent as per {@link #onReceive}.
      * @param uid The uid asking for the private key and certificate pair.
-     * @param host The authentication host, may be null.
-     * @param port The authentication port, or -1.
-     * @param url The URL to authenticate, may be null.
+     * @param uri The URI to authenticate, may be null.
      * @param alias The alias preselected by the client, or null.
      * @return The private key alias to return and grant access to.
      * @see KeyChain#choosePrivateKeyAlias
      */
-    public String onChoosePrivateKeyAlias(Context context, Intent intent, int uid, String host,
-            int port, String url, String alias) {
+    public String onChoosePrivateKeyAlias(Context context, Intent intent, int uid, Uri uri,
+            String alias) {
         return null;
     }
 
@@ -546,12 +540,9 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
             onProfileProvisioningComplete(context, intent);
         } else if (ACTION_CHOOSE_PRIVATE_KEY_ALIAS.equals(action)) {
             int uid = intent.getIntExtra(EXTRA_CHOOSE_PRIVATE_KEY_SENDER_UID, -1);
-            String host = intent.getStringExtra(EXTRA_CHOOSE_PRIVATE_KEY_HOST);
-            int port = intent.getIntExtra(EXTRA_CHOOSE_PRIVATE_KEY_PORT, -1);
-            String url = intent.getStringExtra(EXTRA_CHOOSE_PRIVATE_KEY_URL);
+            Uri uri = intent.getParcelableExtra(EXTRA_CHOOSE_PRIVATE_KEY_URI);
             String alias = intent.getStringExtra(EXTRA_CHOOSE_PRIVATE_KEY_ALIAS);
-            String chosenAlias = onChoosePrivateKeyAlias(context, intent, uid, host, port, url,
-                    alias);
+            String chosenAlias = onChoosePrivateKeyAlias(context, intent, uid, uri, alias);
             setResultData(chosenAlias);
         } else if (ACTION_LOCK_TASK_ENTERING.equals(action)) {
             String pkg = intent.getStringExtra(EXTRA_LOCK_TASK_PACKAGE);

@@ -22,9 +22,10 @@ import android.app.AppOpsManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
+import android.os.RemoteException;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
 import android.text.TextUtils;
@@ -379,6 +380,14 @@ public class InputMethodUtils {
         // The length of localeStr is guaranteed to always return a 1 <= value <= 3
         // because localeStr is not empty.
         if (localeParams.length == 1) {
+            if (localeParams.length >= 1 && "tl".equals(localeParams[0])) {
+                // Convert a locale whose language is "tl" to one whose language is "fil".
+                // For example, "tl_PH" will get converted to "fil_PH".
+                // Versions of Android earlier than Lollipop did not support three letter language
+                // codes, and used "tl" (Tagalog) as the language string for "fil" (Filipino).
+                // On Lollipop and above, the current three letter version must be used.
+                localeParams[0] = "fil";
+            }
             return new Locale(localeParams[0]);
         } else if (localeParams.length == 2) {
             return new Locale(localeParams[0], localeParams[1]);
@@ -397,7 +406,7 @@ public class InputMethodUtils {
         for (int i = 0; i < N; ++i) {
             final InputMethodSubtype subtype = imi.getSubtypeAt(i);
             if (checkCountry) {
-                final Locale subtypeLocale = constructLocaleFromString(subtype.getLocale());
+                final Locale subtypeLocale = subtype.getLocaleObject();
                 if (subtypeLocale == null ||
                         !TextUtils.equals(subtypeLocale.getLanguage(), locale.getLanguage()) ||
                         !TextUtils.equals(subtypeLocale.getCountry(), locale.getCountry())) {
@@ -638,7 +647,8 @@ public class InputMethodUtils {
     }
 
     public static void setNonSelectedSystemImesDisabledUntilUsed(
-            PackageManager packageManager, List<InputMethodInfo> enabledImis) {
+            IPackageManager packageManager, List<InputMethodInfo> enabledImis,
+            int userId, String callingPackage) {
         if (DEBUG) {
             Slog.d(TAG, "setNonSelectedSystemImesDisabledUntilUsed");
         }
@@ -677,9 +687,11 @@ public class InputMethodUtils {
             ApplicationInfo ai = null;
             try {
                 ai = packageManager.getApplicationInfo(packageName,
-                        PackageManager.GET_DISABLED_UNTIL_USED_COMPONENTS);
-            } catch (NameNotFoundException e) {
-                Slog.w(TAG, "NameNotFoundException: " + packageName, e);
+                        PackageManager.GET_DISABLED_UNTIL_USED_COMPONENTS, userId);
+            } catch (RemoteException e) {
+                Slog.w(TAG, "getApplicationInfo failed. packageName=" + packageName
+                        + " userId=" + userId, e);
+                continue;
             }
             if (ai == null) {
                 // No app found for packageName
@@ -689,19 +701,34 @@ public class InputMethodUtils {
             if (!isSystemPackage) {
                 continue;
             }
-            setDisabledUntilUsed(packageManager, packageName);
+            setDisabledUntilUsed(packageManager, packageName, userId, callingPackage);
         }
     }
 
-    private static void setDisabledUntilUsed(PackageManager packageManager, String packageName) {
-        final int state = packageManager.getApplicationEnabledSetting(packageName);
+    private static void setDisabledUntilUsed(IPackageManager packageManager, String packageName,
+            int userId, String callingPackage) {
+        final int state;
+        try {
+            state = packageManager.getApplicationEnabledSetting(packageName, userId);
+        } catch (RemoteException e) {
+            Slog.w(TAG, "getApplicationEnabledSetting failed. packageName=" + packageName
+                    + " userId=" + userId, e);
+            return;
+        }
         if (state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
                 || state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
             if (DEBUG) {
                 Slog.d(TAG, "Update state(" + packageName + "): DISABLED_UNTIL_USED");
             }
-            packageManager.setApplicationEnabledSetting(packageName,
-                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED, 0);
+            try {
+                packageManager.setApplicationEnabledSetting(packageName,
+                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED,
+                        0 /* newState */, userId, callingPackage);
+            } catch (RemoteException e) {
+                Slog.w(TAG, "setApplicationEnabledSetting failed. packageName=" + packageName
+                        + " userId=" + userId + " callingPackage=" + callingPackage, e);
+                return;
+            }
         } else {
             if (DEBUG) {
                 Slog.d(TAG, packageName + " is already DISABLED_UNTIL_USED");
@@ -1274,5 +1301,132 @@ public class InputMethodUtils {
             }
             return enabledInputMethodAndSubtypes;
         }
+    }
+
+    // For spell checker service manager.
+    // TODO: Should we have TextServicesUtils.java?
+    private static final Locale LOCALE_EN_US = new Locale("en", "US");
+    private static final Locale LOCALE_EN_GB = new Locale("en", "GB");
+
+    /**
+     * Returns a list of {@link Locale} in the order of appropriateness for the default spell
+     * checker service.
+     *
+     * <p>If the system language is English, and the region is also explicitly specified in the
+     * system locale, the following fallback order will be applied.</p>
+     * <ul>
+     * <li>(system-locale-language, system-locale-region, system-locale-variant) (if exists)</li>
+     * <li>(system-locale-language, system-locale-region)</li>
+     * <li>("en", "US")</li>
+     * <li>("en", "GB")</li>
+     * <li>("en")</li>
+     * </ul>
+     *
+     * <p>If the system language is English, but no region is specified in the system locale,
+     * the following fallback order will be applied.</p>
+     * <ul>
+     * <li>("en")</li>
+     * <li>("en", "US")</li>
+     * <li>("en", "GB")</li>
+     * </ul>
+     *
+     * <p>If the system language is not English, the following fallback order will be applied.</p>
+     * <ul>
+     * <li>(system-locale-language, system-locale-region, system-locale-variant) (if exists)</li>
+     * <li>(system-locale-language, system-locale-region) (if exists)</li>
+     * <li>(system-locale-language) (if exists)</li>
+     * <li>("en", "US")</li>
+     * <li>("en", "GB")</li>
+     * <li>("en")</li>
+     * </ul>
+     *
+     * @param systemLocale the current system locale to be taken into consideration.
+     * @return a list of {@link Locale}. The first one is considered to be most appropriate.
+     */
+    @VisibleForTesting
+    public static ArrayList<Locale> getSuitableLocalesForSpellChecker(
+            @Nullable final Locale systemLocale) {
+        final Locale systemLocaleLanguageCountryVariant;
+        final Locale systemLocaleLanguageCountry;
+        final Locale systemLocaleLanguage;
+        if (systemLocale != null) {
+            final String language = systemLocale.getLanguage();
+            final boolean hasLanguage = !TextUtils.isEmpty(language);
+            final String country = systemLocale.getCountry();
+            final boolean hasCountry = !TextUtils.isEmpty(country);
+            final String variant = systemLocale.getVariant();
+            final boolean hasVariant = !TextUtils.isEmpty(variant);
+            if (hasLanguage && hasCountry && hasVariant) {
+                systemLocaleLanguageCountryVariant = new Locale(language, country, variant);
+            } else {
+                systemLocaleLanguageCountryVariant = null;
+            }
+            if (hasLanguage && hasCountry) {
+                systemLocaleLanguageCountry = new Locale(language, country);
+            } else {
+                systemLocaleLanguageCountry = null;
+            }
+            if (hasLanguage) {
+                systemLocaleLanguage = new Locale(language);
+            } else {
+                systemLocaleLanguage = null;
+            }
+        } else {
+            systemLocaleLanguageCountryVariant = null;
+            systemLocaleLanguageCountry = null;
+            systemLocaleLanguage = null;
+        }
+
+        final ArrayList<Locale> locales = new ArrayList<>();
+        if (systemLocaleLanguageCountryVariant != null) {
+            locales.add(systemLocaleLanguageCountryVariant);
+        }
+
+        if (Locale.ENGLISH.equals(systemLocaleLanguage)) {
+            if (systemLocaleLanguageCountry != null) {
+                // If the system language is English, and the region is also explicitly specified,
+                // following fallback order will be applied.
+                // - systemLocaleLanguageCountry [if systemLocaleLanguageCountry is non-null]
+                // - en_US [if systemLocaleLanguageCountry is non-null and not en_US]
+                // - en_GB [if systemLocaleLanguageCountry is non-null and not en_GB]
+                // - en
+                if (systemLocaleLanguageCountry != null) {
+                    locales.add(systemLocaleLanguageCountry);
+                }
+                if (!LOCALE_EN_US.equals(systemLocaleLanguageCountry)) {
+                    locales.add(LOCALE_EN_US);
+                }
+                if (!LOCALE_EN_GB.equals(systemLocaleLanguageCountry)) {
+                    locales.add(LOCALE_EN_GB);
+                }
+                locales.add(Locale.ENGLISH);
+            } else {
+                // If the system language is English, but no region is specified, following
+                // fallback order will be applied.
+                // - en
+                // - en_US
+                // - en_GB
+                locales.add(Locale.ENGLISH);
+                locales.add(LOCALE_EN_US);
+                locales.add(LOCALE_EN_GB);
+            }
+        } else {
+            // If the system language is not English, the fallback order will be
+            // - systemLocaleLanguageCountry  [if non-null]
+            // - systemLocaleLanguage  [if non-null]
+            // - en_US
+            // - en_GB
+            // - en
+            if (systemLocaleLanguageCountry != null) {
+                locales.add(systemLocaleLanguageCountry);
+            }
+            if (systemLocaleLanguage != null) {
+                locales.add(systemLocaleLanguage);
+            }
+            locales.add(LOCALE_EN_US);
+            locales.add(LOCALE_EN_GB);
+            locales.add(Locale.ENGLISH);
+        }
+        return locales;
     }
 }

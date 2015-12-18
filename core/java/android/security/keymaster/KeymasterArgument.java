@@ -1,11 +1,11 @@
-/**
- * Copyright (c) 2015, The Android Open Source Project
+/*
+ * Copyright (C) 2015 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,17 +32,18 @@ abstract class KeymasterArgument implements Parcelable {
 
     public static final Parcelable.Creator<KeymasterArgument> CREATOR = new
             Parcelable.Creator<KeymasterArgument>() {
+                @Override
                 public KeymasterArgument createFromParcel(Parcel in) {
                     final int pos = in.dataPosition();
                     final int tag = in.readInt();
                     switch (KeymasterDefs.getTagType(tag)) {
                         case KeymasterDefs.KM_ENUM:
                         case KeymasterDefs.KM_ENUM_REP:
-                        case KeymasterDefs.KM_INT:
-                        case KeymasterDefs.KM_INT_REP:
+                        case KeymasterDefs.KM_UINT:
+                        case KeymasterDefs.KM_UINT_REP:
                             return new KeymasterIntArgument(tag, in);
-                        case KeymasterDefs.KM_LONG:
-                        case KeymasterDefs.KM_LONG_REP:
+                        case KeymasterDefs.KM_ULONG:
+                        case KeymasterDefs.KM_ULONG_REP:
                             return new KeymasterLongArgument(tag, in);
                         case KeymasterDefs.KM_DATE:
                             return new KeymasterDateArgument(tag, in);
@@ -55,6 +56,8 @@ abstract class KeymasterArgument implements Parcelable {
                             throw new ParcelFormatException("Bad tag: " + tag + " at " + pos);
                     }
                 }
+
+                @Override
                 public KeymasterArgument[] newArray(int size) {
                     return new KeymasterArgument[size];
                 }

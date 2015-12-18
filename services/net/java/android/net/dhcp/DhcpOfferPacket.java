@@ -32,8 +32,8 @@ class DhcpOfferPacket extends DhcpPacket {
      * Generates a OFFER packet with the specified parameters.
      */
     DhcpOfferPacket(int transId, short secs, boolean broadcast, Inet4Address serverAddress,
-                    Inet4Address clientIp, byte[] clientMac) {
-        super(transId, secs, INADDR_ANY, clientIp, INADDR_ANY, INADDR_ANY, clientMac, broadcast);
+                    Inet4Address clientIp, Inet4Address yourIp, byte[] clientMac) {
+        super(transId, secs, clientIp, yourIp, INADDR_ANY, INADDR_ANY, clientMac, broadcast);
         mSrcIp = serverAddress;
     }
 
@@ -48,7 +48,7 @@ class DhcpOfferPacket extends DhcpPacket {
         }
 
         return s + " OFFER, ip " + mYourIp + ", mask " + mSubnetMask +
-                dnsServers + ", gateway " + mGateway +
+                dnsServers + ", gateways " + mGateways +
                 " lease time " + mLeaseTime + ", domain " + mDomainName;
     }
 
@@ -81,7 +81,7 @@ class DhcpOfferPacket extends DhcpPacket {
         }
 
         addTlv(buffer, DHCP_SUBNET_MASK, mSubnetMask);
-        addTlv(buffer, DHCP_ROUTER, mGateway);
+        addTlv(buffer, DHCP_ROUTER, mGateways);
         addTlv(buffer, DHCP_DOMAIN_NAME, mDomainName);
         addTlv(buffer, DHCP_BROADCAST_ADDRESS, mBroadcastAddress);
         addTlv(buffer, DHCP_DNS_SERVER, mDnsServers);

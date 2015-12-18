@@ -40,6 +40,7 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.SystemClock;
+import android.os.Trace;
 import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.PrintWriterPrinter;
@@ -62,8 +63,8 @@ final class ProcessRecord {
     final int userId;           // user of process.
     final String processName;   // name of the process
     // List of packages running in the process
-    final ArrayMap<String, ProcessStats.ProcessStateHolder> pkgList
-            = new ArrayMap<String, ProcessStats.ProcessStateHolder>();
+    final ArrayMap<String, ProcessStats.ProcessStateHolder> pkgList = new ArrayMap<>();
+    UidRecord uidRecord;        // overall state of process's uid.
     ArraySet<String> pkgDeps;   // additional packages we have a dependency on
     IApplicationThread thread;  // the actual proc...  may be null only if
                                 // 'persistent' is true (in which case we
@@ -112,6 +113,9 @@ final class ProcessRecord {
     boolean killedByAm;         // True when proc has been killed by activity manager, not for RAM
     boolean killed;             // True once we know the process has been killed
     boolean procStateChanged;   // Keep track of whether we changed 'setAdj'.
+    boolean reportedInteraction;// Whether we have told usage stats about it being an interaction
+    long interactionEventTime;  // The time we sent the last interaction event
+    long fgInteractionTime;     // When we became foreground for interaction purposes
     String waitingToKill;       // Process is waiting to be killed when in the bg, and reason
     IBinder forcingToForeground;// Token that is forcing this process to be foreground
     int adjSeq;                 // Sequence id for identifying oom_adj assignment cycles
@@ -142,24 +146,20 @@ final class ProcessRecord {
     Object adjTarget;           // Debugging: target component impacting oom_adj.
     Runnable crashHandler;      // Optional local handler to be invoked in the process crash.
 
-    // contains HistoryRecord objects
-    final ArrayList<ActivityRecord> activities = new ArrayList<ActivityRecord>();
+    // all activities running in the process
+    final ArrayList<ActivityRecord> activities = new ArrayList<>();
     // all ServiceRecord running in this process
-    final ArraySet<ServiceRecord> services = new ArraySet<ServiceRecord>();
+    final ArraySet<ServiceRecord> services = new ArraySet<>();
     // services that are currently executing code (need to remain foreground).
-    final ArraySet<ServiceRecord> executingServices
-             = new ArraySet<ServiceRecord>();
+    final ArraySet<ServiceRecord> executingServices = new ArraySet<>();
     // All ConnectionRecord this process holds
-    final ArraySet<ConnectionRecord> connections
-            = new ArraySet<ConnectionRecord>();
+    final ArraySet<ConnectionRecord> connections = new ArraySet<>();
     // all IIntentReceivers that are registered from this process.
-    final ArraySet<ReceiverList> receivers = new ArraySet<ReceiverList>();
+    final ArraySet<ReceiverList> receivers = new ArraySet<>();
     // class (String) -> ContentProviderRecord
-    final ArrayMap<String, ContentProviderRecord> pubProviders
-            = new ArrayMap<String, ContentProviderRecord>();
+    final ArrayMap<String, ContentProviderRecord> pubProviders = new ArrayMap<>();
     // All ContentProviderRecord process is using
-    final ArrayList<ContentProviderConnection> conProviders
-            = new ArrayList<ContentProviderConnection>();
+    final ArrayList<ContentProviderConnection> conProviders = new ArrayList<>();
 
     boolean execServicesFg;     // do we need to be executing services in the foreground?
     boolean persistent;         // always keep this application running?
@@ -294,6 +294,19 @@ final class ProcessRecord {
             pw.print(prefix); pw.print("setIsForeground="); pw.print(setIsForeground);
                     pw.print(" foregroundServices="); pw.print(foregroundServices);
                     pw.print(" forcingToForeground="); pw.println(forcingToForeground);
+        }
+        if (reportedInteraction || fgInteractionTime != 0) {
+            pw.print(prefix); pw.print("reportedInteraction=");
+            pw.print(reportedInteraction);
+            if (interactionEventTime != 0) {
+                pw.print(" time=");
+                TimeUtils.formatDuration(interactionEventTime, SystemClock.elapsedRealtime(), pw);
+            }
+            if (fgInteractionTime != 0) {
+                pw.print(" fgInteractionTime=");
+                TimeUtils.formatDuration(fgInteractionTime, SystemClock.elapsedRealtime(), pw);
+            }
+            pw.println();
         }
         if (persistent || removed) {
             pw.print(prefix); pw.print("persistent="); pw.print(persistent);
@@ -529,6 +542,7 @@ final class ProcessRecord {
 
     void kill(String reason, boolean noisy) {
         if (!killedByAm) {
+            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "kill");
             if (noisy) {
                 Slog.i(TAG, "Killing " + toShortString() + " (adj " + setAdj + "): " + reason);
             }
@@ -539,6 +553,7 @@ final class ProcessRecord {
                 killed = true;
                 killedByAm = true;
             }
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
         }
     }
 

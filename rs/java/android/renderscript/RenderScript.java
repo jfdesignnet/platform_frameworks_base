@@ -131,7 +131,21 @@ public class RenderScript {
 
     // this should be a monotonically increasing ID
     // used in conjunction with the API version of a device
-    static final long sMinorID = 1;
+    static final long sMinorVersion = 1;
+
+    /**
+     * @hide
+     *
+     * Only exist to be compatible with old version RenderScript Support lib.
+     * Will eventually be removed.
+     *
+     * @return Always return 1
+     *
+     */
+    public static long getMinorID() {
+        return 1;
+    }
+
 
     /**
      * Returns an identifier that can be used to identify a particular
@@ -140,8 +154,8 @@ public class RenderScript {
      * @return The minor RenderScript version number
      *
      */
-    public static long getMinorID() {
-        return sMinorID;
+    public static long getMinorVersion() {
+        return sMinorVersion;
     }
 
     /**
@@ -302,8 +316,12 @@ public class RenderScript {
         long[] fieldIDs, long[] values, int[] sizes, long[] depClosures,
         long[] depFieldIDs) {
       validate();
-      return rsnClosureCreate(mContext, kernelID, returnValue, fieldIDs, values,
+      long c = rsnClosureCreate(mContext, kernelID, returnValue, fieldIDs, values,
           sizes, depClosures, depFieldIDs);
+      if (c == 0) {
+          throw new RSRuntimeException("Failed creating closure.");
+      }
+      return c;
     }
 
     native long rsnInvokeClosureCreate(long con, long invokeID, byte[] params,
@@ -311,8 +329,12 @@ public class RenderScript {
     synchronized long nInvokeClosureCreate(long invokeID, byte[] params,
         long[] fieldIDs, long[] values, int[] sizes) {
       validate();
-      return rsnInvokeClosureCreate(mContext, invokeID, params, fieldIDs,
+      long c = rsnInvokeClosureCreate(mContext, invokeID, params, fieldIDs,
           values, sizes);
+      if (c == 0) {
+          throw new RSRuntimeException("Failed creating closure.");
+      }
+      return c;
     }
 
     native void rsnClosureSetArg(long con, long closureID, int index,
@@ -337,7 +359,11 @@ public class RenderScript {
     synchronized long nScriptGroup2Create(String name, String cachePath,
                                           long[] closures) {
       validate();
-      return rsnScriptGroup2Create(mContext, name, cachePath, closures);
+      long g = rsnScriptGroup2Create(mContext, name, cachePath, closures);
+      if (g == 0) {
+          throw new RSRuntimeException("Failed creating script group.");
+      }
+      return g;
     }
 
     native void rsnScriptGroup2Execute(long con, long groupID);
@@ -1531,9 +1557,21 @@ public class RenderScript {
 
             nContextDeinitToClient(mContext);
             mMessageThread.mRun = false;
-            try {
-                mMessageThread.join();
-            } catch(InterruptedException e) {
+
+            // Wait for mMessageThread to join.  Try in a loop, in case this thread gets interrupted
+            // during the wait.  If interrupted, set the "interrupted" status of the current thread.
+            boolean hasJoined = false, interrupted = false;
+            while (!hasJoined) {
+                try {
+                    mMessageThread.join();
+                    hasJoined = true;
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Log.v(LOG_TAG, "Interrupted during wait for MessageThread to join");
+                Thread.currentThread().interrupt();
             }
 
             nContextDestroy();

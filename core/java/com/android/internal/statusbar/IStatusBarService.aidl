@@ -16,10 +16,13 @@
 
 package com.android.internal.statusbar;
 
+import android.os.Bundle;
+import android.service.notification.StatusBarNotification;
+
 import com.android.internal.statusbar.IStatusBar;
 import com.android.internal.statusbar.StatusBarIcon;
 import com.android.internal.statusbar.StatusBarIconList;
-import android.service.notification.StatusBarNotification;
+import com.android.internal.statusbar.NotificationVisibility;
 
 /** @hide */
 interface IStatusBarService
@@ -43,7 +46,7 @@ interface IStatusBarService
     // You need the STATUS_BAR_SERVICE permission
     void registerStatusBar(IStatusBar callbacks, out StatusBarIconList iconList,
             out int[] switches, out List<IBinder> binders);
-    void onPanelRevealed(boolean clearNotificationEffects);
+    void onPanelRevealed(boolean clearNotificationEffects, int numItems);
     void onPanelHidden();
     // Mark current notifications as "seen" and stop ringing, vibrating, blinking.
     void clearNotificationEffects();
@@ -53,8 +56,8 @@ interface IStatusBarService
             int uid, int initialPid, String message, int userId);
     void onClearAllNotifications(int userId);
     void onNotificationClear(String pkg, String tag, int id, int userId);
-    void onNotificationVisibilityChanged(
-            in String[] newlyVisibleKeys, in String[] noLongerVisibleKeys);
+    void onNotificationVisibilityChanged( in NotificationVisibility[] newlyVisibleKeys,
+            in NotificationVisibility[] noLongerVisibleKeys);
     void onNotificationExpansionChanged(in String key, in boolean userAction, in boolean expanded);
     void setSystemUiVisibility(int vis, int mask, String cause);
     void setWindowState(int window, int state);
@@ -85,4 +88,6 @@ interface IStatusBarService
      *        bar caused by this app transition in millis
      */
     void appTransitionStarting(long statusBarAnimationsStartTime, long statusBarAnimationsDuration);
+
+    void startAssist(in Bundle args);
 }

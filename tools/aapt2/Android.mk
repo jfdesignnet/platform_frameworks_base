@@ -27,23 +27,25 @@ main := Main.cpp
 sources := \
 	BigBuffer.cpp \
 	BinaryResourceParser.cpp \
-	BinaryXmlPullParser.cpp \
 	BindingXmlPullParser.cpp \
 	ConfigDescription.cpp \
+	Debug.cpp \
 	Files.cpp \
 	Flag.cpp \
 	JavaClassGenerator.cpp \
 	Linker.cpp \
 	Locale.cpp \
 	Logger.cpp \
+	ManifestMerger.cpp \
 	ManifestParser.cpp \
 	ManifestValidator.cpp \
 	Png.cpp \
+	ProguardRules.cpp \
 	ResChunkPullParser.cpp \
-	Resolver.cpp \
 	Resource.cpp \
 	ResourceParser.cpp \
 	ResourceTable.cpp \
+	ResourceTableResolver.cpp \
 	ResourceValues.cpp \
 	SdkConstants.cpp \
 	StringPool.cpp \
@@ -52,6 +54,7 @@ sources := \
 	ScopedXmlPullParser.cpp \
 	SourceXmlPullParser.cpp \
 	XliffXmlPullParser.cpp \
+	XmlDom.cpp \
 	XmlFlattener.cpp \
 	ZipEntry.cpp \
 	ZipFile.cpp
@@ -64,6 +67,7 @@ testSources := \
 	JavaClassGenerator_test.cpp \
 	Linker_test.cpp \
 	Locale_test.cpp \
+	ManifestMerger_test.cpp \
 	ManifestParser_test.cpp \
 	Maybe_test.cpp \
 	NameMangler_test.cpp \
@@ -75,6 +79,7 @@ testSources := \
 	StringPool_test.cpp \
 	Util_test.cpp \
 	XliffXmlPullParser_test.cpp \
+	XmlDom_test.cpp \
 	XmlFlattener_test.cpp
 
 cIncludes := \
@@ -90,7 +95,8 @@ hostStaticLibs := \
 	libcutils \
 	libexpat \
 	libziparchive-host \
-	libpng
+	libpng \
+	libbase
 
 ifneq ($(strip $(USE_MINGW)),)
 	hostStaticLibs += libz
@@ -99,7 +105,7 @@ else
 endif
 
 cFlags := -Wall -Werror -Wno-unused-parameter -UNDEBUG
-cppFlags := -std=c++11 -Wno-missing-field-initializers
+cppFlags := -std=c++11 -Wno-missing-field-initializers -Wno-unused-private-field
 
 # ==========================================================
 # Build the host static library: libaapt2

@@ -24,6 +24,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
 
+import com.android.systemui.DejankUtils;
 import com.android.systemui.EventLogTags;
 import com.android.systemui.R;
 
@@ -38,6 +39,14 @@ public class PhoneStatusBarView extends PanelBar {
     PanelView mNotificationPanel;
     private final PhoneStatusBarTransitions mBarTransitions;
     private ScrimController mScrimController;
+    private float mMinFraction;
+    private float mPanelFraction;
+    private Runnable mHideExpandedRunnable = new Runnable() {
+        @Override
+        public void run() {
+            mBar.makeExpandedInvisible();
+        }
+    };
 
     public PhoneStatusBarView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -108,15 +117,13 @@ public class PhoneStatusBarView extends PanelBar {
     @Override
     public void onAllPanelsCollapsed() {
         super.onAllPanelsCollapsed();
-
         // Close the status bar in the next frame so we can show the end of the animation.
-        postOnAnimation(new Runnable() {
-            @Override
-            public void run() {
-                mBar.makeExpandedInvisible();
-            }
-        });
+        DejankUtils.postAfterTraversal(mHideExpandedRunnable);
         mLastFullyOpenedPanel = null;
+    }
+
+    public void removePendingHideExpandedRunnables() {
+        DejankUtils.removeCallbacks(mHideExpandedRunnable);
     }
 
     @Override
@@ -174,8 +181,22 @@ public class PhoneStatusBarView extends PanelBar {
     }
 
     @Override
+    public void panelScrimMinFractionChanged(float minFraction) {
+        if (mMinFraction != minFraction) {
+            mMinFraction = minFraction;
+            updateScrimFraction();
+        }
+    }
+
+    @Override
     public void panelExpansionChanged(PanelView panel, float frac, boolean expanded) {
         super.panelExpansionChanged(panel, frac, expanded);
-        mScrimController.setPanelExpansion(frac);
+        mPanelFraction = frac;
+        updateScrimFraction();
+    }
+
+    private void updateScrimFraction() {
+        float scrimFraction = Math.max(mPanelFraction - mMinFraction / (1.0f - mMinFraction), 0);
+        mScrimController.setPanelExpansion(scrimFraction);
     }
 }

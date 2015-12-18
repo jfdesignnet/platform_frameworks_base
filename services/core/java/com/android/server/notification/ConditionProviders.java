@@ -121,14 +121,17 @@ public class ConditionProviders extends ManagedServices {
     @Override
     public void onBootPhaseAppsCanStart() {
         super.onBootPhaseAppsCanStart();
+        for (int i = 0; i < mSystemConditionProviders.size(); i++) {
+            mSystemConditionProviders.valueAt(i).onBootComplete();
+        }
         if (mCallback != null) {
             mCallback.onBootComplete();
         }
     }
 
     @Override
-    public void onUserSwitched() {
-        super.onUserSwitched();
+    public void onUserSwitched(int user) {
+        super.onUserSwitched(user);
         if (mCallback != null) {
             mCallback.onUserSwitched();
         }
@@ -257,6 +260,14 @@ public class ConditionProviders extends ManagedServices {
             }
         }
         return null;
+    }
+
+    public Condition findCondition(ComponentName component, Uri conditionId) {
+        if (component == null || conditionId == null) return null;
+        synchronized (mMutex) {
+            final ConditionRecord r = getRecordLocked(conditionId, component, false /*create*/);
+            return r != null ? r.condition : null;
+        }
     }
 
     public void ensureRecordExists(ComponentName component, Uri conditionId,

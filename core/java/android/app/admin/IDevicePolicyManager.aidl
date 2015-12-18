@@ -17,11 +17,13 @@
 
 package android.app.admin;
 
+import android.app.admin.SystemUpdatePolicy;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.net.ProxyInfo;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.PersistableBundle;
 import android.os.RemoteCallback;
@@ -126,11 +128,11 @@ interface IDevicePolicyManager {
     boolean hasUserSetupCompleted();
 
     boolean installCaCert(in ComponentName admin, in byte[] certBuffer);
-    void uninstallCaCert(in ComponentName admin, in String alias);
+    void uninstallCaCerts(in ComponentName admin, in String[] aliases);
     void enforceCanManageCaCerts(in ComponentName admin);
 
     boolean installKeyPair(in ComponentName who, in byte[] privKeyBuffer, in byte[] certBuffer, String alias);
-    void choosePrivateKeyAlias(int uid, in String host, int port, in String url, in String alias, IBinder aliasCallback);
+    void choosePrivateKeyAlias(int uid, in Uri uri, in String alias, IBinder aliasCallback);
 
     void setCertInstallerPackage(in ComponentName who, String installerPackage);
     String getCertInstallerPackage(in ComponentName who);
@@ -212,21 +214,24 @@ interface IDevicePolicyManager {
     boolean setUserEnabled(in ComponentName who);
     boolean isDeviceInitializer(String packageName);
     void clearDeviceInitializer(in ComponentName who);
-    boolean setDeviceInitializer(in ComponentName who, in ComponentName initializer, String initializerName);
+    boolean setDeviceInitializer(in ComponentName who, in ComponentName initializer);
     String getDeviceInitializer();
     ComponentName getDeviceInitializerComponent();
 
-    void setPreferredSetupActivity(in ComponentName admin, in ComponentName activity);
-
     void setUserIcon(in ComponentName admin, in Bitmap icon);
 
-    void sendDeviceInitializerStatus(int statusCode, String description);
-    void setSystemUpdatePolicy(in ComponentName who, in PersistableBundle policy);
-    PersistableBundle getSystemUpdatePolicy();
+    void setSystemUpdatePolicy(in ComponentName who, in SystemUpdatePolicy policy);
+    SystemUpdatePolicy getSystemUpdatePolicy();
 
-    boolean setKeyguardEnabledState(in ComponentName admin, boolean enabled);
-    void setStatusBarEnabledState(in ComponentName who, boolean enabled);
+    boolean setKeyguardDisabled(in ComponentName admin, boolean disabled);
+    boolean setStatusBarDisabled(in ComponentName who, boolean disabled);
     boolean getDoNotAskCredentialsOnBoot();
 
     void notifyPendingSystemUpdate(in long updateReceivedTime);
+
+    void setPermissionPolicy(in ComponentName admin, int policy);
+    int  getPermissionPolicy(in ComponentName admin);
+    boolean setPermissionGrantState(in ComponentName admin, String packageName,
+            String permission, int grantState);
+    int getPermissionGrantState(in ComponentName admin, String packageName, String permission);
 }

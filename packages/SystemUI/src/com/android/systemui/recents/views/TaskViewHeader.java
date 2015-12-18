@@ -26,6 +26,7 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
@@ -79,6 +80,8 @@ public class TaskViewHeader extends FrameLayout {
     // Header dim, which is only used when task view hardware layers are not used
     Paint mDimLayerPaint = new Paint();
     PorterDuffColorFilter mDimColorFilter = new PorterDuffColorFilter(0, PorterDuff.Mode.SRC_ATOP);
+
+    boolean mLayersDisabled;
 
     public TaskViewHeader(Context context) {
         this(context, null);
@@ -172,7 +175,9 @@ public class TaskViewHeader extends FrameLayout {
     void setDimAlpha(int alpha) {
         mDimColorFilter.setColor(Color.argb(alpha, 0, 0, 0));
         mDimLayerPaint.setColorFilter(mDimColorFilter);
-        setLayerType(LAYER_TYPE_HARDWARE, mDimLayerPaint);
+        if (!mLayersDisabled) {
+            setLayerType(LAYER_TYPE_HARDWARE, mDimLayerPaint);
+        }
     }
 
     /** Returns the secondary color for a primary color. */
@@ -190,12 +195,14 @@ public class TaskViewHeader extends FrameLayout {
         } else if (t.applicationIcon != null) {
             mApplicationIcon.setImageDrawable(t.applicationIcon);
         }
-        mApplicationIcon.setContentDescription(t.activityLabel);
         if (!mActivityDescription.getText().toString().equals(t.activityLabel)) {
             mActivityDescription.setText(t.activityLabel);
         }
+        mActivityDescription.setContentDescription(t.contentDescription);
+
         // Try and apply the system ui tint
-        int existingBgColor = getBackgroundColor();
+        int existingBgColor = (getBackground() instanceof ColorDrawable) ?
+                ((ColorDrawable) getBackground()).getColor() : 0;
         if (existingBgColor != t.colorPrimary) {
             mBackgroundColorDrawable.setColor(t.colorPrimary);
             mBackgroundColor = t.colorPrimary;
@@ -207,7 +214,7 @@ public class TaskViewHeader extends FrameLayout {
         mDismissButton.setImageDrawable(t.useLightOnPrimaryColor ?
                 mLightDismissDrawable : mDarkDismissDrawable);
         mDismissButton.setContentDescription(String.format(mDismissContentDescription,
-                t.activityLabel));
+                t.contentDescription));
         mMoveTaskButton.setVisibility((mConfig.multiStackEnabled) ? View.VISIBLE : View.INVISIBLE);
         if (mConfig.multiStackEnabled) {
             updateResizeTaskBarIcon(t);
@@ -261,7 +268,6 @@ public class TaskViewHeader extends FrameLayout {
                     .setStartDelay(0)
                     .setInterpolator(mConfig.fastOutSlowInInterpolator)
                     .setDuration(mConfig.taskViewExitToAppDuration)
-                    .withLayer()
                     .start();
         }
     }
@@ -276,7 +282,6 @@ public class TaskViewHeader extends FrameLayout {
                     .setStartDelay(0)
                     .setInterpolator(mConfig.fastOutLinearInInterpolator)
                     .setDuration(mConfig.taskViewEnterFromAppDuration)
-                    .withLayer()
                     .start();
         }
     }
@@ -301,6 +306,28 @@ public class TaskViewHeader extends FrameLayout {
         // Don't forward our state to the drawable - we do it manually in onTaskViewFocusChanged.
         // This is to prevent layer trashing when the view is pressed.
         return new int[] {};
+    }
+
+    @Override
+    protected void dispatchDraw(Canvas canvas) {
+        super.dispatchDraw(canvas);
+        if (mLayersDisabled) {
+            mLayersDisabled = false;
+            postOnAnimation(new Runnable() {
+                @Override
+                public void run() {
+                    mLayersDisabled = false;
+                    setLayerType(LAYER_TYPE_HARDWARE, mDimLayerPaint);
+                }
+            });
+        }
+    }
+
+    public void disableLayersForOneFrame() {
+        mLayersDisabled = true;
+
+        // Disable layer for a frame so we can draw our first frame faster.
+        setLayerType(LAYER_TYPE_NONE, null);
     }
 
     /** Notifies the associated TaskView has been focused. */

@@ -16,13 +16,19 @@
 
 package android.app.trust;
 
+import android.annotation.IntDef;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.util.SparseIntArray;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * See {@link com.android.server.trust.TrustManagerService}
@@ -67,21 +73,6 @@ public class TrustManager {
     public void reportEnabledTrustAgentsChanged(int userId) {
         try {
             mService.reportEnabledTrustAgentsChanged(userId);
-        } catch (RemoteException e) {
-            onError(e);
-        }
-    }
-
-    /**
-     * Reports that trust is disabled until credentials have been entered for user {@param userId}.
-     *
-     * Requires the {@link android.Manifest.permission#ACCESS_KEYGUARD_SECURE_STORAGE} permission.
-     *
-     * @param userId either an explicit user id or {@link android.os.UserHandle#USER_ALL}
-     */
-    public void reportRequireCredentialEntry(int userId) {
-        try {
-            mService.reportRequireCredentialEntry(userId);
         } catch (RemoteException e) {
             onError(e);
         }

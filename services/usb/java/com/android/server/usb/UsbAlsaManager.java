@@ -35,6 +35,7 @@ import android.util.Slog;
 
 import com.android.internal.alsa.AlsaCardsParser;
 import com.android.internal.alsa.AlsaDevicesParser;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.audio.AudioService;
 
 import libcore.io.IoUtils;
@@ -50,7 +51,7 @@ import java.util.ArrayList;
  */
 public final class UsbAlsaManager {
     private static final String TAG = UsbAlsaManager.class.getSimpleName();
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
 
     private static final String ALSA_DIRECTORY = "/dev/snd/";
 
@@ -401,6 +402,7 @@ public final class UsbAlsaManager {
                     Bundle properties = new Bundle();
                     String manufacturer = usbDevice.getManufacturerName();
                     String product = usbDevice.getProductName();
+                    String version = usbDevice.getVersion();
                     String name;
                     if (manufacturer == null || manufacturer.isEmpty()) {
                         name = product;
@@ -412,6 +414,7 @@ public final class UsbAlsaManager {
                     properties.putString(MidiDeviceInfo.PROPERTY_NAME, name);
                     properties.putString(MidiDeviceInfo.PROPERTY_MANUFACTURER, manufacturer);
                     properties.putString(MidiDeviceInfo.PROPERTY_PRODUCT, product);
+                    properties.putString(MidiDeviceInfo.PROPERTY_VERSION, version);
                     properties.putString(MidiDeviceInfo.PROPERTY_SERIAL_NUMBER,
                             usbDevice.getSerialNumber());
                     properties.putInt(MidiDeviceInfo.PROPERTY_ALSA_CARD, alsaDevice.mCard);
@@ -500,14 +503,14 @@ public final class UsbAlsaManager {
     //
     // Logging
     //
-    public void dump(FileDescriptor fd, PrintWriter pw) {
-        pw.println("  USB Audio Devices:");
+    public void dump(IndentingPrintWriter pw) {
+        pw.println("USB Audio Devices:");
         for (UsbDevice device : mAudioDevices.keySet()) {
-            pw.println("    " + device.getDeviceName() + ": " + mAudioDevices.get(device));
+            pw.println("  " + device.getDeviceName() + ": " + mAudioDevices.get(device));
         }
-        pw.println("  USB MIDI Devices:");
+        pw.println("USB MIDI Devices:");
         for (UsbDevice device : mMidiDevices.keySet()) {
-            pw.println("    " + device.getDeviceName() + ": " + mMidiDevices.get(device));
+            pw.println("  " + device.getDeviceName() + ": " + mMidiDevices.get(device));
         }
     }
 

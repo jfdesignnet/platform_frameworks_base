@@ -203,7 +203,9 @@ class DisplayContent {
     }
 
     void moveStack(TaskStack stack, boolean toTop) {
-        mStacks.remove(stack);
+        if (!mStacks.remove(stack)) {
+            Slog.wtf(TAG, "moving stack that was not added: " + stack, new Throwable());
+        }
         mStacks.add(toTop ? mStacks.size() : 0, stack);
     }
 
@@ -238,6 +240,7 @@ class DisplayContent {
             final TaskStack stack = win.getStack();
             if (win.isVisibleLw() && stack != null && stack != focusedStack) {
                 mTmpRect.set(win.mVisibleFrame);
+                // If no intersection, we need mTmpRect to be unmodified.
                 mTmpRect.intersect(win.mVisibleInsets);
                 mTouchExcludeRegion.op(mTmpRect, Region.Op.DIFFERENCE);
             }

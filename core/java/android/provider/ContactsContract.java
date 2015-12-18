@@ -230,6 +230,8 @@ public final class ContactsContract {
      * }
      * </pre>
      * </p>
+     *
+     * @hide
      */
     public static final class Authorization {
         /**
@@ -1741,6 +1743,9 @@ public final class ContactsContract {
          *
          * @deprecated - Do not use. This will not be supported in the future. In the future,
          * cursors returned from related queries will be empty.
+         *
+         * @hide
+         * @removed
          */
         @Deprecated
         public static final class StreamItems implements StreamItemsColumns {
@@ -2829,6 +2834,9 @@ public final class ContactsContract {
          *
          * @deprecated - Do not use. This will not be supported in the future. In the future,
          * cursors returned from related queries will be empty.
+         *
+         * @hide
+         * @removed
          */
         @Deprecated
         public static final class StreamItems implements BaseColumns, StreamItemsColumns {
@@ -3265,6 +3273,9 @@ public final class ContactsContract {
      *
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
+     *
+     * @hide
+     * @removed
      */
     @Deprecated
     public static final class StreamItems implements BaseColumns, StreamItemsColumns {
@@ -3363,6 +3374,9 @@ public final class ContactsContract {
          *
          * @deprecated - Do not use. This will not be supported in the future. In the future,
          * cursors returned from related queries will be empty.
+         *
+         * @hide
+         * @removed
          */
         @Deprecated
         public static final class StreamItemPhotos
@@ -3413,6 +3427,9 @@ public final class ContactsContract {
      * @see ContactsContract.StreamItems
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
+     *
+     * @hide
+     * @removed
      */
     @Deprecated
     protected interface StreamItemsColumns {
@@ -3803,6 +3820,9 @@ public final class ContactsContract {
      *
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
+     *
+     * @hide
+     * @removed
      */
     @Deprecated
     public static final class StreamItemPhotos implements BaseColumns, StreamItemPhotosColumns {
@@ -3841,6 +3861,9 @@ public final class ContactsContract {
      * @see ContactsContract.StreamItemPhotos
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
+     *
+     * @hide
+     * @removed
      */
     @Deprecated
     protected interface StreamItemPhotosColumns {
@@ -4067,6 +4090,20 @@ public final class ContactsContract {
         public static final String SYNC3 = "data_sync3";
         /** Generic column for use by sync adapters. */
         public static final String SYNC4 = "data_sync4";
+
+        /**
+         * Carrier presence information.
+         * <P>
+         * Type: INTEGER (A bitmask of CARRIER_PRESENCE_* fields)
+         * </P>
+         */
+        public static final String CARRIER_PRESENCE = "carrier_presence";
+
+        /**
+         * Indicates that the entry is Video Telephony (VT) capable on the
+         * current carrier. An allowed bitmask of {@link #CARRIER_PRESENCE}.
+         */
+        public static final int CARRIER_PRESENCE_VT_CAPABLE = 0x01;
     }
 
     /**
@@ -7946,21 +7983,16 @@ public final class ContactsContract {
         public static final int STATUS_NORMAL = 0;
 
         /**
-         * The status used when the provider is in the process of upgrading.  Contacts
-         * are temporarily unaccessible.
+         * The provider won't respond to queries. It is in the middle of a long running task, such
+         * as a database upgrade or locale change.
          */
-        public static final int STATUS_UPGRADING = 1;
-
-        /**
-         * The status used during a locale change.
-         */
-        public static final int STATUS_CHANGING_LOCALE = 3;
+        public static final int STATUS_BUSY = 1;
 
         /**
          * The status that indicates that there are no accounts and no contacts
          * on the device.
          */
-        public static final int STATUS_NO_ACCOUNTS_NO_CONTACTS = 4;
+        public static final int STATUS_EMPTY = 2;
     }
 
     /**
@@ -8261,7 +8293,7 @@ public final class ContactsContract {
         /**
          * Constructs a QuickContacts intent based on an incoming intent for DevicePolicyManager
          * to strip off anything not necessary.
-         * 
+         *
          * @hide
          */
         public static Intent rebuildManagedQuickContactsIntent(String lookupKey, long contactId,
@@ -8919,148 +8951,5 @@ public final class ContactsContract {
              */
             public static final String EXTRA_DATA_SET = "android.provider.extra.DATA_SET";
         }
-    }
-
-    /**
-     * @hide
-     */
-    protected interface MetadataSyncColumns {
-
-        /**
-         * The raw contact backup id.
-         * A reference to the {@link ContactsContract.RawContacts#BACKUP_ID} that save the
-         * persistent unique id for each raw contact within its source system.
-         *
-         * @hide
-         */
-        public static final String RAW_CONTACT_BACKUP_ID = "raw_contact_backup_id";
-
-        /**
-         * The account type to which the raw_contact of this item is associated. See
-         * {@link RawContacts#ACCOUNT_TYPE}
-         *
-         * @hide
-         */
-        public static final String ACCOUNT_TYPE = "account_type";
-
-        /**
-         * The account name to which the raw_contact of this item is associated. See
-         * {@link RawContacts#ACCOUNT_NAME}
-         *
-         * @hide
-         */
-        public static final String ACCOUNT_NAME = "account_name";
-
-        /**
-         * The data set within the account that the raw_contact of this row belongs to. This allows
-         * multiple sync adapters for the same account type to distinguish between
-         * each others' data.
-         * {@link RawContacts#DATA_SET}
-         *
-         * @hide
-         */
-        public static final String DATA_SET = "data_set";
-
-        /**
-         * A text column contains the Json string got from People API. The Json string contains
-         * all the metadata related to the raw contact, i.e., all the data fields and
-         * aggregation exceptions.
-         *
-         * Here is an example of the Json string got from the actual schema.
-         * <pre>
-         *     {
-         *       "unique_contact_id": {
-         *         "account_type": "CUSTOM_ACCOUNT",
-         *         "custom_account_type": "facebook",
-         *         "account_name": "android-test",
-         *         "contact_id": "1111111",
-         *         "data_set": "FOCUS"
-         *       },
-         *       "contact_prefs": {
-         *         "send_to_voicemail": true,
-         *         "starred": false,
-         *         "pinned": 2
-         *       },
-         *       "aggregation_data": [
-         *         {
-         *           "type": "TOGETHER",
-         *           "contact_ids": [
-         *             {
-         *               "account_type": "GOOGLE_ACCOUNT",
-         *               "account_name": "android-test2",
-         *               "contact_id": "2222222",
-         *               "data_set": "GOOGLE_PLUS"
-         *             },
-         *             {
-         *               "account_type": "GOOGLE_ACCOUNT",
-         *               "account_name": "android-test3",
-         *               "contact_id": "3333333",
-         *               "data_set": "CUSTOM",
-         *               "custom_data_set": "custom type"
-         *             }
-         *           ]
-         *         }
-         *       ],
-         *       "field_data": [
-         *         {
-         *           "field_data_id": "1001",
-         *           "field_data_prefs": {
-         *             "is_primary": true,
-         *             "is_super_primary": true
-         *           },
-         *           "usage_stats": [
-         *             {
-         *               "usage_type": "CALL",
-         *               "last_time_used": 10000001,
-         *               "usage_count": 10
-         *             }
-         *           ]
-         *         }
-         *       ]
-         *     }
-         * </pre>
-         *
-         * @hide
-         */
-        public static final String DATA = "data";
-
-        /**
-         * The "deleted" flag: "0" by default, "1" if the row has been marked
-         * for deletion. When {@link android.content.ContentResolver#delete} is
-         * called on a raw contact, updating MetadataSync table to set the flag of the raw contact
-         * as "1", then metadata sync adapter deletes the raw contact metadata on the server.
-         * <P>Type: INTEGER</P>
-         *
-         * @hide
-         */
-        public static final String DELETED = "deleted";
-    }
-
-    /**
-     * Constants for the metadata sync table. This table is used to cache the metadata_sync data
-     * from server before it is merged into other CP2 tables.
-     *
-     * @hide
-     */
-    public static final class MetadataSync implements BaseColumns, MetadataSyncColumns {
-
-        /** The authority for the contacts metadata */
-        public static final String METADATA_AUTHORITY = "com.android.contacts.metadata";
-
-        /** A content:// style uri to the authority for the contacts metadata */
-        public static final Uri METADATA_AUTHORITY_URI = Uri.parse(
-                "content://" + METADATA_AUTHORITY);
-
-        /**
-         * This utility class cannot be instantiated
-         */
-        private MetadataSync() {
-        }
-
-        /**
-         * The content:// style URI for this table.
-         */
-        public static final Uri CONTENT_URI = Uri.withAppendedPath(METADATA_AUTHORITY_URI,
-                "metadata_sync");
     }
 }

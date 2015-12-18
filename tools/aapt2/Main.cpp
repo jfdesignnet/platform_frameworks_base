@@ -17,18 +17,21 @@
 #include "AppInfo.h"
 #include "BigBuffer.h"
 #include "BinaryResourceParser.h"
-#include "BinaryXmlPullParser.h"
 #include "BindingXmlPullParser.h"
+#include "Debug.h"
 #include "Files.h"
 #include "Flag.h"
 #include "JavaClassGenerator.h"
 #include "Linker.h"
+#include "ManifestMerger.h"
 #include "ManifestParser.h"
 #include "ManifestValidator.h"
 #include "NameMangler.h"
 #include "Png.h"
+#include "ProguardRules.h"
 #include "ResourceParser.h"
 #include "ResourceTable.h"
+#include "ResourceTableResolver.h"
 #include "ResourceValues.h"
 #include "SdkConstants.h"
 #include "SourceXmlPullParser.h"
@@ -54,53 +57,19 @@ constexpr const char* kAaptVersionStr = "2.0-alpha";
 
 using namespace aapt;
 
-void printTable(const ResourceTable& table) {
-    std::cout << "ResourceTable package=" << table.getPackage();
-    if (table.getPackageId() != ResourceTable::kUnsetPackageId) {
-        std::cout << " id=" << std::hex << table.getPackageId() << std::dec;
+/**
+ * Used with smart pointers to free malloc'ed memory.
+ */
+struct DeleteMalloc {
+    void operator()(void* ptr) {
+        free(ptr);
     }
-    std::cout << std::endl
-         << "---------------------------------------------------------" << std::endl;
+};
 
-    for (const auto& type : table) {
-        std::cout << "Type " << type->type;
-        if (type->typeId != ResourceTableType::kUnsetTypeId) {
-            std::cout << " [" << type->typeId << "]";
-        }
-        std::cout << " (" << type->entries.size() << " entries)" << std::endl;
-        for (const auto& entry : type->entries) {
-            std::cout << "  " << entry->name;
-            if (entry->entryId != ResourceEntry::kUnsetEntryId) {
-                std::cout << " [" << entry->entryId << "]";
-            }
-            std::cout << " (" << entry->values.size() << " configurations)";
-            if (entry->publicStatus.isPublic) {
-                std::cout << " PUBLIC";
-            }
-            std::cout << std::endl;
-            for (const auto& value : entry->values) {
-                std::cout << "    " << value.config << " (" << value.source << ") : ";
-                value.value->print(std::cout);
-                std::cout << std::endl;
-            }
-        }
-    }
-}
-
-void printStringPool(const StringPool& pool) {
-    std::cout << "String pool of length " << pool.size() << std::endl
-         << "---------------------------------------------------------" << std::endl;
-
-    size_t i = 0;
-    for (const auto& entry : pool) {
-        std::cout << "[" << i << "]: "
-             << entry->value
-             << " (Priority " << entry->context.priority
-             << ", Config '" << entry->context.config << "')"
-             << std::endl;
-        i++;
-    }
-}
+struct StaticLibraryData {
+    Source source;
+    std::unique_ptr<ZipFile> apk;
+};
 
 /**
  * Collect files from 'root', filtering out any files that do not
@@ -143,29 +112,6 @@ bool walkTree(const Source& root, const FileFilter& filter,
     return !error;
 }
 
-bool loadResTable(android::ResTable* table, const Source& source) {
-    std::ifstream ifs(source.path, std::ifstream::in | std::ifstream::binary);
-    if (!ifs) {
-        Logger::error(source) << strerror(errno) << std::endl;
-        return false;
-    }
-
-    std::streampos fsize = ifs.tellg();
-    ifs.seekg(0, std::ios::end);
-    fsize = ifs.tellg() - fsize;
-    ifs.seekg(0, std::ios::beg);
-
-    assert(fsize >= 0);
-    size_t dataSize = static_cast<size_t>(fsize);
-    char* buf = new char[dataSize];
-    ifs.read(buf, dataSize);
-
-    bool result = table->add(buf, dataSize, -1, true) == android::NO_ERROR;
-
-    delete [] buf;
-    return result;
-}
-
 void versionStylesForCompat(const std::shared_ptr<ResourceTable>& table) {
     for (auto& type : *table) {
         if (type->type != ResourceType::kStyle) {
@@ -197,7 +143,7 @@ void versionStylesForCompat(const std::shared_ptr<ResourceTable>& table) {
                     auto iter = style.entries.begin();
                     while (iter != style.entries.end()) {
                         if (iter->key.name.package == u"android") {
-                            size_t sdkLevel = findAttributeSdkLevel(iter->key.name.entry);
+                            size_t sdkLevel = findAttributeSdkLevel(iter->key.name);
                             if (sdkLevel > 1 && sdkLevel > configValue.config.sdkVersion) {
                                 // Record that we are about to strip this.
                                 stripped.emplace_back(std::move(*iter));
@@ -227,7 +173,6 @@ void versionStylesForCompat(const std::shared_ptr<ResourceTable>& table) {
                         };
 
                         Style& newStyle = static_cast<Style&>(*value.value);
-                        newStyle.weak = true;
 
                         // Move the recorded stripped attributes into this new style.
                         std::move(stripped.begin(), stripped.end(),
@@ -259,18 +204,19 @@ void versionStylesForCompat(const std::shared_ptr<ResourceTable>& table) {
 }
 
 struct CompileItem {
-    Source source;
     ResourceName name;
     ConfigDescription config;
+    Source source;
     std::string extension;
 };
 
 struct LinkItem {
-    Source source;
     ResourceName name;
     ConfigDescription config;
+    Source source;
     std::string originalPath;
     ZipFile* apk;
+    std::u16string originalPackage;
 };
 
 template <typename TChar>
@@ -282,8 +228,6 @@ static BasicStringPiece<TChar> getExtension(const BasicStringPiece<TChar>& str) 
     size_t offset = (iter - str.begin()) + 1;
     return str.substr(offset, str.size() - offset);
 }
-
-
 
 std::string buildFileReference(const ResourceNameRef& name, const ConfigDescription& config,
                                const StringPiece& extension) {
@@ -307,7 +251,8 @@ std::string buildFileReference(const LinkItem& item) {
     return buildFileReference(item.name, item.config, getExtension<char>(item.originalPath));
 }
 
-bool addFileReference(const std::shared_ptr<ResourceTable>& table, const CompileItem& item) {
+template <typename T>
+bool addFileReference(const std::shared_ptr<ResourceTable>& table, const T& item) {
     StringPool& pool = table->getValueStringPool();
     StringPool::Ref ref = pool.makeRef(util::utf8ToUtf16(buildFileReference(item)),
                                        StringPool::Context{ 0, item.config });
@@ -319,10 +264,20 @@ struct AaptOptions {
     enum class Phase {
         Link,
         Compile,
+        Dump,
+        DumpStyleGraph,
+    };
+
+    enum class PackageType {
+        StandardApp,
+        StaticLibrary,
     };
 
     // The phase to process.
     Phase phase;
+
+    // The type of package to produce.
+    PackageType packageType = PackageType::StandardApp;
 
     // Details about the app.
     AppInfo appInfo;
@@ -346,6 +301,9 @@ struct AaptOptions {
     // Directory to in which to generate R.java.
     Maybe<Source> generateJavaClass;
 
+    // File in which to produce proguard rules.
+    Maybe<Source> generateProguardRules;
+
     // Whether to output verbose details about
     // compilation.
     bool verbose = false;
@@ -354,103 +312,171 @@ struct AaptOptions {
     // referencing attributes defined in a newer SDK
     // level than the style or layout is defined for.
     bool versionStylesAndLayouts = true;
+
+    // The target style that will have it's style hierarchy dumped
+    // when the phase is DumpStyleGraph.
+    ResourceName dumpStyleTarget;
 };
 
+struct IdCollector : public xml::Visitor {
+    IdCollector(const Source& source, const std::shared_ptr<ResourceTable>& table) :
+            mSource(source), mTable(table) {
+    }
+
+    virtual void visit(xml::Text* node) override {}
+
+    virtual void visit(xml::Namespace* node) override {
+        for (const auto& child : node->children) {
+            child->accept(this);
+        }
+    }
+
+    virtual void visit(xml::Element* node) override {
+        for (const xml::Attribute& attr : node->attributes) {
+            bool create = false;
+            bool priv = false;
+            ResourceNameRef nameRef;
+            if (ResourceParser::tryParseReference(attr.value, &nameRef, &create, &priv)) {
+                if (create) {
+                    mTable->addResource(nameRef, {}, mSource.line(node->lineNumber),
+                                        util::make_unique<Id>());
+                }
+            }
+        }
+
+        for (const auto& child : node->children) {
+            child->accept(this);
+        }
+    }
+
+private:
+    Source mSource;
+    std::shared_ptr<ResourceTable> mTable;
+};
 
 bool compileXml(const AaptOptions& options, const std::shared_ptr<ResourceTable>& table,
-                const CompileItem& item, std::queue<CompileItem>* outQueue, ZipFile* outApk) {
+                const CompileItem& item, ZipFile* outApk) {
     std::ifstream in(item.source.path, std::ifstream::binary);
     if (!in) {
         Logger::error(item.source) << strerror(errno) << std::endl;
         return false;
     }
 
+    SourceLogger logger(item.source);
+    std::unique_ptr<xml::Node> root = xml::inflate(&in, &logger);
+    if (!root) {
+        return false;
+    }
+
+    // Collect any resource ID's declared here.
+    IdCollector idCollector(item.source, table);
+    root->accept(&idCollector);
+
     BigBuffer outBuffer(1024);
+    if (!xml::flatten(root.get(), options.appInfo.package, &outBuffer)) {
+        logger.error() << "failed to encode XML." << std::endl;
+        return false;
+    }
 
-    // No resolver, since we are not compiling attributes here.
-    XmlFlattener flattener(table, {});
+    // Write the resulting compiled XML file to the output APK.
+    if (outApk->add(outBuffer, buildFileReference(item).data(), ZipEntry::kCompressStored,
+                nullptr) != android::NO_ERROR) {
+        Logger::error(options.output) << "failed to write compiled '" << item.source
+                                      << "' to apk." << std::endl;
+        return false;
+    }
+    return true;
+}
 
-    XmlFlattener::Options xmlOptions;
+/**
+ * Determines if a layout should be auto generated based on SDK level. We do not
+ * generate a layout if there is already a layout defined whose SDK version is greater than
+ * the one we want to generate.
+ */
+bool shouldGenerateVersionedResource(const std::shared_ptr<const ResourceTable>& table,
+                                     const ResourceName& name, const ConfigDescription& config,
+                                     int sdkVersionToGenerate) {
+    assert(sdkVersionToGenerate > config.sdkVersion);
+    const ResourceTableType* type;
+    const ResourceEntry* entry;
+    std::tie(type, entry) = table->findResource(name);
+    assert(type && entry);
+
+    auto iter = std::lower_bound(entry->values.begin(), entry->values.end(), config,
+            [](const ResourceConfigValue& lhs, const ConfigDescription& config) -> bool {
+        return lhs.config < config;
+    });
+
+    assert(iter != entry->values.end());
+    ++iter;
+
+    if (iter == entry->values.end()) {
+        return true;
+    }
+
+    ConfigDescription newConfig = config;
+    newConfig.sdkVersion = sdkVersionToGenerate;
+    return newConfig < iter->config;
+}
+
+bool linkXml(const AaptOptions& options, const std::shared_ptr<ResourceTable>& table,
+             const std::shared_ptr<IResolver>& resolver, const LinkItem& item,
+             const void* data, size_t dataLen, ZipFile* outApk, std::queue<LinkItem>* outQueue,
+             proguard::KeepSet* keepSet) {
+    SourceLogger logger(item.source);
+    std::unique_ptr<xml::Node> root = xml::inflate(data, dataLen, &logger);
+    if (!root) {
+        return false;
+    }
+
+    xml::FlattenOptions xmlOptions;
+    if (options.packageType == AaptOptions::PackageType::StaticLibrary) {
+        xmlOptions.keepRawValues = true;
+    }
+
     if (options.versionStylesAndLayouts) {
         // We strip attributes that do not belong in this version of the resource.
         // Non-version qualified resources have an implicit version 1 requirement.
         xmlOptions.maxSdkAttribute = item.config.sdkVersion ? item.config.sdkVersion : 1;
     }
 
-    std::shared_ptr<BindingXmlPullParser> binding;
-    std::shared_ptr<XmlPullParser> parser = std::make_shared<SourceXmlPullParser>(in);
-    if (item.name.type == ResourceType::kLayout) {
-        // Layouts may have defined bindings, so we need to make sure they get processed.
-        binding = std::make_shared<BindingXmlPullParser>(parser);
-        parser = binding;
+    if (options.generateProguardRules) {
+        proguard::collectProguardRules(item.name.type, item.source, root.get(), keepSet);
     }
 
-    Maybe<size_t> minStrippedSdk = flattener.flatten(item.source, parser, &outBuffer, xmlOptions);
+    BigBuffer outBuffer(1024);
+    Maybe<size_t> minStrippedSdk = xml::flattenAndLink(item.source, root.get(),
+                                                       item.originalPackage, resolver,
+                                                       xmlOptions, &outBuffer);
     if (!minStrippedSdk) {
+        logger.error() << "failed to encode XML." << std::endl;
         return false;
     }
 
     if (minStrippedSdk.value() > 0) {
         // Something was stripped, so let's generate a new file
         // with the version of the smallest SDK version stripped.
-        CompileItem newWork = item;
-        newWork.config.sdkVersion = minStrippedSdk.value();
-        outQueue->push(newWork);
-    }
+        // We can only generate a versioned layout if there doesn't exist a layout
+        // with sdk version greater than the current one but less than the one we
+        // want to generate.
+        if (shouldGenerateVersionedResource(table, item.name, item.config,
+                    minStrippedSdk.value())) {
+            LinkItem newWork = item;
+            newWork.config.sdkVersion = minStrippedSdk.value();
+            outQueue->push(newWork);
 
-    // Write the resulting compiled XML file to the output APK.
-    if (outApk->add(outBuffer, buildFileReference(item).data(), ZipEntry::kCompressStored,
-                nullptr) != android::NO_ERROR) {
-        Logger::error(options.output) << "failed to write compiled '" << item.source << "' to apk."
-                                      << std::endl;
-        return false;
-    }
-
-    if (binding && !options.bindingOutput.path.empty()) {
-        // We generated a binding xml file, write it out.
-        Source bindingOutput = options.bindingOutput;
-        appendPath(&bindingOutput.path, buildFileReference(item));
-
-        if (!mkdirs(bindingOutput.path)) {
-            Logger::error(bindingOutput) << strerror(errno) << std::endl;
-            return false;
+            if (!addFileReference(table, newWork)) {
+                Logger::error(options.output) << "failed to add auto-versioned resource '"
+                                              << newWork.name << "'." << std::endl;
+                return false;
+            }
         }
-
-        appendPath(&bindingOutput.path, "bind.xml");
-
-        std::ofstream bout(bindingOutput.path);
-        if (!bout) {
-            Logger::error(bindingOutput) << strerror(errno) << std::endl;
-            return false;
-        }
-
-        if (!binding->writeToFile(bout)) {
-            Logger::error(bindingOutput) << strerror(errno) << std::endl;
-            return false;
-        }
-    }
-    return true;
-}
-
-bool linkXml(const AaptOptions& options, const std::shared_ptr<Resolver>& resolver,
-             const LinkItem& item, const void* data, size_t dataLen, ZipFile* outApk) {
-    std::shared_ptr<android::ResXMLTree> tree = std::make_shared<android::ResXMLTree>();
-    if (tree->setTo(data, dataLen, false) != android::NO_ERROR) {
-        return false;
-    }
-
-    std::shared_ptr<XmlPullParser> xmlParser = std::make_shared<BinaryXmlPullParser>(tree);
-
-    BigBuffer outBuffer(1024);
-    XmlFlattener flattener({}, resolver);
-    if (!flattener.flatten(item.source, xmlParser, &outBuffer, {})) {
-        return false;
     }
 
     if (outApk->add(outBuffer, buildFileReference(item).data(), ZipEntry::kCompressDeflated,
                 nullptr) != android::NO_ERROR) {
-        Logger::error(options.output) << "failed to write linked file '" << item.source
-                                      << "' to apk." << std::endl;
+        Logger::error(options.output) << "failed to write linked file '"
+                                      << buildFileReference(item) << "' to apk." << std::endl;
         return false;
     }
     return true;
@@ -490,8 +516,9 @@ bool copyFile(const AaptOptions& options, const CompileItem& item, ZipFile* outA
     return true;
 }
 
-bool compileManifest(const AaptOptions& options, const std::shared_ptr<Resolver>& resolver,
-                     ZipFile* outApk) {
+bool compileManifest(const AaptOptions& options, const std::shared_ptr<IResolver>& resolver,
+                     const std::map<std::shared_ptr<ResourceTable>, StaticLibraryData>& libApks,
+                     const android::ResTable& table, ZipFile* outApk, proguard::KeepSet* keepSet) {
     if (options.verbose) {
         Logger::note(options.manifest) << "compiling AndroidManifest.xml." << std::endl;
     }
@@ -502,11 +529,51 @@ bool compileManifest(const AaptOptions& options, const std::shared_ptr<Resolver>
         return false;
     }
 
-    BigBuffer outBuffer(1024);
-    std::shared_ptr<XmlPullParser> xmlParser = std::make_shared<SourceXmlPullParser>(in);
-    XmlFlattener flattener({}, resolver);
+    SourceLogger logger(options.manifest);
+    std::unique_ptr<xml::Node> root = xml::inflate(&in, &logger);
+    if (!root) {
+        return false;
+    }
 
-    if (!flattener.flatten(options.manifest, xmlParser, &outBuffer, {})) {
+    ManifestMerger merger({});
+    if (!merger.setAppManifest(options.manifest, options.appInfo.package, std::move(root))) {
+        return false;
+    }
+
+    for (const auto& entry : libApks) {
+        ZipFile* libApk = entry.second.apk.get();
+        const std::u16string& libPackage = entry.first->getPackage();
+        const Source& libSource = entry.second.source;
+
+        ZipEntry* zipEntry = libApk->getEntryByName("AndroidManifest.xml");
+        if (!zipEntry) {
+            continue;
+        }
+
+        std::unique_ptr<void, DeleteMalloc> uncompressedData = std::unique_ptr<void, DeleteMalloc>(
+                libApk->uncompress(zipEntry));
+        assert(uncompressedData);
+
+        SourceLogger logger(libSource);
+        std::unique_ptr<xml::Node> libRoot = xml::inflate(uncompressedData.get(),
+                                                          zipEntry->getUncompressedLen(), &logger);
+        if (!libRoot) {
+            return false;
+        }
+
+        if (!merger.mergeLibraryManifest(libSource, libPackage, std::move(libRoot))) {
+            return false;
+        }
+    }
+
+    if (options.generateProguardRules) {
+        proguard::collectProguardRulesForManifest(options.manifest, merger.getMergedXml(),
+                                                  keepSet);
+    }
+
+    BigBuffer outBuffer(1024);
+    if (!xml::flattenAndLink(options.manifest, merger.getMergedXml(), options.appInfo.package,
+                resolver, {}, &outBuffer)) {
         return false;
     }
 
@@ -517,7 +584,7 @@ bool compileManifest(const AaptOptions& options, const std::shared_ptr<Resolver>
         return false;
     }
 
-    ManifestValidator validator(resolver->getResTable());
+    ManifestValidator validator(table);
     if (!validator.validate(options.manifest, &tree)) {
         return false;
     }
@@ -640,8 +707,12 @@ static void addApkFilesToLinkQueue(const std::u16string& package, const Source& 
             for (auto& value : entry->values) {
                 visitFunc<FileReference>(*value.value, [&](FileReference& ref) {
                     std::string pathUtf8 = util::utf16ToUtf8(*ref.path);
+                    Source newSource = source;
+                    newSource.path += "/";
+                    newSource.path += pathUtf8;
                     outLinkQueue->push(LinkItem{
-                            source, name, value.config, pathUtf8, apk.get() });
+                            name, value.config, newSource, pathUtf8, apk.get(),
+                            table->getPackage() });
                     // Now rewrite the file path.
                     if (mangle) {
                         ref.path = table->getValueStringPool().makeRef(util::utf8ToUtf16(
@@ -658,8 +729,8 @@ static constexpr int kOpenFlags = ZipFile::kOpenCreate | ZipFile::kOpenTruncate 
         ZipFile::kOpenReadWrite;
 
 bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outTable,
-          const std::shared_ptr<Resolver>& resolver) {
-    std::map<std::shared_ptr<ResourceTable>, std::unique_ptr<ZipFile>> apkFiles;
+          const std::shared_ptr<IResolver>& resolver) {
+    std::map<std::shared_ptr<ResourceTable>, StaticLibraryData> apkFiles;
     std::unordered_set<std::u16string> linkedPackages;
 
     // Populate the linkedPackages with our own.
@@ -681,19 +752,18 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
             return false;
         }
 
-        void* uncompressedData = zipFile->uncompress(entry);
+        std::unique_ptr<void, DeleteMalloc> uncompressedData = std::unique_ptr<void, DeleteMalloc>(
+                zipFile->uncompress(entry));
         assert(uncompressedData);
 
-        BinaryResourceParser parser(table, resolver, source, uncompressedData,
-                                    entry->getUncompressedLen());
+        BinaryResourceParser parser(table, resolver, source, options.appInfo.package, 
+                                    uncompressedData.get(), entry->getUncompressedLen());
         if (!parser.parse()) {
-            free(uncompressedData);
             return false;
         }
-        free(uncompressedData);
 
         // Keep track of where this table came from.
-        apkFiles[table] = std::move(zipFile);
+        apkFiles[table] = StaticLibraryData{ source, std::move(zipFile) };
 
         // Add the package to the set of linked packages.
         linkedPackages.insert(table->getPackage());
@@ -704,7 +774,8 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
         const std::shared_ptr<ResourceTable>& inTable = p.first;
 
         // Collect all FileReferences and add them to the queue for processing.
-        addApkFilesToLinkQueue(options.appInfo.package, Source{}, inTable, p.second, &linkQueue);
+        addApkFilesToLinkQueue(options.appInfo.package, p.second.source, inTable, p.second.apk,
+                               &linkQueue);
 
         // Merge the tables.
         if (!outTable->merge(std::move(*inTable))) {
@@ -712,9 +783,18 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
         }
     }
 
+    // Version all styles referencing attributes outside of their specified SDK version.
+    if (options.versionStylesAndLayouts) {
+        versionStylesForCompat(outTable);
+    }
+
     {
         // Now that everything is merged, let's link it.
-        Linker linker(outTable, resolver);
+        Linker::Options linkerOptions;
+        if (options.packageType == AaptOptions::PackageType::StaticLibrary) {
+            linkerOptions.linkResourceIds = false;
+        }
+        Linker linker(outTable, resolver, linkerOptions);
         if (!linker.linkAndValidate()) {
             return false;
         }
@@ -739,13 +819,17 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
         return false;
     }
 
-    if (!compileManifest(options, resolver, &outApk)) {
+    proguard::KeepSet keepSet;
+
+    android::ResTable binTable;
+    if (!compileManifest(options, resolver, apkFiles, binTable, &outApk, &keepSet)) {
         return false;
     }
 
     for (; !linkQueue.empty(); linkQueue.pop()) {
         const LinkItem& item = linkQueue.front();
 
+        assert(!item.originalPackage.empty());
         ZipEntry* entry = item.apk->getEntryByName(item.originalPath.data());
         if (!entry) {
             Logger::error(item.source) << "failed to find '" << item.originalPath << "'."
@@ -757,8 +841,8 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
             void* uncompressedData = item.apk->uncompress(entry);
             assert(uncompressedData);
 
-            if (!linkXml(options, resolver, item, uncompressedData, entry->getUncompressedLen(),
-                    &outApk)) {
+            if (!linkXml(options, outTable, resolver, item, uncompressedData,
+                        entry->getUncompressedLen(), &outApk, &linkQueue, &keepSet)) {
                 Logger::error(options.output) << "failed to link '" << item.originalPath << "'."
                                               << std::endl;
                 return false;
@@ -775,7 +859,11 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
 
     // Generate the Java class file.
     if (options.generateJavaClass) {
-        JavaClassGenerator generator(outTable, {});
+        JavaClassGenerator::Options javaOptions;
+        if (options.packageType == AaptOptions::PackageType::StaticLibrary) {
+            javaOptions.useFinal = false;
+        }
+        JavaClassGenerator generator(outTable, javaOptions);
 
         for (const std::u16string& package : linkedPackages) {
             Source outPath = options.generateJavaClass.value();
@@ -811,9 +899,46 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
         }
     }
 
+    // Generate the Proguard rules file.
+    if (options.generateProguardRules) {
+        const Source& outPath = options.generateProguardRules.value();
+
+        if (options.verbose) {
+            Logger::note(outPath) << "writing proguard rules." << std::endl;
+        }
+
+        std::ofstream fout(outPath.path);
+        if (!fout) {
+            Logger::error(outPath) << strerror(errno) << std::endl;
+            return false;
+        }
+
+        if (!proguard::writeKeepSet(&fout, keepSet)) {
+            Logger::error(outPath) << "failed to write proguard rules." << std::endl;
+            return false;
+        }
+    }
+
+    outTable->getValueStringPool().prune();
+    outTable->getValueStringPool().sort(
+            [](const StringPool::Entry& a, const StringPool::Entry& b) -> bool {
+                if (a.context.priority < b.context.priority) {
+                    return true;
+                }
+
+                if (a.context.priority > b.context.priority) {
+                    return false;
+                }
+                return a.value < b.value;
+            });
+
+
     // Flatten the resource table.
     TableFlattener::Options flattenerOptions;
-    flattenerOptions.useExtendedChunks = false;
+    if (options.packageType != AaptOptions::PackageType::StaticLibrary) {
+        flattenerOptions.useExtendedChunks = false;
+    }
+
     if (!writeResourceTable(options, outTable, flattenerOptions, &outApk)) {
         return false;
     }
@@ -823,7 +948,7 @@ bool link(const AaptOptions& options, const std::shared_ptr<ResourceTable>& outT
 }
 
 bool compile(const AaptOptions& options, const std::shared_ptr<ResourceTable>& table,
-             const std::shared_ptr<Resolver>& resolver) {
+             const std::shared_ptr<IResolver>& resolver) {
     std::queue<CompileItem> compileQueue;
     bool error = false;
 
@@ -855,9 +980,9 @@ bool compile(const AaptOptions& options, const std::shared_ptr<ResourceTable>& t
             }
 
             compileQueue.push(CompileItem{
-                    source,
                     ResourceName{ table->getPackage(), *type, pathData.name },
                     pathData.config,
+                    source,
                     pathData.extension
             });
         }
@@ -866,12 +991,6 @@ bool compile(const AaptOptions& options, const std::shared_ptr<ResourceTable>& t
     if (error) {
         return false;
     }
-
-    // Version all styles referencing attributes outside of their specified SDK version.
-    if (options.versionStylesAndLayouts) {
-        versionStylesForCompat(table);
-    }
-
     // Open the output APK file for writing.
     ZipFile outApk;
     if (outApk.open(options.output.path.data(), kOpenFlags) != android::NO_ERROR) {
@@ -887,7 +1006,7 @@ bool compile(const AaptOptions& options, const std::shared_ptr<ResourceTable>& t
         error |= !addFileReference(table, item);
 
         if (item.extension == "xml") {
-            error |= !compileXml(options, table, item, &compileQueue, &outApk);
+            error |= !compileXml(options, table, item, &outApk);
         } else if (item.extension == "png" || item.extension == "9.png") {
             error |= !compilePng(options, item, &outApk);
         } else {
@@ -900,7 +1019,7 @@ bool compile(const AaptOptions& options, const std::shared_ptr<ResourceTable>& t
     }
 
     // Link and assign resource IDs.
-    Linker linker(table, resolver);
+    Linker linker(table, resolver, {});
     if (!linker.linkAndValidate()) {
         return false;
     }
@@ -930,6 +1049,7 @@ static void printCommandsAndDie() {
     std::cerr << "The following commands are supported:" << std::endl << std::endl;
     std::cerr << "compile       compiles a subset of resources" << std::endl;
     std::cerr << "link          links together compiled resources and libraries" << std::endl;
+    std::cerr << "dump          dumps resource contents to to standard out" << std::endl;
     std::cerr << std::endl;
     std::cerr << "run aapt2 with one of the commands and the -h flag for extra details."
               << std::endl;
@@ -955,24 +1075,17 @@ static AaptOptions prepareArgs(int argc, char** argv) {
         options.phase = AaptOptions::Phase::Link;
     } else if (command == "compile") {
         options.phase = AaptOptions::Phase::Compile;
+    } else if (command == "dump") {
+        options.phase = AaptOptions::Phase::Dump;
+    } else if (command == "dump-style-graph") {
+        options.phase = AaptOptions::Phase::DumpStyleGraph;
     } else {
         std::cerr << "invalid command '" << command << "'." << std::endl << std::endl;
         printCommandsAndDie();
     }
 
-    if (options.phase == AaptOptions::Phase::Compile) {
-        flag::requiredFlag("--package", "Android package name",
-                [&options](const StringPiece& arg) {
-                    options.appInfo.package = util::utf8ToUtf16(arg);
-                });
-        flag::optionalFlag("--binding", "Output directory for binding XML files",
-                [&options](const StringPiece& arg) {
-                    options.bindingOutput = Source{ arg.toString() };
-                });
-        flag::optionalSwitch("--no-version", "Disables automatic style and layout versioning",
-                             false, &options.versionStylesAndLayouts);
-
-    } else if (options.phase == AaptOptions::Phase::Link) {
+    bool isStaticLib = false;
+    if (options.phase == AaptOptions::Phase::Link) {
         flag::requiredFlag("--manifest", "AndroidManifest.xml of your app",
                 [&options](const StringPiece& arg) {
                     options.manifest = Source{ arg.toString() };
@@ -987,12 +1100,43 @@ static AaptOptions prepareArgs(int argc, char** argv) {
                 [&options](const StringPiece& arg) {
                     options.generateJavaClass = Source{ arg.toString() };
                 });
+
+        flag::optionalFlag("--proguard", "file in which to output proguard rules",
+                [&options](const StringPiece& arg) {
+                    options.generateProguardRules = Source{ arg.toString() };
+                });
+
+        flag::optionalSwitch("--static-lib", "generate a static Android library", true,
+                             &isStaticLib);
+
+        flag::optionalFlag("--binding", "Output directory for binding XML files",
+                [&options](const StringPiece& arg) {
+                    options.bindingOutput = Source{ arg.toString() };
+                });
+        flag::optionalSwitch("--no-version", "Disables automatic style and layout versioning",
+                             false, &options.versionStylesAndLayouts);
     }
 
-    // Common flags for all steps.
-    flag::requiredFlag("-o", "Output path", [&options](const StringPiece& arg) {
-        options.output = Source{ arg.toString() };
-    });
+    if (options.phase == AaptOptions::Phase::Compile ||
+            options.phase == AaptOptions::Phase::Link) {
+        // Common flags for all steps.
+        flag::requiredFlag("-o", "Output path", [&options](const StringPiece& arg) {
+            options.output = Source{ arg.toString() };
+        });
+    }
+
+    if (options.phase == AaptOptions::Phase::DumpStyleGraph) {
+        flag::requiredFlag("--style", "Name of the style to dump",
+                [&options](const StringPiece& arg, std::string* outError) -> bool {
+                    Reference styleReference;
+                    if (!ResourceParser::parseStyleParentReference(util::utf8ToUtf16(arg),
+                                &styleReference, outError)) {
+                        return false;
+                    }
+                    options.dumpStyleTarget = styleReference.name;
+                    return true;
+                });
+    }
 
     bool help = false;
     flag::optionalSwitch("-v", "enables verbose logging", true, &options.verbose);
@@ -1010,6 +1154,10 @@ static AaptOptions prepareArgs(int argc, char** argv) {
         flag::usageAndDie(fullCommand);
     }
 
+    if (isStaticLib) {
+        options.packageType = AaptOptions::PackageType::StaticLibrary;
+    }
+
     // Copy all the remaining arguments.
     for (const std::string& arg : flag::getArgs()) {
         options.input.push_back(Source{ arg });
@@ -1017,25 +1165,72 @@ static AaptOptions prepareArgs(int argc, char** argv) {
     return options;
 }
 
+static bool doDump(const AaptOptions& options) {
+    for (const Source& source : options.input) {
+        std::unique_ptr<ZipFile> zipFile = util::make_unique<ZipFile>();
+        if (zipFile->open(source.path.data(), ZipFile::kOpenReadOnly) != android::NO_ERROR) {
+            Logger::error(source) << "failed to open: " << strerror(errno) << std::endl;
+            return false;
+        }
+
+        std::shared_ptr<ResourceTable> table = std::make_shared<ResourceTable>();
+        std::shared_ptr<ResourceTableResolver> resolver =
+                std::make_shared<ResourceTableResolver>(
+                        table, std::vector<std::shared_ptr<const android::AssetManager>>());
+
+        ZipEntry* entry = zipFile->getEntryByName("resources.arsc");
+        if (!entry) {
+            Logger::error(source) << "missing 'resources.arsc'." << std::endl;
+            return false;
+        }
+
+        std::unique_ptr<void, DeleteMalloc> uncompressedData = std::unique_ptr<void, DeleteMalloc>(
+                zipFile->uncompress(entry));
+        assert(uncompressedData);
+
+        BinaryResourceParser parser(table, resolver, source, {}, uncompressedData.get(),
+                                    entry->getUncompressedLen());
+        if (!parser.parse()) {
+            return false;
+        }
+
+        if (options.phase == AaptOptions::Phase::Dump) {
+            Debug::printTable(table);
+        } else if (options.phase == AaptOptions::Phase::DumpStyleGraph) {
+            Debug::printStyleGraph(table, options.dumpStyleTarget);
+        }
+    }
+    return true;
+}
+
 int main(int argc, char** argv) {
     Logger::setLog(std::make_shared<Log>(std::cerr, std::cerr));
     AaptOptions options = prepareArgs(argc, argv);
+
+    if (options.phase == AaptOptions::Phase::Dump ||
+            options.phase == AaptOptions::Phase::DumpStyleGraph) {
+        if (!doDump(options)) {
+            return 1;
+        }
+        return 0;
+    }
 
     // If we specified a manifest, go ahead and load the package name from the manifest.
     if (!options.manifest.path.empty()) {
         if (!loadAppInfo(options.manifest, &options.appInfo)) {
             return false;
         }
-    }
 
-    // Verify we have some common options set.
-    if (options.appInfo.package.empty()) {
-        Logger::error() << "no package name specified." << std::endl;
-        return false;
+        if (options.appInfo.package.empty()) {
+            Logger::error() << "no package name specified." << std::endl;
+            return false;
+        }
     }
 
     // Every phase needs a resource table.
     std::shared_ptr<ResourceTable> table = std::make_shared<ResourceTable>();
+
+    // The package name is empty when in the compile phase.
     table->setPackage(options.appInfo.package);
     if (options.appInfo.package == u"android") {
         table->setPackageId(0x01);
@@ -1044,36 +1239,26 @@ int main(int argc, char** argv) {
     }
 
     // Load the included libraries.
-    std::shared_ptr<android::AssetManager> libraries = std::make_shared<android::AssetManager>();
+    std::vector<std::shared_ptr<const android::AssetManager>> sources;
     for (const Source& source : options.libraries) {
-        if (util::stringEndsWith<char>(source.path, ".arsc")) {
-            // We'll process these last so as to avoid a cookie issue.
-            continue;
-        }
-
+        std::shared_ptr<android::AssetManager> assetManager =
+                std::make_shared<android::AssetManager>();
         int32_t cookie;
-        if (!libraries->addAssetPath(android::String8(source.path.data()), &cookie)) {
+        if (!assetManager->addAssetPath(android::String8(source.path.data()), &cookie)) {
             Logger::error(source) << "failed to load library." << std::endl;
             return false;
         }
-    }
 
-    for (const Source& source : options.libraries) {
-        if (!util::stringEndsWith<char>(source.path, ".arsc")) {
-            // We've already processed this.
-            continue;
-        }
-
-        // Dirty hack but there is no other way to get a
-        // writeable ResTable.
-        if (!loadResTable(const_cast<android::ResTable*>(&libraries->getResources(false)),
-                          source)) {
+        if (cookie == 0) {
+            Logger::error(source) << "failed to load library." << std::endl;
             return false;
         }
+        sources.push_back(assetManager);
     }
 
     // Make the resolver that will cache IDs for us.
-    std::shared_ptr<Resolver> resolver = std::make_shared<Resolver>(table, libraries);
+    std::shared_ptr<ResourceTableResolver> resolver = std::make_shared<ResourceTableResolver>(
+            table, sources);
 
     if (options.phase == AaptOptions::Phase::Compile) {
         if (!compile(options, table, resolver)) {

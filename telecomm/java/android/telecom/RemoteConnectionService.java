@@ -17,6 +17,7 @@
 package android.telecom;
 
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.IBinder.DeathRecipient;
 import android.os.RemoteException;
@@ -176,6 +177,13 @@ final class RemoteConnectionService {
         }
 
         @Override
+        public void setConferenceMergeFailed(String callId) {
+            // Nothing to do here.
+            // The event has already been handled and there is no state to update
+            // in the underlying connection or conference objects
+        }
+
+        @Override
         public void addConferenceCall(
                 final String callId,
                 ParcelableConference parcel) {
@@ -310,6 +318,17 @@ final class RemoteConnectionService {
                     mOutgoingConnectionServiceRpc, connection);
 
             mOurConnectionServiceImpl.addRemoteExistingConnection(remoteConnction);
+        }
+
+        @Override
+        public void setExtras(String callId, Bundle extras) {
+            if (mConnectionById.containsKey(callId)) {
+                findConnectionForAction(callId, "setExtras")
+                        .setExtras(extras);
+            } else {
+                findConferenceForAction(callId, "setExtras")
+                        .setExtras(extras);
+            }
         }
     };
 

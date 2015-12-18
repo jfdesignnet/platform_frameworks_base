@@ -42,7 +42,7 @@ public final class ConnectionRequest implements Parcelable {
             PhoneAccountHandle accountHandle,
             Uri handle,
             Bundle extras) {
-        this(accountHandle, handle, extras, VideoProfile.VideoState.AUDIO_ONLY);
+        this(accountHandle, handle, extras, VideoProfile.STATE_AUDIO_ONLY);
     }
 
     /**
@@ -50,7 +50,6 @@ public final class ConnectionRequest implements Parcelable {
      * @param handle The handle (e.g., phone number) to which the {@link Connection} is to connect.
      * @param extras Application-specific extra data.
      * @param videoState Determines the video state for the connection.
-     * @hide
      */
     public ConnectionRequest(
             PhoneAccountHandle accountHandle,
@@ -89,13 +88,12 @@ public final class ConnectionRequest implements Parcelable {
 
     /**
      * Describes the video states supported by the client requesting the connection.
-     * Valid values: {@link VideoProfile.VideoState#AUDIO_ONLY},
-     * {@link VideoProfile.VideoState#BIDIRECTIONAL},
-     * {@link VideoProfile.VideoState#TX_ENABLED},
-     * {@link VideoProfile.VideoState#RX_ENABLED}.
+     * Valid values: {@link VideoProfile#STATE_AUDIO_ONLY},
+     * {@link VideoProfile#STATE_BIDIRECTIONAL},
+     * {@link VideoProfile#STATE_TX_ENABLED},
+     * {@link VideoProfile#STATE_RX_ENABLED}.
      *
      * @return The video state for the connection.
-     * @hide
      */
     public int getVideoState() {
         return mVideoState;

@@ -16,6 +16,13 @@
 
 package com.android.statementservice.retriever;
 
+import android.util.JsonReader;
+
+import org.json.JSONException;
+
+import java.io.IOException;
+import java.io.StringReader;
+
 /**
  * A handle representing the identity and address of some digital asset. An asset is an online
  * entity that typically provides some service or content. Examples of assets are websites, Android
@@ -61,6 +68,19 @@ public abstract class AbstractAsset {
      */
     public static AbstractAsset create(String assetJson)
             throws AssociationServiceException {
-        return AssetFactory.create(assetJson);
+        JsonReader reader = new JsonReader(new StringReader(assetJson));
+        reader.setLenient(false);
+        try {
+            return AssetFactory.create(JsonParser.parse(reader));
+        } catch (JSONException | IOException e) {
+            throw new AssociationServiceException(
+                    "Input is not a well formatted asset descriptor.", e);
+        }
     }
+
+    /**
+     * If this is the source asset of a statement file, should the retriever follow
+     * any insecure (non-HTTPS) include statements made by the asset.
+     */
+    public abstract boolean followInsecureInclude();
 }

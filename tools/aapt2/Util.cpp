@@ -28,6 +28,9 @@
 namespace aapt {
 namespace util {
 
+constexpr const char16_t* kSchemaAuto = u"http://schemas.android.com/apk/res-auto";
+constexpr const char16_t* kSchemaPrefix = u"http://schemas.android.com/apk/res/";
+
 static std::vector<std::string> splitAndTransform(const StringPiece& str, char sep,
         const std::function<char(char)>& f) {
     std::vector<std::string> parts;
@@ -97,6 +100,51 @@ StringPiece16::const_iterator findNonAlphaNumericAndNotInSet(const StringPiece16
         }
     }
     return endIter;
+}
+
+bool isJavaClassName(const StringPiece16& str) {
+    size_t pieces = 0;
+    for (const StringPiece16& piece : tokenize(str, u'.')) {
+        pieces++;
+        if (piece.empty()) {
+            return false;
+        }
+
+        // Can't have starting or trailing $ character.
+        if (piece.data()[0] == u'$' || piece.data()[piece.size() - 1] == u'$') {
+            return false;
+        }
+
+        if (findNonAlphaNumericAndNotInSet(piece, u"$_") != piece.end()) {
+            return false;
+        }
+    }
+    return pieces >= 2;
+}
+
+Maybe<std::u16string> getFullyQualifiedClassName(const StringPiece16& package,
+                                                 const StringPiece16& className) {
+    if (className.empty()) {
+        return {};
+    }
+
+    if (util::isJavaClassName(className)) {
+        return className.toString();
+    }
+
+    if (package.empty()) {
+        return {};
+    }
+
+    std::u16string result(package.data(), package.size());
+    if (className.data()[0] != u'.') {
+        result += u'.';
+    }
+    result.append(className.data(), className.size());
+    if (!isJavaClassName(result)) {
+        return {};
+    }
+    return result;
 }
 
 static Maybe<char16_t> parseUnicodeCodepoint(const char16_t** start, const char16_t* end) {
@@ -277,6 +325,18 @@ std::unique_ptr<uint8_t[]> copy(const BigBuffer& buffer) {
         p += block.size;
     }
     return data;
+}
+
+Maybe<std::u16string> extractPackageFromNamespace(const std::u16string& namespaceUri) {
+    if (stringStartsWith<char16_t>(namespaceUri, kSchemaPrefix)) {
+        StringPiece16 schemaPrefix = kSchemaPrefix;
+        StringPiece16 package = namespaceUri;
+        return package.substr(schemaPrefix.size(), package.size() - schemaPrefix.size())
+                .toString();
+    } else if (namespaceUri == kSchemaAuto) {
+        return std::u16string();
+    }
+    return {};
 }
 
 } // namespace util

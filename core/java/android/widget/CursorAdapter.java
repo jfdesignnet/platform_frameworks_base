@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.annotation.WorkerThread;
 import android.content.Context;
 import android.content.res.Resources;
 import android.database.ContentObserver;
@@ -37,7 +38,7 @@ import android.view.ViewGroup;
  * columns.
  */
 public abstract class CursorAdapter extends BaseAdapter implements Filterable,
-        CursorFilter.CursorFilterClient, Spinner.ThemedSpinnerAdapter {
+        CursorFilter.CursorFilterClient, ThemedSpinnerAdapter {
     /**
      * This field should be made private, so it is hidden from the SDK.
      * {@hide}
@@ -425,6 +426,7 @@ public abstract class CursorAdapter extends BaseAdapter implements Filterable,
      * @see #getFilterQueryProvider()
      * @see #setFilterQueryProvider(android.widget.FilterQueryProvider)
      */
+    @WorkerThread
     public Cursor runQueryOnBackgroundThread(CharSequence constraint) {
         if (mFilterQueryProvider != null) {
             return mFilterQueryProvider.runQuery(constraint);

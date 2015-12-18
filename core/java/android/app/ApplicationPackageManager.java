@@ -31,6 +31,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.ComponentInfo;
 import android.content.pm.ContainerEncryptionParams;
 import android.content.pm.FeatureInfo;
+import android.content.pm.IOnPermissionsChangeListener;
 import android.content.pm.IPackageDataObserver;
 import android.content.pm.IPackageDeleteObserver;
 import android.content.pm.IPackageInstallObserver;
@@ -62,6 +63,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -79,6 +81,7 @@ import android.view.Display;
 import dalvik.system.VMRuntime;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.os.SomeArgs;
 import com.android.internal.util.Preconditions;
 import com.android.internal.util.UserIcons;
 
@@ -86,6 +89,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /*package*/
@@ -105,6 +109,9 @@ final class ApplicationPackageManager extends PackageManager {
 
     @GuardedBy("mDelegates")
     private final ArrayList<MoveCallbackDelegate> mDelegates = new ArrayList<>();
+
+    @GuardedBy("mLock")
+    private String mPermissionsControllerPackageName;
 
     UserManager getUserManager() {
         synchronized (mLock) {
@@ -417,6 +424,32 @@ final class ApplicationPackageManager extends PackageManager {
     }
 
     @Override
+    public boolean isPermissionRevokedByPolicy(String permName, String pkgName) {
+        try {
+            return mPM.isPermissionRevokedByPolicy(permName, pkgName, mContext.getUserId());
+        } catch (RemoteException e) {
+            throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public String getPermissionControllerPackageName() {
+        synchronized (mLock) {
+            if (mPermissionsControllerPackageName == null) {
+                try {
+                    mPermissionsControllerPackageName = mPM.getPermissionControllerPackageName();
+                } catch (RemoteException e) {
+                    throw new RuntimeException("Package manager has died", e);
+                }
+            }
+            return mPermissionsControllerPackageName;
+        }
+    }
+
+    @Override
     public boolean addPermission(PermissionInfo info) {
         try {
             return mPM.addPermission(info);
@@ -444,18 +477,50 @@ final class ApplicationPackageManager extends PackageManager {
     }
 
     @Override
-    public void grantPermission(String packageName, String permissionName, UserHandle user) {
+    public void grantRuntimePermission(String packageName, String permissionName,
+            UserHandle user) {
         try {
-            mPM.grantPermission(packageName, permissionName, user.getIdentifier());
+            mPM.grantRuntimePermission(packageName, permissionName, user.getIdentifier());
         } catch (RemoteException e) {
             throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @Override
-    public void revokePermission(String packageName, String permissionName, UserHandle user) {
+    public void revokeRuntimePermission(String packageName, String permissionName,
+            UserHandle user) {
         try {
-            mPM.revokePermission(packageName, permissionName, user.getIdentifier());
+            mPM.revokeRuntimePermission(packageName, permissionName, user.getIdentifier());
+        } catch (RemoteException e) {
+            throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    @Override
+    public int getPermissionFlags(String permissionName, String packageName, UserHandle user) {
+        try {
+            return mPM.getPermissionFlags(permissionName, packageName, user.getIdentifier());
+        } catch (RemoteException e) {
+            throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    @Override
+    public void updatePermissionFlags(String permissionName, String packageName,
+            int flagMask, int flagValues, UserHandle user) {
+        try {
+            mPM.updatePermissionFlags(permissionName, packageName, flagMask,
+                    flagValues, user.getIdentifier());
+        } catch (RemoteException e) {
+            throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    @Override
+    public boolean shouldShowRequestPermissionRationale(String permission) {
+        try {
+            return mPM.shouldShowRequestPermissionRationale(permission,
+                    mContext.getPackageName(), mContext.getUserId());
         } catch (RemoteException e) {
             throw new RuntimeException("Package manager has died", e);
         }
@@ -712,7 +777,9 @@ final class ApplicationPackageManager extends PackageManager {
     public List<ProviderInfo> queryContentProviders(String processName,
                                                     int uid, int flags) {
         try {
-            return mPM.queryContentProviders(processName, uid, flags);
+            ParceledListSlice<ProviderInfo> slice
+                    = mPM.queryContentProviders(processName, uid, flags);
+            return slice != null ? slice.getList() : null;
         } catch (RemoteException e) {
             throw new RuntimeException("Package manager has died", e);
         }
@@ -1011,6 +1078,38 @@ final class ApplicationPackageManager extends PackageManager {
             return mCachedSafeMode != 0;
         } catch (RemoteException e) {
             throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    @Override
+    public void addOnPermissionsChangeListener(OnPermissionsChangedListener listener) {
+        synchronized (mPermissionListeners) {
+            if (mPermissionListeners.get(listener) != null) {
+                return;
+            }
+            OnPermissionsChangeListenerDelegate delegate =
+                    new OnPermissionsChangeListenerDelegate(listener, Looper.getMainLooper());
+            try {
+                mPM.addOnPermissionsChangeListener(delegate);
+                mPermissionListeners.put(listener, delegate);
+            } catch (RemoteException e) {
+                throw new RuntimeException("Package manager has died", e);
+            }
+        }
+    }
+
+    @Override
+    public void removeOnPermissionsChangeListener(OnPermissionsChangedListener listener) {
+        synchronized (mPermissionListeners) {
+            IOnPermissionsChangeListener delegate = mPermissionListeners.get(listener);
+            if (delegate != null) {
+                try {
+                    mPM.removeOnPermissionsChangeListener(delegate);
+                    mPermissionListeners.remove(listener);
+                } catch (RemoteException e) {
+                    throw new RuntimeException("Package manager has died", e);
+                }
+            }
         }
     }
 
@@ -1520,7 +1619,8 @@ final class ApplicationPackageManager extends PackageManager {
         // System apps and apps demanding internal storage can't be moved
         // anywhere else
         if (app.isSystemApp()
-                || app.installLocation == PackageInfo.INSTALL_LOCATION_INTERNAL_ONLY) {
+                || app.installLocation == PackageInfo.INSTALL_LOCATION_INTERNAL_ONLY
+                || app.installLocation == PackageInfo.INSTALL_LOCATION_UNSPECIFIED) {
             return false;
         }
 
@@ -1560,13 +1660,7 @@ final class ApplicationPackageManager extends PackageManager {
     public @Nullable VolumeInfo getPrimaryStorageCurrentVolume() {
         final StorageManager storage = mContext.getSystemService(StorageManager.class);
         final String volumeUuid = storage.getPrimaryStorageUuid();
-        if (Objects.equals(StorageManager.UUID_PRIVATE_INTERNAL, volumeUuid)) {
-            return storage.findVolumeById(VolumeInfo.ID_PRIVATE_INTERNAL);
-        } else if (Objects.equals(StorageManager.UUID_PRIMARY_PHYSICAL, volumeUuid)) {
-            return storage.getPrimaryPhysicalVolume();
-        } else {
-            return storage.findVolumeByUuid(volumeUuid);
-        }
+        return storage.findVolumeByQualifiedUuid(volumeUuid);
     }
 
     @Override
@@ -1575,9 +1669,15 @@ final class ApplicationPackageManager extends PackageManager {
         final VolumeInfo currentVol = getPrimaryStorageCurrentVolume();
         final List<VolumeInfo> vols = storage.getVolumes();
         final List<VolumeInfo> candidates = new ArrayList<>();
-        for (VolumeInfo vol : vols) {
-            if (Objects.equals(vol, currentVol) || isPrimaryStorageCandidateVolume(vol)) {
-                candidates.add(vol);
+        if (Objects.equals(StorageManager.UUID_PRIMARY_PHYSICAL,
+                storage.getPrimaryStorageUuid()) && currentVol != null) {
+            // TODO: support moving primary physical to emulated volume
+            candidates.add(currentVol);
+        } else {
+            for (VolumeInfo vol : vols) {
+                if (Objects.equals(vol, currentVol) || isPrimaryStorageCandidateVolume(vol)) {
+                    candidates.add(vol);
+                }
             }
         }
         return candidates;
@@ -1594,12 +1694,7 @@ final class ApplicationPackageManager extends PackageManager {
             return false;
         }
 
-        // We can move to public volumes on legacy devices
-        if ((vol.getType() == VolumeInfo.TYPE_PUBLIC) && vol.getDisk().isDefaultPrimary()) {
-            return true;
-        }
-
-        // Otherwise we can move to any private volume
+        // We can move to any private volume
         return (vol.getType() == VolumeInfo.TYPE_PRIVATE);
     }
 
@@ -2054,7 +2149,7 @@ final class ApplicationPackageManager extends PackageManager {
     /** {@hide} */
     private static class MoveCallbackDelegate extends IPackageMoveObserver.Stub implements
             Handler.Callback {
-        private static final int MSG_STARTED = 1;
+        private static final int MSG_CREATED = 1;
         private static final int MSG_STATUS_CHANGED = 2;
 
         final MoveCallback mCallback;
@@ -2067,26 +2162,38 @@ final class ApplicationPackageManager extends PackageManager {
 
         @Override
         public boolean handleMessage(Message msg) {
-            final int moveId = msg.arg1;
             switch (msg.what) {
-                case MSG_STARTED:
-                    mCallback.onStarted(moveId, (String) msg.obj);
+                case MSG_CREATED: {
+                    final SomeArgs args = (SomeArgs) msg.obj;
+                    mCallback.onCreated(args.argi1, (Bundle) args.arg2);
+                    args.recycle();
                     return true;
-                case MSG_STATUS_CHANGED:
-                    mCallback.onStatusChanged(moveId, msg.arg2, (long) msg.obj);
+                }
+                case MSG_STATUS_CHANGED: {
+                    final SomeArgs args = (SomeArgs) msg.obj;
+                    mCallback.onStatusChanged(args.argi1, args.argi2, (long) args.arg3);
+                    args.recycle();
                     return true;
+                }
             }
             return false;
         }
 
         @Override
-        public void onStarted(int moveId, String title) {
-            mHandler.obtainMessage(MSG_STARTED, moveId, 0, title).sendToTarget();
+        public void onCreated(int moveId, Bundle extras) {
+            final SomeArgs args = SomeArgs.obtain();
+            args.argi1 = moveId;
+            args.arg2 = extras;
+            mHandler.obtainMessage(MSG_CREATED, args).sendToTarget();
         }
 
         @Override
         public void onStatusChanged(int moveId, int status, long estMillis) {
-            mHandler.obtainMessage(MSG_STATUS_CHANGED, moveId, status, estMillis).sendToTarget();
+            final SomeArgs args = SomeArgs.obtain();
+            args.argi1 = moveId;
+            args.argi2 = status;
+            args.arg3 = estMillis;
+            mHandler.obtainMessage(MSG_STATUS_CHANGED, args).sendToTarget();
         }
     }
 
@@ -2098,4 +2205,39 @@ final class ApplicationPackageManager extends PackageManager {
             = new ArrayMap<ResourceName, WeakReference<Drawable.ConstantState>>();
     private static ArrayMap<ResourceName, WeakReference<CharSequence>> sStringCache
             = new ArrayMap<ResourceName, WeakReference<CharSequence>>();
+
+    private final Map<OnPermissionsChangedListener, IOnPermissionsChangeListener>
+            mPermissionListeners = new ArrayMap<>();
+
+    public class OnPermissionsChangeListenerDelegate extends IOnPermissionsChangeListener.Stub
+            implements Handler.Callback{
+        private static final int MSG_PERMISSIONS_CHANGED = 1;
+
+        private final OnPermissionsChangedListener mListener;
+        private final Handler mHandler;
+
+
+        public OnPermissionsChangeListenerDelegate(OnPermissionsChangedListener listener,
+                Looper looper) {
+            mListener = listener;
+            mHandler = new Handler(looper, this);
+        }
+
+        @Override
+        public void onPermissionsChanged(int uid) {
+            mHandler.obtainMessage(MSG_PERMISSIONS_CHANGED, uid, 0).sendToTarget();
+        }
+
+        @Override
+        public boolean handleMessage(Message msg) {
+            switch (msg.what) {
+                case MSG_PERMISSIONS_CHANGED: {
+                    final int uid = msg.arg1;
+                    mListener.onPermissionsChanged(uid);
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
 }

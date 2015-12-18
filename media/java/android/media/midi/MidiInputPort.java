@@ -49,6 +49,8 @@ public final class MidiInputPort extends MidiReceiver implements Closeable {
 
     /* package */ MidiInputPort(IMidiDeviceServer server, IBinder token,
             ParcelFileDescriptor pfd, int portNumber) {
+        super(MidiPortImpl.MAX_PACKET_DATA_SIZE);
+
         mDeviceServer = server;
         mToken = token;
         mParcelFileDescriptor = pfd;
@@ -71,7 +73,7 @@ public final class MidiInputPort extends MidiReceiver implements Closeable {
     }
 
     @Override
-    public void onReceive(byte[] msg, int offset, int count, long timestamp) throws IOException {
+    public void onSend(byte[] msg, int offset, int count, long timestamp) throws IOException {
         if (offset < 0 || count < 0 || offset + count > msg.length) {
             throw new IllegalArgumentException("offset or count out of range");
         }
@@ -89,7 +91,7 @@ public final class MidiInputPort extends MidiReceiver implements Closeable {
     }
 
     @Override
-    public void flush() throws IOException {
+    public void onFlush() throws IOException {
         synchronized (mBuffer) {
             if (mOutputStream == null) {
                 throw new IOException("MidiInputPort is closed");
@@ -101,20 +103,31 @@ public final class MidiInputPort extends MidiReceiver implements Closeable {
 
     // used by MidiDevice.connectInputPort() to connect our socket directly to another device
     /* package */ ParcelFileDescriptor claimFileDescriptor() {
-        synchronized (mBuffer) {
-            ParcelFileDescriptor pfd = mParcelFileDescriptor;
-            if (pfd != null) {
+        synchronized (mGuard) {
+            ParcelFileDescriptor pfd;
+            synchronized (mBuffer) {
+                pfd = mParcelFileDescriptor;
+                if (pfd == null) return null;
                 IoUtils.closeQuietly(mOutputStream);
                 mParcelFileDescriptor = null;
                 mOutputStream = null;
             }
+
+            // Set mIsClosed = true so we will not call mDeviceServer.closePort() in close().
+            // MidiDevice.MidiConnection.close() will do the cleanup instead.
+            mIsClosed = true;
             return pfd;
         }
     }
 
-    @Override
-    public int getMaxMessageSize() {
-        return MidiPortImpl.MAX_PACKET_DATA_SIZE;
+    // used by MidiDevice.MidiConnection to close this port after the connection is closed
+    /* package */ IBinder getToken() {
+        return mToken;
+    }
+
+    // used by MidiDevice.MidiConnection to close this port after the connection is closed
+    /* package */ IMidiDeviceServer getDeviceServer() {
+        return mDeviceServer;
     }
 
     @Override

@@ -37,7 +37,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.Locale;
 
-
 /**
  * Top-level service of the current global voice interactor, which is providing
  * support for hotwording, the back-end of a {@link android.app.VoiceInteractor}, etc.
@@ -70,24 +69,6 @@ public class VoiceInteractionService extends Service {
      */
     public static final String SERVICE_META_DATA = "android.voice_interaction";
 
-    /**
-     * Flag for use with {@link #showSession}: request that the session be started with
-     * assist data from the currently focused activity.
-     */
-    public static final int START_WITH_ASSIST = 1<<0;
-
-    /**
-     * Flag for use with {@link #showSession}: request that the session be started with
-     * a screen shot of the currently focused activity.
-     */
-    public static final int START_WITH_SCREENSHOT = 1<<1;
-
-    /**
-     * Flag for use with {@link #showSession}: indicate that the session has been started from the
-     * system assist gesture.
-     */
-    public static final int START_SOURCE_ASSIST_GESTURE = 1<<2;
-
     IVoiceInteractionService mInterface = new IVoiceInteractionService.Stub() {
         @Override public void ready() {
             mHandler.sendEmptyMessage(MSG_READY);
@@ -97,6 +78,10 @@ public class VoiceInteractionService extends Service {
         }
         @Override public void soundModelsChanged() {
             mHandler.sendEmptyMessage(MSG_SOUND_MODELS_CHANGED);
+        }
+        @Override
+        public void launchVoiceAssistFromKeyguard() throws RemoteException {
+            mHandler.sendEmptyMessage(MSG_LAUNCH_VOICE_ASSIST_FROM_KEYGUARD);
         }
     };
 
@@ -113,6 +98,7 @@ public class VoiceInteractionService extends Service {
     static final int MSG_READY = 1;
     static final int MSG_SHUTDOWN = 2;
     static final int MSG_SOUND_MODELS_CHANGED = 3;
+    static final int MSG_LAUNCH_VOICE_ASSIST_FROM_KEYGUARD = 4;
 
     class MyHandler extends Handler {
         @Override
@@ -127,10 +113,26 @@ public class VoiceInteractionService extends Service {
                 case MSG_SOUND_MODELS_CHANGED:
                     onSoundModelsChangedInternal();
                     break;
+                case MSG_LAUNCH_VOICE_ASSIST_FROM_KEYGUARD:
+                    onLaunchVoiceAssistFromKeyguard();
+                    break;
                 default:
                     super.handleMessage(msg);
             }
         }
+    }
+
+    /**
+     * Called when a user has activated an affordance to launch voice assist from the Keyguard.
+     *
+     * <p>This method will only be called if the VoiceInteractionService has set
+     * {@link android.R.attr#supportsLaunchVoiceAssistFromKeyguard} and the Keyguard is showing.</p>
+     *
+     * <p>A valid implementation must start a new activity that should use {@link
+     * android.view.WindowManager.LayoutParams#FLAG_SHOW_WHEN_LOCKED} to display
+     * on top of the lock screen.</p>
+     */
+    public void onLaunchVoiceAssistFromKeyguard() {
     }
 
     /**
@@ -151,9 +153,41 @@ public class VoiceInteractionService extends Service {
     }
 
     /**
+     * Set contextual options you would always like to have disabled when a session
+     * is shown.  The flags may be any combination of
+     * {@link VoiceInteractionSession#SHOW_WITH_ASSIST VoiceInteractionSession.SHOW_WITH_ASSIST} and
+     * {@link VoiceInteractionSession#SHOW_WITH_SCREENSHOT
+     * VoiceInteractionSession.SHOW_WITH_SCREENSHOT}.
+     */
+    public void setDisabledShowContext(int flags) {
+        try {
+            mSystemService.setDisabledShowContext(flags);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Return the value set by {@link #setDisabledShowContext}.
+     */
+    public int getDisabledShowContext() {
+        try {
+            return mSystemService.getDisabledShowContext();
+        } catch (RemoteException e) {
+            return 0;
+        }
+    }
+
+    /**
      * Request that the associated {@link android.service.voice.VoiceInteractionSession} be
      * shown to the user, starting it if necessary.
      * @param args Arbitrary arguments that will be propagated to the session.
+     * @param flags Indicates additional optional behavior that should be performed.  May
+     * be any combination of
+     * {@link VoiceInteractionSession#SHOW_WITH_ASSIST VoiceInteractionSession.SHOW_WITH_ASSIST} and
+     * {@link VoiceInteractionSession#SHOW_WITH_SCREENSHOT
+      * VoiceInteractionSession.SHOW_WITH_SCREENSHOT}
+     * to request that the system generate and deliver assist data on the current foreground
+     * app as part of showing the session UI.
      */
     public void showSession(Bundle args, int flags) {
         if (mSystemService == null) {
@@ -163,15 +197,6 @@ public class VoiceInteractionService extends Service {
             mSystemService.showSession(mInterface, args, flags);
         } catch (RemoteException e) {
         }
-    }
-
-    /** @hide */
-    public void startSession(Bundle args, int flags) {
-        showSession(args, flags);
-    }
-    /** @hide */
-    public void startSession(Bundle args) {
-        startSession(args, 0);
     }
 
     @Override

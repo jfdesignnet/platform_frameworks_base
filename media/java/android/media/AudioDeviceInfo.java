@@ -16,12 +16,15 @@
 
 package android.media;
 
+import android.annotation.NonNull;
 import android.util.SparseIntArray;
+
+import java.util.TreeSet;
 
 /**
  * Class to provide information about the audio devices.
  */
-public class AudioDeviceInfo {
+public final class AudioDeviceInfo {
 
     /**
      * A device type associated with an unknown or uninitialized device.
@@ -104,6 +107,10 @@ public class AudioDeviceInfo {
      * A device type describing the auxiliary line-level connectors.
      */
     public static final int TYPE_AUX_LINE         = 19;
+    /**
+     * A device type connected over IP.
+     */
+    public static final int TYPE_IP               = 20;
 
     private final AudioDevicePort mPort;
 
@@ -112,7 +119,6 @@ public class AudioDeviceInfo {
     }
 
     /**
-     * @hide
      * @return The internal device ID.
      */
     public int getId() {
@@ -122,15 +128,16 @@ public class AudioDeviceInfo {
     /**
      * @return The human-readable name of the audio device.
      */
-    public String getName() {
-        return mPort.name();
+    public CharSequence getProductName() {
+        String portName = mPort.name();
+        return portName.length() != 0 ? portName : android.os.Build.MODEL;
     }
 
     /**
+     * @hide
      * @return The "address" string of the device. This generally contains device-specific
      * parameters.
      */
-    // TODO Is there a compelling reason to expose this?
     public String getAddress() {
         return mPort.address();
     }
@@ -151,39 +158,79 @@ public class AudioDeviceInfo {
 
     /**
      * @return An array of sample rates supported by the audio device.
+     *
+     * Note: an empty array indicates that the device supports arbitrary rates.
      */
-    public int[] getSampleRates() {
+    public @NonNull int[] getSampleRates() {
         return mPort.samplingRates();
     }
 
     /**
-     * @return An array of channel masks supported by the audio device (defined in
-     * AudioFormat.java).
+     * @return An array of channel position masks (e.g. {@link AudioFormat#CHANNEL_IN_STEREO},
+     * {@link AudioFormat#CHANNEL_OUT_7POINT1}) for which this audio device can be configured.
+     *
+     * @see AudioFormat
+     *
+     * Note: an empty array indicates that the device supports arbitrary channel masks.
      */
-    public int[] getChannelMasks() {
+    public @NonNull int[] getChannelMasks() {
         return mPort.channelMasks();
     }
 
     /**
-     * @return An array of channel counts supported by the audio device.
+     * @return An array of channel index masks for which this audio device can be configured.
+     *
+     * @see AudioFormat
+     *
+     * Note: an empty array indicates that the device supports arbitrary channel index masks.
      */
-    public int[] getChannelCounts() {
-        int[] masks = getChannelMasks();
-        int[] counts = new int[masks.length];
-        for (int mask_index = 0; mask_index < masks.length; mask_index++) {
-            counts[mask_index] = isSink()
-                    ? AudioFormat.channelCountFromOutChannelMask(masks[mask_index])
-                    : AudioFormat.channelCountFromInChannelMask(masks[mask_index]);
+    public @NonNull int[] getChannelIndexMasks() {
+        return mPort.channelIndexMasks();
+    }
+
+    /**
+     * @return An array of channel counts (1, 2, 4, ...) for which this audio device
+     * can be configured.
+     *
+     * Note: an empty array indicates that the device supports arbitrary channel counts.
+     */
+    public @NonNull int[] getChannelCounts() {
+        TreeSet<Integer> countSet = new TreeSet<Integer>();
+
+        // Channel Masks
+        for (int mask : getChannelMasks()) {
+            countSet.add(isSink() ?
+                    AudioFormat.channelCountFromOutChannelMask(mask)
+                    : AudioFormat.channelCountFromInChannelMask(mask));
+        }
+
+        // Index Masks
+        for (int index_mask : getChannelIndexMasks()) {
+            countSet.add(Integer.bitCount(index_mask));
+        }
+
+        int[] counts = new int[countSet.size()];
+        int index = 0;
+        for (int count : countSet) {
+            counts[index++] = count; 
         }
         return counts;
     }
 
     /**
-     * @return An array of audio format IDs supported by the audio device (defined in
-     * AudioFormat.java)
+     * @return An array of audio encodings (e.g. {@link AudioFormat#ENCODING_PCM_16BIT},
+     * {@link AudioFormat#ENCODING_PCM_FLOAT}) supported by the audio device.
+     * <code>ENCODING_PCM_FLOAT</code> indicates the device supports more
+     * than 16 bits of integer precision.  Specifying <code>ENCODING_PCM_FLOAT</code>
+     * with {@link AudioTrack} or {@link AudioRecord} can preserve at least 24 bits of
+     * integer precision to that device.
+     *
+     * @see AudioFormat
+     *
+     * Note: an empty array indicates that the device supports arbitrary encodings.
      */
-    public int[] getFormats() {
-        return mPort.formats();
+    public @NonNull int[] getEncodings() {
+        return AudioFormat.filterPublicFormats(mPort.formats());
     }
 
    /**
@@ -230,6 +277,7 @@ public class AudioDeviceInfo {
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_SPDIF, TYPE_LINE_DIGITAL);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_FM, TYPE_FM);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_AUX_LINE, TYPE_AUX_LINE);
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_IP, TYPE_IP);
 
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_BUILTIN_MIC, TYPE_BUILTIN_MIC);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_BLUETOOTH_SCO_HEADSET, TYPE_BLUETOOTH_SCO);
@@ -246,6 +294,7 @@ public class AudioDeviceInfo {
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_LINE, TYPE_LINE_ANALOG);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_SPDIF, TYPE_LINE_DIGITAL);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_BLUETOOTH_A2DP, TYPE_BLUETOOTH_A2DP);
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_IP, TYPE_IP);
 
         // not covered here, legacy
         //AudioSystem.DEVICE_OUT_REMOTE_SUBMIX
@@ -272,6 +321,7 @@ public class AudioDeviceInfo {
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_TV_TUNER, AudioSystem.DEVICE_IN_TV_TUNER);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_TELEPHONY, AudioSystem.DEVICE_OUT_TELEPHONY_TX);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_AUX_LINE, AudioSystem.DEVICE_OUT_AUX_LINE);
+        EXT_TO_INT_DEVICE_MAPPING.put(TYPE_IP, AudioSystem.DEVICE_OUT_IP);
     }
 }
 

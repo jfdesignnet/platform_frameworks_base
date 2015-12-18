@@ -32,6 +32,10 @@ import libcore.io.IoUtils;
 import android.app.Activity;
 import android.app.Fragment;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ProviderInfo;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
@@ -92,13 +96,64 @@ abstract class BaseActivity extends Activity {
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+
+        final State state = getDisplayState();
+        final RootInfo root = getCurrentRoot();
+
+        // If we're browsing a specific root, and that root went away, then we
+        // have no reason to hang around
+        if (state.action == State.ACTION_BROWSE && root != null) {
+            if (mRoots.getRootBlocking(root.authority, root.rootId) == null) {
+                finish();
+            }
+        }
+    }
+
+    @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         boolean showMenu = super.onCreateOptionsMenu(menu);
 
         getMenuInflater().inflate(R.menu.activity, menu);
-        mSearchManager.install(menu.findItem(R.id.menu_search));
+        mSearchManager.install((DocumentsToolBar) findViewById(R.id.toolbar));
 
         return showMenu;
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        boolean shown = super.onPrepareOptionsMenu(menu);
+
+        final RootInfo root = getCurrentRoot();
+        final DocumentInfo cwd = getCurrentDirectory();
+
+        final MenuItem sort = menu.findItem(R.id.menu_sort);
+        final MenuItem sortSize = menu.findItem(R.id.menu_sort_size);
+        final MenuItem grid = menu.findItem(R.id.menu_grid);
+        final MenuItem list = menu.findItem(R.id.menu_list);
+
+        final MenuItem advanced = menu.findItem(R.id.menu_advanced);
+        final MenuItem fileSize = menu.findItem(R.id.menu_file_size);
+
+        mSearchManager.update(root);
+
+        // Search uses backend ranking; no sorting
+        sort.setVisible(cwd != null && !mSearchManager.isSearching());
+
+        State state = getDisplayState();
+        grid.setVisible(state.derivedMode != State.MODE_GRID);
+        list.setVisible(state.derivedMode != State.MODE_LIST);
+
+        // Only sort by size when visible
+        sortSize.setVisible(state.showSize);
+
+        advanced.setTitle(LocalPreferences.getDisplayAdvancedDevices(this)
+                ? R.string.menu_advanced_hide : R.string.menu_advanced_show);
+        fileSize.setTitle(LocalPreferences.getDisplayFileSize(this)
+                ? R.string.menu_file_size_hide : R.string.menu_file_size_show);
+
+        return shown;
     }
 
     void onStackRestored(boolean restored, boolean external) {}
@@ -197,9 +252,38 @@ abstract class BaseActivity extends Activity {
         invalidateOptionsMenu();
     }
 
+    final List<String> getExcludedAuthorities() {
+        List<String> authorities = new ArrayList<>();
+        if (getIntent().getBooleanExtra(DocumentsContract.EXTRA_EXCLUDE_SELF, false)) {
+            // Exclude roots provided by the calling package.
+            String packageName = getCallingPackageMaybeExtra();
+            try {
+                PackageInfo pkgInfo = getPackageManager().getPackageInfo(packageName,
+                        PackageManager.GET_PROVIDERS);
+                for (ProviderInfo provider: pkgInfo.providers) {
+                    authorities.add(provider.authority);
+                }
+            } catch (PackageManager.NameNotFoundException e) {
+                Log.e(mTag, "Calling package name does not resolve: " + packageName);
+            }
+        }
+        return authorities;
+    }
+
     final String getCallingPackageMaybeExtra() {
-        final String extra = getIntent().getStringExtra(DocumentsContract.EXTRA_PACKAGE_NAME);
-        return (extra != null) ? extra : getCallingPackage();
+        String callingPackage = getCallingPackage();
+        // System apps can set the calling package name using an extra.
+        try {
+            ApplicationInfo info = getPackageManager().getApplicationInfo(callingPackage, 0);
+            if (info.isSystemApp() || info.isUpdatedSystemApp()) {
+                final String extra = getIntent().getStringExtra(DocumentsContract.EXTRA_PACKAGE_NAME);
+                if (extra != null) {
+                    callingPackage = extra;
+                }
+            }
+        } finally {
+            return callingPackage;
+        }
     }
 
     public static BaseActivity get(Fragment fragment) {
@@ -252,6 +336,9 @@ abstract class BaseActivity extends Activity {
         /** Currently copying file */
         public List<DocumentInfo> selectedDocumentsForCopy = new ArrayList<DocumentInfo>();
 
+        /** Name of the package that started DocsUI */
+        public List<String> excludedAuthorities = new ArrayList<>();
+
         public static final int ACTION_OPEN = 1;
         public static final int ACTION_CREATE = 2;
         public static final int ACTION_GET_CONTENT = 3;
@@ -292,6 +379,7 @@ abstract class BaseActivity extends Activity {
             out.writeString(currentSearch);
             out.writeMap(dirState);
             out.writeList(selectedDocumentsForCopy);
+            out.writeList(excludedAuthorities);
         }
 
         public static final Creator<State> CREATOR = new Creator<State>() {
@@ -313,6 +401,7 @@ abstract class BaseActivity extends Activity {
                 state.currentSearch = in.readString();
                 in.readMap(state.dirState, null);
                 in.readList(state.selectedDocumentsForCopy, null);
+                in.readList(state.excludedAuthorities, null);
                 return state;
             }
 
@@ -592,20 +681,24 @@ abstract class BaseActivity extends Activity {
      * Facade over the various search parts in the menu.
      */
     final class SearchManager implements
-            SearchView.OnCloseListener, OnActionExpandListener, OnQueryTextListener {
+            SearchView.OnCloseListener, OnActionExpandListener, OnQueryTextListener,
+            DocumentsToolBar.OnActionViewCollapsedListener {
 
         private boolean mSearchExpanded;
         private boolean mIgnoreNextClose;
         private boolean mIgnoreNextCollapse;
 
+        private DocumentsToolBar mActionBar;
         private MenuItem mMenu;
         private SearchView mView;
 
-        public void install(MenuItem menu) {
-            assert(mMenu == null);
-            mMenu = menu;
-            mView = (SearchView) menu.getActionView();
+        public void install(DocumentsToolBar actionBar) {
+            assert(mActionBar == null);
+            mActionBar = actionBar;
+            mMenu = actionBar.getSearchMenu();
+            mView = (SearchView) mMenu.getActionView();
 
+            mActionBar.setOnActionViewCollapsedListener(this);
             mMenu.setOnActionExpandListener(this);
             mView.setOnQueryTextListener(this);
             mView.setOnCloseListener(this);
@@ -656,6 +749,19 @@ abstract class BaseActivity extends Activity {
             }
         }
 
+        /**
+         * Cancels current search operation.
+         * @return True if it cancels search. False if it does not operate
+         *     search currently.
+         */
+        boolean cancelSearch() {
+            if (mActionBar.hasExpandedActionView()) {
+                mActionBar.collapseActionView();
+                return true;
+            }
+            return false;
+        }
+
         boolean isSearching() {
             return getDisplayState().currentSearch != null;
         }
@@ -691,7 +797,6 @@ abstract class BaseActivity extends Activity {
                 mIgnoreNextCollapse = false;
                 return true;
             }
-
             getDisplayState().currentSearch = null;
             onCurrentDirectoryChanged(ANIM_NONE);
             return true;
@@ -709,6 +814,11 @@ abstract class BaseActivity extends Activity {
         @Override
         public boolean onQueryTextChange(String newText) {
             return false;
+        }
+
+        @Override
+        public void onActionViewCollapsed() {
+            updateActionBar();
         }
     }
 }

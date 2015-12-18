@@ -437,7 +437,6 @@ class RecentTasks extends ArrayList<TaskRecord> {
         int recentsCount = size();
         final Intent intent = task.intent;
         final boolean document = intent != null && intent.isDocument();
-
         int maxRecents = task.maxRecents - 1;
         for (int i = 0; i < recentsCount; i++) {
             final TaskRecord tr = get(i);
@@ -449,13 +448,23 @@ class RecentTasks extends ArrayList<TaskRecord> {
                     tr.freeLastThumbnail();
                 }
                 final Intent trIntent = tr.intent;
-                if ((task.affinity == null || !task.affinity.equals(tr.affinity)) &&
-                        (intent == null || !intent.filterEquals(trIntent))) {
+                final boolean sameAffinity =
+                        task.affinity != null && task.affinity.equals(tr.affinity);
+                final boolean sameIntent = (intent != null && intent.filterEquals(trIntent));
+                final boolean trIsDocument = trIntent != null && trIntent.isDocument();
+                final boolean bothDocuments = document && trIsDocument;
+                if (!sameAffinity && !sameIntent && !bothDocuments) {
                     continue;
                 }
-                final boolean trIsDocument = trIntent != null && trIntent.isDocument();
-                if (document && trIsDocument) {
-                    // These are the same document activity (not necessarily the same doc).
+
+                if (bothDocuments) {
+                    // Do these documents belong to the same activity?
+                    final boolean sameActivity = task.realActivity != null
+                            && tr.realActivity != null
+                            && task.realActivity.equals(tr.realActivity);
+                    if (!sameActivity) {
+                        continue;
+                    }
                     if (maxRecents > 0) {
                         --maxRecents;
                         continue;

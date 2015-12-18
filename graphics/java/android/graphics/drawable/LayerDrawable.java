@@ -133,6 +133,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         mLayerState.mChildren = r;
 
         ensurePadding();
+        refreshPadding();
     }
 
     LayerDrawable() {
@@ -143,6 +144,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         mLayerState = createConstantState(state, res);
         if (mLayerState.mNum > 0) {
             ensurePadding();
+            refreshPadding();
         }
     }
 
@@ -162,6 +164,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         inflateLayers(r, parser, attrs, theme);
 
         ensurePadding();
+        refreshPadding();
     }
 
     /**
@@ -431,6 +434,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         final ChildDrawable layer = createLayer(dr);
         final int index = addLayer(layer);
         ensurePadding();
+        refreshChildPadding(index, layer);
         return index;
     }
 
@@ -564,12 +568,12 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
 
         if (drawable != null) {
             drawable.setCallback(this);
-            drawable.setLayoutDirection(getLayoutDirection());
-            drawable.setLevel(getLevel());
         }
 
         childDrawable.mDrawable = drawable;
         mLayerState.invalidateCache();
+
+        refreshChildPadding(index, childDrawable);
     }
 
     /**
@@ -1250,16 +1254,6 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public boolean getDither() {
-        final Drawable dr = getFirstNonNullDrawable();
-        if (dr != null) {
-            return dr.getDither();
-        } else {
-            return super.getDither();
-        }
-    }
-
-    @Override
     public void setAlpha(int alpha) {
         final ChildDrawable[] array = mLayerState.mChildren;
         final int N = mLayerState.mNum;
@@ -1464,7 +1458,8 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
                     bounds.right - insetR - padR, bounds.bottom - r.mInsetB - padB);
 
             // Apply resolved gravity to drawable based on resolved size.
-            final int gravity = resolveGravity(r.mGravity, r.mWidth, r.mHeight);
+            final int gravity = resolveGravity(r.mGravity, r.mWidth, r.mHeight,
+                    d.getIntrinsicWidth(), d.getIntrinsicHeight());
             final int w = r.mWidth < 0 ? d.getIntrinsicWidth() : r.mWidth;
             final int h = r.mHeight < 0 ? d.getIntrinsicHeight() : r.mHeight;
             Gravity.apply(gravity, w, h, container, outRect, layoutDirection);
@@ -1491,7 +1486,8 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
      * @param height height of the layer if set, -1 otherwise
      * @return the default gravity for the layer
      */
-    private static int resolveGravity(int gravity, int width, int height) {
+    private static int resolveGravity(int gravity, int width, int height,
+            int intrinsicWidth, int intrinsicHeight) {
         if (!Gravity.isHorizontal(gravity)) {
             if (width < 0) {
                 gravity |= Gravity.FILL_HORIZONTAL;
@@ -1506,6 +1502,17 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
             } else {
                 gravity |= Gravity.TOP;
             }
+        }
+
+        // If a dimension if not specified, either implicitly or explicitly,
+        // force FILL for that dimension's gravity. This ensures that colors
+        // are handled correctly and ensures backward compatibility.
+        if (width < 0 && intrinsicWidth < 0) {
+            gravity |= Gravity.FILL_HORIZONTAL;
+        }
+
+        if (height < 0 && intrinsicHeight < 0) {
+            gravity |= Gravity.FILL_VERTICAL;
         }
 
         return gravity;
@@ -1526,8 +1533,23 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
                 continue;
             }
 
+            // Take the resolved layout direction into account. If start / end
+            // padding are defined, they will be resolved (hence overriding) to
+            // left / right or right / left depending on the resolved layout
+            // direction. If start / end padding are not defined, use the
+            // left / right ones.
+            final int insetL, insetR;
+            final int layoutDirection = getLayoutDirection();
+            if (layoutDirection == LayoutDirection.RTL) {
+                insetL = r.mInsetE == UNDEFINED_INSET ? r.mInsetL : r.mInsetE;
+                insetR = r.mInsetS == UNDEFINED_INSET ? r.mInsetR : r.mInsetS;
+            } else {
+                insetL = r.mInsetS == UNDEFINED_INSET ? r.mInsetL : r.mInsetS;
+                insetR = r.mInsetE == UNDEFINED_INSET ? r.mInsetR : r.mInsetE;
+            }
+
             final int minWidth = r.mWidth < 0 ? r.mDrawable.getIntrinsicWidth() : r.mWidth;
-            final int w = minWidth + r.mInsetL + r.mInsetR + padL + padR;
+            final int w = minWidth + insetL + insetR + padL + padR;
             if (w > width) {
                 width = w;
             }
@@ -1607,6 +1629,14 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         mPaddingB = new int[N];
     }
 
+    void refreshPadding() {
+        final int N = mLayerState.mNum;
+        final ChildDrawable[] array = mLayerState.mChildren;
+        for (int i = 0; i < N; i++) {
+            refreshChildPadding(i, array[i]);
+        }
+    }
+
     @Override
     public ConstantState getConstantState() {
         if (mLayerState.canConstantState()) {
@@ -1651,7 +1681,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public boolean onLayoutDirectionChange(int layoutDirection) {
+    public boolean onLayoutDirectionChanged(@View.ResolvedLayoutDir int layoutDirection) {
         boolean changed = false;
 
         final ChildDrawable[] array = mLayerState.mChildren;

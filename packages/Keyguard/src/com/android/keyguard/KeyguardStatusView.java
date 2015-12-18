@@ -67,12 +67,12 @@ public class KeyguardStatusView extends GridLayout {
         }
 
         @Override
-        public void onScreenTurnedOn() {
+        public void onStartedWakingUp() {
             setEnableMarquee(true);
         }
 
         @Override
-        public void onScreenTurnedOff(int why) {
+        public void onFinishedGoingToSleep(int why) {
             setEnableMarquee(false);
         }
 
@@ -113,8 +113,8 @@ public class KeyguardStatusView extends GridLayout {
         mClockView.setShowCurrentUserTime(true);
         mOwnerInfo = (TextView) findViewById(R.id.owner_info);
 
-        final boolean screenOn = KeyguardUpdateMonitor.getInstance(mContext).isScreenOn();
-        setEnableMarquee(screenOn);
+        boolean shouldMarquee = KeyguardUpdateMonitor.getInstance(mContext).isDeviceInteractive();
+        setEnableMarquee(shouldMarquee);
         refresh();
         updateOwnerInfo();
 
@@ -200,9 +200,10 @@ public class KeyguardStatusView extends GridLayout {
     private String getOwnerInfo() {
         ContentResolver res = getContext().getContentResolver();
         String info = null;
-        final boolean ownerInfoEnabled = mLockPatternUtils.isOwnerInfoEnabled();
+        final boolean ownerInfoEnabled = mLockPatternUtils.isOwnerInfoEnabled(
+                KeyguardUpdateMonitor.getCurrentUser());
         if (ownerInfoEnabled) {
-            info = mLockPatternUtils.getOwnerInfo(mLockPatternUtils.getCurrentUser());
+            info = mLockPatternUtils.getOwnerInfo(KeyguardUpdateMonitor.getCurrentUser());
         }
         return info;
     }

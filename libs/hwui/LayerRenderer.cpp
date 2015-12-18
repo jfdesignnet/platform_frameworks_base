@@ -14,15 +14,13 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "OpenGLRenderer"
-#define ATRACE_TAG ATRACE_TAG_VIEW
-
 #include "LayerCache.h"
 #include "LayerRenderer.h"
 #include "Matrix.h"
 #include "Properties.h"
 #include "Rect.h"
 #include "renderstate/RenderState.h"
+#include "utils/GLUtils.h"
 #include "utils/TraceUtils.h"
 
 #include <ui/Rect.h>
@@ -238,8 +236,9 @@ Layer* LayerRenderer::createRenderLayer(RenderState& renderState, uint32_t width
         layer->allocateTexture();
 
         // This should only happen if we run out of memory
-        if (glGetError() != GL_NO_ERROR) {
-            ALOGE("Could not allocate texture for layer (fbo=%d %dx%d)", fbo, width, height);
+        if (CC_UNLIKELY(GLUtils::dumpGLErrors())) {
+            LOG_ALWAYS_FATAL("Could not allocate texture for layer (fbo=%d %dx%d)",
+                    fbo, width, height);
             renderState.bindFramebuffer(previousFbo);
             layer->decStrong(nullptr);
             return nullptr;
@@ -439,13 +438,6 @@ bool LayerRenderer::copyLayer(RenderState& renderState, Layer* layer, SkBitmap* 
             renderer.translate(0.0f, bitmap->height());
             renderer.scale(1.0f, -1.0f);
 
-            mat4 texTransform(layer->getTexTransform());
-
-            mat4 invert;
-            invert.translate(0.0f, 1.0f);
-            invert.scale(1.0f, -1.0f, 1.0f);
-            layer->getTexTransform().multiply(invert);
-
             if ((error = glGetError()) != GL_NO_ERROR) goto error;
 
             {
@@ -459,7 +451,6 @@ bool LayerRenderer::copyLayer(RenderState& renderState, Layer* layer, SkBitmap* 
                 if ((error = glGetError()) != GL_NO_ERROR) goto error;
             }
 
-            layer->getTexTransform().load(texTransform);
             status = true;
         }
 

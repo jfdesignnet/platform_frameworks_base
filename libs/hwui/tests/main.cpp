@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include <stdio.h>
-
 #include <cutils/log.h>
 #include <gui/Surface.h>
 #include <ui/PixelFormat.h>
@@ -27,6 +25,9 @@
 #include <renderthread/RenderTask.h>
 
 #include "TestContext.h"
+
+#include <stdio.h>
+#include <unistd.h>
 
 using namespace android;
 using namespace android::uirenderer;
@@ -57,13 +58,20 @@ static void endRecording(DisplayListCanvas* renderer, RenderNode* node) {
 class TreeContentAnimation {
 public:
     virtual ~TreeContentAnimation() {}
-    virtual int getFrameCount() { return 150; }
+    int frameCount = 150;
+    virtual int getFrameCount() { return frameCount; }
+    virtual void setFrameCount(int fc) {
+        if (fc > 0) {
+            frameCount = fc;
+        }
+    }
     virtual void createContent(int width, int height, DisplayListCanvas* renderer) = 0;
     virtual void doFrame(int frameNr) = 0;
 
     template <class T>
-    static void run() {
+    static void run(int frameCount) {
         T animation;
+        animation.setFrameCount(frameCount);
 
         TestContext testContext;
 
@@ -84,8 +92,8 @@ public:
         proxy->loadSystemProperties();
         proxy->initialize(surface);
         float lightX = width / 2.0;
-        proxy->setup(width, height, (Vector3){lightX, dp(-200.0f), dp(800.0f)},
-                dp(800.0f), 255 * 0.075, 255 * 0.15);
+        proxy->setup(width, height, dp(800.0f), 255 * 0.075, 255 * 0.15);
+        proxy->setLightCenter((Vector3){lightX, dp(-200.0f), dp(800.0f)});
 
         android::uirenderer::Rect DUMMY;
 
@@ -93,16 +101,25 @@ public:
         animation.createContent(width, height, renderer);
         endRecording(renderer, rootNode);
 
-        for (int i = 0; i < animation.getFrameCount(); i++) {
-#if !HWUI_NULL_GPU
+        // Do a few cold runs then reset the stats so that the caches are all hot
+        for (int i = 0; i < 3; i++) {
             testContext.waitForVsync();
-#endif
+            proxy->syncAndDrawFrame();
+        }
+        proxy->resetProfileInfo();
+
+        for (int i = 0; i < animation.getFrameCount(); i++) {
+            testContext.waitForVsync();
 
             ATRACE_NAME("UI-Draw Frame");
+            nsecs_t vsync = systemTime(CLOCK_MONOTONIC);
+            UiFrameInfoBuilder(proxy->frameInfo())
+                    .setVsync(vsync, vsync);
             animation.doFrame(i);
             proxy->syncAndDrawFrame();
         }
 
+        proxy->dumpProfileInfo(STDOUT_FILENO, 0);
         rootNode->decStrong(nullptr);
     }
 };
@@ -111,15 +128,13 @@ class ShadowGridAnimation : public TreeContentAnimation {
 public:
     std::vector< sp<RenderNode> > cards;
     void createContent(int width, int height, DisplayListCanvas* renderer) override {
-        android::uirenderer::Rect DUMMY;
-
         renderer->drawColor(0xFFFFFFFF, SkXfermode::kSrcOver_Mode);
         renderer->insertReorderBarrier(true);
 
         for (int x = dp(16); x < (width - dp(116)); x += dp(116)) {
             for (int y = dp(16); y < (height - dp(116)); y += dp(116)) {
                 sp<RenderNode> card = createCard(x, y, dp(100), dp(100));
-                renderer->drawRenderNode(card.get(), DUMMY, 0);
+                renderer->drawRenderNode(card.get());
                 cards.push_back(card);
             }
         }
@@ -127,9 +142,10 @@ public:
         renderer->insertReorderBarrier(false);
     }
     void doFrame(int frameNr) override {
+        int curFrame = frameNr % 150;
         for (size_t ci = 0; ci < cards.size(); ci++) {
-            cards[ci]->mutateStagingProperties().setTranslationX(frameNr);
-            cards[ci]->mutateStagingProperties().setTranslationY(frameNr);
+            cards[ci]->mutateStagingProperties().setTranslationX(curFrame);
+            cards[ci]->mutateStagingProperties().setTranslationY(curFrame);
             cards[ci]->setPropertyFieldsDirty(RenderNode::X | RenderNode::Y);
         }
     }
@@ -149,23 +165,63 @@ private:
     }
 };
 
-class RectGridAnimation : public TreeContentAnimation {
+class ShadowGrid2Animation : public TreeContentAnimation {
 public:
-    sp<RenderNode> card;
+    std::vector< sp<RenderNode> > cards;
     void createContent(int width, int height, DisplayListCanvas* renderer) override {
-        android::uirenderer::Rect DUMMY;
-
         renderer->drawColor(0xFFFFFFFF, SkXfermode::kSrcOver_Mode);
         renderer->insertReorderBarrier(true);
 
-        card = createCard(40, 40, 200, 200);
-        renderer->drawRenderNode(card.get(), DUMMY, 0);
+        for (int x = dp(8); x < (width - dp(58)); x += dp(58)) {
+            for (int y = dp(8); y < (height - dp(58)); y += dp(58)) {
+                sp<RenderNode> card = createCard(x, y, dp(50), dp(50));
+                renderer->drawRenderNode(card.get());
+                cards.push_back(card);
+            }
+        }
 
         renderer->insertReorderBarrier(false);
     }
     void doFrame(int frameNr) override {
-        card->mutateStagingProperties().setTranslationX(frameNr);
-        card->mutateStagingProperties().setTranslationY(frameNr);
+        int curFrame = frameNr % 150;
+        for (size_t ci = 0; ci < cards.size(); ci++) {
+            cards[ci]->mutateStagingProperties().setTranslationX(curFrame);
+            cards[ci]->mutateStagingProperties().setTranslationY(curFrame);
+            cards[ci]->setPropertyFieldsDirty(RenderNode::X | RenderNode::Y);
+        }
+    }
+private:
+    sp<RenderNode> createCard(int x, int y, int width, int height) {
+        sp<RenderNode> node = new RenderNode();
+        node->mutateStagingProperties().setLeftTopRightBottom(x, y, x + width, y + height);
+        node->mutateStagingProperties().setElevation(dp(16));
+        node->mutateStagingProperties().mutableOutline().setRoundRect(0, 0, width, height, dp(6), 1);
+        node->mutateStagingProperties().mutableOutline().setShouldClip(true);
+        node->setPropertyFieldsDirty(RenderNode::X | RenderNode::Y | RenderNode::Z);
+
+        DisplayListCanvas* renderer = startRecording(node.get());
+        renderer->drawColor(0xFFEEEEEE, SkXfermode::kSrcOver_Mode);
+        endRecording(renderer, node.get());
+        return node;
+    }
+};
+
+class RectGridAnimation : public TreeContentAnimation {
+public:
+    sp<RenderNode> card;
+    void createContent(int width, int height, DisplayListCanvas* renderer) override {
+        renderer->drawColor(0xFFFFFFFF, SkXfermode::kSrcOver_Mode);
+        renderer->insertReorderBarrier(true);
+
+        card = createCard(40, 40, 200, 200);
+        renderer->drawRenderNode(card.get());
+
+        renderer->insertReorderBarrier(false);
+    }
+    void doFrame(int frameNr) override {
+        int curFrame = frameNr % 150;
+        card->mutateStagingProperties().setTranslationX(curFrame);
+        card->mutateStagingProperties().setTranslationY(curFrame);
         card->setPropertyFieldsDirty(RenderNode::X | RenderNode::Y);
     }
 private:
@@ -202,20 +258,19 @@ class OvalAnimation : public TreeContentAnimation {
 public:
     sp<RenderNode> card;
     void createContent(int width, int height, DisplayListCanvas* renderer) override {
-        android::uirenderer::Rect DUMMY;
-
         renderer->drawColor(0xFFFFFFFF, SkXfermode::kSrcOver_Mode);
         renderer->insertReorderBarrier(true);
 
         card = createCard(40, 40, 400, 400);
-        renderer->drawRenderNode(card.get(), DUMMY, 0);
+        renderer->drawRenderNode(card.get());
 
         renderer->insertReorderBarrier(false);
     }
 
     void doFrame(int frameNr) override {
-        card->mutateStagingProperties().setTranslationX(frameNr);
-        card->mutateStagingProperties().setTranslationY(frameNr);
+        int curFrame = frameNr % 150;
+        card->mutateStagingProperties().setTranslationX(curFrame);
+        card->mutateStagingProperties().setTranslationY(curFrame);
         card->setPropertyFieldsDirty(RenderNode::X | RenderNode::Y);
     }
 private:
@@ -242,10 +297,11 @@ struct cstr_cmp {
     }
 };
 
-typedef void (*testProc)();
+typedef void (*testProc)(int);
 
 std::map<const char*, testProc, cstr_cmp> gTestMap {
     {"shadowgrid", TreeContentAnimation::run<ShadowGridAnimation>},
+    {"shadowgrid2", TreeContentAnimation::run<ShadowGrid2Animation>},
     {"rectgrid", TreeContentAnimation::run<RectGridAnimation> },
     {"oval", TreeContentAnimation::run<OvalAnimation> },
 };
@@ -257,7 +313,28 @@ int main(int argc, char* argv[]) {
         printf("Error: couldn't find test %s\n", testName);
         return 1;
     }
-    proc();
+    int loopCount = 1;
+    if (argc > 2) {
+        loopCount = atoi(argv[2]);
+        if (!loopCount) {
+            printf("Invalid loop count!\n");
+            return 1;
+        }
+    }
+    int frameCount = 150;
+    if (argc > 3) {
+        frameCount = atoi(argv[3]);
+        if (frameCount < 1) {
+            printf("Invalid frame count!\n");
+            return 1;
+        }
+    }
+    if (loopCount < 0) {
+        loopCount = INT_MAX;
+    }
+    for (int i = 0; i < loopCount; i++) {
+        proc(frameCount);
+    }
     printf("Success!\n");
     return 0;
 }

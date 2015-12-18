@@ -31,8 +31,8 @@
 namespace aapt {
 
 struct FlatEntry {
-    const ResourceEntry& entry;
-    const Value& value;
+    const ResourceEntry* entry;
+    const Value* value;
     uint32_t entryKey;
     uint32_t sourcePathKey;
     uint32_t sourceLine;
@@ -48,10 +48,10 @@ public:
         mMap = mOut->nextBlock<android::ResTable_map_entry>();
         mMap->key.index = flatEntry.entryKey;
         mMap->flags = android::ResTable_entry::FLAG_COMPLEX;
-        if (flatEntry.entry.publicStatus.isPublic) {
+        if (flatEntry.entry->publicStatus.isPublic) {
             mMap->flags |= android::ResTable_entry::FLAG_PUBLIC;
         }
-        if (flatEntry.value.isWeak()) {
+        if (flatEntry.value->isWeak()) {
             mMap->flags |= android::ResTable_entry::FLAG_WEAK;
         }
 
@@ -79,10 +79,28 @@ public:
 
         // Write the key.
         if (!Res_INTERNALID(key.id.id) && !key.id.isValid()) {
+            assert(!key.name.entry.empty());
             mSymbols->push_back(std::make_pair(ResourceNameRef(key.name),
                     mOut->size() - sizeof(*outMapEntry)));
         }
         outMapEntry->name.ident = key.id.id;
+
+        // Write the value.
+        value.flatten(outMapEntry->value);
+
+        if (outMapEntry->value.data == 0x0) {
+            visitFunc<Reference>(value, [&](const Reference& reference) {
+                mSymbols->push_back(std::make_pair(ResourceNameRef(reference.name),
+                        mOut->size() - sizeof(outMapEntry->value.data)));
+            });
+        }
+        outMapEntry->value.size = sizeof(outMapEntry->value);
+    }
+
+    void flattenValueOnly(const Item& value) {
+        mMap->count++;
+
+        android::ResTable_map* outMapEntry = mOut->nextBlock<android::ResTable_map>();
 
         // Write the value.
         value.flatten(outMapEntry->value);
@@ -139,7 +157,7 @@ public:
 
     void visit(const Array& array, ValueVisitorArgs&) override {
         for (const auto& item : array.items) {
-            flattenEntry({}, *item);
+            flattenValueOnly(*item);
         }
     }
 
@@ -211,6 +229,7 @@ struct ValueFlattener : ConstValueVisitor {
 
     virtual void visitItem(const Item& item, ValueVisitorArgs&) override {
         result = item.flatten(*mOutValue);
+        mOutValue->res0 = 0;
         mOutValue->size = sizeof(*mOutValue);
     }
 
@@ -228,14 +247,14 @@ TableFlattener::TableFlattener(Options options)
 
 bool TableFlattener::flattenValue(BigBuffer* out, const FlatEntry& flatEntry,
                                   SymbolEntryVector* symbols) {
-    if (flatEntry.value.isItem()) {
+    if (flatEntry.value->isItem()) {
         android::ResTable_entry* entry = out->nextBlock<android::ResTable_entry>();
 
-        if (flatEntry.entry.publicStatus.isPublic) {
+        if (flatEntry.entry->publicStatus.isPublic) {
             entry->flags |= android::ResTable_entry::FLAG_PUBLIC;
         }
 
-        if (flatEntry.value.isWeak()) {
+        if (flatEntry.value->isWeak()) {
             entry->flags |= android::ResTable_entry::FLAG_WEAK;
         }
 
@@ -251,26 +270,19 @@ bool TableFlattener::flattenValue(BigBuffer* out, const FlatEntry& flatEntry,
             entry->size += sizeof(*sourceBlock);
         }
 
-        const Item* item = static_cast<const Item*>(&flatEntry.value);
+        const Item* item = static_cast<const Item*>(flatEntry.value);
         ValueFlattener flattener(out, symbols);
         item->accept(flattener, {});
         return flattener.result;
     }
 
     MapFlattener flattener(out, flatEntry, symbols);
-    flatEntry.value.accept(flattener, {});
+    flatEntry.value->accept(flattener, {});
     return true;
 }
 
 bool TableFlattener::flatten(BigBuffer* out, const ResourceTable& table) {
     const size_t beginning = out->size();
-
-    if (table.getPackage().size() == 0) {
-        Logger::error()
-                << "ResourceTable has no package name."
-                << std::endl;
-        return false;
-    }
 
     if (table.getPackageId() == ResourceTable::kUnsetPackageId) {
         Logger::error()
@@ -333,6 +345,10 @@ bool TableFlattener::flatten(BigBuffer* out, const ResourceTable& table) {
         spec->id = type->typeId;
         spec->entryCount = type->entries.size();
 
+        if (type->entries.empty()) {
+            continue;
+        }
+
         // Reserve space for the masks of each resource in this type. These
         // show for which configuration axis the resource changes.
         uint32_t* configMasks = typeBlock.nextBlock<uint32_t>(type->entries.size());
@@ -372,6 +388,15 @@ bool TableFlattener::flatten(BigBuffer* out, const ResourceTable& table) {
             }
         }
 
+        const size_t beforePublicHeader = typeBlock.size();
+        Public_header* publicHeader = nullptr;
+        if (mOptions.useExtendedChunks) {
+            publicHeader = typeBlock.nextBlock<Public_header>();
+            publicHeader->header.type = RES_TABLE_PUBLIC_TYPE;
+            publicHeader->header.headerSize = sizeof(*publicHeader);
+            publicHeader->typeId = type->typeId;
+        }
+
         // The binary resource table lists resource entries for each configuration.
         // We store them inverted, where a resource entry lists the values for each
         // configuration available. Here we reverse this to match the binary table.
@@ -386,16 +411,33 @@ bool TableFlattener::flatten(BigBuffer* out, const ResourceTable& table) {
                 return false;
             }
 
+            if (publicHeader && entry->publicStatus.isPublic) {
+                // Write the public status of this entry.
+                Public_entry* publicEntry = typeBlock.nextBlock<Public_entry>();
+                publicEntry->entryId = static_cast<uint32_t>(entry->entryId);
+                publicEntry->key.index = static_cast<uint32_t>(keyIndex);
+                publicEntry->source.index = static_cast<uint32_t>(sourcePool.makeRef(
+                            util::utf8ToUtf16(entry->publicStatus.source.path)).getIndex());
+                publicEntry->sourceLine = static_cast<uint32_t>(entry->publicStatus.source.line);
+                publicHeader->count += 1;
+            }
+
             for (const auto& configValue : entry->values) {
                 data[configValue.config].push_back(FlatEntry{
-                        *entry,
-                        *configValue.value,
+                        entry,
+                        configValue.value.get(),
                         static_cast<uint32_t>(keyIndex),
                         static_cast<uint32_t>(sourcePool.makeRef(util::utf8ToUtf16(
-                                        configValue.source.path)).getIndex()),
+                                    configValue.source.path)).getIndex()),
                         static_cast<uint32_t>(configValue.source.line)
                 });
             }
+        }
+
+        if (publicHeader) {
+            typeBlock.align4();
+            publicHeader->header.size =
+                    static_cast<uint32_t>(typeBlock.size() - beforePublicHeader);
         }
 
         // Begin flattening a configuration for the current type.
@@ -415,13 +457,13 @@ bool TableFlattener::flatten(BigBuffer* out, const ResourceTable& table) {
 
             const size_t entryStart = typeBlock.size();
             for (const FlatEntry& flatEntry : entry.second) {
-                assert(flatEntry.entry.entryId < type->entries.size());
-                indices[flatEntry.entry.entryId] = typeBlock.size() - entryStart;
+                assert(flatEntry.entry->entryId < type->entries.size());
+                indices[flatEntry.entry->entryId] = typeBlock.size() - entryStart;
                 if (!flattenValue(&typeBlock, flatEntry, &symbolEntries)) {
                     Logger::error()
                             << "failed to flatten resource '"
                             << ResourceNameRef {
-                                    table.getPackage(), type->type, flatEntry.entry.name }
+                                    table.getPackage(), type->type, flatEntry.entry->name }
                             << "' for configuration '"
                             << entry.first
                             << "'."
@@ -508,9 +550,9 @@ bool TableFlattener::flatten(BigBuffer* out, const ResourceTable& table) {
     package->name[table.getPackage().length()] = 0;
 
     package->typeStrings = package->header.headerSize;
-    StringPool::flattenUtf8(out, typePool);
+    StringPool::flattenUtf16(out, typePool);
     package->keyStrings = out->size() - beforePackageIndex;
-    StringPool::flattenUtf8(out, keyPool);
+    StringPool::flattenUtf16(out, keyPool);
 
     if (symbolEntryData != nullptr) {
         for (size_t i = 0; i < symbolEntries.size(); i++) {

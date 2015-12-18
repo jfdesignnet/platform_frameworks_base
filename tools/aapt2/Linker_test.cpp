@@ -15,8 +15,8 @@
  */
 
 #include "Linker.h"
-#include "Resolver.h"
 #include "ResourceTable.h"
+#include "ResourceTableResolver.h"
 #include "ResourceValues.h"
 #include "Util.h"
 
@@ -31,8 +31,9 @@ struct LinkerTest : public ::testing::Test {
         mTable = std::make_shared<ResourceTable>();
         mTable->setPackage(u"android");
         mTable->setPackageId(0x01);
-        mLinker = std::make_shared<Linker>(mTable, std::make_shared<Resolver>(
-                mTable, std::make_shared<android::AssetManager>()));
+        mLinker = std::make_shared<Linker>(mTable, std::make_shared<ResourceTableResolver>(
+                mTable, std::vector<std::shared_ptr<const android::AssetManager>>()),
+                Linker::Options{});
 
         // Create a few attributes for use in the tests.
 
@@ -76,7 +77,7 @@ TEST_F(LinkerTest, DoNotInterpretEscapedStringAsReference) {
 }
 
 TEST_F(LinkerTest, EscapeAndConvertRawString) {
-    std::unique_ptr<Style> style = util::make_unique<Style>(false);
+    std::unique_ptr<Style> style = util::make_unique<Style>();
     style->entries.push_back(Style::Entry{
             ResourceNameRef{ u"android", ResourceType::kAttr, u"integer" },
             util::make_unique<RawString>(mTable->getValueStringPool().makeRef(u"  123"))
@@ -92,7 +93,7 @@ TEST_F(LinkerTest, EscapeAndConvertRawString) {
 }
 
 TEST_F(LinkerTest, FailToConvertRawString) {
-    std::unique_ptr<Style> style = util::make_unique<Style>(false);
+    std::unique_ptr<Style> style = util::make_unique<Style>();
     style->entries.push_back(Style::Entry{
             ResourceNameRef{ u"android", ResourceType::kAttr, u"integer" },
             util::make_unique<RawString>(mTable->getValueStringPool().makeRef(u"yo what is up?"))
@@ -104,7 +105,7 @@ TEST_F(LinkerTest, FailToConvertRawString) {
 }
 
 TEST_F(LinkerTest, ConvertRawStringToString) {
-    std::unique_ptr<Style> style = util::make_unique<Style>(false);
+    std::unique_ptr<Style> style = util::make_unique<Style>();
     style->entries.push_back(Style::Entry{
             ResourceNameRef{ u"android", ResourceType::kAttr, u"string" },
             util::make_unique<RawString>(
@@ -123,7 +124,7 @@ TEST_F(LinkerTest, ConvertRawStringToString) {
 }
 
 TEST_F(LinkerTest, ConvertRawStringToFlags) {
-    std::unique_ptr<Style> style = util::make_unique<Style>(false);
+    std::unique_ptr<Style> style = util::make_unique<Style>();
     style->entries.push_back(Style::Entry{
             ResourceNameRef{ u"android", ResourceType::kAttr, u"flags" },
             util::make_unique<RawString>(mTable->getValueStringPool().makeRef(u"banana | apple"))

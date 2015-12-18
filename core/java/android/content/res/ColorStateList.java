@@ -271,7 +271,7 @@ public class ColorStateList implements Parcelable {
             final TypedArray a = Resources.obtainAttributes(r, theme, attrs,
                     R.styleable.ColorStateListItem);
             final int[] themeAttrs = a.extractThemeAttrs();
-            final int baseColor = a.getColor(R.styleable.ColorStateListItem_color, 0);
+            final int baseColor = a.getColor(R.styleable.ColorStateListItem_color, Color.MAGENTA);
             final float alphaMod = a.getFloat(R.styleable.ColorStateListItem_alpha, 1.0f);
 
             changingConfigurations |= a.getChangingConfigurations();
@@ -296,7 +296,9 @@ public class ColorStateList implements Parcelable {
             }
             stateSpec = StateSet.trimStateSet(stateSpec, j);
 
-            // Apply alpha modulation.
+            // Apply alpha modulation. If we couldn't resolve the color or
+            // alpha yet, the default values leave us enough information to
+            // modulate again during applyTheme().
             final int color = modulateColorAlpha(baseColor, alphaMod);
             if (listSize == 0 || stateSpec.length == 0) {
                 defaultColor = color;
@@ -365,18 +367,37 @@ public class ColorStateList implements Parcelable {
             if (themeAttrsList[i] != null) {
                 final TypedArray a = t.resolveAttributes(themeAttrsList[i],
                         R.styleable.ColorStateListItem);
-                final int baseColor = a.getColor(
-                        R.styleable.ColorStateListItem_color, mColors[i]);
-                final float alphaMod = a.getFloat(
-                        R.styleable.ColorStateListItem_alpha, 1.0f);
 
-                mColors[i] = modulateColorAlpha(baseColor, alphaMod);
-                mChangingConfigurations |= a.getChangingConfigurations();
+                final float defaultAlphaMod;
+                if (themeAttrsList[i][R.styleable.ColorStateListItem_color] != 0) {
+                    // If the base color hasn't been resolved yet, the current
+                    // color's alpha channel is either full-opacity (if we
+                    // haven't resolved the alpha modulation yet) or
+                    // pre-modulated. Either is okay as a default value.
+                    defaultAlphaMod = Color.alpha(mColors[i]) / 255.0f;
+                } else {
+                    // Otherwise, the only correct default value is 1. Even if
+                    // nothing is resolved during this call, we can apply this
+                    // multiple times without losing of information.
+                    defaultAlphaMod = 1.0f;
+                }
 
+                // Extract the theme attributes, if any, before attempting to
+                // read from the typed array. This prevents a crash if we have
+                // unresolved attrs.
                 themeAttrsList[i] = a.extractThemeAttrs(themeAttrsList[i]);
                 if (themeAttrsList[i] != null) {
                     hasUnresolvedAttrs = true;
                 }
+
+                final int baseColor = a.getColor(
+                        R.styleable.ColorStateListItem_color, mColors[i]);
+                final float alphaMod = a.getFloat(
+                        R.styleable.ColorStateListItem_alpha, defaultAlphaMod);
+                mColors[i] = modulateColorAlpha(baseColor, alphaMod);
+
+                // Account for any configuration changes.
+                mChangingConfigurations |= a.getChangingConfigurations();
 
                 a.recycle();
             }
@@ -582,7 +603,7 @@ public class ColorStateList implements Parcelable {
      * @hide only for resource preloading
      */
     public ConstantState<ColorStateList> getConstantState() {
-        if (mFactory != null) {
+        if (mFactory == null) {
             mFactory = new ColorStateListFactory(this);
         }
         return mFactory;

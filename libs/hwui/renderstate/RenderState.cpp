@@ -124,9 +124,15 @@ void RenderState::bindFramebuffer(GLuint fbo) {
 }
 
 void RenderState::invokeFunctor(Functor* functor, DrawGlInfo::Mode mode, DrawGlInfo* info) {
-    interruptForFunctorInvoke();
-    (*functor)(mode, info);
-    resumeFromFunctorInvoke();
+    if (mode == DrawGlInfo::kModeProcessNoContext) {
+        // If there's no context we don't need to interrupt as there's
+        // no gl state to save/restore
+        (*functor)(mode, info);
+    } else {
+        interruptForFunctorInvoke();
+        (*functor)(mode, info);
+        resumeFromFunctorInvoke();
+    }
 }
 
 void RenderState::interruptForFunctorInvoke() {
@@ -154,7 +160,7 @@ void RenderState::resumeFromFunctorInvoke() {
 }
 
 void RenderState::debugOverdraw(bool enable, bool clear) {
-    if (mCaches->debugOverdraw && mFramebuffer == 0) {
+    if (Properties::debugOverdraw && mFramebuffer == 0) {
         if (clear) {
             scissor().setEnabled(false);
             stencil().clear();
@@ -169,7 +175,8 @@ void RenderState::debugOverdraw(bool enable, bool clear) {
 
 void RenderState::requireGLContext() {
     assertOnGLThread();
-    mRenderThread.eglManager().requireGlContext();
+    LOG_ALWAYS_FATAL_IF(!mRenderThread.eglManager().hasEglContext(),
+            "No GL context!");
 }
 
 void RenderState::assertOnGLThread() {
@@ -216,8 +223,8 @@ void RenderState::render(const Glop& glop) {
 
     fill.program->set(glop.transform.ortho,
             glop.transform.modelView,
-            glop.transform.canvas,
-            glop.transform.fudgingOffset);
+            glop.transform.meshTransform(),
+            glop.transform.transformFlags & TransformFlags::OffsetByFudgeFactor);
 
     // Color filter uniforms
     if (fill.filterMode == ProgramDescription::kColorBlend) {
@@ -259,16 +266,16 @@ void RenderState::render(const Glop& glop) {
     // indices
     meshState().bindIndicesBufferInternal(indices.bufferObject);
 
-    if (vertices.attribFlags & VertexAttribFlags::kTextureCoord) {
+    if (vertices.attribFlags & VertexAttribFlags::TextureCoord) {
         const Glop::Fill::TextureData& texture = fill.texture;
         // texture always takes slot 0, shader samplers increment from there
         mCaches->textureState().activateTexture(0);
 
         if (texture.clamp != GL_INVALID_ENUM) {
-            texture.texture->setWrap(texture.clamp, true);
+            texture.texture->setWrap(texture.clamp, true, false, texture.target);
         }
         if (texture.filter != GL_INVALID_ENUM) {
-            texture.texture->setFilter(texture.filter, true);
+            texture.texture->setFilter(texture.filter, true, false, texture.target);
         }
 
         mCaches->textureState().bindTexture(texture.target, texture.texture->id);
@@ -283,13 +290,13 @@ void RenderState::render(const Glop& glop) {
         meshState().disableTexCoordsVertexArray();
     }
     int colorLocation = -1;
-    if (vertices.attribFlags & VertexAttribFlags::kColor) {
+    if (vertices.attribFlags & VertexAttribFlags::Color) {
         colorLocation = fill.program->getAttrib("colors");
         glEnableVertexAttribArray(colorLocation);
         glVertexAttribPointer(colorLocation, 4, GL_FLOAT, GL_FALSE, vertices.stride, vertices.color);
     }
     int alphaLocation = -1;
-    if (vertices.attribFlags & VertexAttribFlags::kAlpha) {
+    if (vertices.attribFlags & VertexAttribFlags::Alpha) {
         // NOTE: alpha vertex position is computed assuming no VBO
         const void* alphaCoords = ((const GLbyte*) vertices.position) + kVertexAlphaOffset;
         alphaLocation = fill.program->getAttrib("vtxAlpha");
@@ -317,7 +324,7 @@ void RenderState::render(const Glop& glop) {
 
             // rebind pointers without forcing, since initial bind handled above
             meshState().bindPositionVertexPointer(false, vertexData, vertices.stride);
-            if (vertices.attribFlags & VertexAttribFlags::kTextureCoord) {
+            if (vertices.attribFlags & VertexAttribFlags::TextureCoord) {
                 meshState().bindTexCoordsVertexPointer(false,
                         vertexData + kMeshTextureOffset, vertices.stride);
             }
@@ -335,10 +342,10 @@ void RenderState::render(const Glop& glop) {
     // -----------------------------------
     // ---------- Mesh teardown ----------
     // -----------------------------------
-    if (vertices.attribFlags & VertexAttribFlags::kAlpha) {
+    if (vertices.attribFlags & VertexAttribFlags::Alpha) {
         glDisableVertexAttribArray(alphaLocation);
     }
-    if (vertices.attribFlags & VertexAttribFlags::kColor) {
+    if (vertices.attribFlags & VertexAttribFlags::Color) {
         glDisableVertexAttribArray(colorLocation);
     }
 }

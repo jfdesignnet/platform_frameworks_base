@@ -17,11 +17,10 @@
 package com.android.server.am;
 
 import static com.android.server.am.ActivityManagerDebugConfig.*;
-import static com.android.server.am.TaskPersister.DEBUG_PERSISTER;
-import static com.android.server.am.TaskPersister.DEBUG_RESTORER;
 import static com.android.server.am.TaskRecord.INVALID_TASK_ID;
 
 import android.app.ActivityManager.TaskDescription;
+import android.app.PendingIntent;
 import android.os.PersistableBundle;
 import android.os.Trace;
 
@@ -73,11 +72,11 @@ import java.util.Objects;
  */
 final class ActivityRecord {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "ActivityRecord" : TAG_AM;
+    private static final String TAG_STATES = TAG + POSTFIX_STATES;
     private static final String TAG_SWITCH = TAG + POSTFIX_SWITCH;
     private static final String TAG_THUMBNAILS = TAG + POSTFIX_THUMBNAILS;
 
     private static final boolean SHOW_ACTIVITY_START_TIME = true;
-    static final boolean DEBUG_SAVED_STATE = ActivityStackSupervisor.DEBUG_SAVED_STATE;
     final public static String RECENTS_PACKAGE_NAME = "com.android.systemui.recents";
 
     private static final String ATTR_ID = "id";
@@ -85,7 +84,7 @@ final class ActivityRecord {
     private static final String ATTR_USERID = "user_id";
     private static final String TAG_PERSISTABLEBUNDLE = "persistable_bundle";
     private static final String ATTR_LAUNCHEDFROMUID = "launched_from_uid";
-    static final String ATTR_LAUNCHEDFROMPACKAGE = "launched_from_package";
+    private static final String ATTR_LAUNCHEDFROMPACKAGE = "launched_from_package";
     private static final String ATTR_RESOLVEDTYPE = "resolved_type";
     private static final String ATTR_COMPONENTSPECIFIED = "component_specified";
     static final String ACTIVITY_ICON_SUFFIX = "_activity_icon_";
@@ -94,7 +93,7 @@ final class ActivityRecord {
     final IApplicationToken.Stub appToken; // window manager token
     final ActivityInfo info; // all about me
     final ApplicationInfo appInfo; // information about activity's app
-    int launchedFromUid; // always the uid who started the activity.
+    final int launchedFromUid; // always the uid who started the activity.
     final String launchedFromPackage; // always the package who started the activity.
     final int userId;          // Which user is this running for?
     final Intent intent;    // the original intent that generated us
@@ -108,6 +107,7 @@ final class ActivityRecord {
     boolean fullscreen; // covers the full screen?
     final boolean noDisplay;  // activity is not displayed?
     final boolean componentSpecified;  // did caller specifiy an explicit component?
+    final boolean rootVoiceInteraction;  // was this the root activity of a voice interaction?
 
     static final int APPLICATION_ACTIVITY_TYPE = 0;
     static final int HOME_ACTIVITY_TYPE = 1;
@@ -144,6 +144,7 @@ final class ActivityRecord {
     ArrayList<ReferrerIntent> newIntents; // any pending new intents for single-top mode
     ActivityOptions pendingOptions; // most recently given options
     ActivityOptions returningOptions; // options that are coming back via convertToTranslucent
+    AppTimeTracker appTimeTracker; // set if we are tracking the time in this app/task/activity
     HashSet<ConnectionRecord> connections; // All ConnectionRecord we hold
     UriPermissionOwner uriPermissions; // current special URI access perms.
     ProcessRecord app;      // if non-null, hosting application
@@ -207,6 +208,9 @@ final class ActivityRecord {
         pw.print(prefix); pw.print("stateNotNeeded="); pw.print(stateNotNeeded);
                 pw.print(" componentSpecified="); pw.print(componentSpecified);
                 pw.print(" mActivityType="); pw.println(mActivityType);
+        if (rootVoiceInteraction) {
+            pw.print(prefix); pw.print("rootVoiceInteraction="); pw.println(rootVoiceInteraction);
+        }
         pw.print(prefix); pw.print("compat="); pw.print(compat);
                 pw.print(" labelRes=0x"); pw.print(Integer.toHexString(labelRes));
                 pw.print(" icon=0x"); pw.print(Integer.toHexString(icon));
@@ -263,6 +267,9 @@ final class ActivityRecord {
         }
         if (pendingOptions != null) {
             pw.print(prefix); pw.print("pendingOptions="); pw.println(pendingOptions);
+        }
+        if (appTimeTracker != null) {
+            appTimeTracker.dumpWithHeader(pw, prefix, false);
         }
         if (uriPermissions != null) {
             uriPermissions.dump(pw, prefix);
@@ -429,7 +436,8 @@ final class ActivityRecord {
             int _launchedFromUid, String _launchedFromPackage, Intent _intent, String _resolvedType,
             ActivityInfo aInfo, Configuration _configuration,
             ActivityRecord _resultTo, String _resultWho, int _reqCode,
-            boolean _componentSpecified, ActivityStackSupervisor supervisor,
+            boolean _componentSpecified, boolean _rootVoiceInteraction,
+            ActivityStackSupervisor supervisor,
             ActivityContainer container, Bundle options) {
         service = _service;
         appToken = new Token(this, service);
@@ -441,6 +449,7 @@ final class ActivityRecord {
         shortComponentName = _intent.getComponent().flattenToShortString();
         resolvedType = _resolvedType;
         componentSpecified = _componentSpecified;
+        rootVoiceInteraction = _rootVoiceInteraction;
         configuration = _configuration;
         stackConfigOverride = (container != null)
                 ? container.mStack.mOverrideConfig : Configuration.EMPTY;
@@ -465,6 +474,10 @@ final class ActivityRecord {
         if (options != null) {
             pendingOptions = new ActivityOptions(options);
             mLaunchTaskBehind = pendingOptions.getLaunchTaskBehind();
+            PendingIntent usageReport = pendingOptions.getUsageTimeReport();
+            if (usageReport != null) {
+                appTimeTracker = new AppTimeTracker(usageReport);
+            }
         }
 
         // This starts out true, since the initial state of an activity
@@ -523,13 +536,13 @@ final class ActivityRecord {
 
             AttributeCache.Entry ent = AttributeCache.instance().get(packageName,
                     realTheme, com.android.internal.R.styleable.Window, userId);
-            final boolean translucent = ent.array.getBoolean(
+            final boolean translucent = ent != null && (ent.array.getBoolean(
                     com.android.internal.R.styleable.Window_windowIsTranslucent, false)
                     || (!ent.array.hasValue(
                             com.android.internal.R.styleable.Window_windowIsTranslucent)
                             && ent.array.getBoolean(
                                     com.android.internal.R.styleable.Window_windowSwipeToDismiss,
-                                            false));
+                                            false)));
             fullscreen = ent != null && !ent.array.getBoolean(
                     com.android.internal.R.styleable.Window_windowIsFloating, false)
                     && !translucent;
@@ -975,7 +988,7 @@ final class ActivityRecord {
         final long totalTime = stack.mLaunchStartTime != 0
                 ? (curTime - stack.mLaunchStartTime) : thisTime;
         if (SHOW_ACTIVITY_START_TIME) {
-            Trace.asyncTraceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER, "launching", 0);
+            Trace.asyncTraceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER, "launching: " + packageName, 0);
             EventLog.writeEvent(EventLogTags.AM_ACTIVITY_LAUNCH_TIME,
                     userId, System.identityHashCode(this), shortComponentName,
                     thisTime, totalTime);
@@ -1086,7 +1099,7 @@ final class ActivityRecord {
 
     static void activityResumedLocked(IBinder token) {
         final ActivityRecord r = ActivityRecord.forTokenLocked(token);
-        if (DEBUG_SAVED_STATE) Slog.i(TAG, "Resumed activity; dropping state of: " + r);
+        if (DEBUG_SAVED_STATE) Slog.i(TAG_STATES, "Resumed activity; dropping state of: " + r);
         r.icicle = null;
         r.haveState = false;
     }
@@ -1178,8 +1191,8 @@ final class ActivityRecord {
         }
     }
 
-    static ActivityRecord restoreFromXml(XmlPullParser in, ActivityStackSupervisor stackSupervisor)
-            throws IOException, XmlPullParserException {
+    static ActivityRecord restoreFromXml(XmlPullParser in,
+            ActivityStackSupervisor stackSupervisor) throws IOException, XmlPullParserException {
         Intent intent = null;
         PersistableBundle persistentState = null;
         int launchedFromUid = 0;
@@ -1194,7 +1207,7 @@ final class ActivityRecord {
         for (int attrNdx = in.getAttributeCount() - 1; attrNdx >= 0; --attrNdx) {
             final String attrName = in.getAttributeName(attrNdx);
             final String attrValue = in.getAttributeValue(attrNdx);
-            if (DEBUG_PERSISTER || DEBUG_RESTORER) Slog.d(TaskPersister.TAG,
+            if (TaskPersister.DEBUG) Slog.d(TaskPersister.TAG,
                         "ActivityRecord: attribute name=" + attrName + " value=" + attrValue);
             if (ATTR_ID.equals(attrName)) {
                 createTime = Long.valueOf(attrValue);
@@ -1220,15 +1233,15 @@ final class ActivityRecord {
                 (event != XmlPullParser.END_TAG || in.getDepth() < outerDepth)) {
             if (event == XmlPullParser.START_TAG) {
                 final String name = in.getName();
-                if (DEBUG_PERSISTER || DEBUG_RESTORER)
+                if (TaskPersister.DEBUG)
                         Slog.d(TaskPersister.TAG, "ActivityRecord: START_TAG name=" + name);
                 if (TAG_INTENT.equals(name)) {
                     intent = Intent.restoreFromXml(in);
-                    if (DEBUG_PERSISTER || DEBUG_RESTORER)
+                    if (TaskPersister.DEBUG)
                             Slog.d(TaskPersister.TAG, "ActivityRecord: intent=" + intent);
                 } else if (TAG_PERSISTABLEBUNDLE.equals(name)) {
                     persistentState = PersistableBundle.restoreFromXml(in);
-                    if (DEBUG_PERSISTER || DEBUG_RESTORER) Slog.d(TaskPersister.TAG,
+                    if (TaskPersister.DEBUG) Slog.d(TaskPersister.TAG,
                             "ActivityRecord: persistentState=" + persistentState);
                 } else {
                     Slog.w(TAG, "restoreActivity: unexpected name=" + name);
@@ -1250,7 +1263,7 @@ final class ActivityRecord {
         }
         final ActivityRecord r = new ActivityRecord(service, /*caller*/null, launchedFromUid,
                 launchedFromPackage, intent, resolvedType, aInfo, service.getConfiguration(),
-                null, null, 0, componentSpecified, stackSupervisor, null, null);
+                null, null, 0, componentSpecified, false, stackSupervisor, null, null);
 
         r.persistentState = persistentState;
         r.taskDescription = taskDescription;

@@ -16,8 +16,10 @@
 
 package com.android.keyguard;
 
+import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
@@ -26,6 +28,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.widget.Button;
 
+import com.android.internal.logging.MetricsLogger;
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.widget.LockPatternUtils;
 
@@ -41,7 +44,7 @@ public class EmergencyButton extends Button {
             .setPackage("com.android.phone")
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                     | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-                    | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
     KeyguardUpdateMonitorCallback mInfoCallback = new KeyguardUpdateMonitorCallback() {
 
@@ -104,10 +107,17 @@ public class EmergencyButton extends Button {
         updateEmergencyCallButton();
     }
 
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        updateEmergencyCallButton();
+    }
+
     /**
      * Shows the emergency dialer or returns the user to the existing call.
      */
     public void takeEmergencyCallAction() {
+        MetricsLogger.action(mContext, MetricsLogger.ACTION_EMERGENCY_CALL);
         // TODO: implement a shorter timeout once new PowerManager API is ready.
         // should be the equivalent to the old userActivity(EMERGENCY_CALL_TIMEOUT)
         mPowerManager.userActivity(SystemClock.uptimeMillis(), true);
@@ -120,7 +130,8 @@ public class EmergencyButton extends Button {
             KeyguardUpdateMonitor.getInstance(mContext).reportEmergencyCallAction(
                     true /* bypassHandler */);
             getContext().startActivityAsUser(INTENT_EMERGENCY_DIAL,
-                    new UserHandle(mLockPatternUtils.getCurrentUser()));
+                    ActivityOptions.makeCustomAnimation(getContext(), 0, 0).toBundle(),
+                    new UserHandle(KeyguardUpdateMonitor.getCurrentUser()));
         }
     }
 
@@ -138,7 +149,7 @@ public class EmergencyButton extends Button {
                     visible = mEnableEmergencyCallWhileSimLocked;
                 } else {
                     // Only show if there is a secure screen (pin/pattern/SIM pin/SIM puk);
-                    visible = mLockPatternUtils.isSecure();
+                    visible = mLockPatternUtils.isSecure(KeyguardUpdateMonitor.getCurrentUser());
                 }
             }
         }

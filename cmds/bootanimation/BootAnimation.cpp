@@ -530,7 +530,7 @@ bool BootAnimation::movie()
         if (leaf.size() > 0) {
             for (size_t j=0 ; j<pcount ; j++) {
                 if (path == animation.parts[j].path) {
-                    int method;
+                    uint16_t method;
                     // supports only stored png files
                     if (mZip->getEntryInfo(entry, &method, NULL, NULL, NULL, NULL, NULL)) {
                         if (method == ZipFileRO::kCompressStored) {
@@ -556,15 +556,10 @@ bool BootAnimation::movie()
 
     mZip->endIteration(cookie);
 
-    // clear screen
     glShadeModel(GL_FLAT);
     glDisable(GL_DITHER);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
-    glClearColor(0,0,0,1);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    eglSwapBuffers(mDisplay, mSurface);
 
     glBindTexture(GL_TEXTURE_2D, 0);
     glEnable(GL_TEXTURE_2D);
@@ -630,7 +625,10 @@ bool BootAnimation::movie()
                     }
                     glDisable(GL_SCISSOR_TEST);
                 }
-                glDrawTexiOES(xc, yc, 0, animation.width, animation.height);
+                // specify the y center as ceiling((mHeight - animation.height) / 2)
+                // which is equivalent to mHeight - (yc + animation.height)
+                glDrawTexiOES(xc, mHeight - (yc + animation.height),
+                              0, animation.width, animation.height);
                 eglSwapBuffers(mDisplay, mSurface);
 
                 nsecs_t now = systemTime();

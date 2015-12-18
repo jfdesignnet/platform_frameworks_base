@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import android.Manifest;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
@@ -90,7 +92,8 @@ public final class BluetoothDevice implements Parcelable {
      * <p>Always contains the extra fields {@link #EXTRA_DEVICE} and {@link
      * #EXTRA_CLASS}. Can contain the extra fields {@link #EXTRA_NAME} and/or
      * {@link #EXTRA_RSSI} if they are available.
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} to receive.
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} and
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION} to receive.
      */
      // TODO: Change API to not broadcast RSSI if not available (incoming connection)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
@@ -529,6 +532,13 @@ public final class BluetoothDevice implements Parcelable {
     public static final int PAIRING_VARIANT_OOB_CONSENT = 6;
 
     /**
+     * The user will be prompted to enter a 16 digit pin or
+     * an app will enter a 16 digit pin for user.
+     * @hide
+     */
+    public static final int PAIRING_VARIANT_PIN_16_DIGITS = 7;
+
+    /**
      * Used as an extra field in {@link #ACTION_UUID} intents,
      * Contains the {@link android.os.ParcelUuid}s of the remote device which
      * is a parcelable version of {@link UUID}.
@@ -565,19 +575,16 @@ public final class BluetoothDevice implements Parcelable {
 
      /**
       * No preferrence of physical transport for GATT connections to remote dual-mode devices
-      * @hide
       */
     public static final int TRANSPORT_AUTO = 0;
 
     /**
      * Prefer BR/EDR transport for GATT connections to remote dual-mode devices
-     * @hide
      */
     public static final int TRANSPORT_BREDR = 1;
 
     /**
      * Prefer LE transport for GATT connections to remote dual-mode devices
-     * @hide
      */
     public static final int TRANSPORT_LE = 2;
 
@@ -709,6 +716,7 @@ public final class BluetoothDevice implements Parcelable {
      *
      * @return the Bluetooth name, or null if there was a problem.
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
     public String getName() {
         if (sService == null) {
             Log.e(TAG, "BT not enabled. Cannot get Remote Device name");
@@ -729,6 +737,7 @@ public final class BluetoothDevice implements Parcelable {
      *                         {@link #DEVICE_TYPE_DUAL}.
      *         {@link #DEVICE_TYPE_UNKNOWN} if it's not available
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
     public int getType() {
         if (sService == null) {
             Log.e(TAG, "BT not enabled. Cannot get Remote Device type");
@@ -807,6 +816,7 @@ public final class BluetoothDevice implements Parcelable {
      *
      * @return false on immediate error, true if bonding will begin
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADMIN)
     public boolean createBond() {
         if (sService == null) {
             Log.e(TAG, "BT not enabled. Cannot create bond to Remote Device");
@@ -948,6 +958,7 @@ public final class BluetoothDevice implements Parcelable {
      *
      * @return the bond state
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
     public int getBondState() {
         if (sService == null) {
             Log.e(TAG, "BT not enabled. Cannot get bond state");
@@ -1014,6 +1025,7 @@ public final class BluetoothDevice implements Parcelable {
      *
      * @return Bluetooth class object, or null on error
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
     public BluetoothClass getBluetoothClass() {
         if (sService == null) {
             Log.e(TAG, "BT not enabled. Cannot get Bluetooth Class");
@@ -1039,6 +1051,7 @@ public final class BluetoothDevice implements Parcelable {
      * @return the supported features (UUIDs) of the remote device,
      *         or null on error
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
      public ParcelUuid[] getUuids() {
          if (sService == null || isBluetoothEnabled() == false) {
             Log.e(TAG, "BT not enabled. Cannot get remote device Uuids");
@@ -1065,6 +1078,7 @@ public final class BluetoothDevice implements Parcelable {
       *               of initiating an ACL connection to the remote device
       *               was started.
       */
+     @RequiresPermission(Manifest.permission.BLUETOOTH)
      public boolean fetchUuidsWithSdp() {
         IBluetooth service = sService;
         if (service == null || isBluetoothEnabled() == false) {
@@ -1144,6 +1158,7 @@ public final class BluetoothDevice implements Parcelable {
      * @return true confirmation has been sent out
      *         false for error
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADMIN)
     public boolean setPairingConfirmation(boolean confirm) {
         if (sService == null) {
             Log.e(TAG, "BT not enabled. Cannot set pairing confirmation");
@@ -1308,8 +1323,8 @@ public final class BluetoothDevice implements Parcelable {
             Log.e(TAG, "", e);
         }
         return false;
-    }    
-    
+    }
+
     /**
      * Create an RFCOMM {@link BluetoothSocket} ready to start a secure
      * outgoing connection to this remote device on given channel.
@@ -1405,6 +1420,7 @@ public final class BluetoothDevice implements Parcelable {
      * @throws IOException on error, for example Bluetooth not available, or
      *                     insufficient permissions
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
     public BluetoothSocket createRfcommSocketToServiceRecord(UUID uuid) throws IOException {
         if (isBluetoothEnabled() == false) {
             Log.e(TAG, "Bluetooth is not enabled");
@@ -1443,6 +1459,7 @@ public final class BluetoothDevice implements Parcelable {
      * @throws IOException on error, for example Bluetooth not available, or
      *                     insufficient permissions
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
     public BluetoothSocket createInsecureRfcommSocketToServiceRecord(UUID uuid) throws IOException {
         if (isBluetoothEnabled() == false) {
             Log.e(TAG, "Bluetooth is not enabled");
@@ -1552,7 +1569,6 @@ public final class BluetoothDevice implements Parcelable {
      *             {@link BluetoothDevice#TRANSPORT_AUTO} or
      *             {@link BluetoothDevice#TRANSPORT_BREDR} or {@link BluetoothDevice#TRANSPORT_LE}
      * @throws IllegalArgumentException if callback is null
-     * @hide
      */
     public BluetoothGatt connectGatt(Context context, boolean autoConnect,
                                      BluetoothGattCallback callback, int transport) {

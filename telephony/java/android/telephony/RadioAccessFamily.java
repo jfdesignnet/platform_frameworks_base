@@ -185,6 +185,36 @@ public class RadioAccessFamily implements Parcelable {
             case RILConstants.NETWORK_MODE_GLOBAL:
                 raf = GSM | WCDMA | CDMA | EVDO;
                 break;
+            case RILConstants.NETWORK_MODE_TDSCDMA_ONLY:
+                raf = RAF_TD_SCDMA;
+                break;
+            case RILConstants.NETWORK_MODE_TDSCDMA_WCDMA:
+                raf = RAF_TD_SCDMA | WCDMA;
+                break;
+            case RILConstants.NETWORK_MODE_LTE_TDSCDMA:
+                raf = RAF_LTE | RAF_TD_SCDMA;
+                break;
+            case RILConstants.NETWORK_MODE_TDSCDMA_GSM:
+                raf = RAF_TD_SCDMA | GSM;
+                break;
+            case RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM:
+                raf = RAF_LTE | RAF_TD_SCDMA | GSM;
+                break;
+            case RILConstants.NETWORK_MODE_TDSCDMA_GSM_WCDMA:
+                raf = RAF_TD_SCDMA | GSM | WCDMA;
+                break;
+            case RILConstants.NETWORK_MODE_LTE_TDSCDMA_WCDMA:
+                raf = RAF_LTE | RAF_TD_SCDMA | WCDMA;
+                break;
+            case RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA:
+                raf = RAF_LTE | RAF_TD_SCDMA | GSM | WCDMA;
+                break;
+            case RILConstants.NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA:
+                raf = RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA;
+                break;
+            case RILConstants.NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA:
+                raf = RAF_LTE | RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA;
+                break;
             default:
                 raf = RAF_UNKNOWN;
                 break;
@@ -248,6 +278,36 @@ public class RadioAccessFamily implements Parcelable {
             case (GSM | WCDMA | CDMA | EVDO):
                 type = RILConstants.NETWORK_MODE_GLOBAL;
                 break;
+            case RAF_TD_SCDMA:
+                type = RILConstants.NETWORK_MODE_TDSCDMA_ONLY;
+                break;
+            case (RAF_TD_SCDMA | WCDMA):
+                type = RILConstants.NETWORK_MODE_TDSCDMA_WCDMA;
+                break;
+            case (RAF_LTE | RAF_TD_SCDMA):
+                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA;
+                break;
+            case (RAF_TD_SCDMA | GSM):
+                type = RILConstants.NETWORK_MODE_TDSCDMA_GSM;
+                break;
+            case (RAF_LTE | RAF_TD_SCDMA | GSM):
+                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM;
+                break;
+            case (RAF_TD_SCDMA | GSM | WCDMA):
+                type = RILConstants.NETWORK_MODE_TDSCDMA_GSM_WCDMA;
+                break;
+            case (RAF_LTE | RAF_TD_SCDMA | WCDMA):
+                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_WCDMA;
+                break;
+            case (RAF_LTE | RAF_TD_SCDMA | GSM | WCDMA):
+                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA;
+                break;
+            case (RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA):
+                type = RILConstants.NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
+                break;
+            case (RAF_LTE | RAF_TD_SCDMA | RAF_LTE | CDMA | EVDO | GSM | WCDMA):
+                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
+                break;
             default:
                 type = RILConstants.PREFERRED_NETWORK_MODE ;
                 break;
@@ -255,5 +315,43 @@ public class RadioAccessFamily implements Parcelable {
 
         return type;
     }
-}
 
+    public static int singleRafTypeFromString(String rafString) {
+        switch (rafString) {
+            case "GPRS":    return RAF_GPRS;
+            case "EDGE":    return RAF_EDGE;
+            case "UMTS":    return RAF_UMTS;
+            case "IS95A":   return RAF_IS95A;
+            case "IS95B":   return RAF_IS95B;
+            case "1XRTT":   return RAF_1xRTT;
+            case "EVDO_0":  return RAF_EVDO_0;
+            case "EVDO_A":  return RAF_EVDO_A;
+            case "HSDPA":   return RAF_HSDPA;
+            case "HSUPA":   return RAF_HSUPA;
+            case "HSPA":    return RAF_HSPA;
+            case "EVDO_B":  return RAF_EVDO_B;
+            case "EHRPD":   return RAF_EHRPD;
+            case "LTE":     return RAF_LTE;
+            case "HSPAP":   return RAF_HSPAP;
+            case "GSM":     return RAF_GSM;
+            case "TD_SCDMA":return RAF_TD_SCDMA;
+            case "HS":      return HS;
+            case "CDMA":    return CDMA;
+            case "EVDO":    return EVDO;
+            case "WCDMA":   return WCDMA;
+            default:        return RAF_UNKNOWN;
+        }
+    }
+
+    public static int rafTypeFromString(String rafList) {
+        rafList = rafList.toUpperCase();
+        String[] rafs = rafList.split("\\|");
+        int result = 0;
+        for(String raf : rafs) {
+            int rafType = singleRafTypeFromString(raf.trim());
+            if (rafType == RAF_UNKNOWN) return rafType;
+            result |= rafType;
+        }
+        return result;
+    }
+}

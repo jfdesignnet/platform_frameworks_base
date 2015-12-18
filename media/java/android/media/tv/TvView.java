@@ -24,6 +24,7 @@ import android.graphics.Canvas;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.Region;
+import android.media.PlaybackParams;
 import android.media.tv.TvInputManager.Session;
 import android.media.tv.TvInputManager.Session.FinishedInputEventCallback;
 import android.media.tv.TvInputManager.SessionCallback;
@@ -190,7 +191,7 @@ public class TvView extends ViewGroup {
      * the active source.
      *
      * <p>First tuned {@link TvView} becomes main automatically, and keeps to be main until either
-     * {@link #reset} is called for the main {@link TvView} or {@link #setMain} is called for other
+     * {@link #reset} is called for the main {@link TvView} or {@code setMain()} is called for other
      * {@link TvView}.
      * @hide
      */
@@ -271,7 +272,7 @@ public class TvView extends ViewGroup {
     /**
      * Tunes to a given channel.
      *
-     * @param inputId The ID of TV input which will play the given channel.
+     * @param inputId The ID of the TV input for the given channel.
      * @param channelUri The URI of a channel.
      */
     public void tune(@NonNull String inputId, Uri channelUri) {
@@ -281,9 +282,9 @@ public class TvView extends ViewGroup {
     /**
      * Tunes to a given channel.
      *
-     * @param inputId The ID of TV input which will play the given channel.
+     * @param inputId The ID of TV input for the given channel.
      * @param channelUri The URI of a channel.
-     * @param params Extra parameters which might be handled with the tune event.
+     * @param params Extra parameters.
      * @hide
      */
     @SystemApi
@@ -297,22 +298,26 @@ public class TvView extends ViewGroup {
                 sMainTvView = new WeakReference<>(this);
             }
         }
-        if (mSessionCallback != null && mSessionCallback.mInputId.equals(inputId)) {
+        if (mSessionCallback != null && TextUtils.equals(mSessionCallback.mInputId, inputId)) {
             if (mSession != null) {
                 mSession.tune(channelUri, params);
             } else {
-                // Session is not created yet. Replace the channel which will be set once the
-                // session is made.
+                // createSession() was called but the actual session for the given inputId has not
+                // yet been created. Just replace the existing tuning params in the callback with
+                // the new ones and tune later in onSessionCreated(). It is not necessary to create
+                // a new callback because this tuning request was made on the same inputId.
                 mSessionCallback.mChannelUri = channelUri;
                 mSessionCallback.mTuneParams = params;
             }
         } else {
             resetInternal();
-            // When createSession() is called multiple times before the callback is called,
-            // only the callback of the last createSession() call will be actually called back.
-            // The previous callbacks will be ignored. For the logic, mSessionCallback
-            // is newly assigned for every createSession request and compared with
-            // MySessionCreateCallback.this.
+            // In case createSession() is called multiple times across different inputId's before
+            // any session is created (e.g. when quickly tuning to a channel from input A and then
+            // to another channel from input B), only the callback for the last createSession()
+            // should be invoked. (The previous callbacks are simply ignored.) To do that, we create
+            // a new callback each time and keep mSessionCallback pointing to the last one. If
+            // MySessionCallback.this is different from mSessionCallback, we know that this callback
+            // is obsolete and should ignore it.
             mSessionCallback = new MySessionCallback(inputId, channelUri, params);
             if (mTvInputManager != null) {
                 mTvInputManager.createSession(inputId, mSessionCallback, mHandler);
@@ -336,8 +341,14 @@ public class TvView extends ViewGroup {
     }
 
     private void resetInternal() {
+        mSessionCallback = null;
+        mPendingAppPrivateCommands.clear();
         if (mSession != null) {
-            release();
+            setSessionSurface(null);
+            removeSessionOverlayView();
+            mUseRequestedSurfaceLayout = false;
+            mSession.release();
+            mSession = null;
             resetSurfaceView();
         }
     }
@@ -350,11 +361,27 @@ public class TvView extends ViewGroup {
      * @param unblockedRating A TvContentRating to unblock.
      * @see TvInputService.Session#notifyContentBlocked(TvContentRating)
      * @hide
+     * @deprecated Use {@link #unblockContent} instead.
      */
+    @Deprecated
     @SystemApi
     public void requestUnblockContent(TvContentRating unblockedRating) {
+        unblockContent(unblockedRating);
+    }
+
+    /**
+     * Requests to unblock TV content according to the given rating.
+     *
+     * <p>This notifies TV input that blocked content is now OK to play.
+     *
+     * @param unblockedRating A TvContentRating to unblock.
+     * @see TvInputService.Session#notifyContentBlocked(TvContentRating)
+     * @hide
+     */
+    @SystemApi
+    public void unblockContent(TvContentRating unblockedRating) {
         if (mSession != null) {
-            mSession.requestUnblockContent(unblockedRating);
+            mSession.unblockContent(unblockedRating);
         }
     }
 
@@ -452,17 +479,13 @@ public class TvView extends ViewGroup {
     }
 
     /**
-     * Sets playback rate and audio mode.
+     * Sets playback rate using {@link android.media.PlaybackParams}.
      *
-     * @param rate The ratio between desired playback rate and normal one.
-     * @param audioMode Audio playback mode. Must be one of the supported audio modes:
-     * <ul>
-     * <li> {@link android.media.MediaPlayer#PLAYBACK_RATE_AUDIO_MODE_RESAMPLE}
-     * </ul>
+     * @param params The playback params.
      */
-    public void timeShiftSetPlaybackRate(float rate, int audioMode) {
+    public void timeShiftSetPlaybackParams(@NonNull PlaybackParams params) {
         if (mSession != null) {
-            mSession.timeShiftSetPlaybackRate(rate, audioMode);
+            mSession.timeShiftSetPlaybackParams(params);
         }
     }
 
@@ -725,17 +748,6 @@ public class TvView extends ViewGroup {
         addView(mSurfaceView);
     }
 
-    private void release() {
-        mPendingAppPrivateCommands.clear();
-
-        setSessionSurface(null);
-        removeSessionOverlayView();
-        mUseRequestedSurfaceLayout = false;
-        mSession.release();
-        mSession = null;
-        mSessionCallback = null;
-    }
-
     private void setSessionSurface(Surface surface) {
         if (mSession == null) {
             return;
@@ -802,6 +814,9 @@ public class TvView extends ViewGroup {
          * limitation on storage space). The application should not allow the user to seek to a
          * position earlier than the start position.
          *
+         * <p>Note that {@code timeMs} is not relative time in the program but wall-clock time,
+         * which is intended to avoid calling this method unnecessarily around program boundaries.
+         *
          * @param inputId The ID of the TV input bound to this view.
          * @param timeMs The start playback position of the time shifted program, in milliseconds
          *            since the epoch.
@@ -811,6 +826,9 @@ public class TvView extends ViewGroup {
 
         /**
          * This is called when the current playback position is changed.
+         *
+         * <p>Note that {@code timeMs} is not relative time in the program but wall-clock time,
+         * which is intended to avoid calling this method unnecessarily around program boundaries.
          *
          * @param inputId The ID of the TV input bound to this view.
          * @param timeMs The current playback position of the time shifted program, in milliseconds

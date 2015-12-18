@@ -96,6 +96,8 @@ struct ResourceNameRef {
     ResourceNameRef(ResourceNameRef&&) = default;
     ResourceNameRef(const ResourceName& rhs);
     ResourceNameRef(const StringPiece16& p, ResourceType t, const StringPiece16& e);
+    ResourceNameRef& operator=(const ResourceNameRef& rhs) = default;
+    ResourceNameRef& operator=(ResourceNameRef&& rhs) = default;
     ResourceNameRef& operator=(const ResourceName& rhs);
 
     ResourceName toResourceName() const;
@@ -130,6 +132,7 @@ struct ResourceId {
     uint8_t typeId() const;
     uint16_t entryId() const;
     bool operator<(const ResourceId& rhs) const;
+    bool operator==(const ResourceId& rhs) const;
 };
 
 //
@@ -176,6 +179,10 @@ inline uint16_t ResourceId::entryId() const {
 
 inline bool ResourceId::operator<(const ResourceId& rhs) const {
     return id < rhs.id;
+}
+
+inline bool ResourceId::operator==(const ResourceId& rhs) const {
+    return id == rhs.id;
 }
 
 inline ::std::ostream& operator<<(::std::ostream& out,

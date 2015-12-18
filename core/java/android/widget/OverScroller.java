@@ -678,7 +678,7 @@ public class OverScroller {
         void startScroll(int start, int distance, int duration) {
             mFinished = false;
 
-            mStart = start;
+            mCurrentPosition = mStart = start;
             mFinal = start + distance;
 
             mStartTime = AnimationUtils.currentAnimationTimeMillis();
@@ -712,7 +712,7 @@ public class OverScroller {
         boolean springback(int start, int min, int max) {
             mFinished = true;
 
-            mStart = mFinal = start;
+            mCurrentPosition = mStart = mFinal = start;
             mVelocity = 0;
 
             mStartTime = AnimationUtils.currentAnimationTimeMillis();
@@ -731,7 +731,7 @@ public class OverScroller {
             // mStartTime has been set
             mFinished = false;
             mState = CUBIC;
-            mStart = start;
+            mCurrentPosition = mStart = start;
             mFinal = end;
             final int delta = start - end;
             mDeceleration = getDeceleration(delta);
@@ -797,12 +797,14 @@ public class OverScroller {
         private void fitOnBounceCurve(int start, int end, int velocity) {
             // Simulate a bounce that started from edge
             final float durationToApex = - velocity / mDeceleration;
-            final float distanceToApex = velocity * velocity / 2.0f / Math.abs(mDeceleration);
+            // The float cast below is necessary to avoid integer overflow.
+            final float velocitySquared = (float) velocity * velocity;
+            final float distanceToApex = velocitySquared / 2.0f / Math.abs(mDeceleration);
             final float distanceToEdge = Math.abs(end - start);
             final float totalDuration = (float) Math.sqrt(
                     2.0 * (distanceToApex + distanceToEdge) / Math.abs(mDeceleration));
             mStartTime -= (int) (1000.0f * (totalDuration - durationToApex));
-            mStart = end;
+            mCurrentPosition = mStart = end;
             mVelocity = (int) (- mDeceleration * totalDuration);
         }
 
@@ -848,12 +850,14 @@ public class OverScroller {
 
         private void onEdgeReached() {
             // mStart, mVelocity and mStartTime were adjusted to their values when edge was reached.
-            float distance = mVelocity * mVelocity / (2.0f * Math.abs(mDeceleration));
+            // The float cast below is necessary to avoid integer overflow.
+            final float velocitySquared = (float) mVelocity * mVelocity;
+            float distance = velocitySquared / (2.0f * Math.abs(mDeceleration));
             final float sign = Math.signum(mVelocity);
 
             if (distance > mOver) {
                 // Default deceleration is not sufficient to slow us down before boundary
-                 mDeceleration = - sign * mVelocity * mVelocity / (2.0f * mOver);
+                 mDeceleration = - sign * velocitySquared / (2.0f * mOver);
                  distance = mOver;
             }
 
@@ -869,7 +873,7 @@ public class OverScroller {
                     // Duration from start to null velocity
                     if (mDuration < mSplineDuration) {
                         // If the animation was clamped, we reached the edge
-                        mStart = mFinal;
+                        mCurrentPosition = mStart = mFinal;
                         // TODO Better compute speed when edge was reached
                         mVelocity = (int) mCurrVelocity;
                         mDeceleration = getDeceleration(mVelocity);

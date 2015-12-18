@@ -21,16 +21,15 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.animation.ValueAnimator;
-import android.graphics.Path;
 import android.view.View;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
-import android.view.animation.PathInterpolator;
 
 import com.android.systemui.R;
 import com.android.systemui.statusbar.ExpandableNotificationRow;
 import com.android.systemui.statusbar.ExpandableView;
 import com.android.systemui.statusbar.SpeedBumpView;
+import com.android.systemui.statusbar.policy.HeadsUpManager;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -55,6 +54,7 @@ public class StackStateAnimator {
     public static final int ANIMATION_DELAY_PER_ELEMENT_DARK = 24;
     public static final int DELAY_EFFECT_MAX_INDEX_DIFFERENCE = 2;
     public static final int DELAY_EFFECT_MAX_INDEX_DIFFERENCE_CHILDREN = 3;
+    public static final int ANIMATION_DELAY_HEADS_UP = 120;
 
     private static final int TAG_ANIMATOR_TRANSLATION_Y = R.id.translation_y_animator_tag;
     private static final int TAG_ANIMATOR_TRANSLATION_Z = R.id.translation_z_animator_tag;
@@ -78,6 +78,7 @@ public class StackStateAnimator {
     private final Interpolator mFastOutSlowInInterpolator;
     private final Interpolator mHeadsUpAppearInterpolator;
     private final int mGoToFullShadeAppearingTranslation;
+    private final StackViewState mTmpState = new StackViewState();
     public NotificationStackScrollLayout mHostLayout;
     private ArrayList<NotificationStackScrollLayout.AnimationEvent> mNewEvents =
             new ArrayList<>();
@@ -95,9 +96,9 @@ public class StackStateAnimator {
     private ValueAnimator mTopOverScrollAnimator;
     private ValueAnimator mBottomOverScrollAnimator;
     private ExpandableNotificationRow mChildExpandingView;
-    private StackViewState mTmpState = new StackViewState();
     private int mHeadsUpAppearHeightBottom;
     private boolean mShadeExpanded;
+    private ArrayList<View> mChildrenToClearFromOverlay = new ArrayList<>();
 
     public StackStateAnimator(NotificationStackScrollLayout hostLayout) {
         mHostLayout = hostLayout;
@@ -106,25 +107,7 @@ public class StackStateAnimator {
         mGoToFullShadeAppearingTranslation =
                 hostLayout.getContext().getResources().getDimensionPixelSize(
                         R.dimen.go_to_full_shade_appearing_translation);
-        Path path = new Path();
-        path.moveTo(0, 0);
-        float x1 = 250f;
-        float x2 = 150f;
-        float x3 = 100f;
-        float y1 = 90f;
-        float y2 = 78f;
-        float y3 = 80f;
-        float xTot = (x1 + x2 + x3);
-        path.cubicTo(x1 * 0.9f / xTot, 0f,
-                x1 * 0.8f / xTot, y1 / y3,
-                x1 / xTot , y1 / y3);
-        path.cubicTo((x1 + x2 * 0.4f) / xTot, y1 / y3,
-                (x1 + x2 * 0.2f) / xTot, y2 / y3,
-                (x1 + x2) / xTot, y2 / y3);
-        path.cubicTo((x1 + x2 + x3 * 0.4f) / xTot, y2 / y3,
-                (x1 + x2 + x3 * 0.2f) / xTot, 1f,
-                1f, 1f);
-        mHeadsUpAppearInterpolator = new PathInterpolator(path);
+        mHeadsUpAppearInterpolator = new HeadsUpAppearInterpolator();
     }
 
     public boolean isRunning() {
@@ -183,7 +166,7 @@ public class StackStateAnimator {
             // This is a heads up animation
             return false;
         }
-        if (mHostLayout.isPinnedHeadsUp(child)) {
+        if (NotificationStackScrollLayout.isPinnedHeadsUp(child)) {
             // This is another headsUp which might move. Let's animate!
             return false;
         }
@@ -262,15 +245,15 @@ public class StackStateAnimator {
         // start dimmed animation
         child.setDimmed(viewState.dimmed, mAnimationFilter.animateDimmed);
 
-        // start dark animation
-        child.setDark(viewState.dark, mAnimationFilter.animateDark, delay);
-
         // apply speed bump state
         child.setBelowSpeedBump(viewState.belowSpeedBump);
 
         // start hiding sensitive animation
         child.setHideSensitive(viewState.hideSensitive, mAnimationFilter.animateHideSensitive,
                 delay, duration);
+
+        // start dark animation
+        child.setDark(viewState.dark, mAnimationFilter.animateDark, delay);
 
         if (wasAdded) {
             child.performAddAnimation(delay, mCurrentLength);
@@ -304,6 +287,10 @@ public class StackStateAnimator {
         boolean scaleChanging = child.getScaleX() != viewState.scale;
         float childAlpha = child.getVisibility() == View.INVISIBLE ? 0.0f : child.getAlpha();
         boolean alphaChanging = viewState.alpha != childAlpha;
+        if (child instanceof ExpandableView) {
+            // We don't want views to change visibility when they are animating to GONE
+            alphaChanging &= !((ExpandableView) child).willBeGone();
+        }
 
         // start translationY animation
         if (yTranslationChanging) {
@@ -333,6 +320,9 @@ public class StackStateAnimator {
         }
         if (mAnimationFilter.hasGoToFullShadeEvent) {
             return calculateDelayGoToFullShade(viewState);
+        }
+        if (mAnimationFilter.hasHeadsUpDisappearClickEvent) {
+            return ANIMATION_DELAY_HEADS_UP;
         }
         long minDelay = 0;
         for (NotificationStackScrollLayout.AnimationEvent event : mNewEvents) {
@@ -685,6 +675,7 @@ public class StackStateAnimator {
         animator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
+                HeadsUpManager.setIsClickedNotification(child, false);
                 child.setTag(TAG_ANIMATOR_TRANSLATION_Y, null);
                 child.setTag(TAG_START_TRANSLATION_Y, null);
                 child.setTag(TAG_END_TRANSLATION_Y, null);
@@ -814,6 +805,10 @@ public class StackStateAnimator {
 
     private void onAnimationFinished() {
         mHostLayout.onChildAnimationFinished();
+        for (View v : mChildrenToClearFromOverlay) {
+            mHostLayout.getOverlay().remove(v);
+        }
+        mChildrenToClearFromOverlay.clear();
     }
 
     /**
@@ -899,9 +894,26 @@ public class StackStateAnimator {
                 mHeadsUpAppearChildren.add(changingView);
                 finalState.applyState(changingView, mTmpState);
             } else if (event.animationType == NotificationStackScrollLayout
-                    .AnimationEvent.ANIMATION_TYPE_HEADS_UP_DISAPPEAR) {
-                // This item is added, initialize it's properties.
+                            .AnimationEvent.ANIMATION_TYPE_HEADS_UP_DISAPPEAR ||
+                    event.animationType == NotificationStackScrollLayout
+                            .AnimationEvent.ANIMATION_TYPE_HEADS_UP_DISAPPEAR_CLICK) {
                 mHeadsUpDisappearChildren.add(changingView);
+                if (mHostLayout.indexOfChild(changingView) == -1) {
+                    // This notification was actually removed, so we need to add it to the overlay
+                    mHostLayout.getOverlay().add(changingView);
+                    mTmpState.initFrom(changingView);
+                    mTmpState.yTranslation = -changingView.getActualHeight();
+                    // We temporarily enable Y animations, the real filter will be combined
+                    // afterwards anyway
+                    mAnimationFilter.animateY = true;
+                    startViewAnimations(changingView, mTmpState,
+                            event.animationType == NotificationStackScrollLayout
+                                    .AnimationEvent.ANIMATION_TYPE_HEADS_UP_DISAPPEAR_CLICK
+                                            ? ANIMATION_DELAY_HEADS_UP
+                                            : 0,
+                            ANIMATION_DURATION_HEADS_UP_DISAPPEAR);
+                    mChildrenToClearFromOverlay.add(changingView);
+                }
             }
             mNewEvents.add(event);
         }

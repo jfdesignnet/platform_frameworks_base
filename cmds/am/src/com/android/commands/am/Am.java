@@ -26,11 +26,13 @@ import android.app.IActivityController;
 import android.app.IActivityManager;
 import android.app.IInstrumentationWatcher;
 import android.app.Instrumentation;
+import android.app.IStopUserCallback;
 import android.app.ProfilerInfo;
 import android.app.UiAutomationConnection;
 import android.app.usage.ConfigurationStats;
 import android.app.usage.IUsageStatsManager;
 import android.app.usage.UsageStatsManager;
+import android.content.ComponentCallbacks2;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.IIntentReceiver;
@@ -72,6 +74,8 @@ import java.util.HashSet;
 import java.util.List;
 
 public class Am extends BaseCommand {
+
+    private static final String SHELL_PACKAGE_NAME = "com.android.shell";
 
     private IActivityManager mAm;
 
@@ -130,7 +134,7 @@ public class Am extends BaseCommand {
                 "       am to-app-uri [INTENT]\n" +
                 "       am switch-user <USER_ID>\n" +
                 "       am start-user <USER_ID>\n" +
-                "       am stop-user <USER_ID>\n" +
+                "       am stop-user [-w] <USER_ID>\n" +
                 "       am stack start <DISPLAY_ID> <INTENT>\n" +
                 "       am stack movetask <TASK_ID> <STACK_ID> [true|false]\n" +
                 "       am stack resize <STACK_ID> <LEFT,TOP,RIGHT,BOTTOM>\n" +
@@ -142,8 +146,10 @@ public class Am extends BaseCommand {
                 "       am task resizeable <TASK_ID> [true|false]\n" +
                 "       am task resize <TASK_ID> <LEFT,TOP,RIGHT,BOTTOM>\n" +
                 "       am get-config\n" +
-                "       am set-idle [--user <USER_ID>] <PACKAGE> true|false\n" +
-                "       am get-idle [--user <USER_ID>] <PACKAGE>\n" +
+                "       am set-inactive [--user <USER_ID>] <PACKAGE> true|false\n" +
+                "       am get-inactive [--user <USER_ID>] <PACKAGE>\n" +
+                "       am send-trim-memory [--user <USER_ID>] <PROCESS>\n" +
+                "               [HIDDEN|RUNNING_MODERATE|BACKGROUND|RUNNING_LOW|MODERATE|RUNNING_CRITICAL|COMPLETE]\n" +
                 "\n" +
                 "am start: start an Activity.  Options are:\n" +
                 "    -D: enable debugging\n" +
@@ -252,6 +258,7 @@ public class Am extends BaseCommand {
                 "\n" +
                 "am stop-user: stop execution of USER_ID, not allowing it to run any\n" +
                 "  code until a later explicit start or switch to it.\n" +
+                "  -w: wait for stop-user to complete.\n" +
                 "\n" +
                 "am stack start: start a new activity on <DISPLAY_ID> using <INTENT>.\n" +
                 "\n" +
@@ -271,9 +278,9 @@ public class Am extends BaseCommand {
                 "\n" +
                 "am stack info: display the information about activity stack <STACK_ID>.\n" +
                 "\n" +
-                "am task lock: bring <TASK_ID> to the front and don't allow other tasks to run\n" +
+                "am task lock: bring <TASK_ID> to the front and don't allow other tasks to run.\n" +
                 "\n" +
-                "am task lock stop: end the current task lock\n" +
+                "am task lock stop: end the current task lock.\n" +
                 "\n" +
                 "am task resizeable: change if <TASK_ID> is resizeable (true) or not (false).\n" +
                 "\n" +
@@ -282,12 +289,13 @@ public class Am extends BaseCommand {
                 "   has the specified bounds.\n" +
                 "\n" +
                 "am get-config: retrieve the configuration and any recent configurations\n" +
-                "  of the device\n" +
+                "  of the device.\n" +
                 "\n" +
-                "am set-idle: sets the idle state of an app\n" +
+                "am set-inactive: sets the inactive state of an app.\n" +
                 "\n" +
-                "am get-idle: returns the idle state of an app\n" +
+                "am get-inactive: returns the inactive state of an app.\n" +
                 "\n" +
+                "am send-trim-memory: Send a memory trim event to a <PROCESS>.\n" +
                 "\n" +
                 "<INTENT> specifications include these flags and arguments:\n" +
                 "    [-a <ACTION>] [-d <DATA_URI>] [-t <MIME_TYPE>]\n" +
@@ -301,11 +309,23 @@ public class Am extends BaseCommand {
                 "    [--eu <EXTRA_KEY> <EXTRA_URI_VALUE> ...]\n" +
                 "    [--ecn <EXTRA_KEY> <EXTRA_COMPONENT_NAME_VALUE>]\n" +
                 "    [--eia <EXTRA_KEY> <EXTRA_INT_VALUE>[,<EXTRA_INT_VALUE...]]\n" +
+                "        (mutiple extras passed as Integer[])\n" +
+                "    [--eial <EXTRA_KEY> <EXTRA_INT_VALUE>[,<EXTRA_INT_VALUE...]]\n" +
+                "        (mutiple extras passed as List<Integer>)\n" +
                 "    [--ela <EXTRA_KEY> <EXTRA_LONG_VALUE>[,<EXTRA_LONG_VALUE...]]\n" +
+                "        (mutiple extras passed as Long[])\n" +
+                "    [--elal <EXTRA_KEY> <EXTRA_LONG_VALUE>[,<EXTRA_LONG_VALUE...]]\n" +
+                "        (mutiple extras passed as List<Long>)\n" +
                 "    [--efa <EXTRA_KEY> <EXTRA_FLOAT_VALUE>[,<EXTRA_FLOAT_VALUE...]]\n" +
+                "        (mutiple extras passed as Float[])\n" +
+                "    [--efal <EXTRA_KEY> <EXTRA_FLOAT_VALUE>[,<EXTRA_FLOAT_VALUE...]]\n" +
+                "        (mutiple extras passed as List<Float>)\n" +
                 "    [--esa <EXTRA_KEY> <EXTRA_STRING_VALUE>[,<EXTRA_STRING_VALUE...]]\n" +
-                "        (to embed a comma into a string escape it using \"\\,\")\n" +
-                "    [-n <COMPONENT>] [-p <PACKAGE>] [-f <FLAGS>]\n" +
+                "        (mutiple extras passed as String[]; to embed a comma into a string,\n" +
+                "         escape it using \"\\,\")\n" +
+                "    [--esal <EXTRA_KEY> <EXTRA_STRING_VALUE>[,<EXTRA_STRING_VALUE...]]\n" +
+                "        (mutiple extras passed as List<String>; to embed a comma into a string,\n" +
+                "         escape it using \"\\,\")\n" +
                 "    [--grant-read-uri-permission] [--grant-write-uri-permission]\n" +
                 "    [--grant-persistable-uri-permission] [--grant-prefix-uri-permission]\n" +
                 "    [--debug-log-resolution] [--exclude-stopped-packages]\n" +
@@ -395,10 +415,12 @@ public class Am extends BaseCommand {
             runTask();
         } else if (op.equals("get-config")) {
             runGetConfig();
-        } else if (op.equals("set-idle")) {
-            runSetIdle();
-        } else if (op.equals("get-idle")) {
-            runGetIdle();
+        } else if (op.equals("set-inactive")) {
+            runSetInactive();
+        } else if (op.equals("get-inactive")) {
+            runGetInactive();
+        } else if (op.equals("send-trim-memory")) {
+            runSendTrimMemory();
         } else {
             showError("Error: unknown command '" + op + "'");
         }
@@ -484,6 +506,15 @@ public class Am extends BaseCommand {
                     list[i] = Integer.decode(strings[i]);
                 }
                 intent.putExtra(key, list);
+            } else if (opt.equals("--eial")) {
+                String key = nextArgRequired();
+                String value = nextArgRequired();
+                String[] strings = value.split(",");
+                ArrayList<Integer> list = new ArrayList<>(strings.length);
+                for (int i = 0; i < strings.length; i++) {
+                    list.add(Integer.decode(strings[i]));
+                }
+                intent.putExtra(key, list);
             } else if (opt.equals("--el")) {
                 String key = nextArgRequired();
                 String value = nextArgRequired();
@@ -495,6 +526,16 @@ public class Am extends BaseCommand {
                 long[] list = new long[strings.length];
                 for (int i = 0; i < strings.length; i++) {
                     list[i] = Long.valueOf(strings[i]);
+                }
+                intent.putExtra(key, list);
+                hasIntentInfo = true;
+            } else if (opt.equals("--elal")) {
+                String key = nextArgRequired();
+                String value = nextArgRequired();
+                String[] strings = value.split(",");
+                ArrayList<Long> list = new ArrayList<>(strings.length);
+                for (int i = 0; i < strings.length; i++) {
+                    list.add(Long.valueOf(strings[i]));
                 }
                 intent.putExtra(key, list);
                 hasIntentInfo = true;
@@ -513,6 +554,16 @@ public class Am extends BaseCommand {
                 }
                 intent.putExtra(key, list);
                 hasIntentInfo = true;
+            } else if (opt.equals("--efal")) {
+                String key = nextArgRequired();
+                String value = nextArgRequired();
+                String[] strings = value.split(",");
+                ArrayList<Float> list = new ArrayList<>(strings.length);
+                for (int i = 0; i < strings.length; i++) {
+                    list.add(Float.valueOf(strings[i]));
+                }
+                intent.putExtra(key, list);
+                hasIntentInfo = true;
             } else if (opt.equals("--esa")) {
                 String key = nextArgRequired();
                 String value = nextArgRequired();
@@ -521,6 +572,19 @@ public class Am extends BaseCommand {
                 // again for the regex, thus four escape characters become one.
                 String[] strings = value.split("(?<!\\\\),");
                 intent.putExtra(key, strings);
+                hasIntentInfo = true;
+            } else if (opt.equals("--esal")) {
+                String key = nextArgRequired();
+                String value = nextArgRequired();
+                // Split on commas unless they are preceeded by an escape.
+                // The escape character must be escaped for the string and
+                // again for the regex, thus four escape characters become one.
+                String[] strings = value.split("(?<!\\\\),");
+                ArrayList<String> list = new ArrayList<>(strings.length);
+                for (int i = 0; i < strings.length; i++) {
+                    list.add(strings[i]);
+                }
+                intent.putExtra(key, list);
                 hasIntentInfo = true;
             } else if (opt.equals("--ez")) {
                 String key = nextArgRequired();
@@ -707,7 +771,8 @@ public class Am extends BaseCommand {
             return;
         }
         System.out.println("Starting service: " + intent);
-        ComponentName cn = mAm.startService(null, intent, intent.getType(), mUserId);
+        ComponentName cn = mAm.startService(null, intent, intent.getType(),
+                SHELL_PACKAGE_NAME, mUserId);
         if (cn == null) {
             System.err.println("Error: Not found; no service started.");
         } else if (cn.getPackageName().equals("!")) {
@@ -940,9 +1005,11 @@ public class Am extends BaseCommand {
     private void sendBroadcast() throws Exception {
         Intent intent = makeIntent(UserHandle.USER_CURRENT);
         IntentReceiver receiver = new IntentReceiver();
+        String[] requiredPermissions = mReceiverPermission == null ? null
+                : new String[] {mReceiverPermission};
         System.out.println("Broadcasting: " + intent);
-        mAm.broadcastIntent(null, intent, null, receiver, 0, null, null, mReceiverPermission,
-                android.app.AppOpsManager.OP_NONE, true, false, mUserId);
+        mAm.broadcastIntent(null, intent, null, receiver, 0, null, null, requiredPermissions,
+                android.app.AppOpsManager.OP_NONE, null, true, false, mUserId);
         receiver.waitForFinish();
     }
 
@@ -1238,9 +1305,45 @@ public class Am extends BaseCommand {
         }
     }
 
+    private static class StopUserCallback extends IStopUserCallback.Stub {
+        private boolean mFinished = false;
+
+        public synchronized void waitForFinish() {
+            try {
+                while (!mFinished) wait();
+            } catch (InterruptedException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        @Override
+        public synchronized void userStopped(int userId) {
+            mFinished = true;
+            notifyAll();
+        }
+
+        @Override
+        public synchronized void userStopAborted(int userId) {
+            mFinished = true;
+            notifyAll();
+        }
+    }
+
     private void runStopUser() throws Exception {
-        String user = nextArgRequired();
-        int res = mAm.stopUser(Integer.parseInt(user), null);
+        boolean wait = false;
+        String opt = null;
+        while ((opt = nextOption()) != null) {
+            if ("-w".equals(opt)) {
+                wait = true;
+            } else {
+                System.err.println("Error: unknown option: " + opt);
+                return;
+            }
+        }
+        int user = Integer.parseInt(nextArgRequired());
+        StopUserCallback callback = wait ? new StopUserCallback() : null;
+
+        int res = mAm.stopUser(user, callback);
         if (res != ActivityManager.USER_OP_SUCCESS) {
             String txt = "";
             switch (res) {
@@ -1252,6 +1355,8 @@ public class Am extends BaseCommand {
                     break;
             }
             System.err.println("Switch failed: " + res + txt);
+        } else if (callback != null) {
+            callback.waitForFinish();
         }
     }
 
@@ -1598,7 +1703,7 @@ public class Am extends BaseCommand {
         Intent intent = new Intent(
                 "com.android.server.task.controllers.IdleController.ACTION_TRIGGER_IDLE");
         mAm.broadcastIntent(null, intent, null, null, 0, null, null, null,
-                android.app.AppOpsManager.OP_NONE, true, false, UserHandle.USER_ALL);
+                android.app.AppOpsManager.OP_NONE, null, true, false, UserHandle.USER_ALL);
     }
 
     private void runScreenCompat() throws Exception {
@@ -1628,7 +1733,7 @@ public class Am extends BaseCommand {
     private void runPackageImportance() throws Exception {
         String packageName = nextArgRequired();
         try {
-            int procState = mAm.getPackageProcessState(packageName);
+            int procState = mAm.getPackageProcessState(packageName, "com.android.shell");
             System.out.println(
                     ActivityManager.RunningAppProcessInfo.procStateToImportance(procState));
         } catch (RemoteException e) {
@@ -2030,7 +2135,7 @@ public class Am extends BaseCommand {
         }
     }
 
-    private void runSetIdle() throws Exception {
+    private void runSetInactive() throws Exception {
         int userId = UserHandle.USER_OWNER;
 
         String opt;
@@ -2047,10 +2152,10 @@ public class Am extends BaseCommand {
 
         IUsageStatsManager usm = IUsageStatsManager.Stub.asInterface(ServiceManager.getService(
                 Context.USAGE_STATS_SERVICE));
-        usm.setAppIdle(packageName, Boolean.parseBoolean(value), userId);
+        usm.setAppInactive(packageName, Boolean.parseBoolean(value), userId);
     }
 
-    private void runGetIdle() throws Exception {
+    private void runGetInactive() throws Exception {
         int userId = UserHandle.USER_OWNER;
 
         String opt;
@@ -2066,8 +2171,59 @@ public class Am extends BaseCommand {
 
         IUsageStatsManager usm = IUsageStatsManager.Stub.asInterface(ServiceManager.getService(
                 Context.USAGE_STATS_SERVICE));
-        boolean isIdle = usm.isAppIdle(packageName, userId);
+        boolean isIdle = usm.isAppInactive(packageName, userId);
         System.out.println("Idle=" + isIdle);
+    }
+
+    private void runSendTrimMemory() throws Exception {
+        int userId = UserHandle.USER_CURRENT;
+        String opt;
+        while ((opt = nextOption()) != null) {
+            if (opt.equals("--user")) {
+                userId = parseUserArg(nextArgRequired());
+                if (userId == UserHandle.USER_ALL) {
+                    System.err.println("Error: Can't use user 'all'");
+                    return;
+                }
+            } else {
+                System.err.println("Error: Unknown option: " + opt);
+                return;
+            }
+        }
+
+        String proc = nextArgRequired();
+        String levelArg = nextArgRequired();
+        int level;
+        switch (levelArg) {
+            case "HIDDEN":
+                level = ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN;
+                break;
+            case "RUNNING_MODERATE":
+                level = ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE;
+                break;
+            case "BACKGROUND":
+                level = ComponentCallbacks2.TRIM_MEMORY_BACKGROUND;
+                break;
+            case "RUNNING_LOW":
+                level = ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW;
+                break;
+            case "MODERATE":
+                level = ComponentCallbacks2.TRIM_MEMORY_MODERATE;
+                break;
+            case "RUNNING_CRITICAL":
+                level = ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL;
+                break;
+            case "COMPLETE":
+                level = ComponentCallbacks2.TRIM_MEMORY_COMPLETE;
+                break;
+            default:
+                System.err.println("Error: Unknown level option: " + levelArg);
+                return;
+        }
+        if (!mAm.setProcessMemoryTrimLevel(proc, userId, level)) {
+            System.err.println("Error: Failure to set the level - probably Unknown Process: " +
+                               proc);
+        }
     }
 
     /**

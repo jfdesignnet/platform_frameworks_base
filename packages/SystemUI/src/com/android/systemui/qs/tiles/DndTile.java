@@ -28,19 +28,35 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
+import com.android.internal.logging.MetricsLogger;
 import com.android.systemui.Prefs;
 import com.android.systemui.R;
+import com.android.systemui.SysUIToast;
 import com.android.systemui.qs.QSTile;
 import com.android.systemui.statusbar.policy.ZenModeController;
 import com.android.systemui.volume.ZenModePanel;
 
 /** Quick settings tile: Do not disturb **/
 public class DndTile extends QSTile<QSTile.BooleanState> {
-    private static final Intent ZEN_SETTINGS = new Intent(Settings.ACTION_ZEN_MODE_SETTINGS);
+
+    private static final Intent ZEN_SETTINGS =
+            new Intent(Settings.ACTION_ZEN_MODE_SETTINGS);
+
+    private static final Intent ZEN_PRIORITY_SETTINGS =
+            new Intent(Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS);
 
     private static final String ACTION_SET_VISIBLE = "com.android.systemui.dndtile.SET_VISIBLE";
     private static final String EXTRA_VISIBLE = "visible";
+
+    private static final QSTile.Icon TOTAL_SILENCE =
+            ResourceIcon.get(R.drawable.ic_qs_dnd_on_total_silence);
+
+    private final AnimationIcon mDisable =
+            new AnimationIcon(R.drawable.ic_dnd_disable_animation);
+    private final AnimationIcon mDisableTotalSilence =
+            new AnimationIcon(R.drawable.ic_dnd_total_silence_disable_animation);
 
     private final ZenModeController mController;
     private final DndDetailAdapter mDetailAdapter;
@@ -84,10 +100,22 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
 
     @Override
     public void handleClick() {
+        if (mController.isVolumeRestricted()) {
+            // Collapse the panels, so the user can see the toast.
+            mHost.collapsePanels();
+            SysUIToast.makeText(mContext, mContext.getString(
+                    com.android.internal.R.string.error_message_change_not_allowed),
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        mDisable.setAllowAnimation(true);
+        mDisableTotalSilence.setAllowAnimation(true);
+        MetricsLogger.action(mContext, getMetricsCategory(), !mState.value);
         if (mState.value) {
             mController.setZen(Global.ZEN_MODE_OFF, null, TAG);
         } else {
-            mController.setZen(Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS, null, TAG);
+            int zen = Prefs.getInt(mContext, Prefs.Key.DND_FAVORITE_ZEN, Global.ZEN_MODE_ALARMS);
+            mController.setZen(zen, null, TAG);
             showDetail(true);
         }
     }
@@ -95,7 +123,9 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
     @Override
     protected void handleUpdateState(BooleanState state, Object arg) {
         final int zen = arg instanceof Integer ? (Integer) arg : mController.getZen();
-        state.value = zen != Global.ZEN_MODE_OFF;
+        final boolean newValue = zen != Global.ZEN_MODE_OFF;
+        final boolean valueChanged = state.value != newValue;
+        state.value = newValue;
         state.visible = isVisible(mContext);
         switch (zen) {
             case Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS:
@@ -105,7 +135,7 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
                         R.string.accessibility_quick_settings_dnd_priority_on);
                 break;
             case Global.ZEN_MODE_NO_INTERRUPTIONS:
-                state.icon = ResourceIcon.get(R.drawable.ic_qs_dnd_on);
+                state.icon = TOTAL_SILENCE;
                 state.label = mContext.getString(R.string.quick_settings_dnd_none_label);
                 state.contentDescription = mContext.getString(
                         R.string.accessibility_quick_settings_dnd_none_on);
@@ -117,7 +147,7 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
                         R.string.accessibility_quick_settings_dnd_alarms_on);
                 break;
             default:
-                state.icon = ResourceIcon.get(R.drawable.ic_qs_dnd_off);
+                state.icon = TOTAL_SILENCE.equals(state.icon) ? mDisableTotalSilence : mDisable;
                 state.label = mContext.getString(R.string.quick_settings_dnd_label);
                 state.contentDescription =  mContext.getString(
                         R.string.accessibility_quick_settings_dnd_off);
@@ -126,6 +156,14 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
         if (mShowingDetail && !state.value) {
             showDetail(false);
         }
+        if (valueChanged) {
+            fireToggleStateChanged(state.value);
+        }
+    }
+
+    @Override
+    public int getMetricsCategory() {
+        return MetricsLogger.QS_DND;
     }
 
     @Override
@@ -196,10 +234,16 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
 
         @Override
         public void setToggleState(boolean state) {
+            MetricsLogger.action(mContext, MetricsLogger.QS_DND_TOGGLE, state);
             if (!state) {
                 mController.setZen(Global.ZEN_MODE_OFF, null, TAG);
                 showDetail(false);
             }
+        }
+
+        @Override
+        public int getMetricsCategory() {
+            return MetricsLogger.QS_DND_DETAILS;
         }
 
         @Override
@@ -209,8 +253,8 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
                             R.layout.zen_mode_panel, parent, false);
             if (convertView == null) {
                 zmp.init(mController);
-                zmp.setEmbedded(true);
                 zmp.addOnAttachStateChangeListener(this);
+                zmp.setCallback(mZenModePanelCallback);
             }
             return zmp;
         }
@@ -225,4 +269,22 @@ public class DndTile extends QSTile<QSTile.BooleanState> {
             mShowingDetail = false;
         }
     }
+
+    private final ZenModePanel.Callback mZenModePanelCallback = new ZenModePanel.Callback() {
+        @Override
+        public void onPrioritySettings() {
+            mHost.startActivityDismissingKeyguard(ZEN_PRIORITY_SETTINGS);
+        }
+
+        @Override
+        public void onInteraction() {
+            // noop
+        }
+
+        @Override
+        public void onExpanded(boolean expanded) {
+            // noop
+        }
+    };
+
 }

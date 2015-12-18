@@ -476,8 +476,18 @@ public final class StrictMode {
             }
 
             /**
-             * Enable detection of mismatches between defined resource types
+             * Enables detection of mismatches between defined resource types
              * and getter calls.
+             * <p>
+             * This helps detect accidental type mismatches and potentially
+             * expensive type conversions when obtaining typed resources.
+             * <p>
+             * For example, a strict mode violation would be thrown when
+             * calling {@link android.content.res.TypedArray#getInt(int, int)}
+             * on an index that contains a String-type resource. If the string
+             * value can be parsed as an integer, this method call will return
+             * a value without crashing; however, the developer should format
+             * the resource as an integer to avoid unnecessary type conversion.
              */
             public Builder detectResourceMismatches() {
                 return enable(DETECT_RESOURCE_MISMATCH);
@@ -1909,9 +1919,9 @@ public final class StrictMode {
         for (int i = 0; i < numViolations; ++i) {
             if (LOG_V) Log.d(TAG, "strict mode violation stacks read from binder call.  i=" + i);
             ViolationInfo info = new ViolationInfo(p, !currentlyGathering);
-            if (info.crashInfo.stackTrace != null && info.crashInfo.stackTrace.length() > 10000) {
+            if (info.crashInfo.stackTrace != null && info.crashInfo.stackTrace.length() > 30000) {
                 String front = info.crashInfo.stackTrace.substring(256);
-                // 10000 characters is way too large for this to be any sane kind of
+                // 30000 characters is way too large for this to be any sane kind of
                 // strict mode collection of stacks.  We've had a problem where we leave
                 // strict mode violations associated with the thread, and it keeps tacking
                 // more and more stacks on to the violations.  Looks like we're in this casse,

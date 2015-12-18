@@ -16,19 +16,21 @@
 
 #include "CanvasContext.h"
 
+#include "AnimationContext.h"
+#include "Caches.h"
+#include "DeferredLayerUpdater.h"
 #include "EglManager.h"
+#include "LayerRenderer.h"
+#include "OpenGLRenderer.h"
+#include "Properties.h"
 #include "RenderThread.h"
-#include "../AnimationContext.h"
-#include "../Caches.h"
-#include "../DeferredLayerUpdater.h"
-#include "../renderstate/RenderState.h"
-#include "../renderstate/Stencil.h"
-#include "../LayerRenderer.h"
-#include "../OpenGLRenderer.h"
+#include "renderstate/RenderState.h"
+#include "renderstate/Stencil.h"
 
 #include <algorithm>
-#include <private/hwui/DrawGlInfo.h>
 #include <strings.h>
+#include <cutils/properties.h>
+#include <private/hwui/DrawGlInfo.h>
 
 #define TRIM_MEMORY_COMPLETE 80
 #define TRIM_MEMORY_UI_HIDDEN 20
@@ -44,7 +46,8 @@ CanvasContext::CanvasContext(RenderThread& thread, bool translucent,
         , mOpaque(!translucent)
         , mAnimationContext(contextFactory->createAnimationContext(mRenderThread.timeLord()))
         , mRootRenderNode(rootRenderNode)
-        , mJankTracker(thread.timeLord().frameIntervalNanos()) {
+        , mJankTracker(thread.timeLord().frameIntervalNanos())
+        , mProfiler(mFrames) {
     mRenderThread.renderState().registerCanvasContext(this);
     mProfiler.setDensity(mRenderThread.mainDisplayInfo().density);
 }
@@ -90,8 +93,8 @@ void CanvasContext::setSurface(ANativeWindow* window) {
     }
 }
 
-void CanvasContext::swapBuffers() {
-    if (CC_UNLIKELY(!mEglManager.swapBuffers(mEglSurface))) {
+void CanvasContext::swapBuffers(const SkRect& dirty, EGLint width, EGLint height) {
+    if (CC_UNLIKELY(!mEglManager.swapBuffers(mEglSurface, dirty, width, height))) {
         setSurface(nullptr);
     }
     mHaveNewSurface = false;
@@ -124,10 +127,15 @@ bool CanvasContext::pauseSurface(ANativeWindow* window) {
 }
 
 // TODO: don't pass viewport size, it's automatic via EGL
-void CanvasContext::setup(int width, int height, const Vector3& lightCenter, float lightRadius,
+void CanvasContext::setup(int width, int height, float lightRadius,
         uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha) {
     if (!mCanvas) return;
-    mCanvas->initLight(lightCenter, lightRadius, ambientShadowAlpha, spotShadowAlpha);
+    mCanvas->initLight(lightRadius, ambientShadowAlpha, spotShadowAlpha);
+}
+
+void CanvasContext::setLightCenter(const Vector3& lightCenter) {
+    if (!mCanvas) return;
+    mCanvas->setLightCenter(lightCenter);
 }
 
 void CanvasContext::setOpaque(bool opaque) {
@@ -137,7 +145,11 @@ void CanvasContext::setOpaque(bool opaque) {
 void CanvasContext::makeCurrent() {
     // TODO: Figure out why this workaround is needed, see b/13913604
     // In the meantime this matches the behavior of GLRenderer, so it is not a regression
-    mHaveNewSurface |= mEglManager.makeCurrent(mEglSurface);
+    EGLint error = 0;
+    mHaveNewSurface |= mEglManager.makeCurrent(mEglSurface, &error);
+    if (error) {
+        setSurface(nullptr);
+    }
 }
 
 void CanvasContext::processLayerUpdate(DeferredLayerUpdater* layerUpdater) {
@@ -148,27 +160,34 @@ void CanvasContext::processLayerUpdate(DeferredLayerUpdater* layerUpdater) {
     }
 }
 
-void CanvasContext::prepareTree(TreeInfo& info, int64_t* uiFrameInfo) {
+static bool wasSkipped(FrameInfo* info) {
+    return info && ((*info)[FrameInfoIndex::Flags] & FrameInfoFlags::SkippedFrame);
+}
+
+void CanvasContext::prepareTree(TreeInfo& info, int64_t* uiFrameInfo, int64_t syncQueued) {
     mRenderThread.removeFrameCallback(this);
 
-    mCurrentFrameInfo = &mFrames.next();
+    // If the previous frame was dropped we don't need to hold onto it, so
+    // just keep using the previous frame's structure instead
+    if (!wasSkipped(mCurrentFrameInfo)) {
+        mCurrentFrameInfo = &mFrames.next();
+    }
     mCurrentFrameInfo->importUiThreadInfo(uiFrameInfo);
+    mCurrentFrameInfo->set(FrameInfoIndex::SyncQueued) = syncQueued;
     mCurrentFrameInfo->markSyncStart();
 
     info.damageAccumulator = &mDamageAccumulator;
     info.renderer = mCanvas;
-    if (mPrefetechedLayers.size() && info.mode == TreeInfo::MODE_FULL) {
-        info.canvasContext = this;
-    }
+    info.canvasContext = this;
+
     mAnimationContext->startFrame(info.mode);
     mRootRenderNode->prepareTree(info);
     mAnimationContext->runRemainingAnimations(info);
 
-    if (info.canvasContext) {
-        freePrefetechedLayers();
-    }
+    freePrefetechedLayers();
 
     if (CC_UNLIKELY(!mNativeWindow.get())) {
+        mCurrentFrameInfo->addFlag(FrameInfoFlags::SkippedFrame);
         info.out.canDrawThisFrame = false;
         return;
     }
@@ -180,6 +199,10 @@ void CanvasContext::prepareTree(TreeInfo& info, int64_t* uiFrameInfo) {
     mNativeWindow->query(mNativeWindow.get(),
             NATIVE_WINDOW_CONSUMER_RUNNING_BEHIND, &runningBehind);
     info.out.canDrawThisFrame = !runningBehind;
+
+    if (!info.out.canDrawThisFrame) {
+        mCurrentFrameInfo->addFlag(FrameInfoFlags::SkippedFrame);
+    }
 
     if (info.out.hasAnimations || !info.out.canDrawThisFrame) {
         if (!info.out.requiresUiRedraw) {
@@ -203,11 +226,16 @@ void CanvasContext::draw() {
     LOG_ALWAYS_FATAL_IF(!mCanvas || mEglSurface == EGL_NO_SURFACE,
             "drawRenderNode called on a context with no canvas or surface!");
 
-    profiler().markPlaybackStart();
-    mCurrentFrameInfo->markIssueDrawCommandsStart();
-
     SkRect dirty;
     mDamageAccumulator.finish(&dirty);
+
+    // TODO: Re-enable after figuring out cause of b/22592975
+//    if (dirty.isEmpty() && Properties::skipEmptyFrames) {
+//        mCurrentFrameInfo->addFlag(FrameInfoFlags::SkippedFrame);
+//        return;
+//    }
+
+    mCurrentFrameInfo->markIssueDrawCommandsStart();
 
     EGLint width, height;
     mEglManager.beginFrame(mEglSurface, &width, &height);
@@ -239,23 +267,18 @@ void CanvasContext::draw() {
 
     bool drew = mCanvas->finish();
 
-    profiler().markPlaybackEnd();
-
     // Even if we decided to cancel the frame, from the perspective of jank
     // metrics the frame was swapped at this point
     mCurrentFrameInfo->markSwapBuffers();
 
     if (drew) {
-        swapBuffers();
-    } else {
-        mEglManager.cancelFrame();
+        swapBuffers(dirty, width, height);
     }
 
     // TODO: Use a fence for real completion?
     mCurrentFrameInfo->markFrameCompleted();
     mJankTracker.addFrame(*mCurrentFrameInfo);
     mRenderThread.jankTracker().addFrame(*mCurrentFrameInfo);
-    profiler().finishFrame();
 }
 
 // Called by choreographer to do an RT-driven animation
@@ -266,15 +289,14 @@ void CanvasContext::doFrame() {
 
     ATRACE_CALL();
 
-    profiler().startFrame();
     int64_t frameInfo[UI_THREAD_FRAME_INFO_SIZE];
     UiFrameInfoBuilder(frameInfo)
-        .addFlag(FrameInfoFlags::kRTAnimation)
+        .addFlag(FrameInfoFlags::RTAnimation)
         .setVsync(mRenderThread.timeLord().computeFrameTimeNanos(),
                 mRenderThread.timeLord().latestVsync());
 
     TreeInfo info(TreeInfo::MODE_RT_ONLY, mRenderThread.renderState());
-    prepareTree(info, frameInfo);
+    prepareTree(info, frameInfo, systemTime(CLOCK_MONOTONIC));
     if (info.out.canDrawThisFrame) {
         draw();
     }
@@ -284,7 +306,6 @@ void CanvasContext::invokeFunctor(RenderThread& thread, Functor* functor) {
     ATRACE_CALL();
     DrawGlInfo::Mode mode = DrawGlInfo::kModeProcessNoContext;
     if (thread.eglManager().hasEglContext()) {
-        thread.eglManager().requireGlContext();
         mode = DrawGlInfo::kModeProcess;
     }
 
@@ -305,7 +326,6 @@ static void destroyPrefetechedNode(RenderNode* node) {
 
 void CanvasContext::freePrefetechedLayers() {
     if (mPrefetechedLayers.size()) {
-        requireGlContext();
         std::for_each(mPrefetechedLayers.begin(), mPrefetechedLayers.end(), destroyPrefetechedNode);
         mPrefetechedLayers.clear();
     }
@@ -316,7 +336,6 @@ void CanvasContext::buildLayer(RenderNode* node) {
     if (!mEglManager.hasEglContext() || !mCanvas) {
         return;
     }
-    requireGlContext();
     // buildLayer() will leave the tree in an unknown state, so we must stop drawing
     stopDrawing();
 
@@ -339,7 +358,6 @@ void CanvasContext::buildLayer(RenderNode* node) {
 }
 
 bool CanvasContext::copyLayerInto(DeferredLayerUpdater* layer, SkBitmap* bitmap) {
-    requireGlContext();
     layer->apply();
     return LayerRenderer::copyLayer(mRenderThread.renderState(), layer->backingLayer(), bitmap);
 }
@@ -347,10 +365,13 @@ bool CanvasContext::copyLayerInto(DeferredLayerUpdater* layer, SkBitmap* bitmap)
 void CanvasContext::destroyHardwareResources() {
     stopDrawing();
     if (mEglManager.hasEglContext()) {
-        requireGlContext();
         freePrefetechedLayers();
         mRootRenderNode->destroyHardwareResources();
-        Caches::getInstance().flush(Caches::kFlushMode_Layers);
+        Caches& caches = Caches::getInstance();
+        // Make sure to release all the textures we were owning as there won't
+        // be another draw
+        caches.textureCache.resetMarkInUse(this);
+        caches.flush(Caches::kFlushMode_Layers);
     }
 }
 
@@ -359,7 +380,6 @@ void CanvasContext::trimMemory(RenderThread& thread, int level) {
     if (!thread.eglManager().hasEglContext()) return;
 
     ATRACE_CALL();
-    thread.eglManager().requireGlContext();
     if (level >= TRIM_MEMORY_COMPLETE) {
         Caches::getInstance().flush(Caches::kFlushMode_Full);
         thread.eglManager().destroy();
@@ -369,17 +389,14 @@ void CanvasContext::trimMemory(RenderThread& thread, int level) {
 }
 
 void CanvasContext::runWithGlContext(RenderTask* task) {
-    requireGlContext();
+    LOG_ALWAYS_FATAL_IF(!mEglManager.hasEglContext(),
+            "GL context not initialized!");
     task->run();
 }
 
 Layer* CanvasContext::createTextureLayer() {
     requireSurface();
     return LayerRenderer::createTextureLayer(mRenderThread.renderState());
-}
-
-void CanvasContext::requireGlContext() {
-    mEglManager.requireGlContext();
 }
 
 void CanvasContext::setTextureAtlas(RenderThread& thread,
@@ -389,14 +406,18 @@ void CanvasContext::setTextureAtlas(RenderThread& thread,
 
 void CanvasContext::dumpFrames(int fd) {
     FILE* file = fdopen(fd, "a");
-    fprintf(file, "\n\n---PROFILEDATA---");
+    fprintf(file, "\n\n---PROFILEDATA---\n");
+    for (size_t i = 0; i < static_cast<size_t>(FrameInfoIndex::NumIndexes); i++) {
+        fprintf(file, "%s", FrameInfoNames[i].c_str());
+        fprintf(file, ",");
+    }
     for (size_t i = 0; i < mFrames.size(); i++) {
         FrameInfo& frame = mFrames[i];
-        if (frame[FrameInfoIndex::kSyncStart] == 0) {
+        if (frame[FrameInfoIndex::SyncStart] == 0) {
             continue;
         }
         fprintf(file, "\n");
-        for (int i = 0; i < static_cast<int>(FrameInfoIndex::kNumIndexes); i++) {
+        for (int i = 0; i < static_cast<int>(FrameInfoIndex::NumIndexes); i++) {
             fprintf(file, "%" PRId64 ",", frame[i]);
         }
     }

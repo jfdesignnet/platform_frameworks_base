@@ -25,7 +25,7 @@ import static android.system.OsConstants.S_ISREG;
 
 import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
-import android.os.MessageQueue.FileDescriptorCallback;
+import android.os.MessageQueue.OnFileDescriptorEventListener;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -236,19 +236,19 @@ public class ParcelFileDescriptor implements Parcelable, Closeable {
         final FileDescriptor[] comm = createCommSocketPair();
         final ParcelFileDescriptor pfd = new ParcelFileDescriptor(fd, comm[0]);
         final MessageQueue queue = handler.getLooper().getQueue();
-        queue.registerFileDescriptorCallback(comm[1],
-                FileDescriptorCallback.EVENT_INPUT, new FileDescriptorCallback() {
+        queue.addOnFileDescriptorEventListener(comm[1],
+                OnFileDescriptorEventListener.EVENT_INPUT, new OnFileDescriptorEventListener() {
             @Override
             public int onFileDescriptorEvents(FileDescriptor fd, int events) {
                 Status status = null;
-                if ((events & FileDescriptorCallback.EVENT_INPUT) != 0) {
+                if ((events & OnFileDescriptorEventListener.EVENT_INPUT) != 0) {
                     final byte[] buf = new byte[MAX_STATUS];
                     status = readCommStatus(fd, buf);
-                } else if ((events & FileDescriptorCallback.EVENT_ERROR) != 0) {
+                } else if ((events & OnFileDescriptorEventListener.EVENT_ERROR) != 0) {
                     status = new Status(Status.DEAD);
                 }
                 if (status != null) {
-                    queue.unregisterFileDescriptorCallback(fd);
+                    queue.removeOnFileDescriptorEventListener(fd);
                     IoUtils.closeQuietly(fd);
                     listener.onClose(status.asIOException());
                     return 0;
@@ -621,6 +621,9 @@ public class ParcelFileDescriptor implements Parcelable, Closeable {
             final int fd = getFd();
             Parcel.clearFileDescriptor(mFd);
             writeCommStatusAndClose(Status.DETACHED, null);
+            mClosed = true;
+            mGuard.close();
+            releaseResources();
             return fd;
         }
     }
@@ -915,8 +918,6 @@ public class ParcelFileDescriptor implements Parcelable, Closeable {
      */
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        // WARNING: This must stay in sync with Parcel::readParcelFileDescriptor()
-        // in frameworks/native/libs/binder/Parcel.cpp
         if (mWrapped != null) {
             try {
                 mWrapped.writeToParcel(out, flags);
@@ -924,12 +925,13 @@ public class ParcelFileDescriptor implements Parcelable, Closeable {
                 releaseResources();
             }
         } else {
-            out.writeFileDescriptor(mFd);
             if (mCommFd != null) {
                 out.writeInt(1);
+                out.writeFileDescriptor(mFd);
                 out.writeFileDescriptor(mCommFd);
             } else {
                 out.writeInt(0);
+                out.writeFileDescriptor(mFd);
             }
             if ((flags & PARCELABLE_WRITE_RETURN_VALUE) != 0 && !mClosed) {
                 // Not a real close, so emit no status
@@ -942,11 +944,10 @@ public class ParcelFileDescriptor implements Parcelable, Closeable {
             = new Parcelable.Creator<ParcelFileDescriptor>() {
         @Override
         public ParcelFileDescriptor createFromParcel(Parcel in) {
-            // WARNING: This must stay in sync with Parcel::writeParcelFileDescriptor()
-            // in frameworks/native/libs/binder/Parcel.cpp
+            int hasCommChannel = in.readInt();
             final FileDescriptor fd = in.readRawFileDescriptor();
             FileDescriptor commChannel = null;
-            if (in.readInt() != 0) {
+            if (hasCommChannel != 0) {
                 commChannel = in.readRawFileDescriptor();
             }
             return new ParcelFileDescriptor(fd, commChannel);

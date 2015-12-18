@@ -392,6 +392,8 @@ public final class PowerManager {
     final IPowerManager mService;
     final Handler mHandler;
 
+    IDeviceIdleController mIDeviceIdleController;
+
     /**
      * {@hide}
      */
@@ -656,7 +658,17 @@ public final class PowerManager {
      */
     public void wakeUp(long time) {
         try {
-            mService.wakeUp(time);
+            mService.wakeUp(time, "wakeUp", mContext.getOpPackageName());
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public void wakeUp(long time, String reason) {
+        try {
+            mService.wakeUp(time, reason, mContext.getOpPackageName());
         } catch (RemoteException e) {
         }
     }
@@ -878,11 +890,33 @@ public final class PowerManager {
      * off network access to apps.  You can monitor for changes to this state with
      * {@link #ACTION_DEVICE_IDLE_MODE_CHANGED}.
      *
-     * @return Returns true if currently in low power mode, else false.
+     * @return Returns true if currently in active device idle mode, else false.  This is
+     * when idle mode restrictions are being actively applied; it will return false if the
+     * device is in a long-term idle mode but currently running a maintenance window where
+     * restrictions have been lifted.
      */
     public boolean isDeviceIdleMode() {
         try {
             return mService.isDeviceIdleMode();
+        } catch (RemoteException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Return whether the given application package name is on the device's power whitelist.
+     * Apps can be placed on the whitelist through the settings UI invoked by
+     * {@link android.provider.Settings#ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS}.
+     */
+    public boolean isIgnoringBatteryOptimizations(String packageName) {
+        synchronized (this) {
+            if (mIDeviceIdleController == null) {
+                mIDeviceIdleController = IDeviceIdleController.Stub.asInterface(
+                        ServiceManager.getService(Context.DEVICE_IDLE_CONTROLLER));
+            }
+        }
+        try {
+            return mIDeviceIdleController.isPowerSaveWhitelistApp(packageName);
         } catch (RemoteException e) {
             return false;
         }
@@ -918,6 +952,22 @@ public final class PowerManager {
     @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_DEVICE_IDLE_MODE_CHANGED
             = "android.os.action.DEVICE_IDLE_MODE_CHANGED";
+
+    /**
+     * @hide Intent that is broadcast when the set of power save whitelist apps has changed.
+     * This broadcast is only sent to registered receivers.
+     */
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_POWER_SAVE_WHITELIST_CHANGED
+            = "android.os.action.POWER_SAVE_WHITELIST_CHANGED";
+
+    /**
+     * @hide Intent that is broadcast when the set of temporarily whitelisted apps has changed.
+     * This broadcast is only sent to registered receivers.
+     */
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_POWER_SAVE_TEMP_WHITELIST_CHANGED
+            = "android.os.action.POWER_SAVE_TEMP_WHITELIST_CHANGED";
 
     /**
      * Intent that is broadcast when the state of {@link #isPowerSaveMode()} is about to change.

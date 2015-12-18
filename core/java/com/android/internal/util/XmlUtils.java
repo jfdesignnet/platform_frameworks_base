@@ -20,6 +20,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Bitmap.CompressFormat;
 import android.net.Uri;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Base64;
 import android.util.Xml;
@@ -33,6 +34,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ProtocolException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -43,6 +45,8 @@ import java.util.Set;
 
 /** {@hide} */
 public class XmlUtils {
+
+    private static final String STRING_ARRAY_SEPARATOR = ":";
 
     public static void skipCurrentTag(XmlPullParser parser)
             throws XmlPullParserException, IOException {
@@ -182,7 +186,7 @@ public class XmlUtils {
     public static final void writeMapXml(Map val, OutputStream out)
             throws XmlPullParserException, java.io.IOException {
         XmlSerializer serializer = new FastXmlSerializer();
-        serializer.setOutput(out, "utf-8");
+        serializer.setOutput(out, StandardCharsets.UTF_8.name());
         serializer.startDocument(null, true);
         serializer.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true);
         writeMapXml(val, null, serializer);
@@ -205,7 +209,7 @@ public class XmlUtils {
     throws XmlPullParserException, java.io.IOException
     {
         XmlSerializer serializer = Xml.newSerializer();
-        serializer.setOutput(out, "utf-8");
+        serializer.setOutput(out, StandardCharsets.UTF_8.name());
         serializer.startDocument(null, true);
         serializer.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true);
         writeListXml(val, null, serializer);
@@ -732,7 +736,7 @@ public class XmlUtils {
     throws XmlPullParserException, java.io.IOException
     {
         XmlPullParser   parser = Xml.newPullParser();
-        parser.setInput(in, null);
+        parser.setInput(in, StandardCharsets.UTF_8.name());
         return (HashMap<String, ?>) readValueXml(parser, new String[1]);
     }
 
@@ -753,7 +757,7 @@ public class XmlUtils {
     throws XmlPullParserException, java.io.IOException
     {
         XmlPullParser   parser = Xml.newPullParser();
-        parser.setInput(in, null);
+        parser.setInput(in, StandardCharsets.UTF_8.name());
         return (ArrayList)readValueXml(parser, new String[1]);
     }
     

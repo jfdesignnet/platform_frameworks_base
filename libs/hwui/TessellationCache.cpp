@@ -207,6 +207,16 @@ static void mapPointFakeZ(Vector3& point, const mat4* transformXY, const mat4* t
     transformXY->mapPoint(point.x, point.y);
 }
 
+static void reverseVertexArray(Vertex* polygon, int len) {
+    int n = len / 2;
+    for (int i = 0; i < n; i++) {
+        Vertex tmp = polygon[i];
+        int k = len - 1 - i;
+        polygon[i] = polygon[k];
+        polygon[k] = tmp;
+    }
+}
+
 static void tessellateShadows(
         const Matrix4* drawTransform, const Rect* localClip,
         bool isCasterOpaque, const SkPath* casterPerimeter,
@@ -216,13 +226,12 @@ static void tessellateShadows(
 
     // tessellate caster outline into a 2d polygon
     Vector<Vertex> casterVertices2d;
-    const float casterRefinementThresholdSquared = 4.0f;
+    const float casterRefinementThreshold = 2.0f;
     PathTessellator::approximatePathOutlineVertices(*casterPerimeter,
-            casterRefinementThresholdSquared, casterVertices2d);
-    if (!ShadowTessellator::isClockwisePath(*casterPerimeter)) {
-        ShadowTessellator::reverseVertexArray(casterVertices2d.editArray(),
-                casterVertices2d.size());
-    }
+            casterRefinementThreshold, casterVertices2d);
+
+    // Shadow requires CCW for now. TODO: remove potential double-reverse
+    reverseVertexArray(casterVertices2d.editArray(), casterVertices2d.size());
 
     if (casterVertices2d.size() == 0) return;
 
@@ -235,8 +244,8 @@ static void tessellateShadows(
         const Vertex& point2d = casterVertices2d[i];
         casterPolygon[i] = (Vector3){point2d.x, point2d.y, 0};
         mapPointFakeZ(casterPolygon[i], casterTransformXY, casterTransformZ);
-        minZ = fmin(minZ, casterPolygon[i].z);
-        maxZ = fmax(maxZ, casterPolygon[i].z);
+        minZ = std::min(minZ, casterPolygon[i].z);
+        maxZ = std::max(maxZ, casterPolygon[i].z);
     }
 
     // map the centroid of the caster into 3d
@@ -311,7 +320,7 @@ TessellationCache::TessellationCache()
 
     mCache.setOnEntryRemovedListener(&mBufferRemovedListener);
     mShadowCache.setOnEntryRemovedListener(&mBufferPairRemovedListener);
-    mDebugEnabled = readDebugLevel() & kDebugCaches;
+    mDebugEnabled = Properties::debugLevel & kDebugCaches;
 }
 
 TessellationCache::~TessellationCache() {

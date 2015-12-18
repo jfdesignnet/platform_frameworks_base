@@ -16,6 +16,8 @@
 
 package android.service.voice;
 
+import android.app.assist.AssistContent;
+import android.app.assist.AssistStructure;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
@@ -28,10 +30,11 @@ import com.android.internal.app.IVoiceInteractionSessionShowCallback;
 oneway interface IVoiceInteractionSession {
     void show(in Bundle sessionArgs, int flags, IVoiceInteractionSessionShowCallback showCallback);
     void hide();
-    void handleAssist(in Bundle assistData);
+    void handleAssist(in Bundle assistData, in AssistStructure structure, in AssistContent content);
     void handleScreenshot(in Bitmap screenshot);
     void taskStarted(in Intent intent, int taskId);
     void taskFinished(in Intent intent, int taskId);
     void closeSystemDialogs();
+    void onLockscreenShown();
     void destroy();
 }

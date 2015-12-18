@@ -16,6 +16,7 @@
 
 package com.android.systemui.statusbar.policy;
 
+import android.app.ActivityManager;
 import android.app.AlarmManager;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -28,6 +29,7 @@ import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.Settings.Global;
 import android.provider.Settings.Secure;
 import android.service.notification.Condition;
@@ -56,6 +58,7 @@ public class ZenModeControllerImpl implements ZenModeController {
     private final LinkedHashMap<Uri, Condition> mConditions = new LinkedHashMap<Uri, Condition>();
     private final AlarmManager mAlarmManager;
     private final SetupObserver mSetupObserver;
+    private final UserManager mUserManager;
 
     private int mUserId;
     private boolean mRequesting;
@@ -83,6 +86,13 @@ public class ZenModeControllerImpl implements ZenModeController {
         mAlarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         mSetupObserver = new SetupObserver(handler);
         mSetupObserver.register();
+        mUserManager = context.getSystemService(UserManager.class);
+    }
+
+    @Override
+    public boolean isVolumeRestricted() {
+        return mUserManager.hasUserRestriction(UserManager.DISALLOW_ADJUST_VOLUME,
+                new UserHandle(mUserId));
     }
 
     @Override
@@ -108,15 +118,6 @@ public class ZenModeControllerImpl implements ZenModeController {
     @Override
     public boolean isZenAvailable() {
         return mSetupObserver.isDeviceProvisioned() && mSetupObserver.isUserSetup();
-    }
-
-    @Override
-    public void requestConditions(boolean request) {
-        mRequesting = request;
-        mNoMan.requestZenModeConditions(mListener, request ? Condition.FLAG_RELEVANT_NOW : 0);
-        if (!mRequesting) {
-            mConditions.clear();
-        }
     }
 
     @Override
@@ -157,6 +158,11 @@ public class ZenModeControllerImpl implements ZenModeController {
     public boolean isCountdownConditionSupported() {
         return NotificationManager.from(mContext)
                 .isSystemConditionProviderEnabled(ZenModeConfig.COUNTDOWN_PATH);
+    }
+
+    @Override
+    public int getCurrentUser() {
+        return ActivityManager.getCurrentUser();
     }
 
     private void fireNextAlarmChanged() {

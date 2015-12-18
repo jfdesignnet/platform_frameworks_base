@@ -16,7 +16,7 @@
 
 package com.android.layoutlib.bridge.android;
 
-import com.android.annotations.Nullable;
+import com.android.SdkConstants;
 import com.android.ide.common.rendering.api.AssetRepository;
 import com.android.ide.common.rendering.api.ILayoutPullParser;
 import com.android.ide.common.rendering.api.LayoutLog;
@@ -36,6 +36,8 @@ import com.android.util.Pair;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -62,11 +64,15 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
+import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.IInterface;
 import android.os.Looper;
+import android.os.Parcel;
 import android.os.PowerManager;
+import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
@@ -82,6 +88,7 @@ import android.view.accessibility.AccessibilityManager;
 import android.view.textservice.TextServicesManager;
 
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -92,6 +99,8 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.android.layoutlib.bridge.android.RenderParamsFlags.FLAG_KEY_APPLICATION_PACKAGE;
 
 /**
  * Custom implementation of Context/Activity to handle non compiled resources.
@@ -117,6 +126,7 @@ public final class BridgeContext extends Context {
     private final LayoutlibCallback mLayoutlibCallback;
     private final WindowManager mWindowManager;
     private final DisplayManager mDisplayManager;
+    private final HashMap<View, Integer> mScrollYPos = new HashMap<View, Integer>();
 
     private Resources.Theme mTheme;
 
@@ -124,20 +134,48 @@ public final class BridgeContext extends Context {
         new IdentityHashMap<Object, Map<String,String>>();
 
     // maps for dynamically generated id representing style objects (StyleResourceValue)
+    @Nullable
     private Map<Integer, StyleResourceValue> mDynamicIdToStyleMap;
     private Map<StyleResourceValue, Integer> mStyleToDynamicIdMap;
     private int mDynamicIdGenerator = 0x02030000; // Base id for R.style in custom namespace
 
-    // cache for TypedArray generated from IStyleResourceValue object
-    private Map<int[], Map<Integer, BridgeTypedArray>> mTypedArrayCache;
+    // cache for TypedArray generated from StyleResourceValue object
+    private Map<int[], Map<List<StyleResourceValue>, Map<Integer, BridgeTypedArray>>>
+            mTypedArrayCache;
     private BridgeInflater mBridgeInflater;
 
     private BridgeContentResolver mContentResolver;
 
     private final Stack<BridgeXmlBlockParser> mParserStack = new Stack<BridgeXmlBlockParser>();
     private SharedPreferences mSharedPreferences;
+    private ClassLoader mClassLoader;
+    private IBinder mBinder;
+    private PackageManager mPackageManager;
 
-  /**
+
+    /**
+     * Some applications that target both pre API 17 and post API 17, set the newer attrs to
+     * reference the older ones. For example, android:paddingStart will resolve to
+     * android:paddingLeft. This way the apps need to only define paddingLeft at any other place.
+     * This a map from value to attribute name. Warning for missing references shouldn't be logged
+     * if value and attr name pair is the same as an entry in this map.
+     */
+    private static Map<String, String> RTL_ATTRS = new HashMap<String, String>(10);
+
+    static {
+        RTL_ATTRS.put("?android:attr/paddingLeft", "paddingStart");
+        RTL_ATTRS.put("?android:attr/paddingRight", "paddingEnd");
+        RTL_ATTRS.put("?android:attr/layout_marginLeft", "layout_marginStart");
+        RTL_ATTRS.put("?android:attr/layout_marginRight", "layout_marginEnd");
+        RTL_ATTRS.put("?android:attr/layout_toLeft", "layout_toStartOf");
+        RTL_ATTRS.put("?android:attr/layout_toRight", "layout_toEndOf");
+        RTL_ATTRS.put("?android:attr/layout_alignParentLeft", "layout_alignParentStart");
+        RTL_ATTRS.put("?android:attr/layout_alignParentRight", "layout_alignParentEnd");
+        RTL_ATTRS.put("?android:attr/drawableLeft", "drawableStart");
+        RTL_ATTRS.put("?android:attr/drawableRight", "drawableEnd");
+    }
+
+    /**
      * @param projectKey An Object identifying the project. This is used for the cache mechanism.
      * @param metrics the {@link DisplayMetrics}.
      * @param renderResources the configured resources (both framework and projects) for this
@@ -306,7 +344,7 @@ public final class BridgeContext extends Context {
         // check if this is a style resource
         if (value instanceof StyleResourceValue) {
             // get the id that will represent this style.
-            outValue.resourceId = getDynamicIdByStyle((StyleResourceValue)value);
+            outValue.resourceId = getDynamicIdByStyle((StyleResourceValue) value);
             return true;
         }
 
@@ -460,7 +498,35 @@ public final class BridgeContext extends Context {
 
     @Override
     public ClassLoader getClassLoader() {
-        return this.getClass().getClassLoader();
+        // The documentation for this method states that it should return a class loader one can
+        // use to retrieve classes in this package. However, when called by LayoutInflater, we do
+        // not want the class loader to return app's custom views.
+        // This is so that the IDE can instantiate the custom views and also generate proper error
+        // messages in case of failure. This also enables the IDE to fallback to MockView in case
+        // there's an exception thrown when trying to inflate the custom view.
+        // To work around this issue, LayoutInflater is modified via LayoutLib Create tool to
+        // replace invocations of this method to a new method: getFrameworkClassLoader(). Also,
+        // the method is injected into Context. The implementation of getFrameworkClassLoader() is:
+        // "return getClass().getClassLoader();". This means that when LayoutInflater asks for
+        // the context ClassLoader, it gets only LayoutLib's ClassLoader which doesn't have
+        // access to the apps's custom views.
+        // This method can now return the right ClassLoader, which CustomViews can use to do the
+        // right thing.
+        if (mClassLoader == null) {
+            mClassLoader = new ClassLoader(getClass().getClassLoader()) {
+                @Override
+                protected Class<?> findClass(String name) throws ClassNotFoundException {
+                    for (String prefix : BridgeInflater.getClassPrefixList()) {
+                        if (name.startsWith(prefix)) {
+                            // These are framework classes and should not be loaded from the app.
+                            throw new ClassNotFoundException(name + " not found");
+                        }
+                    }
+                    return BridgeContext.this.mLayoutlibCallback.findClass(name);
+                }
+            };
+        }
+        return mClassLoader;
     }
 
     @Override
@@ -556,31 +622,38 @@ public final class BridgeContext extends Context {
             }
         }
 
+        // The map is from
+        // attrs (int[]) -> context's current themes (List<StyleRV>) -> resid (int) -> typed array.
         if (mTypedArrayCache == null) {
-            mTypedArrayCache = new HashMap<int[], Map<Integer,BridgeTypedArray>>();
-
-            Map<Integer, BridgeTypedArray> map = new HashMap<Integer, BridgeTypedArray>();
-            mTypedArrayCache.put(attrs, map);
-
-            BridgeTypedArray ta = createStyleBasedTypedArray(style, attrs);
-            map.put(resid, ta);
-
-            return ta;
+            mTypedArrayCache = new IdentityHashMap<int[],
+                    Map<List<StyleResourceValue>, Map<Integer, BridgeTypedArray>>>();
         }
 
         // get the 2nd map
-        Map<Integer, BridgeTypedArray> map = mTypedArrayCache.get(attrs);
-        if (map == null) {
-            map = new HashMap<Integer, BridgeTypedArray>();
-            mTypedArrayCache.put(attrs, map);
+        Map<List<StyleResourceValue>, Map<Integer, BridgeTypedArray>> map2 =
+                mTypedArrayCache.get(attrs);
+        if (map2 == null) {
+            map2 = new HashMap<List<StyleResourceValue>, Map<Integer, BridgeTypedArray>>();
+            mTypedArrayCache.put(attrs, map2);
         }
 
-        // get the array from the 2nd map
-        BridgeTypedArray ta = map.get(resid);
+        // get the 3rd map
+        List<StyleResourceValue> currentThemes = mRenderResources.getAllThemes();
+        Map<Integer, BridgeTypedArray> map3 = map2.get(currentThemes);
+        if (map3 == null) {
+            map3 = new HashMap<Integer, BridgeTypedArray>();
+            // Create a copy of the list before adding it to the map. This allows reusing the
+            // existing list.
+            currentThemes = new ArrayList<StyleResourceValue>(currentThemes);
+            map2.put(currentThemes, map3);
+        }
+
+        // get the array from the 3rd map
+        BridgeTypedArray ta = map3.get(resid);
 
         if (ta == null) {
             ta = createStyleBasedTypedArray(style, attrs);
-            map.put(resid, ta);
+            map3.put(resid, ta);
         }
 
         return ta;
@@ -678,7 +751,7 @@ public final class BridgeContext extends Context {
                 if (item != null) {
                     // item is a reference to a style entry. Search for it.
                     item = mRenderResources.findResValue(item.getValue(), item.isFramework());
-
+                    item = mRenderResources.resolveResValue(item);
                     if (item instanceof StyleResourceValue) {
                         defStyleValues = (StyleResourceValue) item;
                     }
@@ -691,44 +764,48 @@ public final class BridgeContext extends Context {
                 }
             }
         } else if (defStyleRes != 0) {
-            boolean isFrameworkRes = true;
-            Pair<ResourceType, String> value = Bridge.resolveResourceId(defStyleRes);
-            if (value == null) {
-                value = mLayoutlibCallback.resolveResourceId(defStyleRes);
-                isFrameworkRes = false;
-            }
+            StyleResourceValue item = getStyleByDynamicId(defStyleRes);
+            if (item != null) {
+                defStyleValues = item;
+            } else {
+                boolean isFrameworkRes = true;
+                Pair<ResourceType, String> value = Bridge.resolveResourceId(defStyleRes);
+                if (value == null) {
+                    value = mLayoutlibCallback.resolveResourceId(defStyleRes);
+                    isFrameworkRes = false;
+                }
 
-            if (value != null) {
-                if ((value.getFirst() == ResourceType.STYLE)) {
-                    // look for the style in all resources:
-                    StyleResourceValue item = mRenderResources.getStyle(value.getSecond(),
-                            isFrameworkRes);
-                    if (item != null) {
-                        if (defaultPropMap != null) {
-                            defaultPropMap.put("style", item.getName());
+                if (value != null) {
+                    if ((value.getFirst() == ResourceType.STYLE)) {
+                        // look for the style in all resources:
+                        item = mRenderResources.getStyle(value.getSecond(), isFrameworkRes);
+                        if (item != null) {
+                            if (defaultPropMap != null) {
+                                defaultPropMap.put("style", item.getName());
+                            }
+
+                            defStyleValues = item;
+                        } else {
+                            Bridge.getLog().error(null,
+                                    String.format(
+                                            "Style with id 0x%x (resolved to '%s') does not exist.",
+                                            defStyleRes, value.getSecond()),
+                                    null);
                         }
-
-                        defStyleValues = item;
                     } else {
                         Bridge.getLog().error(null,
                                 String.format(
-                                        "Style with id 0x%x (resolved to '%s') does not exist.",
-                                        defStyleRes, value.getSecond()),
+                                        "Resource id 0x%x is not of type STYLE (instead %s)",
+                                        defStyleRes, value.getFirst().toString()),
                                 null);
                     }
                 } else {
                     Bridge.getLog().error(null,
                             String.format(
-                                    "Resource id 0x%x is not of type STYLE (instead %s)",
-                                    defStyleRes, value.getFirst().toString()),
+                                    "Failed to find style with id 0x%x in current theme",
+                                    defStyleRes),
                             null);
                 }
-            } else {
-                Bridge.getLog().error(null,
-                        String.format(
-                                "Failed to find style with id 0x%x in current theme",
-                                defStyleRes),
-                        null);
             }
         }
 
@@ -789,6 +866,22 @@ public final class BridgeContext extends Context {
                         }
 
                         resValue = mRenderResources.resolveResValue(resValue);
+
+                        // If the value is a reference to another theme attribute that doesn't
+                        // exist, we should log a warning and omit it.
+                        String val = resValue.getValue();
+                        if (val != null && val.startsWith(SdkConstants.PREFIX_THEME_REF)) {
+                            if (!attrName.equals(RTL_ATTRS.get(val)) ||
+                                    getApplicationInfo().targetSdkVersion <
+                                            VERSION_CODES.JELLY_BEAN_MR1) {
+                                // Only log a warning if the referenced value isn't one of the RTL
+                                // attributes, or the app targets old API.
+                                Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_RESOLVE_THEME_ATTR,
+                                        String.format("Failed to find '%s' in current theme.", val),
+                                        val);
+                            }
+                            resValue = null;
+                        }
                     }
 
                     ta.bridgeSetValue(index, attrName, frameworkAttr, resValue);
@@ -811,6 +904,22 @@ public final class BridgeContext extends Context {
         return Looper.myLooper();
     }
 
+
+    @Override
+    public String getPackageName() {
+        if (mApplicationInfo.packageName == null) {
+            mApplicationInfo.packageName = mLayoutlibCallback.getFlag(FLAG_KEY_APPLICATION_PACKAGE);
+        }
+        return mApplicationInfo.packageName;
+    }
+
+    @Override
+    public PackageManager getPackageManager() {
+        if (mPackageManager == null) {
+            mPackageManager = new BridgePackageManager();
+        }
+        return mPackageManager;
+    }
 
     // ------------- private new methods
 
@@ -969,6 +1078,61 @@ public final class BridgeContext extends Context {
             context = ((ContextWrapper) context).getBaseContext();
         }
         return context;
+    }
+
+    public IBinder getBinder() {
+        if (mBinder == null) {
+            // create a dummy binder. We only need it be not null.
+            mBinder = new IBinder() {
+                @Override
+                public String getInterfaceDescriptor() throws RemoteException {
+                    return null;
+                }
+
+                @Override
+                public boolean pingBinder() {
+                    return false;
+                }
+
+                @Override
+                public boolean isBinderAlive() {
+                    return false;
+                }
+
+                @Override
+                public IInterface queryLocalInterface(String descriptor) {
+                    return null;
+                }
+
+                @Override
+                public void dump(FileDescriptor fd, String[] args) throws RemoteException {
+
+                }
+
+                @Override
+                public void dumpAsync(FileDescriptor fd, String[] args) throws RemoteException {
+
+                }
+
+                @Override
+                public boolean transact(int code, Parcel data, Parcel reply, int flags)
+                        throws RemoteException {
+                    return false;
+                }
+
+                @Override
+                public void linkToDeath(DeathRecipient recipient, int flags)
+                        throws RemoteException {
+
+                }
+
+                @Override
+                public boolean unlinkToDeath(DeathRecipient recipient, int flags) {
+                    return false;
+                }
+            };
+        }
+        return mBinder;
     }
 
     //------------ NOT OVERRIDEN --------------------
@@ -1219,18 +1383,6 @@ public final class BridgeContext extends Context {
     }
 
     @Override
-    public PackageManager getPackageManager() {
-        // pass
-        return null;
-    }
-
-    @Override
-    public String getPackageName() {
-        // pass
-        return null;
-    }
-
-    @Override
     public String getBasePackageName() {
         // pass
         return null;
@@ -1365,6 +1517,18 @@ public final class BridgeContext extends Context {
     }
 
     @Override
+    public void sendBroadcastMultiplePermissions(Intent intent, String[] receiverPermissions) {
+        // pass
+
+    }
+
+    @Override
+    public void sendBroadcast(Intent arg0, String arg1, Bundle arg2) {
+        // pass
+
+    }
+
+    @Override
     public void sendBroadcast(Intent intent, String receiverPermission, int appOp) {
         // pass
     }
@@ -1378,6 +1542,14 @@ public final class BridgeContext extends Context {
     @Override
     public void sendOrderedBroadcast(Intent arg0, String arg1,
             BroadcastReceiver arg2, Handler arg3, int arg4, String arg5,
+            Bundle arg6) {
+        // pass
+
+    }
+
+    @Override
+    public void sendOrderedBroadcast(Intent arg0, String arg1,
+            Bundle arg7, BroadcastReceiver arg2, Handler arg3, int arg4, String arg5,
             Bundle arg6) {
         // pass
 
@@ -1416,6 +1588,14 @@ public final class BridgeContext extends Context {
     @Override
     public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
             String receiverPermission, int appOp, BroadcastReceiver resultReceiver,
+            Handler scheduler,
+            int initialCode, String initialData, Bundle initialExtras) {
+        // pass
+    }
+
+    @Override
+    public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
+            String receiverPermission, int appOp, Bundle options, BroadcastReceiver resultReceiver,
             Handler scheduler,
             int initialCode, String initialData, Bundle initialExtras) {
         // pass
@@ -1598,5 +1778,14 @@ public final class BridgeContext extends Context {
     public File[] getExternalMediaDirs() {
         // pass
         return new File[0];
+    }
+
+    public void setScrollYPos(@NonNull View view, int scrollPos) {
+        mScrollYPos.put(view, scrollPos);
+    }
+
+    public int getScrollYPos(@NonNull View view) {
+        Integer pos = mScrollYPos.get(view);
+        return pos != null ? pos : 0;
     }
 }

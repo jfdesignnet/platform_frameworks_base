@@ -142,6 +142,11 @@
         <item name="android:textSize">14sp</item>
     </style>
 
+    <style name="TextAppearance.QS.Warning">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/system_warning_color</item>
+    </style>
+
     <style name="TextAppearance.QS.DetailButton">
         <item name="android:textSize">@dimen/qs_detail_button_text_size</item>
         <item name="android:textColor">@color/qs_detail_button</item>
@@ -165,7 +170,8 @@
     </style>
 
     <style name="TextAppearance.QS.SegmentedButton">
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 
     <style name="TextAppearance.QS.DataUsage">
@@ -198,6 +204,11 @@
     <style name="Animation.RecentPanel">
         <item name="android:windowEnterAnimation">@*android:anim/grow_fade_in_from_bottom</item>
         <item name="android:windowExitAnimation">@*android:anim/shrink_fade_out_from_bottom</item>
+    </style>
+
+    <style name="Animation.NavigationBarFadeIn">
+        <item name="android:windowEnterAnimation">@anim/navbar_fade_in</item>
+        <item name="android:windowExitAnimation">@null</item>
     </style>
 
     <!-- Standard animations for hiding and showing the status bar. -->
@@ -262,4 +273,31 @@
         <item name="fillColor">@color/dark_mode_icon_color_dual_tone_fill</item>
         <item name="singleToneColor">@color/dark_mode_icon_color_single_tone</item>
     </style>
+
+    <style name="TextAppearance.Volume">
+        <item name="android:textStyle">normal</item>
+        <item name="android:textColor">#ffffffff</item>
+        <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <style name="TextAppearance.Volume.Header">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/volume_slider_inactive</item>
+    </style>
+
+    <style name="TextAppearance.Volume.ZenSummary">
+        <item name="android:textSize">14sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <style name="TextAppearance.Volume.ZenDetail">
+        <item name="android:textSize">14sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textColor">#ffb0b3c5</item>
+    </style>
+
+    <style name="VolumeButtons" parent="@android:style/Widget.Material.Button.Borderless">
+        <item name="android:background">@drawable/btn_borderless_rect</item>
+    </style>
+
 </resources>

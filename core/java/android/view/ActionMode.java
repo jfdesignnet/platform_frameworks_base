@@ -44,6 +44,12 @@ public abstract class ActionMode {
      */
     public static final int TYPE_FLOATING = 1;
 
+    /**
+     * Default value to hide the action mode for
+     * {@link ViewConfiguration#getDefaultActionModeHideDuration()}.
+     */
+    public static final int DEFAULT_HIDE_DURATION = -1;
+
     private Object mTag;
     private boolean mTitleOptionalHint;
     private int mType = TYPE_PRIMARY;
@@ -207,6 +213,19 @@ public abstract class ActionMode {
     public void invalidateContentRect() {}
 
     /**
+     * Hide the action mode view from obstructing the content below for a short duration.
+     * This only makes sense for action modes that support dynamic positioning on the screen.
+     * If this method is called again before the hide duration expires, the later hide call will
+     * cancel the former and then take effect.
+     * NOTE that there is an internal limit to how long the mode can be hidden for. It's typically
+     * about a few seconds.
+     *
+     * @param duration The number of milliseconds to hide for.
+     * @see #DEFAULT_HIDE_DURATION
+     */
+    public void hide(long duration) {}
+
+    /**
      * Finish and close this action mode. The action mode's {@link ActionMode.Callback} will
      * have its {@link Callback#onDestroyActionMode(ActionMode)} method called.
      */
@@ -240,6 +259,16 @@ public abstract class ActionMode {
      * Returns a {@link MenuInflater} with the ActionMode's context.
      */
     public abstract MenuInflater getMenuInflater();
+
+    /**
+     * Called when the window containing the view that started this action mode gains or loses
+     * focus.
+     *
+     * @param hasWindowFocus True if the window containing the view that started this action mode
+     *        now has focus, false otherwise.
+     *
+     */
+    public void onWindowFocusChanged(boolean hasWindowFocus) {}
 
     /**
      * Returns whether the UI presenting this action mode can take focus or not.
@@ -324,7 +353,9 @@ public abstract class ActionMode {
          * @param mode The ActionMode that requires positioning.
          * @param view The View that originated the ActionMode, in whose coordinates the Rect should
          *          be provided.
-         * @param outRect The Rect to be populated with the content position.
+         * @param outRect The Rect to be populated with the content position. Use this to specify
+         *          where the content in your app lives within the given view. This will be used
+         *          to avoid occluding the given content Rect with the created ActionMode.
          */
         public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
             if (view != null) {

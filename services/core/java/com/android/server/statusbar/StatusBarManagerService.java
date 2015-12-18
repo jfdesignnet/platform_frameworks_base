@@ -18,6 +18,7 @@ package com.android.server.statusbar;
 
 import android.app.StatusBarManager;
 import android.os.Binder;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.RemoteException;
@@ -29,6 +30,7 @@ import android.util.Slog;
 
 import com.android.internal.statusbar.IStatusBar;
 import com.android.internal.statusbar.IStatusBarService;
+import com.android.internal.statusbar.NotificationVisibility;
 import com.android.internal.statusbar.StatusBarIcon;
 import com.android.internal.statusbar.StatusBarIconList;
 import com.android.server.LocalServices;
@@ -150,6 +152,36 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
             if (mBar != null) {
                 try {
                     mBar.showScreenPinningRequest();
+                } catch (RemoteException e) {
+                }
+            }
+        }
+
+        @Override
+        public void showAssistDisclosure() {
+            if (mBar != null) {
+                try {
+                    mBar.showAssistDisclosure();
+                } catch (RemoteException e) {
+                }
+            }
+        }
+
+        @Override
+        public void startAssist(Bundle args) {
+            if (mBar != null) {
+                try {
+                    mBar.startAssist(args);
+                } catch (RemoteException e) {
+                }
+            }
+        }
+
+        @Override
+        public void onCameraLaunchGestureDetected(int source) {
+            if (mBar != null) {
+                try {
+                    mBar.onCameraLaunchGestureDetected(source);
                 } catch (RemoteException e) {
                 }
             }
@@ -515,6 +547,15 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
         }
     }
 
+    @Override
+    public void startAssist(Bundle args) {
+        if (mBar != null) {
+            try {
+                mBar.startAssist(args);
+            } catch (RemoteException ex) {}
+        }
+    }
+
     private void enforceStatusBar() {
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.STATUS_BAR,
                 "StatusBarManagerService");
@@ -560,11 +601,11 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
      *     LED, vibration, and ringing
      */
     @Override
-    public void onPanelRevealed(boolean clearNotificationEffects) {
+    public void onPanelRevealed(boolean clearNotificationEffects, int numItems) {
         enforceStatusBarService();
         long identity = Binder.clearCallingIdentity();
         try {
-            mNotificationDelegate.onPanelRevealed(clearNotificationEffects);
+            mNotificationDelegate.onPanelRevealed(clearNotificationEffects, numItems);
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
@@ -650,7 +691,8 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
 
     @Override
     public void onNotificationVisibilityChanged(
-            String[] newlyVisibleKeys, String[] noLongerVisibleKeys) throws RemoteException {
+            NotificationVisibility[] newlyVisibleKeys, NotificationVisibility[] noLongerVisibleKeys)
+            throws RemoteException {
         enforceStatusBarService();
         long identity = Binder.clearCallingIdentity();
         try {

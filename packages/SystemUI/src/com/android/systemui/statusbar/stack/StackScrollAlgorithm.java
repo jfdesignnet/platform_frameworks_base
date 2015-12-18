@@ -64,6 +64,7 @@ public class StackScrollAlgorithm {
     private int mTopStackTotalSize;
     private int mPaddingBetweenElementsDimmed;
     private int mPaddingBetweenElementsNormal;
+    private int mNotificationsTopPadding;
     private int mBottomStackSlowDownLength;
     private int mTopStackSlowDownLength;
     private int mCollapseSecondCardPadding;
@@ -104,6 +105,8 @@ public class StackScrollAlgorithm {
                 .getDimensionPixelSize(R.dimen.notification_padding_dimmed);
         mPaddingBetweenElementsNormal = context.getResources()
                 .getDimensionPixelSize(R.dimen.notification_padding);
+        mNotificationsTopPadding = context.getResources()
+                .getDimensionPixelSize(R.dimen.notifications_top_padding);
         mCollapsedSize = context.getResources()
                 .getDimensionPixelSize(R.dimen.notification_min_height);
         mMaxNotificationHeight = context.getResources()
@@ -124,7 +127,7 @@ public class StackScrollAlgorithm {
         mCollapseSecondCardPadding = context.getResources().getDimensionPixelSize(
                 R.dimen.notification_collapse_second_card_padding);
         mScaleDimmed = context.getResources().getDisplayMetrics().densityDpi
-                >= DisplayMetrics.DENSITY_XXHIGH;
+                >= DisplayMetrics.DENSITY_420;
     }
 
     public boolean shouldScaleDimmed() {
@@ -199,6 +202,7 @@ public class StackScrollAlgorithm {
 
     private void updateClipping(StackScrollState resultState,
             StackScrollAlgorithmState algorithmState, AmbientState ambientState) {
+        boolean dismissAllInProgress = ambientState.isDismissAllInProgress();
         float previousNotificationEnd = 0;
         float previousNotificationStart = 0;
         boolean previousNotificationIsSwiped = false;
@@ -234,14 +238,27 @@ public class StackScrollAlgorithm {
             updateChildClippingAndBackground(state, newHeight, clipHeight,
                     newHeight - (previousNotificationStart - newYTranslation));
 
+            if (dismissAllInProgress) {
+                state.clipTopAmount = Math.max(child.getMinClipTopAmount(), state.clipTopAmount);
+            }
+
             if (!child.isTransparent()) {
                 // Only update the previous values if we are not transparent,
                 // otherwise we would clip to a transparent view.
-                previousNotificationStart = newYTranslation + state.clipTopAmount * state.scale;
-                previousNotificationEnd = newNotificationEnd;
-                previousNotificationIsSwiped = ambientState.getDraggedViews().contains(child);
+                if ((dismissAllInProgress && canChildBeDismissed(child))) {
+                    previousNotificationIsSwiped = true;
+                } else {
+                    previousNotificationIsSwiped = ambientState.getDraggedViews().contains(child);
+                    previousNotificationEnd = newNotificationEnd;
+                    previousNotificationStart = newYTranslation + state.clipTopAmount * state.scale;
+                }
             }
         }
+    }
+
+    public static boolean canChildBeDismissed(View v) {
+        final View veto = v.findViewById(R.id.veto);
+        return (veto != null && veto.getVisibility() != View.GONE);
     }
 
     /**
@@ -311,7 +328,7 @@ public class StackScrollAlgorithm {
                     StackViewState viewState = resultState.getViewStateForView(
                             nextChild);
                     // The child below the dragged one must be fully visible
-                    if (!isPinnedHeadsUpView(draggedView) || isPinnedHeadsUpView(nextChild)) {
+                    if (ambientState.isShadeExpanded()) {
                         viewState.alpha = 1;
                     }
                 }
@@ -322,14 +339,6 @@ public class StackScrollAlgorithm {
                 viewState.alpha = draggedView.getAlpha();
             }
         }
-    }
-
-    private boolean isPinnedHeadsUpView(View view) {
-        if (view instanceof ExpandableNotificationRow) {
-            ExpandableNotificationRow row = (ExpandableNotificationRow) view;
-            return row.isHeadsUp() && !row.isInShade();
-        }
-        return false;
     }
 
     /**
@@ -380,7 +389,7 @@ public class StackScrollAlgorithm {
     /**
      * Determine the positions for the views. This is the main part of the algorithm.
      *
-     *  @param resultState The result state to update if a change to the properties of a child occurs
+     * @param resultState The result state to update if a change to the properties of a child occurs
      * @param algorithmState The state in which the current pass of the algorithm is currently in
      * @param ambientState The current ambient state
      */
@@ -404,7 +413,9 @@ public class StackScrollAlgorithm {
         ExpandableNotificationRow topHeadsUpEntry = ambientState.getTopHeadsUpEntry();
 
         int childCount = algorithmState.visibleChildren.size();
-        int numberOfElementsCompletelyIn = (int) algorithmState.itemsInTopStack;
+        int numberOfElementsCompletelyIn = algorithmState.partialInTop == 1.0f
+                ? algorithmState.lastTopStackIndex
+                : (int) algorithmState.itemsInTopStack;
         for (int i = 0; i < childCount; i++) {
             ExpandableView child = algorithmState.visibleChildren.get(i);
             StackViewState childViewState = resultState.getViewStateForView(child);
@@ -515,25 +526,28 @@ public class StackScrollAlgorithm {
             }
             StackViewState childState = resultState.getViewStateForView(row);
             boolean isTopEntry = topHeadsUpEntry == row;
-            if (!row.isInShade()) {
-                childState.yTranslation = 0;
+            if (mIsExpanded) {
+                if (isTopEntry) {
+                    childState.height += row.getHeadsUpHeight() - mCollapsedSize;
+                }
+                childState.height = Math.max(childState.height, row.getHeadsUpHeight());
+                // Ensure that the heads up is always visible even when scrolled off from the bottom
+                float bottomPosition = ambientState.getMaxHeadsUpTranslation() - childState.height;
+                childState.yTranslation = Math.min(childState.yTranslation,
+                        bottomPosition);
+            }
+            if (row.isPinned()) {
+                childState.yTranslation = Math.max(childState.yTranslation,
+                        mNotificationsTopPadding);
                 childState.height = row.getHeadsUpHeight();
                 if (!isTopEntry) {
-                    // Ensure that a headsUp is never below the topmost headsUp
+                    // Ensure that a headsUp doesn't vertically extend further than the heads-up at
+                    // the top most z-position
                     StackViewState topState = resultState.getViewStateForView(topHeadsUpEntry);
                     childState.height = row.getHeadsUpHeight();
                     childState.yTranslation = topState.yTranslation + topState.height
                             - childState.height;
                 }
-            } else if (mIsExpanded) {
-                if (isTopEntry) {
-                    childState.height += row.getHeadsUpHeight() - mCollapsedSize;
-                }
-                childState.height = Math.max(childState.height, row.getHeadsUpHeight());
-                // Ensure that the heads up is always visible even when scrolled of from the bottom
-                float bottomPosition = ambientState.getMaxHeadsUpTranslation() - childState.height;
-                childState.yTranslation = Math.min(childState.yTranslation,
-                        bottomPosition);
             }
         }
     }
@@ -588,7 +602,7 @@ public class StackScrollAlgorithm {
             return row.getIntrinsicHeight();
         } else if (child instanceof ExpandableView) {
             ExpandableView expandableView = (ExpandableView) child;
-            return expandableView.getActualHeight();
+            return expandableView.getIntrinsicHeight();
         }
         return child == null? mCollapsedSize : child.getHeight();
     }

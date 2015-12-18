@@ -90,9 +90,6 @@ public:
 
     virtual void onZygoteInit()
     {
-        // Re-enable tracing now that we're no longer in Zygote.
-        atrace_set_tracing_enabled(true);
-
         sp<ProcessState> proc = ProcessState::self();
         ALOGV("App process: starting thread pool.\n");
         proc->startThreadPool();
@@ -307,9 +304,9 @@ int main(int argc, char* const argv[])
     }
 
     if (zygote) {
-        runtime.start("com.android.internal.os.ZygoteInit", args);
+        runtime.start("com.android.internal.os.ZygoteInit", args, zygote);
     } else if (className) {
-        runtime.start("com.android.internal.os.RuntimeInit", args);
+        runtime.start("com.android.internal.os.RuntimeInit", args, zygote);
     } else {
         fprintf(stderr, "Error: no class name or --zygote supplied.\n");
         app_usage();

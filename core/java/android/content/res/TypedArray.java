@@ -160,7 +160,6 @@ public class TypedArray {
 
         final TypedValue v = mValue;
         if (getValueAt(index, v)) {
-            StrictMode.noteResourceMismatch(v);
             return v.coerceToString();
         }
 
@@ -181,6 +180,7 @@ public class TypedArray {
      *         not be coerced to a string.
      * @throws RuntimeException if the TypedArray has already been recycled.
      */
+    @Nullable
     public String getString(int index) {
         if (mRecycled) {
             throw new RuntimeException("Cannot make calls to a recycled instance!");
@@ -197,7 +197,6 @@ public class TypedArray {
 
         final TypedValue v = mValue;
         if (getValueAt(index, v)) {
-            StrictMode.noteResourceMismatch(v);
             final CharSequence cs = v.coerceToString();
             return cs != null ? cs.toString() : null;
         }
@@ -271,7 +270,6 @@ public class TypedArray {
 
         final TypedValue v = mValue;
         if (getValueAt(index, v)) {
-            StrictMode.noteResourceMismatch(v);
             final CharSequence cs = v.coerceToString();
             return cs != null ? cs.toString() : null;
         }

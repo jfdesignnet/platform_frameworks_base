@@ -43,6 +43,7 @@ import com.android.systemui.statusbar.EmptyShadeView;
 import com.android.systemui.statusbar.ExpandableNotificationRow;
 import com.android.systemui.statusbar.ExpandableView;
 import com.android.systemui.statusbar.NotificationData;
+import com.android.systemui.statusbar.NotificationOverflowContainer;
 import com.android.systemui.statusbar.SpeedBumpView;
 import com.android.systemui.statusbar.StackScrollerDecorView;
 import com.android.systemui.statusbar.StatusBarState;
@@ -162,6 +163,7 @@ public class NotificationStackScrollLayout extends ViewGroup
     private boolean mChildrenUpdateRequested;
     private SpeedBumpView mSpeedBumpView;
     private boolean mIsExpansionChanging;
+    private boolean mPanelTracking;
     private boolean mExpandingNotification;
     private boolean mExpandedInThisMotion;
     private boolean mScrollingEnabled;
@@ -204,7 +206,6 @@ public class NotificationStackScrollLayout extends ViewGroup
     private ViewGroup mScrollView;
     private boolean mInterceptDelegateEnabled;
     private boolean mDelegateToScrollView;
-
     private boolean mDisallowScrollingInThisMotion;
     private long mGoToFullShadeDelay;
     private ViewTreeObserver.OnPreDrawListener mChildrenUpdater
@@ -221,11 +222,15 @@ public class NotificationStackScrollLayout extends ViewGroup
     private int[] mTempInt2 = new int[2];
     private boolean mGenerateChildOrderChangedEvent;
     private HashSet<Runnable> mAnimationFinishedRunnables = new HashSet<>();
+    private HashSet<View> mClearOverlayViewsWhenFinished = new HashSet<>();
     private HashSet<Pair<ExpandableNotificationRow, Boolean>> mHeadsUpChangeAnimations
             = new HashSet<>();
     private HeadsUpManager mHeadsUpManager;
     private boolean mTrackingHeadsUp;
     private ScrimController mScrimController;
+    private boolean mForceNoOverlappingRendering;
+    private NotificationOverflowContainer mOverflowContainer;
+    private final ArrayList<Pair<ExpandableNotificationRow, Boolean>> mTmpList = new ArrayList<>();
 
     public NotificationStackScrollLayout(Context context) {
         this(context, null);
@@ -486,10 +491,10 @@ public class NotificationStackScrollLayout extends ViewGroup
         int minStackHeight = getMinStackHeight();
         int stackHeight;
         float paddingOffset;
-        boolean trackingHeadsUp = mTrackingHeadsUp;
-        int normalExpandPositionStart = trackingHeadsUp ? mHeadsUpManager.getTopHeadsUpHeight()
+        boolean trackingHeadsUp = mTrackingHeadsUp || mHeadsUpManager.hasPinnedHeadsUp();
+        int normalUnfoldPositionStart = trackingHeadsUp ? mHeadsUpManager.getTopHeadsUpHeight()
                 : minStackHeight;
-        if (newStackHeight - mTopPadding - mTopPaddingOverflow >= normalExpandPositionStart
+        if (newStackHeight - mTopPadding - mTopPaddingOverflow >= normalUnfoldPositionStart
                 || getNotGoneChildCount() == 0) {
             paddingOffset = mTopPaddingOverflow;
             stackHeight = newStackHeight;
@@ -582,7 +587,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         if (v instanceof ExpandableNotificationRow) {
             ExpandableNotificationRow row = (ExpandableNotificationRow) v;
             if (row.isHeadsUp()) {
-                mHeadsUpManager.addSwipedOutKey(row.getStatusBarNotification().getKey());
+                mHeadsUpManager.addSwipedOutNotification(row.getStatusBarNotification().getKey());
             }
         }
         final View veto = v.findViewById(R.id.veto);
@@ -609,7 +614,7 @@ public class NotificationStackScrollLayout extends ViewGroup
 
     @Override
     public boolean updateSwipeProgress(View animView, boolean dismissable, float swipeProgress) {
-        if (isPinnedHeadsUp(animView) && canChildBeDismissed(animView)) {
+        if (!mIsExpanded && isPinnedHeadsUp(animView) && canChildBeDismissed(animView)) {
             mScrimController.setTopHeadsUpDragAmount(animView,
                     Math.min(Math.abs(swipeProgress - 1.0f), 1.0f));
         }
@@ -619,17 +624,17 @@ public class NotificationStackScrollLayout extends ViewGroup
     public void onBeginDrag(View v) {
         setSwipingInProgress(true);
         mAmbientState.onBeginDrag(v);
-        if (mAnimationsEnabled && !isPinnedHeadsUp(v)) {
+        if (mAnimationsEnabled && (mIsExpanded || !isPinnedHeadsUp(v))) {
             mDragAnimPendingChildren.add(v);
             mNeedsAnimation = true;
         }
         requestChildrenUpdate();
     }
 
-    public boolean isPinnedHeadsUp(View v) {
+    public static boolean isPinnedHeadsUp(View v) {
         if (v instanceof ExpandableNotificationRow) {
             ExpandableNotificationRow row = (ExpandableNotificationRow) v;
-            return row.isHeadsUp() && !row.isInShade();
+            return row.isHeadsUp() && row.isPinned();
         }
         return false;
     }
@@ -648,7 +653,7 @@ public class NotificationStackScrollLayout extends ViewGroup
 
     @Override
     public float getFalsingThresholdFactor() {
-        return mPhoneStatusBar.isScreenOnComingFromTouch() ? 1.5f : 1.0f;
+        return mPhoneStatusBar.isWakeUpComingFromTouch() ? 1.5f : 1.0f;
     }
 
     public View getChildAtPosition(MotionEvent ev) {
@@ -711,7 +716,7 @@ public class NotificationStackScrollLayout extends ViewGroup
             if (touchY >= top && touchY <= bottom && touchX >= left && touchX <= right) {
                 if (slidingChild instanceof ExpandableNotificationRow) {
                     ExpandableNotificationRow row = (ExpandableNotificationRow) slidingChild;
-                    if (row.isHeadsUp() && !row.isInShade()
+                    if (!mIsExpanded && row.isHeadsUp() && row.isPinned()
                             && mHeadsUpManager.getTopEntry().entry.row != row) {
                         continue;
                     }
@@ -769,8 +774,7 @@ public class NotificationStackScrollLayout extends ViewGroup
     }
 
     public boolean canChildBeDismissed(View v) {
-        final View veto = v.findViewById(R.id.veto);
-        return (veto != null && veto.getVisibility() != View.GONE);
+        return StackScrollAlgorithm.canChildBeDismissed(v);
     }
 
     @Override
@@ -812,7 +816,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         }
         handleEmptySpaceClick(ev);
         boolean expandWantsIt = false;
-        if (!mSwipingInProgress && !mOnlyScrollingInThisMotion && isScrollingEnabled()) {
+        if (mIsExpanded && !mSwipingInProgress && !mOnlyScrollingInThisMotion) {
             if (isCancelOrUp) {
                 mExpandHelper.onlyObserveMovements(false);
             }
@@ -824,7 +828,8 @@ public class NotificationStackScrollLayout extends ViewGroup
             }
         }
         boolean scrollerWantsIt = false;
-        if (!mSwipingInProgress && !mExpandingNotification && !mDisallowScrollingInThisMotion) {
+        if (mIsExpanded && !mSwipingInProgress && !mExpandingNotification
+                && !mDisallowScrollingInThisMotion) {
             scrollerWantsIt = onScrollTouch(ev);
         }
         boolean horizontalSwipeWantsIt = false;
@@ -1367,16 +1372,10 @@ public class NotificationStackScrollLayout extends ViewGroup
         int childCount = getChildCount();
         int count = 0;
         for (int i = 0; i < childCount; i++) {
-            View child = getChildAt(i);
-            if (child.getVisibility() != View.GONE) {
+            ExpandableView child = (ExpandableView) getChildAt(i);
+            if (child.getVisibility() != View.GONE && !child.willBeGone()) {
                 count++;
             }
-        }
-        if (mDismissView.willBeGone()) {
-            count--;
-        }
-        if (mEmptyShadeView.willBeGone()) {
-            count--;
         }
         return count;
     }
@@ -1515,7 +1514,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         }
         if (mExpandedInThisMotion) {
             return RUBBER_BAND_FACTOR_AFTER_EXPAND;
-        } else if (mIsExpansionChanging) {
+        } else if (mIsExpansionChanging || mPanelTracking) {
             return RUBBER_BAND_FACTOR_ON_PANEL_EXPAND;
         } else if (mScrolledToTopOnFirstDown) {
             return 1.0f;
@@ -1529,7 +1528,7 @@ public class NotificationStackScrollLayout extends ViewGroup
      * overscroll view (e.g. expand QS).
      */
     private boolean isRubberbanded(boolean onTop) {
-        return !onTop || mExpandedInThisMotion || mIsExpansionChanging
+        return !onTop || mExpandedInThisMotion || mIsExpansionChanging || mPanelTracking
                 || !mScrolledToTopOnFirstDown;
     }
 
@@ -1565,7 +1564,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         initDownStates(ev);
         handleEmptySpaceClick(ev);
         boolean expandWantsIt = false;
-        if (!mSwipingInProgress && !mOnlyScrollingInThisMotion && isScrollingEnabled()) {
+        if (!mSwipingInProgress && !mOnlyScrollingInThisMotion) {
             expandWantsIt = mExpandHelper.onInterceptTouchEvent(ev);
         }
         boolean scrollWantsIt = false;
@@ -1611,7 +1610,7 @@ public class NotificationStackScrollLayout extends ViewGroup
     }
 
     @Override
-    protected void onViewRemoved(View child) {
+    public void onViewRemoved(View child) {
         super.onViewRemoved(child);
         // we only call our internal methods if this is actually a removal and not just a
         // notification which becomes a child notification
@@ -1654,6 +1653,15 @@ public class NotificationStackScrollLayout extends ViewGroup
      * @return Whether an animation was generated.
      */
     private boolean generateRemoveAnimation(View child) {
+        if (removeRemovedChildFromHeadsUpChangeAnimations(child)) {
+            mAddedHeadsUpChildren.remove(child);
+            return false;
+        }
+        if (isClickedHeadsUp(child)) {
+            // An animation is already running, add it to the Overlay
+            mClearOverlayViewsWhenFinished.add(child);
+            return true;
+        }
         if (mIsExpanded && mAnimationsEnabled && !isChildInInvisibleGroup(child)) {
             if (!mChildrenToAddAnimated.contains(child)) {
                 // Generate Animations
@@ -1667,6 +1675,33 @@ public class NotificationStackScrollLayout extends ViewGroup
             }
         }
         return false;
+    }
+
+    private boolean isClickedHeadsUp(View child) {
+        return HeadsUpManager.isClickedHeadsUpNotification(child);
+    }
+
+    /**
+     * Remove a removed child view from the heads up animations if it was just added there
+     *
+     * @return whether any child was removed from the list to animate
+     */
+    private boolean removeRemovedChildFromHeadsUpChangeAnimations(View child) {
+        boolean hasAddEvent = false;
+        for (Pair<ExpandableNotificationRow, Boolean> eventPair : mHeadsUpChangeAnimations) {
+            ExpandableNotificationRow row = eventPair.first;
+            boolean isHeadsUp = eventPair.second;
+            if (child == row) {
+                mTmpList.add(eventPair);
+                hasAddEvent |= isHeadsUp;
+            }
+        }
+        if (hasAddEvent) {
+            // This child was just added lets remove all events.
+            mHeadsUpChangeAnimations.removeAll(mTmpList);
+        }
+        mTmpList.clear();
+        return hasAddEvent;
     }
 
     /**
@@ -1732,21 +1767,30 @@ public class NotificationStackScrollLayout extends ViewGroup
     }
 
     @Override
-    protected void onViewAdded(View child) {
+    public void onViewAdded(View child) {
         super.onViewAdded(child);
         onViewAddedInternal(child);
     }
 
     private void onViewAddedInternal(View child) {
+        updateHideSensitiveForChild(child);
         mStackScrollAlgorithm.notifyChildrenChanged(this);
         ((ExpandableView) child).setOnHeightChangedListener(this);
         generateAddAnimation(child, false /* fromMoreCard */);
         updateAnimationState(child);
+        updateChronometerForChild(child);
         if (canChildBeDismissed(child)) {
             // Make sure the dismissButton is visible and not in the animated state.
             // We need to do this to avoid a race where a clearable notification is added after the
             // dismiss animation is finished
             mDismissView.showClearButton();
+        }
+    }
+
+    private void updateHideSensitiveForChild(View child) {
+        if (mAmbientState.isHideSensitive() && child instanceof ExpandableView) {
+            ExpandableView expandableView = (ExpandableView) child;
+            expandableView.setHideSensitiveForIntrinsicHeight(true);
         }
     }
 
@@ -1870,17 +1914,28 @@ public class NotificationStackScrollLayout extends ViewGroup
             boolean isHeadsUp = eventPair.second;
             int type = AnimationEvent.ANIMATION_TYPE_HEADS_UP_OTHER;
             boolean onBottom = false;
+            boolean pinnedAndClosed = row.isPinned() && !mIsExpanded;
             if (!mIsExpanded && !isHeadsUp) {
-                type = AnimationEvent.ANIMATION_TYPE_HEADS_UP_DISAPPEAR;
-            } else if (mAddedHeadsUpChildren.contains(row) || (!row.isInShade() && !mIsExpanded)) {
-                if (!row.isInShade() || shouldHunAppearFromBottom(row)) {
-                    // Our custom add animation
-                    type = AnimationEvent.ANIMATION_TYPE_HEADS_UP_APPEAR;
-                } else {
-                    // Normal add animation
-                    type = AnimationEvent.ANIMATION_TYPE_ADD;
+                type = row.wasJustClicked()
+                        ? AnimationEvent.ANIMATION_TYPE_HEADS_UP_DISAPPEAR_CLICK
+                        : AnimationEvent.ANIMATION_TYPE_HEADS_UP_DISAPPEAR;
+            } else {
+                StackViewState viewState = mCurrentStackScrollState.getViewStateForView(row);
+                if (viewState == null) {
+                    // A view state was never generated for this view, so we don't need to animate
+                    // this. This may happen with notification children.
+                    continue;
                 }
-                onBottom = row.isInShade();
+                if (isHeadsUp && (mAddedHeadsUpChildren.contains(row) || pinnedAndClosed)) {
+                    if (pinnedAndClosed || shouldHunAppearFromBottom(viewState)) {
+                        // Our custom add animation
+                        type = AnimationEvent.ANIMATION_TYPE_HEADS_UP_APPEAR;
+                    } else {
+                        // Normal add animation
+                        type = AnimationEvent.ANIMATION_TYPE_ADD;
+                    }
+                    onBottom = !pinnedAndClosed;
+                }
             }
             AnimationEvent event = new AnimationEvent(row, type);
             event.headsUpFromBottom = onBottom;
@@ -1890,8 +1945,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         mAddedHeadsUpChildren.clear();
     }
 
-    private boolean shouldHunAppearFromBottom(ExpandableNotificationRow row) {
-        StackViewState viewState = mCurrentStackScrollState.getViewStateForView(row);
+    private boolean shouldHunAppearFromBottom(StackViewState viewState) {
         if (viewState.yTranslation + viewState.height < mAmbientState.getMaxHeadsUpTranslation()) {
             return false;
         }
@@ -2216,12 +2270,39 @@ public class NotificationStackScrollLayout extends ViewGroup
         }
     }
 
+    public void onPanelTrackingStarted() {
+        mPanelTracking = true;
+    }
+    public void onPanelTrackingStopped() {
+        mPanelTracking = false;
+    }
+
+    public void resetScrollPosition() {
+        mScroller.abortAnimation();
+        mOwnScrollY = 0;
+    }
+
     private void setIsExpanded(boolean isExpanded) {
         boolean changed = isExpanded != mIsExpanded;
         mIsExpanded = isExpanded;
         mStackScrollAlgorithm.setIsExpanded(isExpanded);
         if (changed) {
             updateNotificationAnimationStates();
+            updateChronometers();
+        }
+    }
+
+    private void updateChronometers() {
+        int childCount = getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            updateChronometerForChild(getChildAt(i));
+        }
+    }
+
+    private void updateChronometerForChild(View child) {
+        if (child instanceof ExpandableNotificationRow) {
+            ExpandableNotificationRow row = (ExpandableNotificationRow) child;
+            row.setChronometerRunning(mIsExpanded);
         }
     }
 
@@ -2244,16 +2325,17 @@ public class NotificationStackScrollLayout extends ViewGroup
         }
         mStackScrollAlgorithm.onReset(view);
         updateAnimationState(view);
+        updateChronometerForChild(view);
     }
 
     private void updateScrollPositionOnExpandInBottom(ExpandableView view) {
         if (view instanceof ExpandableNotificationRow) {
             ExpandableNotificationRow row = (ExpandableNotificationRow) view;
-            if (row.isUserLocked()) {
+            if (row.isUserLocked() && row != getFirstChildNotGone()) {
                 // We are actually expanding this view
                 float endPosition = row.getTranslationY() + row.getActualHeight();
                 int stackEnd = mMaxLayoutHeight - mBottomStackPeekSize -
-                        mBottomStackSlowDownHeight;
+                        mBottomStackSlowDownHeight + (int) mStackTranslation;
                 if (endPosition > stackEnd) {
                     mOwnScrollY += endPosition - stackEnd;
                     mDisallowScrollingInThisMotion = true;
@@ -2273,6 +2355,17 @@ public class NotificationStackScrollLayout extends ViewGroup
 
     public void onChildAnimationFinished() {
         requestChildrenUpdate();
+        runAnimationFinishedRunnables();
+        clearViewOverlays();
+    }
+
+    private void clearViewOverlays() {
+        for (View view : mClearOverlayViewsWhenFinished) {
+            getOverlay().remove(view);
+        }
+    }
+
+    private void runAnimationFinishedRunnables() {
         for (Runnable runnable : mAnimationFinishedRunnables) {
             runnable.run();
         }
@@ -2330,6 +2423,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         if (mListener != null) {
             mListener.onChildLocationsChanged(this);
         }
+        runAnimationFinishedRunnables();
     }
 
     public void setSpeedBumpView(SpeedBumpView speedBumpView) {
@@ -2452,7 +2546,7 @@ public class NotificationStackScrollLayout extends ViewGroup
                 mEmptyShadeView.setVisibility(newVisibility);
                 mEmptyShadeView.setWillBeGone(false);
                 updateContentHeight();
-                notifyHeightChangeListener(mDismissView);
+                notifyHeightChangeListener(mEmptyShadeView);
             } else {
                 Runnable onFinishedRunnable = new Runnable() {
                     @Override
@@ -2460,7 +2554,7 @@ public class NotificationStackScrollLayout extends ViewGroup
                         mEmptyShadeView.setVisibility(GONE);
                         mEmptyShadeView.setWillBeGone(false);
                         updateContentHeight();
-                        notifyHeightChangeListener(mDismissView);
+                        notifyHeightChangeListener(mEmptyShadeView);
                     }
                 };
                 if (mAnimationsEnabled) {
@@ -2470,6 +2564,45 @@ public class NotificationStackScrollLayout extends ViewGroup
                     mEmptyShadeView.setInvisible();
                     onFinishedRunnable.run();
                 }
+            }
+        }
+    }
+
+    public void setOverflowContainer(NotificationOverflowContainer overFlowContainer) {
+        mOverflowContainer = overFlowContainer;
+        addView(mOverflowContainer);
+    }
+
+    public void updateOverflowContainerVisibility(boolean visible) {
+        int oldVisibility = mOverflowContainer.willBeGone() ? GONE
+                : mOverflowContainer.getVisibility();
+        final int newVisibility = visible ? VISIBLE : GONE;
+        if (oldVisibility != newVisibility) {
+            Runnable onFinishedRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    mOverflowContainer.setVisibility(newVisibility);
+                    mOverflowContainer.setWillBeGone(false);
+                    updateContentHeight();
+                    notifyHeightChangeListener(mOverflowContainer);
+                }
+            };
+            if (!mAnimationsEnabled || !mIsExpanded) {
+                mOverflowContainer.cancelAppearDrawing();
+                onFinishedRunnable.run();
+            } else if (newVisibility != GONE) {
+                mOverflowContainer.performAddAnimation(0,
+                        StackStateAnimator.ANIMATION_DURATION_STANDARD);
+                mOverflowContainer.setVisibility(newVisibility);
+                mOverflowContainer.setWillBeGone(false);
+                updateContentHeight();
+                notifyHeightChangeListener(mOverflowContainer);
+            } else {
+                mOverflowContainer.performRemoveAnimation(
+                        StackStateAnimator.ANIMATION_DURATION_STANDARD,
+                        0.0f,
+                        onFinishedRunnable);
+                mOverflowContainer.setWillBeGone(true);
             }
         }
     }
@@ -2512,8 +2645,27 @@ public class NotificationStackScrollLayout extends ViewGroup
     public void setDismissAllInProgress(boolean dismissAllInProgress) {
         mDismissAllInProgress = dismissAllInProgress;
         mDismissView.setDismissAllInProgress(dismissAllInProgress);
+        mAmbientState.setDismissAllInProgress(dismissAllInProgress);
         if (dismissAllInProgress) {
             disableClipOptimization();
+        }
+        handleDismissAllClipping();
+    }
+
+    private void handleDismissAllClipping() {
+        final int count = getChildCount();
+        boolean previousChildWillBeDismissed = false;
+        for (int i = 0; i < count; i++) {
+            ExpandableView child = (ExpandableView) getChildAt(i);
+            if (child.getVisibility() == GONE) {
+                continue;
+            }
+            if (mDismissAllInProgress && previousChildWillBeDismissed) {
+                child.setMinClipTopAmount(child.getClipTopAmount());
+            } else {
+                child.setMinClipTopAmount(0);
+            }
+            previousChildWillBeDismissed = canChildBeDismissed(child);
         }
     }
 
@@ -2596,7 +2748,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         }
     }
 
-    private boolean isBelowLastNotification(float touchX, float touchY) {
+    public boolean isBelowLastNotification(float touchX, float touchY) {
         int childCount = getChildCount();
         for (int i = childCount - 1; i >= 0; i--) {
             ExpandableView child = (ExpandableView) getChildAt(i);
@@ -2622,7 +2774,7 @@ public class NotificationStackScrollLayout extends ViewGroup
                 }
             }
         }
-        return touchY > mIntrinsicPadding;
+        return touchY > mTopPadding + mStackTranslation;
     }
 
     private void updateExpandButtons() {
@@ -2670,7 +2822,7 @@ public class NotificationStackScrollLayout extends ViewGroup
         }
     }
 
-    public void performOnAnimationFinished(Runnable runnable) {
+    public void runAfterAnimationFinished(Runnable runnable) {
         mAnimationFinishedRunnables.add(runnable);
     }
 
@@ -2712,6 +2864,15 @@ public class NotificationStackScrollLayout extends ViewGroup
 
     public void setScrimController(ScrimController scrimController) {
         mScrimController = scrimController;
+    }
+
+    public void forceNoOverlappingRendering(boolean force) {
+        mForceNoOverlappingRendering = force;
+    }
+
+    @Override
+    public boolean hasOverlappingRendering() {
+        return !mForceNoOverlappingRendering && super.hasOverlappingRendering();
     }
 
     /**
@@ -2874,6 +3035,15 @@ public class NotificationStackScrollLayout extends ViewGroup
                         .animateY()
                         .animateZ(),
 
+                // ANIMATION_TYPE_HEADS_UP_DISAPPEAR_CLICK
+                new AnimationFilter()
+                        .animateAlpha()
+                        .animateHeight()
+                        .animateTopInset()
+                        .animateY()
+                        .animateZ()
+                        .hasDelays(),
+
                 // ANIMATION_TYPE_HEADS_UP_OTHER
                 new AnimationFilter()
                         .animateAlpha()
@@ -2945,6 +3115,9 @@ public class NotificationStackScrollLayout extends ViewGroup
                 // ANIMATION_TYPE_HEADS_UP_DISAPPEAR
                 StackStateAnimator.ANIMATION_DURATION_HEADS_UP_DISAPPEAR,
 
+                // ANIMATION_TYPE_HEADS_UP_DISAPPEAR_CLICK
+                StackStateAnimator.ANIMATION_DURATION_HEADS_UP_DISAPPEAR,
+
                 // ANIMATION_TYPE_HEADS_UP_OTHER
                 StackStateAnimator.ANIMATION_DURATION_STANDARD,
 
@@ -2968,8 +3141,9 @@ public class NotificationStackScrollLayout extends ViewGroup
         static final int ANIMATION_TYPE_GROUP_EXPANSION_CHANGED = 13;
         static final int ANIMATION_TYPE_HEADS_UP_APPEAR = 14;
         static final int ANIMATION_TYPE_HEADS_UP_DISAPPEAR = 15;
-        static final int ANIMATION_TYPE_HEADS_UP_OTHER = 16;
-        static final int ANIMATION_TYPE_EVERYTHING = 17;
+        static final int ANIMATION_TYPE_HEADS_UP_DISAPPEAR_CLICK = 16;
+        static final int ANIMATION_TYPE_HEADS_UP_OTHER = 17;
+        static final int ANIMATION_TYPE_EVERYTHING = 18;
 
         static final int DARK_ANIMATION_ORIGIN_INDEX_ABOVE = -1;
         static final int DARK_ANIMATION_ORIGIN_INDEX_BELOW = -2;

@@ -16,6 +16,7 @@
 
 package android.webkit;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.annotation.Widget;
 import android.content.Context;
@@ -40,9 +41,10 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewAssistStructure;
+import android.view.ViewStructure;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
+import android.view.ViewHierarchyEncoder;
 import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -364,15 +366,15 @@ public class WebView extends AbsoluteLayout
     }
 
     /**
-     * Callback interface supplied to {@link #insertVisualStateCallback} for receiving
+     * Callback interface supplied to {@link #postVisualStateCallback} for receiving
      * notifications about the visual state.
      */
     public static abstract class VisualStateCallback {
         /**
          * Invoked when the visual state is ready to be drawn in the next {@link #onDraw}.
          *
-         * @param requestId the id supplied to the corresponding {@link #insertVisualStateCallback}
-         * request
+         * @param requestId The identifier passed to {@link #postVisualStateCallback} when this
+         *                  callback was posted.
          */
         public abstract void onComplete(long requestId);
     }
@@ -609,41 +611,45 @@ public class WebView extends AbsoluteLayout
     /**
      * Specifies whether the horizontal scrollbar has overlay style.
      *
+     * @deprecated This method has no effect.
      * @param overlay true if horizontal scrollbar should have overlay style
      */
+    @Deprecated
     public void setHorizontalScrollbarOverlay(boolean overlay) {
-        checkThread();
-        mProvider.setHorizontalScrollbarOverlay(overlay);
     }
 
     /**
      * Specifies whether the vertical scrollbar has overlay style.
      *
+     * @deprecated This method has no effect.
      * @param overlay true if vertical scrollbar should have overlay style
      */
+    @Deprecated
     public void setVerticalScrollbarOverlay(boolean overlay) {
-        checkThread();
-        mProvider.setVerticalScrollbarOverlay(overlay);
     }
 
     /**
      * Gets whether horizontal scrollbar has overlay style.
      *
-     * @return true if horizontal scrollbar has overlay style
+     * @deprecated This method is now obsolete.
+     * @return true
      */
+    @Deprecated
     public boolean overlayHorizontalScrollbar() {
-        checkThread();
-        return mProvider.overlayHorizontalScrollbar();
+        // The old implementation defaulted to true, so return true for consistency
+        return true;
     }
 
     /**
      * Gets whether vertical scrollbar has overlay style.
      *
-     * @return true if vertical scrollbar has overlay style
+     * @deprecated This method is now obsolete.
+     * @return false
      */
+    @Deprecated
     public boolean overlayVerticalScrollbar() {
-        checkThread();
-        return mProvider.overlayVerticalScrollbar();
+        // The old implementation defaulted to false, so return false for consistency
+        return false;
     }
 
     /**
@@ -1123,15 +1129,18 @@ public class WebView extends AbsoluteLayout
     }
 
     /**
-     * Inserts a {@link VisualStateCallback}.
+     * Posts a {@link VisualStateCallback}, which will be called when
+     * the current state of the WebView is ready to be drawn.
      *
-     * <p>Updates to the the DOM are reflected asynchronously such that when the DOM is updated the
-     * subsequent {@link WebView#onDraw} invocation might not reflect those updates. The
+     * <p>Because updates to the the DOM are processed asynchronously, updates to the DOM may not
+     * immediately be reflected visually by subsequent {@link WebView#onDraw} invocations. The
      * {@link VisualStateCallback} provides a mechanism to notify the caller when the contents of
-     * the DOM at the current time are ready to be drawn the next time the {@link WebView} draws.
-     * By current time we mean the time at which this API was called. The next draw after the
-     * callback completes is guaranteed to reflect all the updates to the DOM applied before the
-     * current time, but it may also contain updates applied after the current time.</p>
+     * the DOM at the current time are ready to be drawn the next time the {@link WebView}
+     * draws.</p>
+     *
+     * <p>The next draw after the callback completes is guaranteed to reflect all the updates to the
+     * DOM up to the the point at which the {@link VisualStateCallback} was posted, but it may also
+     * contain updates applied after the callback was posted.</p>
      *
      * <p>The state of the DOM covered by this API includes the following:
      * <ul>
@@ -1162,15 +1171,15 @@ public class WebView extends AbsoluteLayout
      * {@link VisualStateCallback#onComplete} method.</li>
      * </ul></p>
      *
-     * <p>When using this API it is also recommended to enable pre-rasterization if the
-     * {@link WebView} is offscreen to avoid flickering. See WebSettings#setOffscreenPreRaster for
+     * <p>When using this API it is also recommended to enable pre-rasterization if the {@link
+     * WebView} is offscreen to avoid flickering. See {@link WebSettings#setOffscreenPreRaster} for
      * more details and do consider its caveats.</p>
      *
-     * @param requestId an id that will be returned in the callback to allow callers to match
-     * requests with callbacks.
-     * @param callback the callback to be invoked.
+     * @param requestId An id that will be returned in the callback to allow callers to match
+     *                  requests with callbacks.
+     * @param callback  The callback to be invoked.
      */
-    public void insertVisualStateCallback(long requestId, VisualStateCallback callback) {
+    public void postVisualStateCallback(long requestId, VisualStateCallback callback) {
         checkThread();
         mProvider.insertVisualStateCallback(requestId, callback);
     }
@@ -1833,8 +1842,9 @@ public class WebView extends AbsoluteLayout
     /**
      * Creates a message channel to communicate with JS and returns the message
      * ports that represent the endpoints of this message channel. The HTML5 message
-     * channel functionality is described here:
-     * https://html.spec.whatwg.org/multipage/comms.html#messagechannel
+     * channel functionality is described
+     * <a href="https://html.spec.whatwg.org/multipage/comms.html#messagechannel">here
+     * </a>
      *
      * The returned message channels are entangled and already in started state.
      *
@@ -1848,13 +1858,16 @@ public class WebView extends AbsoluteLayout
     /**
      * Post a message to main frame. The embedded application can restrict the
      * messages to a certain target origin. See
-     *    https://html.spec.whatwg.org/multipage/comms.html#posting-messages
-     * for how target origin can be used.
+     * <a href="https://html.spec.whatwg.org/multipage/comms.html#posting-messages">
+     * HTML5 spec</a> for how target origin can be used.
      *
      * @param message the WebMessage
-     * @param targetOrigin the target origin.
+     * @param targetOrigin the target origin. This is the origin of the page
+     *          that is intended to receive the message. For best security
+     *          practices, the user should not specify a wildcard (*) when
+     *          specifying the origin.
      */
-    public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {
+    public void postWebMessage(WebMessage message, Uri targetOrigin) {
         checkThread();
         mProvider.postMessageToMainFrame(message, targetOrigin);
     }
@@ -2426,8 +2439,8 @@ public class WebView extends AbsoluteLayout
     }
 
     @Override
-    public void onProvideVirtualAssistStructure(ViewAssistStructure structure) {
-        mProvider.getViewDelegate().onProvideVirtualAssistStructure(structure);
+    public void onProvideVirtualStructure(ViewStructure structure) {
+        mProvider.getViewDelegate().onProvideVirtualStructure(structure);
     }
 
     /** @hide */
@@ -2575,5 +2588,19 @@ public class WebView extends AbsoluteLayout
     public void onFinishTemporaryDetach() {
         super.onFinishTemporaryDetach();
         mProvider.getViewDelegate().onFinishTemporaryDetach();
+    }
+
+    /** @hide */
+    @Override
+    protected void encodeProperties(@NonNull ViewHierarchyEncoder encoder) {
+        super.encodeProperties(encoder);
+
+        checkThread();
+        encoder.addProperty("webview:contentHeight", mProvider.getContentHeight());
+        encoder.addProperty("webview:contentWidth", mProvider.getContentWidth());
+        encoder.addProperty("webview:scale", mProvider.getScale());
+        encoder.addProperty("webview:title", mProvider.getTitle());
+        encoder.addProperty("webview:url", mProvider.getUrl());
+        encoder.addProperty("webview:originalUrl", mProvider.getOriginalUrl());
     }
 }

@@ -23,6 +23,8 @@ import android.os.Looper;
 import android.os.Message;
 import android.view.Surface;
 
+import dalvik.system.VMRuntime;
+
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -68,76 +70,45 @@ public class ImageReader implements AutoCloseable {
     private static final int ACQUIRE_MAX_IMAGES = 2;
 
     /**
-     * <p>Create a new reader for images of the desired size and format.</p>
-     *
-     * <p>The {@code maxImages} parameter determines the maximum number of {@link Image}
-     * objects that can be be acquired from the {@code ImageReader}
-     * simultaneously. Requesting more buffers will use up more memory, so it is
-     * important to use only the minimum number necessary for the use case.</p>
-     *
-     * <p>The valid sizes and formats depend on the source of the image
-     * data.</p>
-     *
-     * @param width
-     *            The default width in pixels of the Images that this reader will produce.
-     * @param height
-     *            The default height in pixels of the Images that this reader will produce.
-     * @param format
-     *            The format of the Image that this reader will produce. This
-     *            must be one of the {@link android.graphics.ImageFormat} or
-     *            {@link android.graphics.PixelFormat} constants. Note that
-     *            not all formats is supported, like ImageFormat.NV21.
-     * @param maxImages
-     *            The maximum number of images the user will want to
-     *            access simultaneously. This should be as small as possible to limit
-     *            memory use. Once maxImages Images are obtained by the user, one of them
-     *            has to be released before a new Image will become available for access
-     *            through {@link #acquireLatestImage()} or {@link #acquireNextImage()}.
-     *            Must be greater than 0.
-     *
-     * @see Image
-     */
-    public static ImageReader newInstance(int width, int height, int format, int maxImages) {
-        if (format == ImageFormat.PRIVATE) {
-            throw new IllegalArgumentException("To obtain an opaque ImageReader, please use"
-                    + " newOpaqueInstance rather than newInstance");
-        }
-        return new ImageReader(width, height, format, maxImages);
-    }
-
-    /**
      * <p>
-     * Create a new opaque reader for images of the desired size.
-     * </p>
-     * <p>
-     * An opaque {@link ImageReader} produces images that are not directly
-     * accessible by the application. The application can still acquire images
-     * from an opaque image reader, and send them to the
-     * {@link android.hardware.camera2.CameraDevice camera} for reprocessing via
-     * {@link ImageWriter} interface. However, the {@link Image#getPlanes()
-     * getPlanes()} will return an empty array for opaque images. The
-     * application can check if an existing reader is an opaque reader by
-     * calling {@link #isOpaque()}.
+     * Create a new reader for images of the desired size and format.
      * </p>
      * <p>
      * The {@code maxImages} parameter determines the maximum number of
      * {@link Image} objects that can be be acquired from the
      * {@code ImageReader} simultaneously. Requesting more buffers will use up
-     * more memory, so it is important to use only the minimum number necessary.
+     * more memory, so it is important to use only the minimum number necessary
+     * for the use case.
      * </p>
      * <p>
      * The valid sizes and formats depend on the source of the image data.
      * </p>
      * <p>
-     * Opaque ImageReaders are more efficient to use when application access to
-     * image data is not necessary, compared to ImageReaders using a non-opaque
-     * format such as {@link ImageFormat#YUV_420_888 YUV_420_888}.
+     * If the {@code format} is {@link ImageFormat#PRIVATE PRIVATE}, the created
+     * {@link ImageReader} will produce images that are not directly accessible
+     * by the application. The application can still acquire images from this
+     * {@link ImageReader}, and send them to the
+     * {@link android.hardware.camera2.CameraDevice camera} for reprocessing via
+     * {@link ImageWriter} interface. However, the {@link Image#getPlanes()
+     * getPlanes()} will return an empty array for {@link ImageFormat#PRIVATE
+     * PRIVATE} format images. The application can check if an existing reader's
+     * format by calling {@link #getImageFormat()}.
+     * </p>
+     * <p>
+     * {@link ImageFormat#PRIVATE PRIVATE} format {@link ImageReader
+     * ImageReaders} are more efficient to use when application access to image
+     * data is not necessary, compared to ImageReaders using other format such
+     * as {@link ImageFormat#YUV_420_888 YUV_420_888}.
      * </p>
      *
      * @param width The default width in pixels of the Images that this reader
      *            will produce.
      * @param height The default height in pixels of the Images that this reader
      *            will produce.
+     * @param format The format of the Image that this reader will produce. This
+     *            must be one of the {@link android.graphics.ImageFormat} or
+     *            {@link android.graphics.PixelFormat} constants. Note that not
+     *            all formats are supported, like ImageFormat.NV21.
      * @param maxImages The maximum number of images the user will want to
      *            access simultaneously. This should be as small as possible to
      *            limit memory use. Once maxImages Images are obtained by the
@@ -147,8 +118,8 @@ public class ImageReader implements AutoCloseable {
      *            Must be greater than 0.
      * @see Image
      */
-    public static ImageReader newOpaqueInstance(int width, int height, int maxImages) {
-        return new ImageReader(width, height, ImageFormat.PRIVATE, maxImages);
+    public static ImageReader newInstance(int width, int height, int format, int maxImages) {
+        return new ImageReader(width, height, format, maxImages);
     }
 
     /**
@@ -179,6 +150,13 @@ public class ImageReader implements AutoCloseable {
         nativeInit(new WeakReference<ImageReader>(this), width, height, format, maxImages);
 
         mSurface = nativeGetSurface();
+
+        // Estimate the native buffer allocation size and register it so it gets accounted for
+        // during GC. Note that this doesn't include the buffers required by the buffer queue
+        // itself and the buffers requested by the producer.
+        mEstimatedNativeAllocBytes = ImageUtils.getEstimatedNativeAllocBytes(width, height, format,
+                maxImages);
+        VMRuntime.getRuntime().registerNativeAllocation(mEstimatedNativeAllocBytes);
     }
 
     /**
@@ -245,23 +223,6 @@ public class ImageReader implements AutoCloseable {
      */
     public int getMaxImages() {
         return mMaxImages;
-    }
-
-    /**
-     * <p>
-     * Check if the {@link ImageReader} is an opaque reader.
-     * </p>
-     * <p>
-     * An opaque image reader produces opaque images, see {@link Image#isOpaque}
-     * for more details.
-     * </p>
-     *
-     * @return true if the ImageReader is opaque.
-     * @see Image#isOpaque
-     * @see ImageReader#newOpaqueInstance
-     */
-    public boolean isOpaque() {
-        return mFormat == ImageFormat.PRIVATE;
     }
 
     /**
@@ -515,6 +476,10 @@ public class ImageReader implements AutoCloseable {
         setOnImageAvailableListener(null, null);
         if (mSurface != null) mSurface.release();
         nativeClose();
+        if (mEstimatedNativeAllocBytes > 0) {
+            VMRuntime.getRuntime().registerNativeFree(mEstimatedNativeAllocBytes);
+            mEstimatedNativeAllocBytes = 0;
+        }
     }
 
     @Override
@@ -540,11 +505,11 @@ public class ImageReader implements AutoCloseable {
      * </p>
      * <p>
      * This method can be used to achieve zero buffer copy for use cases like
-     * {@link android.hardware.camera2.CameraDevice Camera2 API} OPAQUE and YUV
+     * {@link android.hardware.camera2.CameraDevice Camera2 API} PRIVATE and YUV
      * reprocessing, where the application can select an output image from
      * {@link ImageReader} and transfer this image directly to
      * {@link ImageWriter}, where this image can be consumed by camera directly.
-     * For OPAQUE reprocessing, this is the only way to send input buffers to
+     * For PRIVATE reprocessing, this is the only way to send input buffers to
      * the {@link android.hardware.camera2.CameraDevice camera} for
      * reprocessing.
      * </p>
@@ -654,6 +619,7 @@ public class ImageReader implements AutoCloseable {
     private final int mMaxImages;
     private final int mNumPlanes;
     private final Surface mSurface;
+    private int mEstimatedNativeAllocBytes;
 
     private final Object mListenerLock = new Object();
     private OnImageAvailableListener mListener;
@@ -703,27 +669,41 @@ public class ImageReader implements AutoCloseable {
         @Override
         public int getFormat() {
             throwISEIfImageIsInvalid();
+            int readerFormat = ImageReader.this.getImageFormat();
+            // Assume opaque reader always produce opaque images.
+            mFormat = (readerFormat == ImageFormat.PRIVATE) ? readerFormat :
+                nativeGetFormat(readerFormat);
             return mFormat;
         }
 
         @Override
         public int getWidth() {
             throwISEIfImageIsInvalid();
-            if (mWidth == -1) {
-                mWidth = (getFormat() == ImageFormat.JPEG) ? ImageReader.this.getWidth() :
-                        nativeGetWidth(mFormat);
+            int width;
+            switch(getFormat()) {
+                case ImageFormat.JPEG:
+                case ImageFormat.DEPTH_POINT_CLOUD:
+                    width = ImageReader.this.getWidth();
+                    break;
+                default:
+                    width = nativeGetWidth(mFormat);
             }
-            return mWidth;
+            return width;
         }
 
         @Override
         public int getHeight() {
             throwISEIfImageIsInvalid();
-            if (mHeight == -1) {
-                mHeight = (getFormat() == ImageFormat.JPEG) ? ImageReader.this.getHeight() :
-                        nativeGetHeight(mFormat);
+            int height;
+            switch(getFormat()) {
+                case ImageFormat.JPEG:
+                case ImageFormat.DEPTH_POINT_CLOUD:
+                    height = ImageReader.this.getHeight();
+                    break;
+                default:
+                    height = nativeGetHeight(mFormat);
             }
-            return mHeight;
+            return height;
         }
 
         @Override
@@ -743,12 +723,6 @@ public class ImageReader implements AutoCloseable {
             throwISEIfImageIsInvalid();
             // Shallow copy is fine.
             return mPlanes.clone();
-        }
-
-        @Override
-        public boolean isOpaque() {
-            throwISEIfImageIsInvalid();
-            return mFormat == ImageFormat.PRIVATE;
         }
 
         @Override
@@ -866,8 +840,6 @@ public class ImageReader implements AutoCloseable {
         private long mTimestamp;
 
         private SurfacePlane[] mPlanes;
-        private int mHeight = -1;
-        private int mWidth = -1;
         private int mFormat = ImageFormat.UNKNOWN;
         // If this image is detached from the ImageReader.
         private AtomicBoolean mIsDetached = new AtomicBoolean(false);
@@ -876,6 +848,7 @@ public class ImageReader implements AutoCloseable {
         private synchronized native SurfacePlane nativeCreatePlane(int idx, int readerFormat);
         private synchronized native int nativeGetWidth(int format);
         private synchronized native int nativeGetHeight(int format);
+        private synchronized native int nativeGetFormat(int readerFormat);
     }
 
     private synchronized native void nativeInit(Object weakSelf, int w, int h,

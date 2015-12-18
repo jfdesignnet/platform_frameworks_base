@@ -35,14 +35,14 @@
 <familyset>
     <family>
         <fileset>
-            <file variant="elegant">NotoNaskh-Regular.ttf</file>
-            <file variant="elegant">NotoNaskh-Bold.ttf</file>
+            <file variant="elegant">NotoNaskhArabic-Regular.ttf</file>
+            <file variant="elegant">NotoNaskhArabic-Bold.ttf</file>
         </fileset>
     </family>
     <family>
         <fileset>
-            <file variant="compact">NotoNaskhUI-Regular.ttf</file>
-            <file variant="compact">NotoNaskhUI-Bold.ttf</file>
+            <file variant="compact">NotoNaskhArabicUI-Regular.ttf</file>
+            <file variant="compact">NotoNaskhArabicUI-Bold.ttf</file>
         </fileset>
     </family>
     <family>
@@ -387,6 +387,11 @@
     </family>
     <family>
         <fileset>
+            <file>NotoSansTibetan-Regular.ttf</file>
+        </fileset>
+    </family>
+    <family>
+        <fileset>
             <file>NotoSansTifinagh-Regular.ttf</file>
         </fileset>
     </family>
@@ -402,12 +407,17 @@
     </family>
     <family>
         <fileset>
-            <file lang="zh-Hans">NotoSansHans-Regular.otf</file>
+            <file>NotoSansSymbols-Regular-Subsetted.ttf</file>
         </fileset>
     </family>
     <family>
         <fileset>
-            <file lang="zh-Hant">NotoSansHant-Regular.otf</file>
+            <file lang="zh-Hans">NotoSansSC-Regular.otf</file>
+        </fileset>
+    </family>
+    <family>
+        <fileset>
+            <file lang="zh-Hant">NotoSansTC-Regular.otf</file>
         </fileset>
     </family>
     <family>
@@ -423,11 +433,6 @@
     <family>
         <fileset>
             <file>NanumGothic.ttf</file>
-        </fileset>
-    </family>
-    <family>
-        <fileset>
-            <file>NotoSansSymbols-Regular-Subsetted.ttf</file>
         </fileset>
     </family>
     <family>

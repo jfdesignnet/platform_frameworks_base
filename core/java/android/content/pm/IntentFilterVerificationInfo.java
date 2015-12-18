@@ -19,6 +19,7 @@ package android.content.pm;
 import static android.content.pm.PackageManager.INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_UNDEFINED;
 import static android.content.pm.PackageManager.INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ASK;
 import static android.content.pm.PackageManager.INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ALWAYS;
+import static android.content.pm.PackageManager.INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ALWAYS_ASK;
 import static android.content.pm.PackageManager.INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_NEVER;
 
 import android.os.Parcel;
@@ -26,7 +27,9 @@ import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.Log;
+
 import com.android.internal.util.XmlUtils;
+
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
@@ -48,19 +51,18 @@ public final class IntentFilterVerificationInfo implements Parcelable {
     private static final String ATTR_PACKAGE_NAME = "packageName";
     private static final String ATTR_STATUS = "status";
 
-    private ArrayList<String> mDomains;
+    private ArraySet<String> mDomains = new ArraySet<>();
     private String mPackageName;
     private int mMainStatus;
 
     public IntentFilterVerificationInfo() {
         mPackageName = null;
-        mDomains = new ArrayList<>();
         mMainStatus = INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_UNDEFINED;
     }
 
     public IntentFilterVerificationInfo(String packageName, ArrayList<String> domains) {
         mPackageName = packageName;
-        mDomains = domains;
+        mDomains.addAll(domains);
         mMainStatus = INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_UNDEFINED;
     }
 
@@ -71,14 +73,6 @@ public final class IntentFilterVerificationInfo implements Parcelable {
 
     public IntentFilterVerificationInfo(Parcel source) {
         readFromParcel(source);
-    }
-
-    public ArrayList<String> getDomains() {
-        return mDomains;
-    }
-
-    public ArraySet<String> getDomainsSet() {
-        return new ArraySet<>(mDomains);
     }
 
     public String getPackageName() {
@@ -96,6 +90,14 @@ public final class IntentFilterVerificationInfo implements Parcelable {
         } else {
             Log.w(TAG, "Trying to set a non supported status: " + s);
         }
+    }
+
+    public ArraySet<String> getDomains() {
+        return mDomains;
+    }
+
+    public void setDomains(ArrayList<String> list) {
+        mDomains = new ArraySet<>(list);
     }
 
     public String getDomainsString() {
@@ -145,7 +147,6 @@ public final class IntentFilterVerificationInfo implements Parcelable {
         }
         mMainStatus = status;
 
-        mDomains = new ArrayList<>();
         int outerDepth = parser.getDepth();
         int type;
         while ((type=parser.next()) != XmlPullParser.END_DOCUMENT
@@ -183,14 +184,32 @@ public final class IntentFilterVerificationInfo implements Parcelable {
         return getStatusStringFromValue(mMainStatus);
     }
 
-    public static String getStatusStringFromValue(int val) {
-        switch (val) {
-            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ASK       : return "ask";
-            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ALWAYS    : return "always";
-            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_NEVER     : return "never";
+    public static String getStatusStringFromValue(long val) {
+        StringBuilder sb = new StringBuilder();
+        switch ((int)(val >> 32)) {
+            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ALWAYS:
+                sb.append("always : ");
+                sb.append(Long.toHexString(val & 0x00000000FFFFFFFF));
+                break;
+
+            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ASK:
+                sb.append("ask");
+                break;
+
+            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_NEVER:
+                sb.append("never");
+                break;
+
+            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_ALWAYS_ASK:
+                sb.append("always-ask");
+                break;
+
+            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_UNDEFINED:
             default:
-            case INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_UNDEFINED : return "undefined";
+                sb.append("undefined");
+                break;
         }
+        return sb.toString();
     }
 
     @Override
@@ -201,15 +220,16 @@ public final class IntentFilterVerificationInfo implements Parcelable {
     private void readFromParcel(Parcel source) {
         mPackageName = source.readString();
         mMainStatus = source.readInt();
-        mDomains = new ArrayList<>();
-        source.readStringList(mDomains);
+        ArrayList<String> list = new ArrayList<>();
+        source.readStringList(list);
+        mDomains.addAll(list);
     }
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(mPackageName);
         dest.writeInt(mMainStatus);
-        dest.writeStringList(mDomains);
+        dest.writeStringList(new ArrayList<>(mDomains));
     }
 
     public static final Creator<IntentFilterVerificationInfo> CREATOR =
@@ -221,5 +241,4 @@ public final class IntentFilterVerificationInfo implements Parcelable {
                     return new IntentFilterVerificationInfo[size];
                 }
             };
-
 }

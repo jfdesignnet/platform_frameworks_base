@@ -758,13 +758,16 @@ public interface IMountService extends IInterface {
                 return _result;
             }
 
-            public StorageVolume[] getVolumeList(int userId) throws RemoteException {
+            public StorageVolume[] getVolumeList(int uid, String packageName, int flags)
+                    throws RemoteException {
                 Parcel _data = Parcel.obtain();
                 Parcel _reply = Parcel.obtain();
                 StorageVolume[] _result;
                 try {
                     _data.writeInterfaceToken(DESCRIPTOR);
-                    _data.writeInt(userId);
+                    _data.writeInt(uid);
+                    _data.writeString(packageName);
+                    _data.writeInt(flags);
                     mRemote.transact(Stub.TRANSACTION_getVolumeList, _data, _reply, 0);
                     _reply.readException();
                     _result = _reply.createTypedArray(StorageVolume.CREATOR);
@@ -942,6 +945,24 @@ public interface IMountService extends IInterface {
             }
 
             @Override
+            public VolumeRecord[] getVolumeRecords(int _flags) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                VolumeRecord[] _result;
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeInt(_flags);
+                    mRemote.transact(Stub.TRANSACTION_getVolumeRecords, _data, _reply, 0);
+                    _reply.readException();
+                    _result = _reply.createTypedArray(VolumeRecord.CREATOR);
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+                return _result;
+            }
+
+            @Override
             public void mount(String volId) throws RemoteException {
                 Parcel _data = Parcel.obtain();
                 Parcel _reply = Parcel.obtain();
@@ -980,6 +1001,22 @@ public interface IMountService extends IInterface {
                     _data.writeString(volId);
                     mRemote.transact(Stub.TRANSACTION_format, _data, _reply, 0);
                     _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public long benchmark(String volId) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeString(volId);
+                    mRemote.transact(Stub.TRANSACTION_benchmark, _data, _reply, 0);
+                    _reply.readException();
+                    return _reply.readLong();
                 } finally {
                     _reply.recycle();
                     _data.recycle();
@@ -1033,12 +1070,12 @@ public interface IMountService extends IInterface {
             }
 
             @Override
-            public void setVolumeNickname(String volId, String nickname) throws RemoteException {
+            public void setVolumeNickname(String fsUuid, String nickname) throws RemoteException {
                 Parcel _data = Parcel.obtain();
                 Parcel _reply = Parcel.obtain();
                 try {
                     _data.writeInterfaceToken(DESCRIPTOR);
-                    _data.writeString(volId);
+                    _data.writeString(fsUuid);
                     _data.writeString(nickname);
                     mRemote.transact(Stub.TRANSACTION_setVolumeNickname, _data, _reply, 0);
                     _reply.readException();
@@ -1049,15 +1086,60 @@ public interface IMountService extends IInterface {
             }
 
             @Override
-            public void setVolumeUserFlags(String volId, int flags, int mask) throws RemoteException {
+            public void setVolumeUserFlags(String fsUuid, int flags, int mask) throws RemoteException {
                 Parcel _data = Parcel.obtain();
                 Parcel _reply = Parcel.obtain();
                 try {
                     _data.writeInterfaceToken(DESCRIPTOR);
-                    _data.writeString(volId);
+                    _data.writeString(fsUuid);
                     _data.writeInt(flags);
                     _data.writeInt(mask);
                     mRemote.transact(Stub.TRANSACTION_setVolumeUserFlags, _data, _reply, 0);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public void forgetVolume(String fsUuid) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeString(fsUuid);
+                    mRemote.transact(Stub.TRANSACTION_forgetVolume, _data, _reply, 0);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public void forgetAllVolumes() throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    mRemote.transact(Stub.TRANSACTION_forgetAllVolumes, _data, _reply, 0);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public void setDebugFlags(int _flags, int _mask) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeInt(_flags);
+                    _data.writeInt(_mask);
+                    mRemote.transact(Stub.TRANSACTION_setDebugFlags, _data, _reply, 0);
                     _reply.readException();
                 } finally {
                     _reply.recycle();
@@ -1092,6 +1174,37 @@ public interface IMountService extends IInterface {
                     _data.writeString(volumeUuid);
                     _data.writeStrongBinder((callback != null ? callback.asBinder() : null));
                     mRemote.transact(Stub.TRANSACTION_setPrimaryStorageUuid, _data, _reply, 0);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public void createNewUserDir(int userHandle, String path) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeInt(userHandle);
+                    _data.writeString(path);
+                    mRemote.transact(Stub.TRANSACTION_createNewUserDir, _data, _reply, 0);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public void deleteUserKey(int userHandle) throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeInt(userHandle);
+                    mRemote.transact(Stub.TRANSACTION_deleteUserKey, _data, _reply, 0);
                     _reply.readException();
                 } finally {
                     _reply.recycle();
@@ -1192,20 +1305,29 @@ public interface IMountService extends IInterface {
 
         static final int TRANSACTION_getDisks = IBinder.FIRST_CALL_TRANSACTION + 44;
         static final int TRANSACTION_getVolumes = IBinder.FIRST_CALL_TRANSACTION + 45;
+        static final int TRANSACTION_getVolumeRecords = IBinder.FIRST_CALL_TRANSACTION + 46;
 
-        static final int TRANSACTION_mount = IBinder.FIRST_CALL_TRANSACTION + 46;
-        static final int TRANSACTION_unmount = IBinder.FIRST_CALL_TRANSACTION + 47;
-        static final int TRANSACTION_format = IBinder.FIRST_CALL_TRANSACTION + 48;
+        static final int TRANSACTION_mount = IBinder.FIRST_CALL_TRANSACTION + 47;
+        static final int TRANSACTION_unmount = IBinder.FIRST_CALL_TRANSACTION + 48;
+        static final int TRANSACTION_format = IBinder.FIRST_CALL_TRANSACTION + 49;
 
-        static final int TRANSACTION_partitionPublic = IBinder.FIRST_CALL_TRANSACTION + 49;
-        static final int TRANSACTION_partitionPrivate = IBinder.FIRST_CALL_TRANSACTION + 50;
-        static final int TRANSACTION_partitionMixed = IBinder.FIRST_CALL_TRANSACTION + 51;
+        static final int TRANSACTION_partitionPublic = IBinder.FIRST_CALL_TRANSACTION + 50;
+        static final int TRANSACTION_partitionPrivate = IBinder.FIRST_CALL_TRANSACTION + 51;
+        static final int TRANSACTION_partitionMixed = IBinder.FIRST_CALL_TRANSACTION + 52;
 
-        static final int TRANSACTION_setVolumeNickname = IBinder.FIRST_CALL_TRANSACTION + 52;
-        static final int TRANSACTION_setVolumeUserFlags = IBinder.FIRST_CALL_TRANSACTION + 53;
+        static final int TRANSACTION_setVolumeNickname = IBinder.FIRST_CALL_TRANSACTION + 53;
+        static final int TRANSACTION_setVolumeUserFlags = IBinder.FIRST_CALL_TRANSACTION + 54;
+        static final int TRANSACTION_forgetVolume = IBinder.FIRST_CALL_TRANSACTION + 55;
+        static final int TRANSACTION_forgetAllVolumes = IBinder.FIRST_CALL_TRANSACTION + 56;
 
-        static final int TRANSACTION_getPrimaryStorageUuid = IBinder.FIRST_CALL_TRANSACTION + 54;
-        static final int TRANSACTION_setPrimaryStorageUuid = IBinder.FIRST_CALL_TRANSACTION + 55;
+        static final int TRANSACTION_getPrimaryStorageUuid = IBinder.FIRST_CALL_TRANSACTION + 57;
+        static final int TRANSACTION_setPrimaryStorageUuid = IBinder.FIRST_CALL_TRANSACTION + 58;
+
+        static final int TRANSACTION_benchmark = IBinder.FIRST_CALL_TRANSACTION + 59;
+        static final int TRANSACTION_setDebugFlags = IBinder.FIRST_CALL_TRANSACTION + 60;
+
+        static final int TRANSACTION_createNewUserDir = IBinder.FIRST_CALL_TRANSACTION + 62;
+        static final int TRANSACTION_deleteUserKey = IBinder.FIRST_CALL_TRANSACTION + 63;
 
         /**
          * Cast an IBinder object into an IMountService interface, generating a
@@ -1520,8 +1642,10 @@ public interface IMountService extends IInterface {
                 }
                 case TRANSACTION_getVolumeList: {
                     data.enforceInterface(DESCRIPTOR);
-                    int userId = data.readInt();
-                    StorageVolume[] result = getVolumeList(userId);
+                    int uid = data.readInt();
+                    String packageName = data.readString();
+                    int _flags = data.readInt();
+                    StorageVolume[] result = getVolumeList(uid, packageName, _flags);
                     reply.writeNoException();
                     reply.writeTypedArray(result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
                     return true;
@@ -1647,6 +1771,14 @@ public interface IMountService extends IInterface {
                     reply.writeTypedArray(volumes, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
                     return true;
                 }
+                case TRANSACTION_getVolumeRecords: {
+                    data.enforceInterface(DESCRIPTOR);
+                    int _flags = data.readInt();
+                    VolumeRecord[] volumes = getVolumeRecords(_flags);
+                    reply.writeNoException();
+                    reply.writeTypedArray(volumes, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+                    return true;
+                }
                 case TRANSACTION_mount: {
                     data.enforceInterface(DESCRIPTOR);
                     String volId = data.readString();
@@ -1666,6 +1798,14 @@ public interface IMountService extends IInterface {
                     String volId = data.readString();
                     format(volId);
                     reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_benchmark: {
+                    data.enforceInterface(DESCRIPTOR);
+                    String volId = data.readString();
+                    long res = benchmark(volId);
+                    reply.writeNoException();
+                    reply.writeLong(res);
                     return true;
                 }
                 case TRANSACTION_partitionPublic: {
@@ -1707,6 +1847,27 @@ public interface IMountService extends IInterface {
                     reply.writeNoException();
                     return true;
                 }
+                case TRANSACTION_forgetVolume: {
+                    data.enforceInterface(DESCRIPTOR);
+                    String fsUuid = data.readString();
+                    forgetVolume(fsUuid);
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_forgetAllVolumes: {
+                    data.enforceInterface(DESCRIPTOR);
+                    forgetAllVolumes();
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_setDebugFlags: {
+                    data.enforceInterface(DESCRIPTOR);
+                    int _flags = data.readInt();
+                    int _mask = data.readInt();
+                    setDebugFlags(_flags, _mask);
+                    reply.writeNoException();
+                    return true;
+                }
                 case TRANSACTION_getPrimaryStorageUuid: {
                     data.enforceInterface(DESCRIPTOR);
                     String volumeUuid = getPrimaryStorageUuid();
@@ -1720,6 +1881,21 @@ public interface IMountService extends IInterface {
                     IPackageMoveObserver listener = IPackageMoveObserver.Stub.asInterface(
                             data.readStrongBinder());
                     setPrimaryStorageUuid(volumeUuid, listener);
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_createNewUserDir: {
+                    data.enforceInterface(DESCRIPTOR);
+                    int userHandle = data.readInt();
+                    String path = data.readString();
+                    createNewUserDir(userHandle, path);
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_deleteUserKey: {
+                    data.enforceInterface(DESCRIPTOR);
+                    int userHandle = data.readInt();
+                    deleteUserKey(userHandle);
                     reply.writeNoException();
                     return true;
                 }
@@ -1934,11 +2110,11 @@ public interface IMountService extends IInterface {
     /**
      * Returns list of all mountable volumes.
      */
-    public StorageVolume[] getVolumeList(int userId) throws RemoteException;
+    public StorageVolume[] getVolumeList(int uid, String packageName, int flags) throws RemoteException;
 
     /**
      * Gets the path on the filesystem for the ASEC container itself.
-     * 
+     *
      * @param cid ASEC container ID
      * @return path to filesystem or {@code null} if it's not found
      * @throws RemoteException
@@ -2012,19 +2188,39 @@ public interface IMountService extends IInterface {
 
     public DiskInfo[] getDisks() throws RemoteException;
     public VolumeInfo[] getVolumes(int flags) throws RemoteException;
+    public VolumeRecord[] getVolumeRecords(int flags) throws RemoteException;
 
     public void mount(String volId) throws RemoteException;
     public void unmount(String volId) throws RemoteException;
     public void format(String volId) throws RemoteException;
+    public long benchmark(String volId) throws RemoteException;
 
     public void partitionPublic(String diskId) throws RemoteException;
     public void partitionPrivate(String diskId) throws RemoteException;
     public void partitionMixed(String diskId, int ratio) throws RemoteException;
 
-    public void setVolumeNickname(String volId, String nickname) throws RemoteException;
-    public void setVolumeUserFlags(String volId, int flags, int mask) throws RemoteException;
+    public void setVolumeNickname(String fsUuid, String nickname) throws RemoteException;
+    public void setVolumeUserFlags(String fsUuid, int flags, int mask) throws RemoteException;
+    public void forgetVolume(String fsUuid) throws RemoteException;
+    public void forgetAllVolumes() throws RemoteException;
+    public void setDebugFlags(int flags, int mask) throws RemoteException;
 
     public String getPrimaryStorageUuid() throws RemoteException;
     public void setPrimaryStorageUuid(String volumeUuid, IPackageMoveObserver callback)
             throws RemoteException;
+
+    /**
+     * Creates the user data directory, possibly encrypted
+     * @param userHandle Handle of the user whose directory we are creating
+     * @param path Path at which to create the directory.
+     */
+    public void createNewUserDir(int userHandle, String path)
+        throws RemoteException;
+
+    /**
+     * Securely delete the user's encryption key
+     * @param userHandle Handle of the user whose key we are deleting
+     */
+    public void deleteUserKey(int userHandle)
+        throws RemoteException;
 }

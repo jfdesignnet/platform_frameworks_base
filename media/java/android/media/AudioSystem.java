@@ -19,6 +19,7 @@ package android.media;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.media.audiopolicy.AudioMix;
+import android.util.Log;
 
 import java.util.ArrayList;
 
@@ -32,6 +33,7 @@ import java.util.ArrayList;
  */
 public class AudioSystem
 {
+    private static final String TAG = "AudioSystem";
     /* These values must be kept in sync with system/audio.h */
     /*
      * If these are modified, please also update Settings.System.VOLUME_SETTINGS
@@ -224,6 +226,48 @@ public class AudioSystem
         }
     }
 
+    /**
+     * Handles events for the audio policy manager about dynamic audio policies
+     * @see android.media.audiopolicy.AudioPolicy
+     */
+    public interface DynamicPolicyCallback
+    {
+        void onDynamicPolicyMixStateUpdate(String regId, int state);
+    }
+
+    //keep in sync with include/media/AudioPolicy.h
+    private final static int DYNAMIC_POLICY_EVENT_MIX_STATE_UPDATE = 0;
+
+    private static DynamicPolicyCallback sDynPolicyCallback;
+
+    public static void setDynamicPolicyCallback(DynamicPolicyCallback cb)
+    {
+        synchronized (AudioSystem.class) {
+            sDynPolicyCallback = cb;
+            native_register_dynamic_policy_callback();
+        }
+    }
+
+    private static void dynamicPolicyCallbackFromNative(int event, String regId, int val)
+    {
+        DynamicPolicyCallback cb = null;
+        synchronized (AudioSystem.class) {
+            if (sDynPolicyCallback != null) {
+                cb = sDynPolicyCallback;
+            }
+        }
+        if (cb != null) {
+            switch(event) {
+                case DYNAMIC_POLICY_EVENT_MIX_STATE_UPDATE:
+                    cb.onDynamicPolicyMixStateUpdate(regId, val);
+                    break;
+                default:
+                    Log.e(TAG, "dynamicPolicyCallbackFromNative: unknown event " + event);
+            }
+        }
+    }
+
+
     /*
      * Error codes used by public APIs (AudioTrack, AudioRecord, AudioManager ...)
      * Must be kept in sync with frameworks/base/core/jni/android_media_AudioErrors.h
@@ -235,6 +279,7 @@ public class AudioSystem
     public static final int PERMISSION_DENIED  = -4;
     public static final int NO_INIT            = -5;
     public static final int DEAD_OBJECT        = -6;
+    public static final int WOULD_BLOCK        = -7;
 
     /*
      * AudioPolicyService methods
@@ -273,6 +318,7 @@ public class AudioSystem
     public static final int DEVICE_OUT_FM = 0x100000;
     public static final int DEVICE_OUT_AUX_LINE = 0x200000;
     public static final int DEVICE_OUT_SPEAKER_SAFE = 0x400000;
+    public static final int DEVICE_OUT_IP = 0x800000;
 
     public static final int DEVICE_OUT_DEFAULT = DEVICE_BIT_DEFAULT;
 
@@ -299,6 +345,7 @@ public class AudioSystem
                                               DEVICE_OUT_FM |
                                               DEVICE_OUT_AUX_LINE |
                                               DEVICE_OUT_SPEAKER_SAFE |
+                                              DEVICE_OUT_IP |
                                               DEVICE_OUT_DEFAULT);
     public static final int DEVICE_OUT_ALL_A2DP = (DEVICE_OUT_BLUETOOTH_A2DP |
                                                    DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
@@ -337,6 +384,7 @@ public class AudioSystem
     public static final int DEVICE_IN_SPDIF = DEVICE_BIT_IN | 0x10000;
     public static final int DEVICE_IN_BLUETOOTH_A2DP = DEVICE_BIT_IN | 0x20000;
     public static final int DEVICE_IN_LOOPBACK = DEVICE_BIT_IN | 0x40000;
+    public static final int DEVICE_IN_IP = DEVICE_BIT_IN | 0x80000;
     public static final int DEVICE_IN_DEFAULT = DEVICE_BIT_IN | DEVICE_BIT_DEFAULT;
 
     public static final int DEVICE_IN_ALL = (DEVICE_IN_COMMUNICATION |
@@ -358,6 +406,7 @@ public class AudioSystem
                                              DEVICE_IN_SPDIF |
                                              DEVICE_IN_BLUETOOTH_A2DP |
                                              DEVICE_IN_LOOPBACK |
+                                             DEVICE_IN_IP |
                                              DEVICE_IN_DEFAULT);
     public static final int DEVICE_IN_ALL_SCO = DEVICE_IN_BLUETOOTH_SCO_HEADSET;
     public static final int DEVICE_IN_ALL_USB = (DEVICE_IN_USB_ACCESSORY |
@@ -392,6 +441,7 @@ public class AudioSystem
     public static final String DEVICE_OUT_FM_NAME = "fm_transmitter";
     public static final String DEVICE_OUT_AUX_LINE_NAME = "aux_line";
     public static final String DEVICE_OUT_SPEAKER_SAFE_NAME = "speaker_safe";
+    public static final String DEVICE_OUT_IP_NAME = "ip";
 
     public static final String DEVICE_IN_COMMUNICATION_NAME = "communication";
     public static final String DEVICE_IN_AMBIENT_NAME = "ambient";
@@ -412,6 +462,7 @@ public class AudioSystem
     public static final String DEVICE_IN_SPDIF_NAME = "spdif";
     public static final String DEVICE_IN_BLUETOOTH_A2DP_NAME = "bt_a2dp";
     public static final String DEVICE_IN_LOOPBACK_NAME = "loopback";
+    public static final String DEVICE_IN_IP_NAME = "ip";
 
     public static String getOutputDeviceName(int device)
     {
@@ -462,6 +513,8 @@ public class AudioSystem
             return DEVICE_OUT_AUX_LINE_NAME;
         case DEVICE_OUT_SPEAKER_SAFE:
             return DEVICE_OUT_SPEAKER_SAFE_NAME;
+        case DEVICE_OUT_IP:
+            return DEVICE_OUT_IP_NAME;
         case DEVICE_OUT_DEFAULT:
         default:
             return Integer.toString(device);
@@ -509,6 +562,8 @@ public class AudioSystem
             return DEVICE_IN_BLUETOOTH_A2DP_NAME;
         case DEVICE_IN_LOOPBACK:
             return DEVICE_IN_LOOPBACK_NAME;
+        case DEVICE_IN_IP:
+            return DEVICE_IN_IP_NAME;
         case DEVICE_IN_DEFAULT:
         default:
             return Integer.toString(device);
@@ -550,6 +605,10 @@ public class AudioSystem
     public static final int SYNC_EVENT_NONE = 0;
     public static final int SYNC_EVENT_PRESENTATION_COMPLETE = 1;
 
+    /**
+     * @return command completion status, one of {@link #AUDIO_STATUS_OK},
+     *     {@link #AUDIO_STATUS_ERROR} or {@link #AUDIO_STATUS_SERVER_DIED}
+     */
     public static native int setDeviceConnectionState(int device, int state,
                                                       String device_address, String device_name);
     public static native int getDeviceConnectionState(int device, String device_address);
@@ -580,6 +639,9 @@ public class AudioSystem
     public static native int listAudioPatches(ArrayList<AudioPatch> patches, int[] generation);
     public static native int setAudioPortConfig(AudioPortConfig config);
 
+    // declare this instance as having a dynamic policy callback handler
+    private static native final void native_register_dynamic_policy_callback();
+
     // must be kept in sync with value in include/system/audio.h
     public static final int AUDIO_HW_SYNC_INVALID = 0;
 
@@ -587,6 +649,7 @@ public class AudioSystem
 
     public static native int registerPolicyMixes(ArrayList<AudioMix> mixes, boolean register);
 
+    public static native int systemReady();
 
     // Items shared with audio service
 
@@ -674,5 +737,11 @@ public class AudioSystem
             (1 << STREAM_RING) |
             (1 << STREAM_NOTIFICATION) |
             (1 << STREAM_SYSTEM);
+
+    /**
+     * Event posted by AudioTrack and AudioRecord JNI (JNIDeviceCallback) when routing changes.
+     * Keep in sync with core/jni/android_media_DeviceCallback.h.
+     */
+    final static int NATIVE_EVENT_ROUTING_CHANGE = 1000;
 }
 

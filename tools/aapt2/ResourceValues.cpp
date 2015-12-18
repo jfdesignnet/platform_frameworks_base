@@ -101,8 +101,8 @@ bool Id::isWeak() const {
 }
 
 bool Id::flatten(android::Res_value& out) const {
-    out.dataType = android::Res_value::TYPE_NULL;
-    out.data = android::Res_value::DATA_NULL_UNDEFINED;
+    out.dataType = android::Res_value::TYPE_INT_BOOLEAN;
+    out.data = 0;
     return true;
 }
 
@@ -217,25 +217,6 @@ void BinaryPrimitive::print(std::ostream& out) const {
     }
 }
 
-bool Sentinel::isWeak() const {
-    return true;
-}
-
-bool Sentinel::flatten(android::Res_value& outValue) const {
-    outValue.dataType = ExtendedTypes::TYPE_SENTINEL;
-    outValue.data = 0;
-    return true;
-}
-
-Sentinel* Sentinel::clone(StringPool* /*newPool*/) const {
-    return new Sentinel();
-}
-
-void Sentinel::print(std::ostream& out) const {
-    out << "(sentinel)";
-    return;
-}
-
 Attribute::Attribute(bool w, uint32_t t) : weak(w), typeMask(t) {
 }
 
@@ -250,17 +231,15 @@ Attribute* Attribute::clone(StringPool* /*newPool*/) const {
     return attr;
 }
 
-void Attribute::print(std::ostream& out) const {
-    out << "(attr)";
+void Attribute::printMask(std::ostream& out) const {
     if (typeMask == android::ResTable_map::TYPE_ANY) {
-        out << " any";
+        out << "any";
         return;
     }
 
     bool set = false;
     if ((typeMask & android::ResTable_map::TYPE_REFERENCE) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -270,7 +249,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_STRING) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -280,7 +258,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_INTEGER) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -290,7 +267,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_BOOLEAN) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -300,7 +276,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_COLOR) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -310,7 +285,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_FLOAT) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -320,7 +294,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_DIMENSION) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -330,7 +303,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_FRACTION) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -340,7 +312,6 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_ENUM) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
@@ -350,13 +321,17 @@ void Attribute::print(std::ostream& out) const {
 
     if ((typeMask & android::ResTable_map::TYPE_FLAGS) != 0) {
         if (!set) {
-            out << " ";
             set = true;
         } else {
             out << "|";
         }
         out << "flags";
     }
+}
+
+void Attribute::print(std::ostream& out) const {
+    out << "(attr) ";
+    printMask(out);
 
     out << " ["
         << util::joiner(symbols.begin(), symbols.end(), ", ")
@@ -367,20 +342,10 @@ void Attribute::print(std::ostream& out) const {
     }
 }
 
-static ::std::ostream& operator<<(::std::ostream& out, const Attribute::Symbol& s) {
-    return out << s.symbol.name.entry << "=" << s.value;
-}
-
-Style::Style(bool weak) : weak(weak) {
-}
-
-bool Style::isWeak() const {
-    return weak;
-}
-
 Style* Style::clone(StringPool* newPool) const {
-    Style* style = new Style(weak);
+    Style* style = new Style();
     style->parent = parent;
+    style->parentInferred = parentInferred;
     for (auto& entry : entries) {
         style->entries.push_back(Entry{
                 entry.key,

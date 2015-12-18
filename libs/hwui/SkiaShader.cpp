@@ -203,7 +203,13 @@ bool tryStoreBitmap(Caches& caches, const SkShader& shader, const Matrix4& model
         return false;
     }
 
-    outData->bitmapTexture = caches.textureCache.get(&bitmap);
+    /*
+     * Bypass the AssetAtlas, since those textures:
+     * 1) require UV mapping, which isn't implemented in matrix computation below
+     * 2) can't handle REPEAT simply
+     * 3) are safe to upload here (outside of sync stage), since they're static
+     */
+    outData->bitmapTexture = caches.textureCache.getAndBypassAtlas(&bitmap);
     if (!outData->bitmapTexture) return false;
 
     outData->bitmapSampler = (*textureUnit)++;
@@ -346,36 +352,35 @@ void applyLayer(Caches& caches, const SkiaShaderData::LayerShaderData& data) {
     glUniform2fv(caches.program().getUniform("textureDimension"), 1, &data.textureDimension[0]);
 }
 
-void SkiaShader::store(Caches& caches, const SkShader* shader, const Matrix4& modelViewMatrix,
+void SkiaShader::store(Caches& caches, const SkShader& shader, const Matrix4& modelViewMatrix,
         GLuint* textureUnit, ProgramDescription* description,
         SkiaShaderData* outData) {
-    if (!shader) {
-        outData->skiaShaderType = kNone_SkiaShaderType;
-        return;
-    }
-
-    if (tryStoreGradient(caches, *shader, modelViewMatrix,
+    if (tryStoreGradient(caches, shader, modelViewMatrix,
             textureUnit, description, &outData->gradientData)) {
         outData->skiaShaderType = kGradient_SkiaShaderType;
         return;
     }
 
-    if (tryStoreBitmap(caches, *shader, modelViewMatrix,
+    if (tryStoreBitmap(caches, shader, modelViewMatrix,
             textureUnit, description, &outData->bitmapData)) {
         outData->skiaShaderType = kBitmap_SkiaShaderType;
         return;
     }
 
-    if (tryStoreCompose(caches, *shader, modelViewMatrix,
+    if (tryStoreCompose(caches, shader, modelViewMatrix,
             textureUnit, description, outData)) {
         outData->skiaShaderType = kCompose_SkiaShaderType;
         return;
     }
 
-    if (tryStoreLayer(caches, *shader, modelViewMatrix,
+    if (tryStoreLayer(caches, shader, modelViewMatrix,
             textureUnit, description, &outData->layerData)) {
         outData->skiaShaderType = kLayer_SkiaShaderType;
+        return;
     }
+
+    // Unknown/unsupported type, so explicitly ignore shader
+    outData->skiaShaderType = kNone_SkiaShaderType;
 }
 
 void SkiaShader::apply(Caches& caches, const SkiaShaderData& data) {

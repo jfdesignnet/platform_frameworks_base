@@ -20,7 +20,6 @@ import static android.view.WindowManager.LayoutParams.FIRST_SUB_WINDOW;
 import static android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED;
 import static android.view.WindowManager.LayoutParams.LAST_SUB_WINDOW;
 import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_COMPATIBLE_WINDOW;
-import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_NO_MOVE_ANIMATION;
 import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_KEYGUARD;
 import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_STARTING;
 import static android.view.WindowManager.LayoutParams.TYPE_INPUT_METHOD;
@@ -181,6 +180,14 @@ final class WindowState implements WindowManagerPolicy.WindowState {
     boolean mStableInsetsChanged;
 
     /**
+     * Outsets determine the area outside of the surface where we want to pretend that it's possible
+     * to draw anyway.
+     */
+    final Rect mOutsets = new Rect();
+    final Rect mLastOutsets = new Rect();
+    boolean mOutsetsChanged = false;
+
+    /**
      * Set to true if we are waiting for this window to receive its
      * given internal insets before laying out other windows based on it.
      */
@@ -261,6 +268,10 @@ final class WindowState implements WindowManagerPolicy.WindowState {
     // Legacy stuff. Generally equal to the content frame expect when the IME for older apps
     // displays hint text.
     final Rect mVisibleFrame = new Rect();
+
+    // Frame that includes dead area outside of the surface but where we want to pretend that it's
+    // possible to draw.
+    final Rect mOutsetFrame = new Rect();
 
     boolean mContentChanged;
 
@@ -520,7 +531,8 @@ final class WindowState implements WindowManagerPolicy.WindowState {
     }
 
     @Override
-    public void computeFrameLw(Rect pf, Rect df, Rect of, Rect cf, Rect vf, Rect dcf, Rect sf) {
+    public void computeFrameLw(Rect pf, Rect df, Rect of, Rect cf, Rect vf, Rect dcf, Rect sf,
+            Rect osf) {
         mHaveFrame = true;
 
         final TaskStack stack = mAppToken != null ? getStack() : null;
@@ -535,7 +547,9 @@ final class WindowState implements WindowManagerPolicy.WindowState {
             }
             // Make sure the containing frame is within the content frame so we don't layout
             // resized window under screen decorations.
-            mContainingFrame.intersect(cf);
+            if (!mContainingFrame.intersect(cf)) {
+                mContainingFrame.set(cf);
+            }
             mDisplayFrame.set(mContainingFrame);
         } else {
             mContainingFrame.set(pf);
@@ -595,6 +609,10 @@ final class WindowState implements WindowManagerPolicy.WindowState {
         mVisibleFrame.set(vf);
         mDecorFrame.set(dcf);
         mStableFrame.set(sf);
+        final boolean hasOutsets = osf != null;
+        if (hasOutsets) {
+            mOutsetFrame.set(osf);
+        }
 
         final int fw = mFrame.width();
         final int fh = mFrame.height();
@@ -621,6 +639,16 @@ final class WindowState implements WindowManagerPolicy.WindowState {
 
         // Now make sure the window fits in the overall display frame.
         Gravity.applyDisplay(mAttrs.gravity, mDisplayFrame, mFrame);
+
+        // Calculate the outsets before the content frame gets shrinked to the window frame.
+        if (hasOutsets) {
+            mOutsets.set(Math.max(mContentFrame.left - mOutsetFrame.left, 0),
+                    Math.max(mContentFrame.top - mOutsetFrame.top, 0),
+                    Math.max(mOutsetFrame.right - mContentFrame.right, 0),
+                    Math.max(mOutsetFrame.bottom - mContentFrame.bottom, 0));
+        } else {
+            mOutsets.set(0, 0, 0, 0);
+        }
 
         // Make sure the content and visible frames are inside of the
         // final window frame.
@@ -668,6 +696,7 @@ final class WindowState implements WindowManagerPolicy.WindowState {
             mContentInsets.scale(mInvGlobalScale);
             mVisibleInsets.scale(mInvGlobalScale);
             mStableInsets.scale(mInvGlobalScale);
+            mOutsets.scale(mInvGlobalScale);
 
             // Also the scaled frame that we report to the app needs to be
             // adjusted to be in its coordinate space.
@@ -690,7 +719,8 @@ final class WindowState implements WindowManagerPolicy.WindowState {
                 + "): frame=" + mFrame.toShortString()
                 + " ci=" + mContentInsets.toShortString()
                 + " vi=" + mVisibleInsets.toShortString()
-                + " vi=" + mStableInsets.toShortString());
+                + " vi=" + mStableInsets.toShortString()
+                + " of=" + mOutsets.toShortString());
     }
 
     @Override
@@ -782,6 +812,15 @@ final class WindowState implements WindowManagerPolicy.WindowState {
     }
 
     @Override
+    public int getBaseType() {
+        WindowState win = this;
+        while (win.mAttachedWindow != null) {
+            win = win.mAttachedWindow;
+        }
+        return win.mAttrs.type;
+    }
+
+    @Override
     public IApplicationToken getAppToken() {
         return mAppToken != null ? mAppToken.appToken : null;
     }
@@ -796,7 +835,9 @@ final class WindowState implements WindowManagerPolicy.WindowState {
         mContentInsetsChanged |= !mLastContentInsets.equals(mContentInsets);
         mVisibleInsetsChanged |= !mLastVisibleInsets.equals(mVisibleInsets);
         mStableInsetsChanged |= !mLastStableInsets.equals(mStableInsets);
-        return mOverscanInsetsChanged || mContentInsetsChanged || mVisibleInsetsChanged;
+        mOutsetsChanged |= !mLastOutsets.equals(mOutsets);
+        return mOverscanInsetsChanged || mContentInsetsChanged || mVisibleInsetsChanged
+                || mOutsetsChanged;
     }
 
     public DisplayContent getDisplayContent() {
@@ -1063,6 +1104,7 @@ final class WindowState implements WindowManagerPolicy.WindowState {
      * Returns true if the window has a surface that it has drawn a
      * complete UI in to.
      */
+    @Override
     public boolean isDrawnLw() {
         return mHasSurface && !mDestroying &&
                 (mWinAnimator.mDrawState == WindowStateAnimator.READY_TO_SHOW
@@ -1081,16 +1123,14 @@ final class WindowState implements WindowManagerPolicy.WindowState {
     }
 
     /**
-     * Return whether this window is wanting to have a translation
-     * animation applied to it for an in-progress move.  (Only makes
+     * Return whether this window has moved. (Only makes
      * sense to call from performLayoutAndPlaceSurfacesLockedInner().)
      */
-    boolean shouldAnimateMove() {
-        return mContentChanged && !mExiting && !mWinAnimator.mLastHidden && mService.okToDisplay()
-                && (mFrame.top != mLastFrame.top
+    boolean hasMoved() {
+        return mHasSurface && mContentChanged && !mExiting && !mWinAnimator.mLastHidden
+                && mService.okToDisplay() && (mFrame.top != mLastFrame.top
                         || mFrame.left != mLastFrame.left)
-                && (mAttrs.privateFlags&PRIVATE_FLAG_NO_MOVE_ANIMATION) == 0
-                && (mAttachedWindow == null || !mAttachedWindow.shouldAnimateMove());
+                && (mAttachedWindow == null || !mAttachedWindow.hasMoved());
     }
 
     boolean isFullscreen(int screenWidth, int screenHeight) {
@@ -1466,6 +1506,7 @@ final class WindowState implements WindowManagerPolicy.WindowState {
             final Rect contentInsets = mLastContentInsets;
             final Rect visibleInsets = mLastVisibleInsets;
             final Rect stableInsets = mLastStableInsets;
+            final Rect outsets = mLastOutsets;
             final boolean reportDraw = mWinAnimator.mDrawState == WindowStateAnimator.DRAW_PENDING;
             final Configuration newConfig = configChanged ? mConfiguration : null;
             if (mAttrs.type != WindowManager.LayoutParams.TYPE_APPLICATION_STARTING
@@ -1476,7 +1517,7 @@ final class WindowState implements WindowManagerPolicy.WindowState {
                     public void run() {
                         try {
                             mClient.resized(frame, overscanInsets, contentInsets,
-                                    visibleInsets, stableInsets,  reportDraw, newConfig);
+                                    visibleInsets, stableInsets, outsets, reportDraw, newConfig);
                         } catch (RemoteException e) {
                             // Not a remote call, RemoteException won't be raised.
                         }
@@ -1484,7 +1525,7 @@ final class WindowState implements WindowManagerPolicy.WindowState {
                 });
             } else {
                 mClient.resized(frame, overscanInsets, contentInsets, visibleInsets, stableInsets,
-                        reportDraw, newConfig);
+                        outsets, reportDraw, newConfig);
             }
 
             //TODO (multidisplay): Accessibility supported only for the default display.
@@ -1497,6 +1538,7 @@ final class WindowState implements WindowManagerPolicy.WindowState {
             mContentInsetsChanged = false;
             mVisibleInsetsChanged = false;
             mStableInsetsChanged = false;
+            mOutsetsChanged = false;
             mWinAnimator.mSurfaceResized = false;
         } catch (RemoteException e) {
             mOrientationChanging = false;
@@ -1658,17 +1700,22 @@ final class WindowState implements WindowManagerPolicy.WindowState {
                     pw.println();
             pw.print(prefix); pw.print("    decor="); mDecorFrame.printShortString(pw);
                     pw.println();
+            pw.print(prefix); pw.print("    outset="); mOutsetFrame.printShortString(pw);
+                    pw.println();
             pw.print(prefix); pw.print("Cur insets: overscan=");
                     mOverscanInsets.printShortString(pw);
                     pw.print(" content="); mContentInsets.printShortString(pw);
                     pw.print(" visible="); mVisibleInsets.printShortString(pw);
                     pw.print(" stable="); mStableInsets.printShortString(pw);
+                    pw.print(" outsets="); mOutsets.printShortString(pw);
                     pw.println();
             pw.print(prefix); pw.print("Lst insets: overscan=");
                     mLastOverscanInsets.printShortString(pw);
                     pw.print(" content="); mLastContentInsets.printShortString(pw);
                     pw.print(" visible="); mLastVisibleInsets.printShortString(pw);
                     pw.print(" stable="); mLastStableInsets.printShortString(pw);
+                    pw.print(" physical="); mLastOutsets.printShortString(pw);
+                    pw.print(" outset="); mLastOutsets.printShortString(pw);
                     pw.println();
         }
         pw.print(prefix); pw.print(mWinAnimator); pw.println(":");
@@ -1709,7 +1756,7 @@ final class WindowState implements WindowManagerPolicy.WindowState {
                     pw.println(mWallpaperDisplayOffsetY);
         }
         if (mDrawLock != null) {
-            pw.println("mDrawLock=" + mDrawLock);
+            pw.print(prefix); pw.println("mDrawLock=" + mDrawLock);
         }
     }
 

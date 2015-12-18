@@ -41,6 +41,7 @@ import java.util.HashSet;
  */
 public class NetworkPolicyManager {
 
+    /* POLICY_* are masks and can be ORed */
     /** No specific network policy, use system default. */
     public static final int POLICY_NONE = 0x0;
     /** Reject network usage on metered networks when application in background. */
@@ -48,10 +49,29 @@ public class NetworkPolicyManager {
     /** Allow network use (metered or not) in the background in battery save mode. */
     public static final int POLICY_ALLOW_BACKGROUND_BATTERY_SAVE = 0x2;
 
+    /* RULE_* are not masks and they must be exclusive */
+    public static final int RULE_UNKNOWN = -1;
     /** All network traffic should be allowed. */
-    public static final int RULE_ALLOW_ALL = 0x0;
+    public static final int RULE_ALLOW_ALL = 0;
     /** Reject traffic on metered networks. */
-    public static final int RULE_REJECT_METERED = 0x1;
+    public static final int RULE_REJECT_METERED = 1;
+    /** Reject traffic on all networks. */
+    public static final int RULE_REJECT_ALL = 2;
+
+    public static final int FIREWALL_RULE_DEFAULT = 0;
+    public static final int FIREWALL_RULE_ALLOW = 1;
+    public static final int FIREWALL_RULE_DENY = 2;
+
+    public static final int FIREWALL_TYPE_WHITELIST = 0;
+    public static final int FIREWALL_TYPE_BLACKLIST = 1;
+
+    public static final int FIREWALL_CHAIN_NONE = 0;
+    public static final int FIREWALL_CHAIN_DOZABLE = 1;
+    public static final int FIREWALL_CHAIN_STANDBY = 2;
+
+    public static final String FIREWALL_CHAIN_NAME_NONE = "none";
+    public static final String FIREWALL_CHAIN_NAME_DOZABLE = "dozable";
+    public static final String FIREWALL_CHAIN_NAME_STANDBY = "standby";
 
     private static final boolean ALLOW_PLATFORM_APP_POLICY = true;
 
@@ -80,7 +100,7 @@ public class NetworkPolicyManager {
      * Set policy flags for specific UID.
      *
      * @param policy {@link #POLICY_NONE} or combination of flags like
-     * {@link #POLICY_REJECT_METERED_BACKGROUND}, {@link #POLICY_ALLOW_BACKGROUND_BATTERY_SAVE}.
+     * {@link #POLICY_REJECT_METERED_BACKGROUND} or {@link #POLICY_ALLOW_BACKGROUND_BATTERY_SAVE}.
      */
     public void setUidPolicy(int uid, int policy) {
         try {
@@ -124,14 +144,6 @@ public class NetworkPolicyManager {
     public int[] getUidsWithPolicy(int policy) {
         try {
             return mService.getUidsWithPolicy(policy);
-        } catch (RemoteException e) {
-            return new int[0];
-        }
-    }
-
-    public int[] getPowerSaveAppIdWhitelist() {
-        try {
-            return mService.getPowerSaveAppIdWhitelist();
         } catch (RemoteException e) {
             return new int[0];
         }
@@ -315,23 +327,4 @@ public class NetworkPolicyManager {
         // nothing found above; we can apply policy to UID
         return true;
     }
-
-    /** {@hide} */
-    public static void dumpPolicy(PrintWriter fout, int policy) {
-        fout.write("[");
-        if ((policy & POLICY_REJECT_METERED_BACKGROUND) != 0) {
-            fout.write("REJECT_METERED_BACKGROUND");
-        }
-        fout.write("]");
-    }
-
-    /** {@hide} */
-    public static void dumpRules(PrintWriter fout, int rules) {
-        fout.write("[");
-        if ((rules & RULE_REJECT_METERED) != 0) {
-            fout.write("REJECT_METERED");
-        }
-        fout.write("]");
-    }
-
 }

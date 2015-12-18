@@ -157,6 +157,17 @@ public class Build {
         public static final String RELEASE = getString("ro.build.version.release");
 
         /**
+         * The base OS build the product is based on.
+         */
+        public static final String BASE_OS = SystemProperties.get("ro.build.version.base_os", "");
+
+        /**
+         * The user-visible security patch level.
+         */
+        public static final String SECURITY_PATCH = SystemProperties.get(
+                "ro.build.version.security_patch", "");
+
+        /**
          * The user-visible SDK version of the framework in its raw String
          * representation; use {@link #SDK_INT} instead.
          *
@@ -171,6 +182,27 @@ public class Build {
          */
         public static final int SDK_INT = SystemProperties.getInt(
                 "ro.build.version.sdk", 0);
+
+        /**
+         * The developer preview revision of a prerelease SDK. This value will always
+         * be <code>0</code> on production platform builds/devices.
+         *
+         * <p>When this value is nonzero, any new API added since the last
+         * officially published {@link #SDK_INT API level} is only guaranteed to be present
+         * on that specific preview revision. For example, an API <code>Activity.fooBar()</code>
+         * might be present in preview revision 1 but renamed or removed entirely in
+         * preview revision 2, which may cause an app attempting to call it to crash
+         * at runtime.</p>
+         *
+         * <p>Experimental apps targeting preview APIs should check this value for
+         * equality (<code>==</code>) with the preview SDK revision they were built for
+         * before using any prerelease platform APIs. Apps that detect a preview SDK revision
+         * other than the specific one they expect should fall back to using APIs from
+         * the previously published API level only to avoid unwanted runtime exceptions.
+         * </p>
+         */
+        public static final int PREVIEW_SDK_INT = SystemProperties.getInt(
+                "ro.build.version.preview_sdk", 0);
 
         /**
          * The current development codename, or the string "REL" if this is
@@ -545,7 +577,7 @@ public class Build {
         public static final int KITKAT = 19;
 
         /**
-         * Android 4.4W: KitKat for watches, snacks on the run.
+         * June 2014: Android 4.4W. KitKat for watches, snacks on the run.
          *
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
@@ -563,7 +595,7 @@ public class Build {
         public static final int L = 21;
 
         /**
-         * Lollipop.  A flat one with beautiful shadows.  But still tasty.
+         * November 2014: Lollipop.  A flat one with beautiful shadows.  But still tasty.
          *
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
@@ -594,14 +626,40 @@ public class Build {
         public static final int LOLLIPOP = 21;
 
         /**
-         * Lollipop with an extra sugar coating on the outside!
+         * March 2015: Lollipop with an extra sugar coating on the outside!
          */
         public static final int LOLLIPOP_MR1 = 22;
 
         /**
-         * M comes after L.
+         * M is for Marshmallow!
+         *
+         * <p>Applications targeting this or a later release will get these
+         * new changes in behavior:</p>
+         * <ul>
+         * <li> Runtime permissions.  Dangerous permissions are no longer granted at
+         * install time, but must be requested by the application at runtime through
+         * {@link android.app.Activity#requestPermissions}.</li>
+         * <li> Bluetooth and Wi-Fi scanning now requires holding the location permission.</li>
+         * <li> {@link android.app.AlarmManager#setTimeZone AlarmManager.setTimeZone} will fail if
+         * the given timezone is non-Olson.</li>
+         * <li> Activity transitions will only return shared
+         * elements mapped in the returned view hierarchy back to the calling activity.</li>
+         * <li> {@link android.view.View} allows a number of behaviors that may break
+         * existing apps: Canvas throws an exception if restore() is called too many times,
+         * widgets may return a hint size when returning UNSPECIFIED measure specs, and it
+         * will respect the attributes {@link android.R.attr#foreground},
+         * {@link android.R.attr#foregroundGravity}, {@link android.R.attr#foregroundTint}, and
+         * {@link android.R.attr#foregroundTintMode}.</li>
+         * <li> {@link android.view.MotionEvent#getButtonState MotionEvent.getButtonState}
+         * will no longer report {@link android.view.MotionEvent#BUTTON_PRIMARY}
+         * and {@link android.view.MotionEvent#BUTTON_SECONDARY} as synonyms for
+         * {@link android.view.MotionEvent#BUTTON_STYLUS_PRIMARY} and
+         * {@link android.view.MotionEvent#BUTTON_STYLUS_SECONDARY}.</li>
+         * <li> {@link android.widget.ScrollView} now respects the layout param margins
+         * when measuring.</li>
+         * </ul>
          */
-        public static final int MNC = CUR_DEVELOPMENT;
+        public static final int M = 23;
     }
 
     /** The type of build, like "user" or "eng". */

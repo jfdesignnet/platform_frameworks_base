@@ -44,6 +44,7 @@ import android.util.Xml;
 
 import com.android.internal.content.PackageMonitor;
 import com.android.internal.util.FastXmlSerializer;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.XmlUtils;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -57,6 +58,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -558,7 +560,7 @@ class UsbSettingsManager {
             try {
                 fis = new FileInputStream(sSingleUserSettingsFile);
                 XmlPullParser parser = Xml.newPullParser();
-                parser.setInput(fis, null);
+                parser.setInput(fis, StandardCharsets.UTF_8.name());
 
                 XmlUtils.nextElement(parser);
                 while (parser.getEventType() != XmlPullParser.END_DOCUMENT) {
@@ -594,7 +596,7 @@ class UsbSettingsManager {
         try {
             stream = mSettingsFile.openRead();
             XmlPullParser parser = Xml.newPullParser();
-            parser.setInput(stream, null);
+            parser.setInput(stream, StandardCharsets.UTF_8.name());
 
             XmlUtils.nextElement(parser);
             while (parser.getEventType() != XmlPullParser.END_DOCUMENT) {
@@ -623,7 +625,7 @@ class UsbSettingsManager {
             fos = mSettingsFile.startWrite();
 
             FastXmlSerializer serializer = new FastXmlSerializer();
-            serializer.setOutput(fos, "utf-8");
+            serializer.setOutput(fos, StandardCharsets.UTF_8.name());
             serializer.startDocument(null, true);
             serializer.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true);
             serializer.startTag(null, "settings");
@@ -1192,35 +1194,35 @@ class UsbSettingsManager {
         }
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw) {
+    public void dump(IndentingPrintWriter pw) {
         synchronized (mLock) {
-            pw.println("  Device permissions:");
+            pw.println("Device permissions:");
             for (String deviceName : mDevicePermissionMap.keySet()) {
-                pw.print("    " + deviceName + ": ");
+                pw.print("  " + deviceName + ": ");
                 SparseBooleanArray uidList = mDevicePermissionMap.get(deviceName);
                 int count = uidList.size();
                 for (int i = 0; i < count; i++) {
                     pw.print(Integer.toString(uidList.keyAt(i)) + " ");
                 }
-                pw.println("");
+                pw.println();
             }
-            pw.println("  Accessory permissions:");
+            pw.println("Accessory permissions:");
             for (UsbAccessory accessory : mAccessoryPermissionMap.keySet()) {
-                pw.print("    " + accessory + ": ");
+                pw.print("  " + accessory + ": ");
                 SparseBooleanArray uidList = mAccessoryPermissionMap.get(accessory);
                 int count = uidList.size();
                 for (int i = 0; i < count; i++) {
                     pw.print(Integer.toString(uidList.keyAt(i)) + " ");
                 }
-                pw.println("");
+                pw.println();
             }
-            pw.println("  Device preferences:");
+            pw.println("Device preferences:");
             for (DeviceFilter filter : mDevicePreferenceMap.keySet()) {
-                pw.println("    " + filter + ": " + mDevicePreferenceMap.get(filter));
+                pw.println("  " + filter + ": " + mDevicePreferenceMap.get(filter));
             }
-            pw.println("  Accessory preferences:");
+            pw.println("Accessory preferences:");
             for (AccessoryFilter filter : mAccessoryPreferenceMap.keySet()) {
-                pw.println("    " + filter + ": " + mAccessoryPreferenceMap.get(filter));
+                pw.println("  " + filter + ": " + mAccessoryPreferenceMap.get(filter));
             }
         }
     }

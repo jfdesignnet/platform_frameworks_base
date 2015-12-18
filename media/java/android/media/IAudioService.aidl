@@ -40,7 +40,7 @@ import android.view.KeyEvent;
  */
 interface IAudioService {
 
-    void adjustSuggestedStreamVolume(int direction, int suggestedStreamType, int flags,
+    oneway void adjustSuggestedStreamVolume(int direction, int suggestedStreamType, int flags,
             String callingPackage, String caller);
 
     void adjustStreamVolume(int streamType, int direction, int flags, String callingPackage);
@@ -55,7 +55,7 @@ interface IAudioService {
 
     boolean isMasterMute();
 
-    void setMasterMute(boolean mute, int flags, String callingPackage);
+    void setMasterMute(boolean mute, int flags, String callingPackage, int userId);
 
     int getStreamVolume(int streamType);
 
@@ -65,7 +65,7 @@ interface IAudioService {
 
     int getLastAudibleStreamVolume(int streamType);
 
-    void setMicrophoneMute(boolean on, String callingPackage);
+    void setMicrophoneMute(boolean on, String callingPackage, int userId);
 
     void setRingerModeExternal(int ringerMode, String caller);
 

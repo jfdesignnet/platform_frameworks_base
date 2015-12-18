@@ -222,7 +222,8 @@ public class CameraMetadataNative implements Parcelable {
     }
 
     private static final String TAG = "CameraMetadataJV";
-    private static final boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
+    private static final boolean DEBUG = false;
+
     // this should be in sync with HAL_PIXEL_FORMAT_BLOB defined in graphics.h
     public static final int NATIVE_JPEG_FORMAT = 0x21;
 
@@ -841,11 +842,19 @@ public class CameraMetadataNative implements Parcelable {
                 CameraCharacteristics.CONTROL_AVAILABLE_HIGH_SPEED_VIDEO_CONFIGURATIONS);
         ReprocessFormatsMap inputOutputFormatsMap = getBase(
                 CameraCharacteristics.SCALER_AVAILABLE_INPUT_OUTPUT_FORMATS_MAP);
-
+        int[] capabilities = getBase(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+        boolean listHighResolution = false;
+        for (int capability : capabilities) {
+            if (capability == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE) {
+                listHighResolution = true;
+                break;
+            }
+        }
         return new StreamConfigurationMap(
                 configurations, minFrameDurations, stallDurations,
                 depthConfigurations, depthMinFrameDurations, depthStallDurations,
-                highSpeedVideoConfigurations, inputOutputFormatsMap);
+                highSpeedVideoConfigurations, inputOutputFormatsMap,
+                listHighResolution);
     }
 
     private <T> Integer getMaxRegions(Key<T> key) {
@@ -1069,6 +1078,7 @@ public class CameraMetadataNative implements Parcelable {
     private native synchronized void nativeWriteValues(int tag, byte[] src);
     private native synchronized void nativeDump() throws IOException; // dump to ALOGD
 
+    private static native ArrayList nativeGetAllVendorKeys(Class keyClass);
     private static native int nativeGetTagFromKey(String keyName)
             throws IllegalArgumentException;
     private static native int nativeGetTypeFromTag(int tag)
@@ -1102,6 +1112,19 @@ public class CameraMetadataNative implements Parcelable {
      */
     public boolean isEmpty() {
         return nativeIsEmpty();
+    }
+
+
+    /**
+     * Return a list containing keys of the given key class for all defined vendor tags.
+     *
+     * @hide
+     */
+    public static <K> ArrayList<K> getAllVendorKeys(Class<K> keyClass) {
+        if (keyClass == null) {
+            throw new NullPointerException();
+        }
+        return (ArrayList<K>) nativeGetAllVendorKeys(keyClass);
     }
 
     /**
@@ -1197,7 +1220,7 @@ public class CameraMetadataNative implements Parcelable {
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private static void registerAllMarshalers() {
-        if (VERBOSE) {
+        if (DEBUG) {
             Log.v(TAG, "Shall register metadata marshalers");
         }
 
@@ -1234,7 +1257,7 @@ public class CameraMetadataNative implements Parcelable {
         for (MarshalQueryable query : queryList) {
             MarshalRegistry.registerMarshalQueryable(query);
         }
-        if (VERBOSE) {
+        if (DEBUG) {
             Log.v(TAG, "Registered metadata marshalers");
         }
     }

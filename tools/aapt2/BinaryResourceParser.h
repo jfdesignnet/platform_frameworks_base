@@ -43,8 +43,9 @@ public:
      * add any resources parsed to `table`. `source` is for logging purposes.
      */
     BinaryResourceParser(const std::shared_ptr<ResourceTable>& table,
-                         const std::shared_ptr<Resolver>& resolver,
+                         const std::shared_ptr<IResolver>& resolver,
                          const Source& source,
+                         const std::u16string& defaultPackage,
                          const void* data, size_t len);
 
     BinaryResourceParser(const BinaryResourceParser&) = delete; // No copy.
@@ -66,6 +67,7 @@ private:
     bool idToName(Reference* reference);
 
     bool parsePackage(const android::ResChunk_header* chunk);
+    bool parsePublic(const android::ResChunk_header* chunk);
     bool parseTypeSpec(const android::ResChunk_header* chunk);
     bool parseType(const android::ResChunk_header* chunk);
 
@@ -92,15 +94,15 @@ private:
 
     std::shared_ptr<ResourceTable> mTable;
 
-    std::shared_ptr<Resolver> mResolver;
+    std::shared_ptr<IResolver> mResolver;
 
     const Source mSource;
 
+    // The package name of the resource table.
+    std::u16string mDefaultPackage;
+
     const void* mData;
     const size_t mDataLen;
-
-    // The package name of the resource table.
-    std::u16string mPackage;
 
     // The array of symbol entries. Each element points to an offset
     // in the table and an index into the symbol table string pool.

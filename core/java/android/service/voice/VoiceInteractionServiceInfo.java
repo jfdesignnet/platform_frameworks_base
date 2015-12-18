@@ -43,7 +43,8 @@ public class VoiceInteractionServiceInfo {
     private String mSessionService;
     private String mRecognitionService;
     private String mSettingsActivity;
-    private boolean mSupportsAssistGesture;
+    private boolean mSupportsAssist;
+    private boolean mSupportsLaunchFromKeyguard;
 
     public VoiceInteractionServiceInfo(PackageManager pm, ComponentName comp)
             throws PackageManager.NameNotFoundException {
@@ -95,8 +96,11 @@ public class VoiceInteractionServiceInfo {
                     com.android.internal.R.styleable.VoiceInteractionService_recognitionService);
             mSettingsActivity = array.getString(
                     com.android.internal.R.styleable.VoiceInteractionService_settingsActivity);
-            mSupportsAssistGesture = array.getBoolean(
-                    com.android.internal.R.styleable.VoiceInteractionService_supportsAssistGesture,
+            mSupportsAssist = array.getBoolean(
+                    com.android.internal.R.styleable.VoiceInteractionService_supportsAssist,
+                    false);
+            mSupportsLaunchFromKeyguard = array.getBoolean(com.android.internal.
+                    R.styleable.VoiceInteractionService_supportsLaunchVoiceAssistFromKeyguard,
                     false);
             array.recycle();
             if (mSessionService == null) {
@@ -145,7 +149,11 @@ public class VoiceInteractionServiceInfo {
         return mSettingsActivity;
     }
 
-    public boolean getSupportsAssistGesture() {
-        return mSupportsAssistGesture;
+    public boolean getSupportsAssist() {
+        return mSupportsAssist;
+    }
+
+    public boolean getSupportsLaunchFromKeyguard() {
+        return mSupportsLaunchFromKeyguard;
     }
 }

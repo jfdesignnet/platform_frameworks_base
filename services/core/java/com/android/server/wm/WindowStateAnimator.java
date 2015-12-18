@@ -16,7 +16,6 @@
 
 package com.android.server.wm;
 
-import static android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
 import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_STARTING;
 import static com.android.server.wm.WindowManagerService.DEBUG_ANIM;
 import static com.android.server.wm.WindowManagerService.DEBUG_LAYERS;
@@ -41,7 +40,6 @@ import android.graphics.RectF;
 import android.graphics.Region;
 import android.os.Debug;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.util.Slog;
 import android.view.Display;
 import android.view.DisplayInfo;
@@ -122,6 +120,13 @@ class WindowStateAnimator {
     // used.
     int mAnimDw;
     int mAnimDh;
+
+    /** Is the next animation to be started a window move animation? */
+    boolean mAnimateMove = false;
+
+    /** Are we currently running a window move animation? */
+    boolean mAnimatingMove = false;
+
     float mDsDx=1, mDtDx=0, mDsDy=0, mDtDy=1;
     float mLastDsDx=1, mLastDtDx=0, mLastDsDy=0, mLastDtDy=1;
 
@@ -144,6 +149,9 @@ class WindowStateAnimator {
     boolean mEnteringAnimation;
 
     boolean mKeyguardGoingAwayAnimation;
+
+    /** The pixel format of the underlying SurfaceControl */
+    int mSurfaceFormat;
 
     /** This is set when there is no Surface */
     static final int NO_SURFACE = 0;
@@ -247,7 +255,7 @@ class WindowStateAnimator {
                 && mAppAnimator.animation == AppWindowAnimator.sDummyAnimation;
     }
 
-    /** Is this window currently animating? */
+    /** Is this window currently set to animate or currently animating? */
     boolean isWindowAnimating() {
         return mAnimation != null;
     }
@@ -276,9 +284,6 @@ class WindowStateAnimator {
     // This must be called while inside a transaction.  Returns true if
     // there is more animation to run.
     boolean stepAnimationLocked(long currentTime) {
-        // Save the animation state as it was before this step so WindowManagerService can tell if
-        // we just started or just stopped animating by comparing mWasAnimating with isAnimating().
-        mWasAnimating = mAnimating;
         final DisplayContent displayContent = mWin.getDisplayContent();
         if (displayContent != null && mService.okToDisplay()) {
             // We will run animations as long as the display isn't frozen.
@@ -293,9 +298,15 @@ class WindowStateAnimator {
                         " wh=" + mWin.mFrame.height() +
                         " dw=" + mAnimDw + " dh=" + mAnimDh +
                         " scale=" + mService.getWindowAnimationScaleLocked());
-                    mAnimation.initialize(mWin.mFrame.width(), mWin.mFrame.height(),
-                            mAnimDw, mAnimDh);
                     final DisplayInfo displayInfo = displayContent.getDisplayInfo();
+                    if (mAnimateMove) {
+                        mAnimateMove = false;
+                        mAnimation.initialize(mWin.mFrame.width(), mWin.mFrame.height(),
+                                mAnimDw, mAnimDh);
+                    } else {
+                        mAnimation.initialize(mWin.mFrame.width(), mWin.mFrame.height(),
+                                displayInfo.appWidth, displayInfo.appHeight);
+                    }
                     mAnimDw = displayInfo.appWidth;
                     mAnimDh = displayInfo.appHeight;
                     mAnimation.setStartTime(mAnimationStartTime != -1
@@ -354,6 +365,7 @@ class WindowStateAnimator {
 
         mAnimating = false;
         mKeyguardGoingAwayAnimation = false;
+        mAnimatingMove = false;
         mLocalAnimating = false;
         if (mAnimation != null) {
             mAnimation.cancel();
@@ -651,6 +663,11 @@ class WindowStateAnimator {
         }
 
         @Override
+        public void setSecure(boolean isSecure) {
+            super.setSecure(isSecure);
+        }
+
+        @Override
         public void setMatrix(float dsdx, float dtdx, float dsdy, float dtdy) {
             if (dsdx != mDsdx || dtdx != mDtdx || dsdy != mDsdy || dtdy != mDtdy) {
                 if (logSurfaceTrace) Slog.v(SURFACE_TAG, "setMatrix(" + dsdx + "," + dtdx + ","
@@ -770,11 +787,7 @@ class WindowStateAnimator {
             int flags = SurfaceControl.HIDDEN;
             final WindowManager.LayoutParams attrs = w.mAttrs;
 
-            if ((attrs.flags&WindowManager.LayoutParams.FLAG_SECURE) != 0) {
-                flags |= SurfaceControl.SECURE;
-            }
-
-            if (mService.isScreenCaptureDisabledLocked(UserHandle.getUserId(mWin.mOwnerUid))) {
+            if (mService.isSecureLocked(w)) {
                 flags |= SurfaceControl.SECURE;
             }
 
@@ -823,6 +836,8 @@ class WindowStateAnimator {
             mSurfaceX = 0;
             mSurfaceY = 0;
             w.mLastSystemDecorRect.set(0, 0, 0, 0);
+            mHasClipRect = false;
+            mClipRect.set(0, 0, 0, 0);
             mLastClipRect.set(0, 0, 0, 0);
 
             // Set up surface control with initial size.
@@ -841,6 +856,7 @@ class WindowStateAnimator {
                     flags |= SurfaceControl.OPAQUE;
                 }
 
+                mSurfaceFormat = format;
                 if (DEBUG_SURFACE_TRACE) {
                     mSurfaceControl = new SurfaceTrace(
                             mSession.mSurfaceSession,
@@ -1048,6 +1064,8 @@ class WindowStateAnimator {
                 mAnimator.getScreenRotationAnimationLocked(displayId);
         final boolean screenAnimation =
                 screenRotationAnimation != null && screenRotationAnimation.isAnimating();
+
+        mHasClipRect = false;
         if (selfTransformation || attachedTransformation != null
                 || appTransformation != null || screenAnimation) {
             // cache often used attributes locally
@@ -1123,7 +1141,6 @@ class WindowStateAnimator {
             // transforming since it is more important to have that
             // animation be smooth.
             mShownAlpha = mAlpha;
-            mHasClipRect = false;
             if (!mService.mLimitedAlphaCompositing
                     || (!PixelFormat.formatHasAlpha(mWin.mAttrs.format)
                     || (mWin.isIdentityMatrix(mDsDx, mDtDx, mDsDy, mDtDy)
@@ -1258,6 +1275,7 @@ class WindowStateAnimator {
         if (displayContent == null) {
             return;
         }
+        final DisplayInfo displayInfo = displayContent.getDisplayInfo();
 
         // Need to recompute a new system decor rect each time.
         if ((w.mAttrs.flags & LayoutParams.FLAG_SCALED) != 0) {
@@ -1267,7 +1285,6 @@ class WindowStateAnimator {
         } else if (!w.isDefaultDisplay()) {
             // On a different display there is no system decor.  Crop the window
             // by the screen boundaries.
-            final DisplayInfo displayInfo = displayContent.getDisplayInfo();
             w.mSystemDecorRect.set(0, 0, w.mCompatFrame.width(), w.mCompatFrame.height());
             w.mSystemDecorRect.intersect(-w.mCompatFrame.left, -w.mCompatFrame.top,
                     displayInfo.logicalWidth - w.mCompatFrame.left,
@@ -1289,9 +1306,11 @@ class WindowStateAnimator {
             applyDecorRect(w.mDecorFrame);
         }
 
-        // By default, the clip rect is the system decor.
+        final boolean fullscreen = w.isFullscreen(displayInfo.appWidth, displayInfo.appHeight);
         final Rect clipRect = mTmpClipRect;
-        clipRect.set(w.mSystemDecorRect);
+        // We use the clip rect as provided by the tranformation for non-fullscreen windows to
+        // avoid premature clipping with the system decor rect.
+        clipRect.set((mHasClipRect && !fullscreen) ? mClipRect : w.mSystemDecorRect);
 
         // Expand the clip rect for surface insets.
         final WindowManager.LayoutParams attrs = w.mAttrs;
@@ -1300,23 +1319,11 @@ class WindowStateAnimator {
         clipRect.right += attrs.surfaceInsets.right;
         clipRect.bottom += attrs.surfaceInsets.bottom;
 
-        // If we have an animated clip rect, intersect it with the clip rect.
-        if (mHasClipRect) {
-            // NOTE: We are adding a temporary workaround due to the status bar
-            // not always reporting the correct system decor rect. In such
-            // cases, we take into account the specified content insets as well.
-            if ((w.mSystemUiVisibility & SYSTEM_UI_FLAGS_LAYOUT_STABLE_FULLSCREEN)
-                    == SYSTEM_UI_FLAGS_LAYOUT_STABLE_FULLSCREEN
-                    || (w.mAttrs.flags & FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0) {
-                // Don't apply the workaround to apps explicitly requesting
-                // fullscreen layout or when the bars are transparent.
-                clipRect.intersect(mClipRect);
-            } else {
-                final int offsetTop = Math.max(clipRect.top, w.mContentInsets.top);
-                clipRect.offset(0, -offsetTop);
-                clipRect.intersect(mClipRect);
-                clipRect.offset(0, offsetTop);
-            }
+        if (mHasClipRect && fullscreen) {
+            // We intersect the clip rect specified by the transformation with the expanded system
+            // decor rect to prevent artifacts from drawing during animation if the transformation
+            // clip rect extends outside the system decor rect.
+            clipRect.intersect(mClipRect);
         }
 
         // The clip rect was generated assuming (0,0) as the window origin,
@@ -1368,10 +1375,21 @@ class WindowStateAnimator {
 
         // Adjust for surface insets.
         final LayoutParams attrs = w.getAttrs();
-        width += attrs.surfaceInsets.left + attrs.surfaceInsets.right;
-        height += attrs.surfaceInsets.top + attrs.surfaceInsets.bottom;
-        left -= attrs.surfaceInsets.left;
-        top -= attrs.surfaceInsets.top;
+        final int displayId = w.getDisplayId();
+        float scale = 1.0f;
+        // Magnification is supported only for the default display.
+        if (mService.mAccessibilityController != null && displayId == Display.DEFAULT_DISPLAY) {
+            MagnificationSpec spec =
+                    mService.mAccessibilityController.getMagnificationSpecForWindowLocked(w);
+            if (spec != null && !spec.isNop()) {
+                scale = spec.scale;
+            }
+        }
+
+        width += scale * (attrs.surfaceInsets.left + attrs.surfaceInsets.right);
+        height += scale * (attrs.surfaceInsets.top + attrs.surfaceInsets.bottom);
+        left -= scale * attrs.surfaceInsets.left;
+        top -= scale * attrs.surfaceInsets.top;
 
         final boolean surfaceMoved = mSurfaceX != left || mSurfaceY != top;
         if (surfaceMoved) {
@@ -1572,8 +1590,6 @@ class WindowStateAnimator {
         final int left = ((int) shownFrame.left) - attrs.surfaceInsets.left;
         final int top = ((int) shownFrame.top) - attrs.surfaceInsets.top;
         if (mSurfaceX != left || mSurfaceY != top) {
-            mSurfaceX = left;
-            mSurfaceY = top;
             if (mAnimating) {
                 // If this window (or its app token) is animating, then the position
                 // of the surface will be re-computed on the next animation frame.
@@ -1581,6 +1597,8 @@ class WindowStateAnimator {
                 // transformation is being applied by the animation.
                 return;
             }
+            mSurfaceX = left;
+            mSurfaceY = top;
             if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setWallpaperOffset");
             SurfaceControl.openTransaction();
             try {
@@ -1599,6 +1617,28 @@ class WindowStateAnimator {
         }
     }
 
+    /**
+     * Try to change the pixel format without recreating the surface. This
+     * will be common in the case of changing from PixelFormat.OPAQUE to
+     * PixelFormat.TRANSLUCENT in the hardware-accelerated case as both
+     * requested formats resolve to the same underlying SurfaceControl format
+     * @return True if format was succesfully changed, false otherwise
+     */
+    boolean tryChangeFormatInPlaceLocked() {
+        if (mSurfaceControl == null) {
+            return false;
+        }
+        final LayoutParams attrs = mWin.getAttrs();
+        final boolean isHwAccelerated = (attrs.flags &
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED) != 0;
+        final int format = isHwAccelerated ? PixelFormat.TRANSLUCENT : attrs.format;
+        if (format == mSurfaceFormat) {
+            setOpaqueLocked(!PixelFormat.formatHasAlpha(attrs.format));
+            return true;
+        }
+        return false;
+    }
+
     void setOpaqueLocked(boolean isOpaque) {
         if (mSurfaceControl == null) {
             return;
@@ -1615,9 +1655,27 @@ class WindowStateAnimator {
         }
     }
 
+    void setSecureLocked(boolean isSecure) {
+        if (mSurfaceControl == null) {
+            return;
+        }
+        if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setSecureLocked");
+        SurfaceControl.openTransaction();
+        try {
+            if (SHOW_TRANSACTIONS) WindowManagerService.logSurface(mWin, "isSecure=" + isSecure,
+                    null);
+            mSurfaceControl.setSecure(isSecure);
+        } finally {
+            SurfaceControl.closeTransaction();
+            if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, "<<< CLOSE TRANSACTION setSecureLocked");
+        }
+    }
+
     // This must be called while inside a transaction.
     boolean performShowLocked() {
         if (mWin.isHiddenFromUserLocked()) {
+            if (DEBUG_VISIBILITY) Slog.w(TAG, "hiding " + mWin + ", belonging to " + mWin.mOwnerUid);
+            mWin.hideLw(false);
             return false;
         }
         if (DEBUG_VISIBILITY || (DEBUG_STARTING_WINDOW &&

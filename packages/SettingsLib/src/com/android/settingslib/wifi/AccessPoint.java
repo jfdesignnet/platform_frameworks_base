@@ -16,21 +16,37 @@
 
 package com.android.settingslib.wifi;
 
+import android.app.AppGlobals;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.IPackageManager;
+import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.NetworkInfo.DetailedState;
 import android.net.NetworkInfo.State;
+import android.net.wifi.IWifiManager;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiConfiguration.KeyMgmt;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.RemoteException;
+import android.os.ServiceManager;
+import android.os.UserHandle;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.TextUtils;
+import android.text.style.TtsSpan;
 import android.util.Log;
 import android.util.LruCache;
 
 import com.android.settingslib.R;
 
+import java.util.ArrayList;
 import java.util.Map;
 
 
@@ -64,10 +80,15 @@ public class AccessPoint implements Comparable<AccessPoint> {
      *  For now this data is used only with Verbose Logging so as to show the band and number
      *  of BSSIDs on which that network is seen.
      */
-    public LruCache<String, ScanResult> mScanResultCache;
+    public LruCache<String, ScanResult> mScanResultCache = new LruCache<String, ScanResult>(32);
+
     private static final String KEY_NETWORKINFO = "key_networkinfo";
     private static final String KEY_WIFIINFO = "key_wifiinfo";
     private static final String KEY_SCANRESULT = "key_scanresult";
+    private static final String KEY_SSID = "key_ssid";
+    private static final String KEY_SECURITY = "key_security";
+    private static final String KEY_PSKTYPE = "key_psktype";
+    private static final String KEY_SCANRESULTCACHE = "key_scanresultcache";
     private static final String KEY_CONFIG = "key_config";
 
     /**
@@ -93,7 +114,6 @@ public class AccessPoint implements Comparable<AccessPoint> {
     private int pskType = PSK_UNKNOWN;
 
     private WifiConfiguration mConfig;
-    private ScanResult mScanResult;
 
     private int mRssi = Integer.MAX_VALUE;
     private long mSeen = 0;
@@ -110,20 +130,35 @@ public class AccessPoint implements Comparable<AccessPoint> {
         if (mConfig != null) {
             loadConfig(mConfig);
         }
-        mScanResult = (ScanResult) savedState.getParcelable(KEY_SCANRESULT);
-        if (mScanResult != null) {
-            loadResult(mScanResult);
+        if (savedState.containsKey(KEY_SSID)) {
+            ssid = savedState.getString(KEY_SSID);
+        }
+        if (savedState.containsKey(KEY_SECURITY)) {
+            security = savedState.getInt(KEY_SECURITY);
+        }
+        if (savedState.containsKey(KEY_PSKTYPE)) {
+            pskType = savedState.getInt(KEY_PSKTYPE);
         }
         mInfo = (WifiInfo) savedState.getParcelable(KEY_WIFIINFO);
         if (savedState.containsKey(KEY_NETWORKINFO)) {
             mNetworkInfo = savedState.getParcelable(KEY_NETWORKINFO);
         }
-        update(mInfo, mNetworkInfo);
+        if (savedState.containsKey(KEY_SCANRESULTCACHE)) {
+            ArrayList<ScanResult> scanResultArrayList =
+                    savedState.getParcelableArrayList(KEY_SCANRESULTCACHE);
+            mScanResultCache.evictAll();
+            for (ScanResult result : scanResultArrayList) {
+                mScanResultCache.put(result.BSSID, result);
+            }
+        }
+        update(mConfig, mInfo, mNetworkInfo);
+        mRssi = getRssi();
+        mSeen = getSeen();
     }
 
     AccessPoint(Context context, ScanResult result) {
         mContext = context;
-        loadResult(result);
+        initWithScanResult(result);
     }
 
     AccessPoint(Context context, WifiConfiguration config) {
@@ -199,7 +234,10 @@ public class AccessPoint implements Comparable<AccessPoint> {
     }
 
     public boolean matches(WifiConfiguration config) {
-        return ssid.equals(removeDoubleQuotes(config.SSID)) && security == getSecurity(config);
+        if (config.isPasspoint() && mConfig != null && mConfig.isPasspoint())
+            return config.FQDN.equals(mConfig.providerFriendlyName);
+        else
+            return ssid.equals(removeDoubleQuotes(config.SSID)) && security == getSecurity(config);
     }
 
     public WifiConfiguration getConfig() {
@@ -222,6 +260,28 @@ public class AccessPoint implements Comparable<AccessPoint> {
         return WifiManager.calculateSignalLevel(mRssi, 4);
     }
 
+    public int getRssi() {
+        int rssi = Integer.MIN_VALUE;
+        for (ScanResult result : mScanResultCache.snapshot().values()) {
+            if (result.level > rssi) {
+                rssi = result.level;
+            }
+        }
+
+        return rssi;
+    }
+
+    public long getSeen() {
+        long seen = 0;
+        for (ScanResult result : mScanResultCache.snapshot().values()) {
+            if (result.timestamp > seen) {
+                seen = result.timestamp;
+            }
+        }
+
+        return seen;
+    }
+
     public NetworkInfo getNetworkInfo() {
         return mNetworkInfo;
     }
@@ -232,6 +292,10 @@ public class AccessPoint implements Comparable<AccessPoint> {
 
     public String getSecurityString(boolean concise) {
         Context context = mContext;
+        if (mConfig != null && mConfig.isPasspoint()) {
+            return concise ? context.getString(R.string.wifi_security_short_eap) :
+                context.getString(R.string.wifi_security_eap);
+        }
         switch(security) {
             case SECURITY_EAP:
                 return concise ? context.getString(R.string.wifi_security_short_eap) :
@@ -261,23 +325,74 @@ public class AccessPoint implements Comparable<AccessPoint> {
         }
     }
 
-    public String getSsid() {
+    public String getSsidStr() {
         return ssid;
+    }
+
+    public CharSequence getSsid() {
+        SpannableString str = new SpannableString(ssid);
+        str.setSpan(new TtsSpan.VerbatimBuilder(ssid).build(), 0, ssid.length(),
+                Spannable.SPAN_INCLUSIVE_INCLUSIVE);
+        return str;
+    }
+
+    public String getConfigName() {
+        if (mConfig != null && mConfig.isPasspoint()) {
+            return mConfig.providerFriendlyName;
+        } else {
+            return ssid;
+        }
     }
 
     public DetailedState getDetailedState() {
         return mNetworkInfo != null ? mNetworkInfo.getDetailedState() : null;
     }
 
+    public String getSavedNetworkSummary() {
+        if (mConfig != null) {
+            PackageManager pm = mContext.getPackageManager();
+            String systemName = pm.getNameForUid(android.os.Process.SYSTEM_UID);
+            int userId = UserHandle.getUserId(mConfig.creatorUid);
+            ApplicationInfo appInfo = null;
+            if (mConfig.creatorName != null && mConfig.creatorName.equals(systemName)) {
+                appInfo = mContext.getApplicationInfo();
+            } else {
+                try {
+                    IPackageManager ipm = AppGlobals.getPackageManager();
+                    appInfo = ipm.getApplicationInfo(mConfig.creatorName, 0 /* flags */, userId);
+                } catch (RemoteException rex) {
+                }
+            }
+            if (appInfo != null &&
+                    !appInfo.packageName.equals(mContext.getString(R.string.settings_package)) &&
+                    !appInfo.packageName.equals(
+                    mContext.getString(R.string.certinstaller_package))) {
+                return mContext.getString(R.string.saved_network, appInfo.loadLabel(pm));
+            }
+        }
+        return "";
+    }
+
     public String getSummary() {
+        return getSettingsSummary();
+    }
+
+    public String getSettingsSummary() {
         // Update to new summary
         StringBuilder summary = new StringBuilder();
 
-        if (isActive()) { // This is the active connection
+        if (isActive() && mConfig != null && mConfig.isPasspoint()) {
+            // This is the active connection on passpoint
             summary.append(getSummary(mContext, getDetailedState(),
-                    networkId == WifiConfiguration.INVALID_NETWORK_ID));
-        } else if (mConfig != null
-                && mConfig.hasNoInternetAccess()) {
+                    false, mConfig.providerFriendlyName));
+        } else if (isActive()) {
+            // This is the active connection on non-passpoint network
+            summary.append(getSummary(mContext, getDetailedState(),
+                    mInfo != null && mInfo.isEphemeral()));
+        } else if (mConfig != null && mConfig.isPasspoint()) {
+            String format = mContext.getString(R.string.available_via_passpoint);
+            summary.append(String.format(format, mConfig.providerFriendlyName));
+        } else if (mConfig != null && mConfig.hasNoInternetAccess()) {
             summary.append(mContext.getString(R.string.wifi_no_internet));
         } else if (mConfig != null && ((mConfig.status == WifiConfiguration.Status.DISABLED &&
                 mConfig.disableReason != WifiConfiguration.DISABLED_UNKNOWN_REASON)
@@ -383,120 +498,109 @@ public class AccessPoint implements Comparable<AccessPoint> {
             visibility.append(String.format("rx=%.1f", mInfo.rxSuccessRate));
         }
 
-        if (mScanResultCache != null) {
-            int rssi5 = WifiConfiguration.INVALID_RSSI;
-            int rssi24 = WifiConfiguration.INVALID_RSSI;
-            int num5 = 0;
-            int num24 = 0;
-            int numBlackListed = 0;
-            int n24 = 0; // Number scan results we included in the string
-            int n5 = 0; // Number scan results we included in the string
-            Map<String, ScanResult> list = mScanResultCache.snapshot();
-            // TODO: sort list by RSSI or age
-            for (ScanResult result : list.values()) {
-                if (result.seen == 0)
-                    continue;
+        int rssi5 = WifiConfiguration.INVALID_RSSI;
+        int rssi24 = WifiConfiguration.INVALID_RSSI;
+        int num5 = 0;
+        int num24 = 0;
+        int numBlackListed = 0;
+        int n24 = 0; // Number scan results we included in the string
+        int n5 = 0; // Number scan results we included in the string
+        Map<String, ScanResult> list = mScanResultCache.snapshot();
+        // TODO: sort list by RSSI or age
+        for (ScanResult result : list.values()) {
+            if (result.seen == 0)
+                continue;
 
-                if (result.autoJoinStatus != ScanResult.ENABLED) numBlackListed++;
+            if (result.autoJoinStatus != ScanResult.ENABLED) numBlackListed++;
 
-                if (result.frequency >= LOWER_FREQ_5GHZ
-                        && result.frequency <= HIGHER_FREQ_5GHZ) {
-                    // Strictly speaking: [4915, 5825]
-                    // number of known BSSID on 5GHz band
-                    num5 = num5 + 1;
-                } else if (result.frequency >= LOWER_FREQ_24GHZ
-                        && result.frequency <= HIGHER_FREQ_24GHZ) {
-                    // Strictly speaking: [2412, 2482]
-                    // number of known BSSID on 2.4Ghz band
-                    num24 = num24 + 1;
-                }
-
-                // Ignore results seen, older than 20 seconds
-                if (now - result.seen > VISIBILITY_OUTDATED_AGE_IN_MILLI) continue;
-
-                if (result.frequency >= LOWER_FREQ_5GHZ
-                        && result.frequency <= HIGHER_FREQ_5GHZ) {
-                    if (result.level > rssi5) {
-                        rssi5 = result.level;
-                    }
-                    if (n5 < 4) {
-                        if (scans5GHz == null) scans5GHz = new StringBuilder();
-                        scans5GHz.append(" \n{").append(result.BSSID);
-                        if (bssid != null && result.BSSID.equals(bssid)) scans5GHz.append("*");
-                        scans5GHz.append("=").append(result.frequency);
-                        scans5GHz.append(",").append(result.level);
-                        if (result.autoJoinStatus != 0) {
-                            scans5GHz.append(",st=").append(result.autoJoinStatus);
-                        }
-                        if (result.numIpConfigFailures != 0) {
-                            scans5GHz.append(",ipf=").append(result.numIpConfigFailures);
-                        }
-                        scans5GHz.append("}");
-                        n5++;
-                    }
-                } else if (result.frequency >= LOWER_FREQ_24GHZ
-                        && result.frequency <= HIGHER_FREQ_24GHZ) {
-                    if (result.level > rssi24) {
-                        rssi24 = result.level;
-                    }
-                    if (n24 < 4) {
-                        if (scans24GHz == null) scans24GHz = new StringBuilder();
-                        scans24GHz.append(" \n{").append(result.BSSID);
-                        if (bssid != null && result.BSSID.equals(bssid)) scans24GHz.append("*");
-                        scans24GHz.append("=").append(result.frequency);
-                        scans24GHz.append(",").append(result.level);
-                        if (result.autoJoinStatus != 0) {
-                            scans24GHz.append(",st=").append(result.autoJoinStatus);
-                        }
-                        if (result.numIpConfigFailures != 0) {
-                            scans24GHz.append(",ipf=").append(result.numIpConfigFailures);
-                        }
-                        scans24GHz.append("}");
-                        n24++;
-                    }
-                }
+            if (result.frequency >= LOWER_FREQ_5GHZ
+                    && result.frequency <= HIGHER_FREQ_5GHZ) {
+                // Strictly speaking: [4915, 5825]
+                // number of known BSSID on 5GHz band
+                num5 = num5 + 1;
+            } else if (result.frequency >= LOWER_FREQ_24GHZ
+                    && result.frequency <= HIGHER_FREQ_24GHZ) {
+                // Strictly speaking: [2412, 2482]
+                // number of known BSSID on 2.4Ghz band
+                num24 = num24 + 1;
             }
-            visibility.append(" [");
-            if (num24 > 0) {
-                visibility.append("(").append(num24).append(")");
-                if (n24 <= 4) {
-                    if (scans24GHz != null) {
-                        visibility.append(scans24GHz.toString());
-                    }
-                } else {
-                    visibility.append("max=").append(rssi24);
-                    if (scans24GHz != null) {
-                        visibility.append(",").append(scans24GHz.toString());
-                    }
+
+            // Ignore results seen, older than 20 seconds
+            if (now - result.seen > VISIBILITY_OUTDATED_AGE_IN_MILLI) continue;
+
+            if (result.frequency >= LOWER_FREQ_5GHZ
+                    && result.frequency <= HIGHER_FREQ_5GHZ) {
+                if (result.level > rssi5) {
+                    rssi5 = result.level;
                 }
-            }
-            visibility.append(";");
-            if (num5 > 0) {
-                visibility.append("(").append(num5).append(")");
-                if (n5 <= 4) {
-                    if (scans5GHz != null) {
-                        visibility.append(scans5GHz.toString());
+                if (n5 < 4) {
+                    if (scans5GHz == null) scans5GHz = new StringBuilder();
+                    scans5GHz.append(" \n{").append(result.BSSID);
+                    if (bssid != null && result.BSSID.equals(bssid)) scans5GHz.append("*");
+                    scans5GHz.append("=").append(result.frequency);
+                    scans5GHz.append(",").append(result.level);
+                    if (result.autoJoinStatus != 0) {
+                        scans5GHz.append(",st=").append(result.autoJoinStatus);
                     }
-                } else {
-                    visibility.append("max=").append(rssi5);
-                    if (scans5GHz != null) {
-                        visibility.append(",").append(scans5GHz.toString());
+                    if (result.numIpConfigFailures != 0) {
+                        scans5GHz.append(",ipf=").append(result.numIpConfigFailures);
                     }
+                    scans5GHz.append("}");
+                    n5++;
                 }
-            }
-            if (numBlackListed > 0)
-                visibility.append("!").append(numBlackListed);
-            visibility.append("]");
-        } else {
-            if (mRssi != Integer.MAX_VALUE) {
-                visibility.append(" rssi=");
-                visibility.append(mRssi);
-                if (mScanResult != null) {
-                    visibility.append(", f=");
-                    visibility.append(mScanResult.frequency);
+            } else if (result.frequency >= LOWER_FREQ_24GHZ
+                    && result.frequency <= HIGHER_FREQ_24GHZ) {
+                if (result.level > rssi24) {
+                    rssi24 = result.level;
+                }
+                if (n24 < 4) {
+                    if (scans24GHz == null) scans24GHz = new StringBuilder();
+                    scans24GHz.append(" \n{").append(result.BSSID);
+                    if (bssid != null && result.BSSID.equals(bssid)) scans24GHz.append("*");
+                    scans24GHz.append("=").append(result.frequency);
+                    scans24GHz.append(",").append(result.level);
+                    if (result.autoJoinStatus != 0) {
+                        scans24GHz.append(",st=").append(result.autoJoinStatus);
+                    }
+                    if (result.numIpConfigFailures != 0) {
+                        scans24GHz.append(",ipf=").append(result.numIpConfigFailures);
+                    }
+                    scans24GHz.append("}");
+                    n24++;
                 }
             }
         }
+        visibility.append(" [");
+        if (num24 > 0) {
+            visibility.append("(").append(num24).append(")");
+            if (n24 <= 4) {
+                if (scans24GHz != null) {
+                    visibility.append(scans24GHz.toString());
+                }
+            } else {
+                visibility.append("max=").append(rssi24);
+                if (scans24GHz != null) {
+                    visibility.append(",").append(scans24GHz.toString());
+                }
+            }
+        }
+        visibility.append(";");
+        if (num5 > 0) {
+            visibility.append("(").append(num5).append(")");
+            if (n5 <= 4) {
+                if (scans5GHz != null) {
+                    visibility.append(scans5GHz.toString());
+                }
+            } else {
+                visibility.append("max=").append(rssi5);
+                if (scans5GHz != null) {
+                    visibility.append(",").append(scans5GHz.toString());
+                }
+            }
+        }
+        if (numBlackListed > 0)
+            visibility.append("!").append(numBlackListed);
+        visibility.append("]");
 
         return visibility.toString();
     }
@@ -517,14 +621,26 @@ public class AccessPoint implements Comparable<AccessPoint> {
     }
 
     public boolean isEphemeral() {
-        return !isSaved() && mNetworkInfo != null && mNetworkInfo.getState() != State.DISCONNECTED;
+        return mInfo != null && mInfo.isEphemeral() &&
+                mNetworkInfo != null && mNetworkInfo.getState() != State.DISCONNECTED;
     }
 
-    /** Return whether the given {@link WifiInfo} is for this access point. */
-    private boolean isInfoForThisAccessPoint(WifiInfo info) {
-        if (networkId != WifiConfiguration.INVALID_NETWORK_ID) {
+    public boolean isPasspoint() {
+        return mConfig != null && mConfig.isPasspoint();
+    }
+
+    /**
+     * Return whether the given {@link WifiInfo} is for this access point.
+     * If the current AP does not have a network Id then the config is used to
+     * match based on SSID and security.
+     */
+    private boolean isInfoForThisAccessPoint(WifiConfiguration config, WifiInfo info) {
+        if (isPasspoint() == false && networkId != WifiConfiguration.INVALID_NETWORK_ID) {
             return networkId == info.getNetworkId();
-        } else {
+        } else if (config != null) {
+            return matches(config);
+        }
+        else {
             // Might be an ephemeral connection with no WifiConfiguration. Try matching on SSID.
             // (Note that we only do this if the WifiConfiguration explicitly equals INVALID).
             // TODO: Handle hex string SSIDs.
@@ -559,28 +675,33 @@ public class AccessPoint implements Comparable<AccessPoint> {
     }
 
     void loadConfig(WifiConfiguration config) {
-        ssid = (config.SSID == null ? "" : removeDoubleQuotes(config.SSID));
+        if (config.isPasspoint())
+            ssid = config.providerFriendlyName;
+        else
+            ssid = (config.SSID == null ? "" : removeDoubleQuotes(config.SSID));
+
         security = getSecurity(config);
         networkId = config.networkId;
         mConfig = config;
     }
 
-    private void loadResult(ScanResult result) {
+    private void initWithScanResult(ScanResult result) {
         ssid = result.SSID;
         security = getSecurity(result);
         if (security == SECURITY_PSK)
             pskType = getPskType(result);
         mRssi = result.level;
-        mScanResult = result;
-        if (result.seen > mSeen) {
-            mSeen = result.seen;
-        }
+        mSeen = result.timestamp;
     }
 
     public void saveWifiState(Bundle savedState) {
-        savedState.putParcelable(KEY_CONFIG, mConfig);
-        savedState.putParcelable(KEY_SCANRESULT, mScanResult);
+        if (ssid != null) savedState.putString(KEY_SSID, getSsidStr());
+        savedState.putInt(KEY_SECURITY, security);
+        savedState.putInt(KEY_PSKTYPE, pskType);
+        if (mConfig != null) savedState.putParcelable(KEY_CONFIG, mConfig);
         savedState.putParcelable(KEY_WIFIINFO, mInfo);
+        savedState.putParcelableArrayList(KEY_SCANRESULTCACHE,
+                new ArrayList<ScanResult>(mScanResultCache.snapshot().values()));
         if (mNetworkInfo != null) {
             savedState.putParcelable(KEY_NETWORKINFO, mNetworkInfo);
         }
@@ -591,40 +712,39 @@ public class AccessPoint implements Comparable<AccessPoint> {
     }
 
     boolean update(ScanResult result) {
-        if (result.seen > mSeen) {
-            mSeen = result.seen;
-        }
-        if (WifiTracker.sVerboseLogging > 0) {
-            if (mScanResultCache == null) {
-                mScanResultCache = new LruCache<String, ScanResult>(32);
-            }
-            mScanResultCache.put(result.BSSID, result);
-        }
+        if (matches(result)) {
+            /* Update the LRU timestamp, if BSSID exists */
+            mScanResultCache.get(result.BSSID);
 
-        if (ssid.equals(result.SSID) && security == getSecurity(result)) {
-            if (WifiManager.compareSignalLevel(result.level, mRssi) > 0) {
-                int oldLevel = getLevel();
-                mRssi = result.level;
-                if (getLevel() != oldLevel && mAccessPointListener != null) {
-                    mAccessPointListener.onLevelChanged(this);
-                }
+            /* Add or update the scan result for the BSSID */
+            mScanResultCache.put(result.BSSID, result);
+
+            int oldLevel = getLevel();
+            int oldRssi = getRssi();
+            mSeen = getSeen();
+            mRssi = (getRssi() + oldRssi)/2;
+            int newLevel = getLevel();
+
+            if (newLevel > 0 && newLevel != oldLevel && mAccessPointListener != null) {
+                mAccessPointListener.onLevelChanged(this);
             }
             // This flag only comes from scans, is not easily saved in config
             if (security == SECURITY_PSK) {
                 pskType = getPskType(result);
             }
-            mScanResult = result;
+
             if (mAccessPointListener != null) {
                 mAccessPointListener.onAccessPointChanged(this);
             }
+
             return true;
         }
         return false;
     }
 
-    boolean update(WifiInfo info, NetworkInfo networkInfo) {
+    boolean update(WifiConfiguration config, WifiInfo info, NetworkInfo networkInfo) {
         boolean reorder = false;
-        if (info != null && isInfoForThisAccessPoint(info)) {
+        if (info != null && isInfoForThisAccessPoint(config, info)) {
             reorder = (mInfo == null);
             mRssi = info.getRssi();
             mInfo = info;
@@ -643,11 +763,44 @@ public class AccessPoint implements Comparable<AccessPoint> {
         return reorder;
     }
 
+    void update(WifiConfiguration config) {
+        mConfig = config;
+        networkId = config.networkId;
+        if (mAccessPointListener != null) {
+            mAccessPointListener.onAccessPointChanged(this);
+        }
+    }
+
     public static String getSummary(Context context, String ssid, DetailedState state,
-            boolean isEphemeral) {
-        if (state == DetailedState.CONNECTED && isEphemeral && ssid == null) {
-            // Special case for connected + ephemeral networks.
-            return context.getString(R.string.connected_via_wfa);
+            boolean isEphemeral, String passpointProvider) {
+        if (state == DetailedState.CONNECTED && ssid == null) {
+            if (TextUtils.isEmpty(passpointProvider) == false) {
+                // Special case for connected + passpoint networks.
+                String format = context.getString(R.string.connected_via_passpoint);
+                return String.format(format, passpointProvider);
+            } else if (isEphemeral) {
+                // Special case for connected + ephemeral networks.
+                return context.getString(R.string.connected_via_wfa);
+            }
+        }
+
+        // Case when there is wifi connected without internet connectivity.
+        final ConnectivityManager cm = (ConnectivityManager)
+                context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (state == DetailedState.CONNECTED) {
+            IWifiManager wifiManager = IWifiManager.Stub.asInterface(
+                    ServiceManager.getService(Context.WIFI_SERVICE));
+            Network nw;
+
+            try {
+                nw = wifiManager.getCurrentNetwork();
+            } catch (RemoteException e) {
+                nw = null;
+            }
+            NetworkCapabilities nc = cm.getNetworkCapabilities(nw);
+            if (nc != null && !nc.hasCapability(nc.NET_CAPABILITY_VALIDATED)) {
+                return context.getString(R.string.wifi_connected_no_internet);
+            }
         }
 
         String[] formats = context.getResources().getStringArray((ssid == null)
@@ -655,13 +808,18 @@ public class AccessPoint implements Comparable<AccessPoint> {
         int index = state.ordinal();
 
         if (index >= formats.length || formats[index].length() == 0) {
-            return null;
+            return "";
         }
         return String.format(formats[index], ssid);
     }
 
     public static String getSummary(Context context, DetailedState state, boolean isEphemeral) {
-        return getSummary(context, null, state, isEphemeral);
+        return getSummary(context, null, state, isEphemeral, null);
+    }
+
+    public static String getSummary(Context context, DetailedState state, boolean isEphemeral,
+            String passpointProvider) {
+        return getSummary(context, null, state, isEphemeral, passpointProvider);
     }
 
     public static String convertToQuotedString(String string) {
@@ -724,6 +882,9 @@ public class AccessPoint implements Comparable<AccessPoint> {
     }
 
     static String removeDoubleQuotes(String string) {
+        if (TextUtils.isEmpty(string)) {
+            return "";
+        }
         int length = string.length();
         if ((length > 1) && (string.charAt(0) == '"')
                 && (string.charAt(length - 1) == '"')) {

@@ -24,6 +24,7 @@ import android.graphics.drawable.AnimatedVectorDrawable;
 import android.graphics.drawable.AnimationDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.RippleDrawable;
 import android.service.notification.StatusBarNotification;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -31,6 +32,7 @@ import android.view.View;
 import android.view.ViewStub;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.animation.LinearInterpolator;
+import android.widget.Chronometer;
 import android.widget.ImageView;
 
 import com.android.systemui.R;
@@ -84,10 +86,10 @@ public class ExpandableNotificationRow extends ActivatableNotificationView {
     private ExpansionLogger mLogger;
     private String mLoggingKey;
     private boolean mWasReset;
-
     private NotificationGuts mGuts;
     private StatusBarNotification mStatusBarNotification;
     private boolean mIsHeadsUp;
+    private boolean mLastChronometerRunning = true;
     private View mExpandButton;
     private View mExpandButtonDivider;
     private ViewStub mExpandButtonStub;
@@ -102,6 +104,7 @@ public class ExpandableNotificationRow extends ActivatableNotificationView {
     private ViewStub mGutsStub;
     private boolean mHasExpandAction;
     private boolean mIsSystemChildExpanded;
+    private boolean mIsPinned;
     private OnClickListener mExpandClickListener = new OnClickListener() {
         @Override
         public void onClick(View v) {
@@ -109,7 +112,8 @@ public class ExpandableNotificationRow extends ActivatableNotificationView {
                     !mChildrenExpanded);
         }
     };
-    private boolean mInShade;
+
+    private boolean mJustClicked;
 
     public NotificationContentView getPrivateLayout() {
         return mPrivateLayout;
@@ -284,16 +288,73 @@ public class ExpandableNotificationRow extends ActivatableNotificationView {
         return realActualHeight;
     }
 
-    public void setInShade(boolean inShade) {
-        mInShade = inShade;
+    /**
+     * Set this notification to be pinned to the top if {@link #isHeadsUp()} is true. By doing this
+     * the notification will be rendered on top of the screen.
+     *
+     * @param pinned whether it is pinned
+     */
+    public void setPinned(boolean pinned) {
+        mIsPinned = pinned;
+        setChronometerRunning(mLastChronometerRunning);
     }
 
-    public boolean isInShade() {
-        return mInShade;
+    public boolean isPinned() {
+        return mIsPinned;
     }
 
     public int getHeadsUpHeight() {
         return mHeadsUpHeight;
+    }
+
+    /**
+     * Mark whether this notification was just clicked, i.e. the user has just clicked this
+     * notification in this frame.
+     */
+    public void setJustClicked(boolean justClicked) {
+        mJustClicked = justClicked;
+    }
+
+    /**
+     * @return true if this notification has been clicked in this frame, false otherwise
+     */
+    public boolean wasJustClicked() {
+        return mJustClicked;
+    }
+
+    public void setChronometerRunning(boolean running) {
+        mLastChronometerRunning = running;
+        setChronometerRunning(running, mPrivateLayout);
+        setChronometerRunning(running, mPublicLayout);
+        if (mChildrenContainer != null) {
+            List<ExpandableNotificationRow> notificationChildren =
+                    mChildrenContainer.getNotificationChildren();
+            for (int i = 0; i < notificationChildren.size(); i++) {
+                ExpandableNotificationRow child = notificationChildren.get(i);
+                child.setChronometerRunning(running);
+            }
+        }
+    }
+
+    private void setChronometerRunning(boolean running, NotificationContentView layout) {
+        if (layout != null) {
+            running = running || isPinned();
+            View contractedChild = layout.getContractedChild();
+            View expandedChild = layout.getExpandedChild();
+            View headsUpChild = layout.getHeadsUpChild();
+            setChronometerRunningForChild(running, contractedChild);
+            setChronometerRunningForChild(running, expandedChild);
+            setChronometerRunningForChild(running, headsUpChild);
+        }
+    }
+
+    private void setChronometerRunningForChild(boolean running, View child) {
+        if (child != null) {
+            View chronometer = child.findViewById(com.android.internal.R.id.chronometer);
+            if (chronometer instanceof Chronometer) {
+                ((Chronometer) chronometer).setStarted(running);
+            }
+        }
     }
 
     public interface ExpansionLogger {
@@ -851,6 +912,11 @@ public class ExpandableNotificationRow extends ActivatableNotificationView {
     }
 
     @Override
+    protected View getContentView() {
+        return getShowingLayout();
+    }
+
+    @Override
     public void setActualHeight(int height, boolean notifyListeners) {
         super.setActualHeight(height, notifyListeners);
         int contentHeight = calculateContentHeightFromActualHeight(height);
@@ -898,11 +964,17 @@ public class ExpandableNotificationRow extends ActivatableNotificationView {
         return mShowingPublic ? mPublicLayout : mPrivateLayout;
     }
 
+    @Override
+    public void setShowingLegacyBackground(boolean showing) {
+        super.setShowingLegacyBackground(showing);
+        mPrivateLayout.setShowingLegacyBackground(showing);
+        mPublicLayout.setShowingLegacyBackground(showing);
+    }
+
     public void setExpansionLogger(ExpansionLogger logger, String key) {
         mLogger = logger;
         mLoggingKey = key;
     }
-
 
     private void logExpansionEvent(boolean userAction, boolean wasExpanded) {
         final boolean nowExpanded = isExpanded();

@@ -1,12 +1,10 @@
 <ul id="nav">
 
-
-<!-- Downloads menu-->
-
   <li class="nav-section">
-    <div class="nav-section-header"><a href="<?cs var:toroot?>sdk/index.html"><span class="en">Download</span></a></div>
+    <div class="nav-section-header"><a href="<?cs var:toroot
+?>sdk/index.html"><span class="en">Download</span></a></div>
     <ul>
-            <li><a href="<?cs var:toroot ?>sdk/installing/index.html">
+      <li><a href="<?cs var:toroot ?>sdk/installing/index.html">
           <span class="en">Installing the SDK</span></a></li>
 
       <li><a href="<?cs var:toroot ?>sdk/installing/adding-packages.html">
@@ -18,13 +16,19 @@
 <!-- Android Studio menu-->
 
  <li class="nav-section">
-    <div class="nav-section-header"><a href="<?cs var:toroot?>tools/studio/index.html"><span class="en">Android Studio</span></a></div>
-       <ul>
-         <li><a href="<?cs var:toroot ?>sdk/installing/studio-tips.html">Tips and Tricks</a> </li>
-       </ul>
+    <div class="nav-section-header">
+      <a href="<?cs var:toroot?>tools/studio/index.html">Android Studio</a>
+    </div>
+    <ul>
+      <li><a href="<?cs var:toroot ?>tools/studio/studio-config.html">
+          Configuration</a></li>
+      <li><a href="<?cs var:toroot ?>tools/studio/studio-features.html">
+          Features</a></li>
+      <li><a href="<?cs var:toroot ?>sdk/installing/studio-tips.html">
+          Tips and Tricks</a></li>
+    </ul>
 
- </li><!-- End of Android Studio Basics -->
-
+ </li><!-- End of Android Studio menu -->
 
 
 <!-- Workflow menu-->
@@ -70,6 +74,7 @@
           <li><a href="<?cs var:toroot ?>tools/building/building-cmdline.html">
             <span class="en">From the Command Line</span></a></li>
         </ul>
+      </li>
 
 
   <li class="nav-section">
@@ -81,8 +86,8 @@
             <a href="<?cs var:toroot?>tools/testing/testing_android.html">
             <span class="en">Fundamentals</span></a>
           </li>
-          <li><a href="<?cs var:toroot ?>tools/testing/testing_studio.html">
-            <span class="en">From Android Studio</span></a>
+          <li><a href="<?cs var:toroot ?>tools/testing/testing_eclipse.html">
+            <span class="en">From Eclipse</span></a>
           </li>
           <li><a href="<?cs var:toroot ?>tools/testing/testing_otheride.html">
             <span class="en">From Other IDEs</span></a>
@@ -128,7 +133,8 @@
       <li><a href="<?cs var:toroot ?>tools/debugging/improving-w-lint.html"><span class="en">Improving Your Code with lint</span></a></li>
       <li><a href="<?cs var:toroot ?>tools/debugging/debugging-ui.html"><span class="en">Optimizing your UI</span></a></li>
       <li><a href="<?cs var:toroot ?>tools/debugging/debugging-tracing.html"><span class="en">Profiling with Traceview and dmtracedump</span></a></li>
-      <li><a href="<?cs var:toroot ?>tools/debugging/systrace.html"><span class="en">Analyzing Display and Performance</span></a></li>
+      <li><a href="<?cs var:toroot ?>tools/debugging/annotations.html"><span class="en">Improving Code Inspection with Annotations</span></a></li>
+      <li><a href="<?cs var:toroot ?>tools/debugging/systrace.html"><span class="en">Analyzing UI Performance</span></a></li>
       <li><a href="<?cs var:toroot ?>tools/debugging/debugging-memory.html">Investigating Your RAM Usage</a></li>
       <li><a href="<?cs var:toroot ?>tools/debugging/debugging-devtools.html"><span class="en">Using the Dev Tools App</span></a></li>
     </ul>
@@ -142,20 +148,19 @@
         </ul>
       </li>
     </ul>
-  </li><!-- end of debugging -->
+  </li>
 
-
-
-<!-- Tool Help menu-->
 
   <li class="nav-section">
-    <div class="nav-section-header"><a href="<?cs var:toroot ?>tools/help/index.html"><span class="en">Tools Help</span></a></div>
+    <div class="nav-section-header"><a href="<?cs var:toroot ?>tools/help/index.html"><span
+class="en">Tools Help</span></a></div>
     <ul>
       <li><a href="<?cs var:toroot ?>tools/help/adb.html">adb</a></li>
       <li><a href="<?cs var:toroot ?>tools/help/android.html">android</a></li>
       <li><a href="<?cs var:toroot ?>tools/help/avd-manager.html">AVD Manager</a></li>
       <li><a href="<?cs var:toroot ?>tools/help/bmgr.html">bmgr</a>
       <li><a href="<?cs var:toroot ?>tools/help/monitor.html">Device Monitor</a></li>
+      <li><a href="<?cs var:toroot ?>tools/help/desktop-head-unit.html">Desktop Head Unit</a></li>
       <li><a href="<?cs var:toroot ?>tools/help/dmtracedump.html">dmtracedump</a></li>
       <li><a href="<?cs var:toroot ?>tools/help/draw9patch.html">Draw 9-Patch</a></li>
       <li><a href="<?cs var:toroot ?>tools/help/emulator.html">Emulator</a></li>
@@ -174,6 +179,7 @@
        <li><a href="<?cs var:toroot ?>tools/help/zipalign.html">zipalign</a></li>
     </ul>
   </li>
+
   </li><!-- end of tools help -->
 
 
@@ -188,15 +194,79 @@
         <span class="en">Configuring Gradle Builds</span></a></li>
       <li><a href="<?cs var:toroot ?>tools/building/plugin-for-gradle.html">
         <span class="en">Android Plugin for Gradle</span></a></li>
+      <li><a href="<?cs var:toroot ?>tools/building/manifest-merge.html">
+        <span class="en">Manifest Merging</span></a></li>
       <li><a href="<?cs var:toroot ?>tools/building/multidex.html">
         <span class="en">Apps Over 65K Methods</span></a></li>
       </ul>
   </li><!-- end of build system -->
 
+
+<!-- Performance Tools menu-->
+  <li class="nav-section">
+    <div class="nav-section-header">
+      <a href="<?cs var:toroot ?>tools/performance/index.html">Peformance Tools</a>
+    </div>
+    <ul>
+      <li><a href="<?cs var:toroot ?>tools/performance/debug-gpu-overdraw/index.html">
+        Overdraw Debugger</a>
+      </li>
+      <li><a href="<?cs var:toroot ?>tools/performance/profile-gpu-rendering/index.html">
+        Rendering Profiler</a>
+      </li>
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>tools/performance/hierarchy-viewer/index.html">
+          Hierarchy Viewer</a></div>
+        <ul>
+          <li><a href="<?cs var:toroot ?>tools/performance/hierarchy-viewer/setup.html"><span
+            class="en">Setup</span></a>
+          </li>
+          <li><a href="<?cs var:toroot ?>tools/performance/hierarchy-viewer/profiling.html"><span
+            class="en">Profiling</span></a>
+          </li>
+        </ul>
+      </li>
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>tools/performance/comparison.html">
+          Memory Profilers</a></div>
+        <ul>
+          <li><a href="<?cs var:toroot ?>tools/performance/memory-monitor/index.html"><span
+            class="en">Memory Monitor</span></a>
+          </li>
+          <li><a href="<?cs var:toroot ?>tools/performance/heap-viewer/index.html"><span
+            class="en">Heap Viewer</span></a>
+          </li>
+          <li><a href="<?cs var:toroot ?>tools/performance/allocation-tracker/index.html"><span
+            class="en">Allocation Tracker</span></a>
+          </li>
+        </ul>
+      </li>
+      <li><a href="<?cs var:toroot ?>tools/performance/traceview/index.html">
+        Traceview</a>
+      </li>
+      <li><a href="<?cs var:toroot ?>tools/performance/systrace/index.html">
+        Systrace</a>
+      </li>
+      <li class="nav-section">
+        <div class="nav-section-header">
+          <a href="<?cs var:toroot ?>tools/performance/batterystats-battery-historian/index.html">
+          Battery Profilers</a></div>
+        <ul>
+          <li><a href="<?cs var:toroot ?>tools/performance/batterystats-battery-historian/charts.html"><span
+            class="en">Historian Charts</span></a>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </li><!-- End Performance Tools menu-->
+
+
   <!-- Testing Tools menu-->
 
   <li class="nav-section">
-    <div class="nav-section-header"><a href="<?cs var:toroot ?>tools/testing/testing-tools.html""><span class="en">Testing Tools</span></a></div>
+    <div class="nav-section-header"><a href="<?cs var:toroot ?>tools/testing/testing-tools.html"><span class="en">Testing Tools</span></a></div>
     <ul>
       <li class="nav-section">
          <div class="nav-section-header"><a href="<?cs var:toroot ?>tools/testing-support-library/index.html"><span
@@ -233,6 +303,10 @@ class="en">Support Library</span></a></div>
     </ul>
   </li><!-- end of support library -->
 
+  <li class="nav-section">
+    <div class="nav-section-header empty"><a href="<?cs var:toroot ?>tools/data-binding/guide.html"><span
+class="en">Data Binding Library</span></a></div>
+  </li><!-- end of support library -->
 
 
 <!-- Revision menu-->
@@ -244,9 +318,8 @@ class="en">Support Library</span></a></div>
       <li><a href="<?cs var:toroot ?>tools/revisions/studio.html">
         <span class="en">Android Studio</span>
       </a></li>
-      <li><a href="<?cs var:toroot ?>tools/revisions/sdk/tools-notes.html">
+      <li><a href="<?cs var:toroot ?>tools/sdk/tools-notes.html">
         <span class="en">SDK Tools</span>
-      </a></li>
       </a></li>
       <li><a href="<?cs var:toroot ?>tools/revisions/build-tools.html">
         <span class="en">SDK Build Tools</span>
@@ -259,23 +332,15 @@ class="en">Support Library</span></a></div>
       <li><a href="<?cs var:toroot ?>tools/sdk/eclipse-adt.html">
         <span class="en">ADT Plugin</span></a></li>
     </ul>
-  </li><!-- end of revision -->
-
-
-
-<!-- NDK menu-->
+  </li>
 
   <li class="nav-section">
     <div class="nav-section-header empty">
-      <a href="<?cs var:toroot ?>tools/ndk/index.html">NDK</a>
+      <a href="<?cs var:toroot ?>tools/sdk/ndk/index.html">NDK</a>
     </div>
-  </li><!-- end of NDK -->
+  </li>
 
-
-
-<!-- ADK menu-->
-
-  <li class="nav-section">
+<!--  <li class="nav-section">
     <div class="nav-section-header">
     <a href="<?cs var:toroot ?>tools/adk/index.html">
       <span class="en">ADK</span></a>
@@ -284,8 +349,7 @@ class="en">Support Library</span></a></div>
       <li><a href="<?cs var:toroot ?>tools/adk/adk2.html">ADK 2012 Guide</a></li>
       <li><a href="<?cs var:toroot ?>tools/adk/adk.html">ADK 2011 Guide</a></li>
     </ul>
-  </li><!-- end of ADK -->
-
+  </li> -->
 
 
 <!-- Eclipse ADT menu-->
@@ -296,7 +360,15 @@ class="en">Support Library</span></a></div>
       <span class="en">Eclipse with ADT</span></a>
     </div>
     <ul>
-    <li><a href="<?cs var:toroot ?>sdk/installing/migrate.html">Migrating to Android Studio</a></li>
+        <li class="nav-section">
+        <div class="nav-section-header"><a href="<?cs var:toroot ?>sdk/installing/migrate.html">
+          <span class="en">Migrating to Android Studio</span></a></div>
+         <ul>
+            <li><a href="<?cs var:toroot ?>tools/studio/eclipse-transition-guide.html">
+            Transition Guide</span></a> </li>
+         </ul>
+        </li>
+
     <li><a href="<?cs var:toroot ?>sdk/installing/installing-adt.html">
         <span class="en">Installing the Eclipse Plugin</span></a></li>
     <li><a href="<?cs var:toroot ?>tools/projects/projects-eclipse.html">Managing Projects</a></li>

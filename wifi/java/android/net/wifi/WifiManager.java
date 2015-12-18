@@ -206,6 +206,16 @@ public class WifiManager {
      * @hide
      */
     public static final String EXTRA_WIFI_AP_STATE = "wifi_state";
+
+    /**
+     * The look up key for an int that indicates why softAP started failed
+     * currently support general and no_channel
+     * @see #SAP_START_FAILURE_GENERAL
+     * @see #SAP_START_FAILURE_NO_CHANNEL
+     *
+     * @hide
+     */
+    public static final String EXTRA_WIFI_AP_FAILURE_REASON = "wifi_ap_error_code";
     /**
      * The previous Wi-Fi state.
      *
@@ -263,6 +273,20 @@ public class WifiManager {
      */
     public static final int WIFI_AP_STATE_FAILED = 14;
 
+    /**
+     *  If WIFI AP start failed, this reason code means there is no legal channel exists on
+     *  user selected band by regulatory
+     *
+     *  @hide
+     */
+    public static final int SAP_START_FAILURE_GENERAL= 0;
+
+    /**
+     *  All other reason for AP start failed besides SAP_START_FAILURE_GENERAL
+     *
+     *  @hide
+     */
+    public static final int SAP_START_FAILURE_NO_CHANNEL = 1;
     /**
      * Broadcast intent action indicating that a connection to the supplicant has
      * been established (and it is now possible
@@ -399,10 +423,20 @@ public class WifiManager {
     public static final int CHANGE_REASON_CONFIG_CHANGE = 2;
     /**
      * An access point scan has completed, and results are available from the supplicant.
-     * Call {@link #getScanResults()} to obtain the results.
+     * Call {@link #getScanResults()} to obtain the results. {@link #EXTRA_RESULTS_UPDATED}
+     * indicates if the scan was completed successfully.
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String SCAN_RESULTS_AVAILABLE_ACTION = "android.net.wifi.SCAN_RESULTS";
+
+    /**
+     * Lookup key for a {@code boolean} representing the result of previous {@link #startScan}
+     * operation, reported with {@link #SCAN_RESULTS_AVAILABLE_ACTION}.
+     * @return true scan was successful, results are updated
+     * @return false scan was not successful, results haven't been updated since previous scan
+     */
+    public static final String EXTRA_RESULTS_UPDATED = "resultsUpdated";
+
     /**
      * A batch of access point scans has been completed and the results areavailable.
      * Call {@link #getBatchedScanResults()} to obtain the results.
@@ -635,6 +669,7 @@ public class WifiManager {
         try {
             return mService.getConfiguredNetworks();
         } catch (RemoteException e) {
+            Log.w(TAG, "Caught RemoteException trying to get configured networks: " + e);
             return null;
         }
     }
@@ -757,7 +792,7 @@ public class WifiManager {
      * of state change events.
      * <p>
      * <b>Note:</b> If an application's target SDK version is
-     * {@link android.os.Build.VERSION_CODES#MNC} or newer, network
+     * {@link android.os.Build.VERSION_CODES#LOLLIPOP} or newer, network
      * communication may not use Wi-Fi even if Wi-Fi is connected; traffic may
      * instead be sent through another network, such as cellular data,
      * Bluetooth tethering, or Ethernet. For example, traffic will never use a
@@ -776,7 +811,7 @@ public class WifiManager {
      * @return {@code true} if the operation succeeded
      */
     public boolean enableNetwork(int netId, boolean disableOthers) {
-        final boolean pin = disableOthers && mTargetSdkVersion < Build.VERSION_CODES.MNC;
+        final boolean pin = disableOthers && mTargetSdkVersion < Build.VERSION_CODES.LOLLIPOP;
         if (pin) {
             registerPinningNetworkCallback();
         }
@@ -1057,7 +1092,7 @@ public class WifiManager {
             }
             synchronized(this) {
                 record = mService.reportActivityInfo();
-                if (record.isValid()) {
+                if (record != null && record.isValid()) {
                     return record;
                 } else {
                     return null;
@@ -1266,7 +1301,10 @@ public class WifiManager {
 
     /**
      * Return the results of the latest access point scan.
-     * @return the list of access points found in the most recent scan.
+     * @return the list of access points found in the most recent scan. An app must hold
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION ACCESS_COARSE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION ACCESS_FINE_LOCATION} permission
+     * in order to get valid results.
      */
     public List<ScanResult> getScanResults() {
         try {
@@ -1552,6 +1590,7 @@ public class WifiManager {
         try {
             return mService.buildWifiConfig(uriString, mimeType, data);
         } catch (RemoteException e) {
+            Log.w(TAG, "Caught RemoteException trying to build wifi config: " + e);
             return null;
         }
     }
@@ -2770,30 +2809,6 @@ public class WifiManager {
     }
 
     /**
-     * Set setting for allowing Scans when infrastructure is associated
-     * @hide
-     */
-    public void setAllowScansWhileAssociated(boolean enabled) {
-        try {
-            mService.setAllowScansWhileAssociated(enabled);
-        } catch (RemoteException e) {
-
-        }
-    }
-
-    /**
-     * Get setting for allowing Scans when infrastructure is associated
-     * @hide
-     */
-    public boolean getAllowScansWhileAssociated() {
-        try {
-            return mService.getAllowScansWhileAssociated();
-        } catch (RemoteException e) {
-        }
-        return false;
-    }
-
-    /**
      * Resets all wifi manager settings back to factory defaults.
      *
      * @hide
@@ -2803,5 +2818,67 @@ public class WifiManager {
             mService.factoryReset();
         } catch (RemoteException e) {
         }
+    }
+
+    /**
+     * Get Network object of current wifi network
+     * @return Get Network object of current wifi network
+     * @hide
+     */
+    public Network getCurrentNetwork() {
+        try {
+            return mService.getCurrentNetwork();
+        } catch (RemoteException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Framework layer autojoin enable/disable when device is associated
+     * this will enable/disable autojoin scan and switch network when connected
+     * @return true -- if set successful false -- if set failed
+     * @hide
+     */
+    public boolean enableAutoJoinWhenAssociated(boolean enabled) {
+        try {
+            return mService.enableAutoJoinWhenAssociated(enabled);
+        } catch (RemoteException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get setting for Framework layer autojoin enable status
+     * @hide
+     */
+    public boolean getEnableAutoJoinWhenAssociated() {
+        try {
+            return mService.getEnableAutoJoinWhenAssociated();
+        } catch (RemoteException e) {
+            return false;
+        }
+    }
+    /**
+     * Set setting for enabling autojoin Offload thru Wifi HAL layer
+     * @hide
+     */
+    public void setHalBasedAutojoinOffload(int enabled) {
+        try {
+            mService.setHalBasedAutojoinOffload(enabled);
+        } catch (RemoteException e) {
+
+        }
+    }
+
+    /**
+     * Get setting for enabling autojoin Offload thru Wifi HAL layer
+     * @hide
+     */
+    public int getHalBasedAutojoinOffload() {
+        try {
+            return mService.getHalBasedAutojoinOffload();
+        } catch (RemoteException e) {
+        }
+        return 0;
     }
 }

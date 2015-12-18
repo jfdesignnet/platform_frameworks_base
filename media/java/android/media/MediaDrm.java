@@ -89,10 +89,23 @@ import android.util.Log;
  * encrypted content, the samples returned from the extractor remain encrypted, they
  * are only decrypted when the samples are delivered to the decoder.
  * <p>
- * MediaDrm methods throw {@link java.lang.IllegalStateException}
- * when a method is called on a MediaDrm object that is in an invalid or inoperable
- * state. This is typically due to incorrect application API usage, but may also
- * be due to an unrecoverable failure in the DRM plugin or security hardware.
+ * MediaDrm methods throw {@link android.media.MediaDrm.MediaDrmStateException}
+ * when a method is called on a MediaDrm object that has had an unrecoverable failure 
+ * in the DRM plugin or security hardware. 
+ * {@link android.media.MediaDrm.MediaDrmStateException} extends 
+ * {@link java.lang.IllegalStateException} with the addition of a developer-readable 
+ * diagnostic information string associated with the exception.
+ * <p>
+ * In the event of a mediaserver process crash or restart while a MediaDrm object
+ * is active, MediaDrm methods may throw {@link android.media.MediaDrmResetException}.
+ * To recover, the app must release the MediaDrm object, then create and initialize
+ * a new one.
+ * <p>
+ * As {@link android.media.MediaDrmResetException} and 
+ * {@link android.media.MediaDrm.MediaDrmStateException} both extend 
+ * {@link java.lang.IllegalStateException}, they should be in an earlier catch() 
+ * block than {@link java.lang.IllegalStateException} if handled separately.
+ * <p>
  * <a name="Callbacks"></a>
  * <h3>Callbacks</h3>
  * <p>Applications should register for informational events in order
@@ -110,10 +123,10 @@ public final class MediaDrm {
     private static final String PERMISSION = android.Manifest.permission.ACCESS_DRM_CERTIFICATES;
 
     private EventHandler mEventHandler;
-    private EventHandler mOnKeysChangeEventHandler;
+    private EventHandler mOnKeyStatusChangeEventHandler;
     private EventHandler mOnExpirationUpdateEventHandler;
     private OnEventListener mOnEventListener;
-    private OnKeysChangeListener mOnKeysChangeListener;
+    private OnKeyStatusChangeListener mOnKeyStatusChangeListener;
     private OnExpirationUpdateListener mOnExpirationUpdateListener;
 
     private long mNativeContext;
@@ -282,7 +295,8 @@ public final class MediaDrm {
          * @param md the MediaDrm object on which the event occurred
          * @param sessionId the DRM session ID on which the event occurred
          * @param expirationTime the new expiration time for the keys in the session.
-         *     The time is in milliseconds, relative to the Unix epoch.
+         *     The time is in milliseconds, relative to the Unix epoch.  A time of
+         *     0 indicates that the keys never expire.
          */
         void onExpirationUpdate(
                 @NonNull MediaDrm md, @NonNull byte[] sessionId, long expirationTime);
@@ -297,8 +311,8 @@ public final class MediaDrm {
      * @param handler the handler on which the listener should be invoked, or
      *     null if the listener should be invoked on the calling thread's looper.
      */
-    public void setOnKeysChangeListener(
-            @Nullable OnKeysChangeListener listener, @Nullable Handler handler) {
+    public void setOnKeyStatusChangeListener(
+            @Nullable OnKeyStatusChangeListener listener, @Nullable Handler handler) {
         if (listener != null) {
             Looper looper = handler != null ? handler.getLooper() : Looper.myLooper();
             if (looper != null) {
@@ -307,14 +321,14 @@ public final class MediaDrm {
                 }
             }
         }
-        mOnKeysChangeListener = listener;
+        mOnKeyStatusChangeListener = listener;
     }
 
     /**
      * Interface definition for a callback to be invoked when the keys in a drm
      * session change states.
      */
-    public interface OnKeysChangeListener
+    public interface OnKeyStatusChangeListener
     {
         /**
          * Called when the keys in a session change status, such as when the license
@@ -328,63 +342,63 @@ public final class MediaDrm {
          *     which may trigger an attempt to resume playback on the media stream
          *     if it is currently blocked waiting for a key.
          */
-        void onKeysChange(
+        void onKeyStatusChange(
                 @NonNull MediaDrm md, @NonNull byte[] sessionId,
                 @NonNull List<KeyStatus> keyInformation,
                 boolean hasNewUsableKey);
     }
 
     /**
-     * The key is currently usable to decrypt media data
-     */
-    public static final int KEY_STATUS_USABLE = 0;
-
-    /**
-     * The key is no longer usable to decrypt media data because its
-     * expiration time has passed.
-     */
-    public static final int KEY_STATUS_EXPIRED = 1;
-
-    /**
-     * The key is not currently usable to decrypt media data because its
-     * output requirements cannot currently be met.
-     */
-    public static final int KEY_STATUS_OUTPUT_NOT_ALLOWED = 2;
-
-    /**
-     * The status of the key is not yet known and is being determined.
-     * The status will be updated with the actual status when it has
-     * been determined.
-     */
-    public static final int KEY_STATUS_PENDING = 3;
-
-    /**
-     * The key is not currently usable to decrypt media data because of an
-     * internal error in processing unrelated to input parameters.  This error
-     * is not actionable by an app.
-     */
-    public static final int KEY_STATUS_INTERNAL_ERROR = 4;
-
-    /** @hide */
-    @IntDef({
-        KEY_STATUS_USABLE,
-        KEY_STATUS_EXPIRED,
-        KEY_STATUS_OUTPUT_NOT_ALLOWED,
-        KEY_STATUS_PENDING,
-        KEY_STATUS_INTERNAL_ERROR,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface KeyStatusCode {}
-
-    /**
      * Defines the status of a key.
      * A KeyStatus for each key in a session is provided to the
-     * {@link OnKeysChangeListener#onKeysChange}
+     * {@link OnKeyStatusChangeListener#onKeyStatusChange}
      * listener.
      */
     public static final class KeyStatus {
         private final byte[] mKeyId;
         private final int mStatusCode;
+
+        /**
+         * The key is currently usable to decrypt media data
+         */
+        public static final int STATUS_USABLE = 0;
+
+        /**
+         * The key is no longer usable to decrypt media data because its
+         * expiration time has passed.
+         */
+        public static final int STATUS_EXPIRED = 1;
+
+        /**
+         * The key is not currently usable to decrypt media data because its
+         * output requirements cannot currently be met.
+         */
+        public static final int STATUS_OUTPUT_NOT_ALLOWED = 2;
+
+        /**
+         * The status of the key is not yet known and is being determined.
+         * The status will be updated with the actual status when it has
+         * been determined.
+         */
+        public static final int STATUS_PENDING = 3;
+
+        /**
+         * The key is not currently usable to decrypt media data because of an
+         * internal error in processing unrelated to input parameters.  This error
+         * is not actionable by an app.
+         */
+        public static final int STATUS_INTERNAL_ERROR = 4;
+
+        /** @hide */
+        @IntDef({
+            STATUS_USABLE,
+            STATUS_EXPIRED,
+            STATUS_OUTPUT_NOT_ALLOWED,
+            STATUS_PENDING,
+            STATUS_INTERNAL_ERROR,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface KeyStatusCode {}
 
         KeyStatus(@NonNull byte[] keyId, @KeyStatusCode int statusCode) {
             mKeyId = keyId;
@@ -393,6 +407,9 @@ public final class MediaDrm {
 
         /**
          * Returns the status code for the key
+         * @return one of {@link #STATUS_USABLE}, {@link #STATUS_EXPIRED},
+         * {@link #STATUS_OUTPUT_NOT_ALLOWED}, {@link #STATUS_PENDING}
+         * or {@link #STATUS_INTERNAL_ERROR}.
          */
         @KeyStatusCode
         public int getStatusCode() { return mStatusCode; }
@@ -484,7 +501,7 @@ public final class MediaDrm {
 
     private static final int DRM_EVENT = 200;
     private static final int EXPIRATION_UPDATE = 201;
-    private static final int KEYS_CHANGE = 202;
+    private static final int KEY_STATUS_CHANGE = 202;
 
     private class EventHandler extends Handler
     {
@@ -522,8 +539,8 @@ public final class MediaDrm {
                 }
                 return;
 
-            case KEYS_CHANGE:
-                if (mOnKeysChangeListener != null) {
+            case KEY_STATUS_CHANGE:
+                if (mOnKeyStatusChangeListener != null) {
                     if (msg.obj != null && msg.obj instanceof Parcel) {
                         Parcel parcel = (Parcel)msg.obj;
                         byte[] sessionId = parcel.createByteArray();
@@ -531,9 +548,9 @@ public final class MediaDrm {
                             List<KeyStatus> keyStatusList = keyStatusListFromParcel(parcel);
                             boolean hasNewUsableKey = (parcel.readInt() != 0);
 
-                            Log.i(TAG, "Drm keys change");
-                            mOnKeysChangeListener.onKeysChange(mMediaDrm, sessionId, keyStatusList,
-                                    hasNewUsableKey);
+                            Log.i(TAG, "Drm key status changed");
+                            mOnKeyStatusChangeListener.onKeyStatusChange(mMediaDrm, sessionId,
+                                    keyStatusList, hasNewUsableKey);
                         }
                     }
                 }
@@ -641,36 +658,36 @@ public final class MediaDrm {
     public @interface KeyType {}
 
     /**
-     * Key request type is initial license request
-     */
-    public static final int REQUEST_TYPE_INITIAL = 0;
-
-    /**
-     * Key request type is license renewal
-     */
-    public static final int REQUEST_TYPE_RENEWAL = 1;
-
-    /**
-     * Key request type is license release
-     */
-    public static final int REQUEST_TYPE_RELEASE = 2;
-
-    /** @hide */
-    @IntDef({
-        REQUEST_TYPE_INITIAL,
-        REQUEST_TYPE_RENEWAL,
-        REQUEST_TYPE_RELEASE,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface RequestType {}
-
-    /**
      * Contains the opaque data an app uses to request keys from a license server
      */
     public static final class KeyRequest {
         private byte[] mData;
         private String mDefaultUrl;
         private int mRequestType;
+
+        /**
+         * Key request type is initial license request
+         */
+        public static final int REQUEST_TYPE_INITIAL = 0;
+
+        /**
+         * Key request type is license renewal
+         */
+        public static final int REQUEST_TYPE_RENEWAL = 1;
+
+        /**
+         * Key request type is license release
+         */
+        public static final int REQUEST_TYPE_RELEASE = 2;
+
+        /** @hide */
+        @IntDef({
+            REQUEST_TYPE_INITIAL,
+            REQUEST_TYPE_RENEWAL,
+            REQUEST_TYPE_RELEASE,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface RequestType {}
 
         KeyRequest() {}
 
@@ -707,6 +724,8 @@ public final class MediaDrm {
 
         /**
          * Get the type of the request
+         * @return one of {@link #REQUEST_TYPE_INITIAL},
+         * {@link #REQUEST_TYPE_RENEWAL} or {@link #REQUEST_TYPE_RELEASE}
          */
         @RequestType
         public int getRequestType() { return mRequestType; }

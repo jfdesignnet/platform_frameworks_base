@@ -80,11 +80,16 @@ static jlong Shader_setLocalMatrix(JNIEnv* env, jobject o, jlong shaderHandle, j
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static jlong BitmapShader_constructor(JNIEnv* env, jobject o, jlong bitmapHandle,
+static jlong BitmapShader_constructor(JNIEnv* env, jobject o, jobject jbitmap,
                                       jint tileModeX, jint tileModeY)
 {
-    const SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapHandle);
-    SkShader* s = SkShader::CreateBitmapShader(*bitmap,
+    SkBitmap bitmap;
+    if (jbitmap) {
+        // Only pass a valid SkBitmap object to the constructor if the Bitmap exists. Otherwise,
+        // we'll pass an empty SkBitmap to avoid crashing/excepting for compatibility.
+        GraphicsJNI::getSkBitmap(env, jbitmap, &bitmap);
+    }
+    SkShader* s = SkShader::CreateBitmapShader(bitmap,
                                         (SkShader::TileMode)tileModeX,
                                         (SkShader::TileMode)tileModeY);
 
@@ -249,7 +254,7 @@ static JNINativeMethod gShaderMethods[] = {
 };
 
 static JNINativeMethod gBitmapShaderMethods[] = {
-    { "nativeCreate",     "(JII)J",  (void*)BitmapShader_constructor },
+    { "nativeCreate",     "(Landroid/graphics/Bitmap;II)J",  (void*)BitmapShader_constructor },
 };
 
 static JNINativeMethod gLinearGradientMethods[] = {

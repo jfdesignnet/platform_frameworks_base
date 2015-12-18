@@ -294,6 +294,29 @@ public class ArrayUtils {
     }
 
     /**
+     * Removes value from given array if present, providing set-like behavior.
+     */
+    public static @Nullable String[] removeString(@Nullable String[] cur, String val) {
+        if (cur == null) {
+            return null;
+        }
+        final int N = cur.length;
+        for (int i = 0; i < N; i++) {
+            if (Objects.equals(cur[i], val)) {
+                String[] ret = new String[N - 1];
+                if (i > 0) {
+                    System.arraycopy(cur, 0, ret, 0, i);
+                }
+                if (i < (N - 1)) {
+                    System.arraycopy(cur, i + 1, ret, i, N - i - 1);
+                }
+                return ret;
+            }
+        }
+        return cur;
+    }
+
+    /**
      * Adds value to given array if not already present, providing set-like
      * behavior.
      */
@@ -386,5 +409,27 @@ public class ArrayUtils {
 
     public static <T> boolean contains(ArrayList<T> cur, T val) {
         return (cur != null) ? cur.contains(val) : false;
+    }
+
+    /**
+     * Returns true if the two ArrayLists are equal with respect to the objects they contain.
+     * The objects must be in the same order and be reference equal (== not .equals()).
+     */
+    public static <T> boolean referenceEquals(ArrayList<T> a, ArrayList<T> b) {
+        if (a == b) {
+            return true;
+        }
+
+        final int sizeA = a.size();
+        final int sizeB = b.size();
+        if (a == null || b == null || sizeA != sizeB) {
+            return false;
+        }
+
+        boolean diff = false;
+        for (int i = 0; i < sizeA && !diff; i++) {
+            diff |= a.get(i) != b.get(i);
+        }
+        return !diff;
     }
 }

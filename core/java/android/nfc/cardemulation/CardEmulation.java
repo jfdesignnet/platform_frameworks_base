@@ -40,7 +40,7 @@ import java.util.List;
  * NFC card emulation services.
  *
  * For a general introduction into NFC card emulation,
- * please read the <a href="{@docRoot}guide/topics/nfc/ce.html">
+ * please read the <a href="{@docRoot}guide/topics/connectivity/nfc/hce.html">
  * NFC card emulation developer guide</a>.</p>
  *
  * <p class="note">Use of this class requires the
@@ -88,37 +88,6 @@ public final class CardEmulation {
      * services.
      */
     public static final String CATEGORY_OTHER = "other";
-
-    /**
-     * Ordered broadcast that can be sent to your app to
-     * request a description and banner to be shown in
-     * Android Settings UI.
-     * When sent to you, this broadcast will contain the
-     * {@link #EXTRA_SERVICE_COMPONENT} extra to identify
-     * the service.
-     *
-     * Note that this broadcast will only be sent to your
-     * app, if a card emulation service in your app has requested
-     * its resources to be loaded dynamically.
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_REQUEST_SERVICE_RESOURCES =
-            "android.nfc.cardemulation.action.REQUEST_SERVICE_RESOURCES";
-
-    /**
-     * The description of the service. Note that this must
-     * be localized by your app, as the String will be shown
-     * as is.
-     */
-    public static final String EXTRA_DESCRIPTION =
-            "android.nfc.cardemulation.extra.DESCRIPTION";
-
-    /**
-     * The resource ID of the service banner to be shown
-     * for this service.
-     */
-    public static final String EXTRA_BANNER_RES_ID =
-            "android.nfc.cardemulation.extra.BANNER_RES_ID";
 
     /**
      * Return value for {@link #getSelectionModeForCategory(String)}.

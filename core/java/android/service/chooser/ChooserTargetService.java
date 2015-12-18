@@ -44,7 +44,7 @@ import java.util.List;
  * the {@link android.Manifest.permission#BIND_CHOOSER_TARGET_SERVICE} permission
  * and include an intent filter with the {@link #SERVICE_INTERFACE} action. For example:</p>
  * <pre>
- *     &lt;service android:name=".ChooserTargetService"
+ *     &lt;service android:name=".MyChooserTargetService"
  *             android:label="&#64;string/service_name"
  *             android:permission="android.permission.BIND_CHOOSER_TARGET_SERVICE">
  *         &lt;intent-filter>
@@ -69,7 +69,7 @@ import java.util.List;
  *             &lt;action android:name="android.intent.action.SEND" />
  *         &lt;/intent-filter>
  *         &lt;meta-data android:name="android.service.chooser.chooser_target_service"
- *                 android:value=".ChooserTargetService" />
+ *                 android:value=".MyChooserTargetService" />
  *     &lt;/activity>
  * </pre>
  */
@@ -105,9 +105,8 @@ public abstract class ChooserTargetService extends Service {
      * can handle an intent.
      *
      * <p>The returned list should be sorted such that the most relevant targets appear first.
-     * Any PendingIntents used to construct the resulting ChooserTargets should always be prepared
-     * to have the relevant data fields filled in by the sender. See
-     * {@link ChooserTarget#ChooserTarget(CharSequence, android.graphics.Bitmap, float, android.app.PendingIntent) ChooserTarget}.</p>
+     * The score for each ChooserTarget will be combined with the system's score for the original
+     * target Activity to sort and filter targets presented to the user.</p>
      *
      * <p><em>Important:</em> Calls to this method from other applications will occur on
      * a binder thread, not on your app's main thread. Make sure that access to relevant data

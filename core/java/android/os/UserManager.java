@@ -45,7 +45,9 @@ public class UserManager {
     private final Context mContext;
 
     /**
-     * Specifies if a user is disallowed from adding and removing accounts.
+     * Specifies if a user is disallowed from adding and removing accounts, unless they are
+     * {@link android.accounts.AccountManager#addAccountExplicitly programmatically} added by
+     * Authenticator.
      * The default value is <code>false</code>.
      *
      * <p/>Key for user restrictions.
@@ -177,7 +179,8 @@ public class UserManager {
     /**
      * Specifies if a user is disallowed from configuring VPN.
      * The default value is <code>false</code>.
-     * This restriction has no effect in a managed profile.
+     * This restriction has an effect in a managed profile only from
+     * {@link android.os.Build.VERSION_CODES#M}
      *
      * <p/>Key for user restrictions.
      * <p/>Type: Boolean
@@ -197,6 +200,20 @@ public class UserManager {
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_CONFIG_TETHERING = "no_config_tethering";
+
+    /**
+     * Specifies if a user is disallowed from resetting network settings
+     * from Settings. This can only be set by device owners and profile owners on the primary user.
+     * The default value is <code>false</code>.
+     * <p/>This restriction has no effect on secondary users and managed profiles since only the
+     * primary user can reset the network settings of the device.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
+     * @see #setUserRestrictions(Bundle)
+     * @see #getUserRestrictions()
+     */
+    public static final String DISALLOW_NETWORK_RESET = "no_network_reset";
 
     /**
      * Specifies if a user is disallowed from factory resetting
@@ -347,6 +364,18 @@ public class UserManager {
     public static final String DISALLOW_SMS = "no_sms";
 
     /**
+     * Specifies if the user is not allowed to have fun. In some cases, the
+     * device owner may wish to prevent the user from experiencing amusement or
+     * joy while using the device. The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
+     * @see #setUserRestrictions(Bundle)
+     * @see #getUserRestrictions()
+     */
+    public static final String DISALLOW_FUN = "no_fun";
+
+    /**
      * Specifies that windows besides app windows should not be
      * created. This will block the creation of the following types of windows.
      * <li>{@link LayoutParams#TYPE_TOAST}</li>
@@ -410,6 +439,35 @@ public class UserManager {
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_SAFE_BOOT = "no_safe_boot";
+
+    /**
+     * Specifies if a user is not allowed to record audio. This restriction is always enabled for
+     * background users. The default value is <code>false</code>.
+     *
+     * @see #setUserRestrictions(Bundle)
+     * @see #getUserRestrictions()
+     * @hide
+     */
+    public static final String DISALLOW_RECORD_AUDIO = "no_record_audio";
+
+    /**
+     * Allows apps in the parent profile to handle web links from the managed profile.
+     *
+     * This user restriction has an effect only in a managed profile.
+     * If set:
+     * Intent filters of activities in the parent profile with action
+     * {@link android.content.Intent#ACTION_VIEW},
+     * category {@link android.content.Intent#CATEGORY_BROWSABLE}, scheme http or https, and which
+     * define a host can handle intents from the managed profile.
+     * The default value is <code>false</code>.
+     *
+     * <p/>Key for user restrictions.
+     * <p/>Type: Boolean
+     * @see #setUserRestrictions(Bundle)
+     * @see #getUserRestrictions()
+     */
+    public static final String ALLOW_PARENT_PROFILE_APP_LINKING
+            = "allow_parent_profile_app_linking";
 
     /**
      * Application restriction key that is used to indicate the pending arrival
@@ -513,6 +571,16 @@ public class UserManager {
      */
     public boolean isSystemUser() {
         return UserHandle.myUserId() == UserHandle.USER_OWNER;
+    }
+
+    /**
+     * @hide
+     * Returns whether the caller is running as an admin user. There can be more than one admin
+     * user.
+     */
+    public boolean isAdminUser() {
+        UserInfo user = getUserInfo(UserHandle.myUserId());
+        return user != null ? user.isAdmin() : false;
     }
 
     /**
@@ -688,9 +756,11 @@ public class UserManager {
      */
     @Deprecated
     public void setUserRestriction(String key, boolean value, UserHandle userHandle) {
-        Bundle bundle = getUserRestrictions(userHandle);
-        bundle.putBoolean(key, value);
-        setUserRestrictions(bundle, userHandle);
+        try {
+            mService.setUserRestriction(key, value, userHandle.getIdentifier());
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not set user restriction", re);
+        }
     }
 
     /**
@@ -744,7 +814,7 @@ public class UserManager {
      * @see #getSerialNumberForUser(UserHandle)
      */
     public UserHandle getUserForSerialNumber(long serialNumber) {
-        int ident = getUserHandle((int)serialNumber);
+        int ident = getUserHandle((int) serialNumber);
         return ident >= 0 ? new UserHandle(ident) : null;
     }
 
@@ -921,10 +991,26 @@ public class UserManager {
     }
 
     /**
+     * Checks whether it's possible to add more managed profiles. Caller must hold the MANAGE_USERS
+     * permission.
+     *
+     * @return true if more managed profiles can be added, false if limit has been reached.
+     * @hide
+     */
+    public boolean canAddMoreManagedProfiles() {
+        try {
+            return mService.canAddMoreManagedProfiles();
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not check if we can add more managed profiles", re);
+            return false;
+        }
+    }
+
+    /**
      * Returns list of the profiles of userHandle including
      * userHandle itself.
      * Note that this returns both enabled and not enabled profiles. See
-     * {@link #getUserProfiles()} if you need only the enabled ones.
+     * {@link #getEnabledProfiles(int)} if you need only the enabled ones.
      *
      * Requires {@link android.Manifest.permission#MANAGE_USERS} permission.
      * @param userHandle profiles of this user will be returned.
@@ -934,6 +1020,25 @@ public class UserManager {
     public List<UserInfo> getProfiles(int userHandle) {
         try {
             return mService.getProfiles(userHandle, false /* enabledOnly */);
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not get user list", re);
+            return null;
+        }
+    }
+
+    /**
+     * Returns list of the profiles of userHandle including
+     * userHandle itself.
+     * Note that this returns only enabled.
+     *
+     * Requires {@link android.Manifest.permission#MANAGE_USERS} permission.
+     * @param userHandle profiles of this user will be returned.
+     * @return the list of profiles.
+     * @hide
+     */
+    public List<UserInfo> getEnabledProfiles(int userHandle) {
+        try {
+            return mService.getProfiles(userHandle, true /* enabledOnly */);
         } catch (RemoteException re) {
             Log.w(TAG, "Could not get user list", re);
             return null;
@@ -960,6 +1065,22 @@ public class UserManager {
             profiles.add(userHandle);
         }
         return profiles;
+    }
+
+    /**
+     * Returns the device credential owner id of the profile from
+     * which this method is called, or userHandle if called from a user that
+     * is not a profile.
+     *
+     * @hide
+     */
+    public int getCredentialOwnerProfile(int userHandle) {
+        try {
+            return mService.getCredentialOwnerProfile(userHandle);
+        } catch (RemoteException re) {
+            Log.w(TAG, "Could not get credential owner", re);
+            return -1;
+        }
     }
 
     /**
@@ -1252,49 +1373,10 @@ public class UserManager {
      * apps and requires the MANAGE_USERS permission.
      * @param newPin the PIN to use for challenge dialogs.
      * @return Returns true if the challenge PIN was set successfully.
+     * @deprecated The restrictions PIN functionality is no longer provided by the system.
+     * This method is preserved for backwards compatibility reasons and always returns false.
      */
     public boolean setRestrictionsChallenge(String newPin) {
-        try {
-            return mService.setRestrictionsChallenge(newPin);
-        } catch (RemoteException re) {
-            Log.w(TAG, "Could not change restrictions pin");
-        }
-        return false;
-    }
-
-    /**
-     * @hide
-     * @param pin The PIN to verify, or null to get the number of milliseconds to wait for before
-     * allowing the user to enter the PIN.
-     * @return Returns a positive number (including zero) for how many milliseconds before
-     * you can accept another PIN, when the input is null or the input doesn't match the saved PIN.
-     * Returns {@link #PIN_VERIFICATION_SUCCESS} if the input matches the saved PIN. Returns
-     * {@link #PIN_VERIFICATION_FAILED_NOT_SET} if there is no PIN set.
-     */
-    public int checkRestrictionsChallenge(String pin) {
-        try {
-            return mService.checkRestrictionsChallenge(pin);
-        } catch (RemoteException re) {
-            Log.w(TAG, "Could not check restrictions pin");
-        }
-        return PIN_VERIFICATION_FAILED_INCORRECT;
-    }
-
-    /**
-     * @hide
-     * Checks whether the user has restrictions that are PIN-protected. An application that
-     * participates in restrictions can check if the owner has requested a PIN challenge for
-     * any restricted operations. If there is a PIN in effect, the application should launch
-     * the PIN challenge activity {@link android.content.Intent#ACTION_RESTRICTIONS_CHALLENGE}.
-     * @see android.content.Intent#ACTION_RESTRICTIONS_CHALLENGE
-     * @return whether a restrictions PIN is in effect.
-     */
-    public boolean hasRestrictionsChallenge() {
-        try {
-            return mService.hasRestrictionsChallenge();
-        } catch (RemoteException re) {
-            Log.w(TAG, "Could not change restrictions pin");
-        }
         return false;
     }
 

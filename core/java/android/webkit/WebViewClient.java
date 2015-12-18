@@ -83,27 +83,31 @@ public class WebViewClient {
     }
 
     /**
-     * Notify the host application that the page commit is visible.
+     * Notify the host application that {@link android.webkit.WebView} content left over from
+     * previous page navigations will no longer be drawn.
      *
-     * <p>This is the earliest point at which we can guarantee that the contents of the previously
-     * loaded page will not longer be drawn in the next {@link WebView#onDraw}. The next draw will
-     * render the {@link WebView#setBackgroundColor background color} of the WebView or some of the
-     * contents from the committed page already. This callback may be useful when reusing
-     * {@link WebView}s to ensure that no stale content is shown. This method is only called for
-     * the main frame.</p>
+     * <p>This callback can be used to determine the point at which it is safe to make a recycled
+     * {@link android.webkit.WebView} visible, ensuring that no stale content is shown. It is called
+     * at the earliest point at which it can be guaranteed that {@link WebView#onDraw} will no
+     * longer draw any content from previous navigations. The next draw will display either the
+     * {@link WebView#setBackgroundColor background color} of the {@link WebView}, or some of the
+     * contents of the newly loaded page.
      *
-     * <p>This method is called when the state of the DOM at the point at which the
-     * body of the HTTP response (commonly the string of html) had started loading will be visible.
-     * If you set a background color for the page in the HTTP response body this will most likely
-     * be visible and perhaps some other elements. At that point no other resources had usually
-     * been loaded, so you can expect images for example to not be visible. If you want
-     * a finer level of granularity consider calling {@link WebView#insertVisualStateCallback}
-     * directly.</p>
+     * <p>This method is called when the body of the HTTP response has started loading, is reflected
+     * in the DOM, and will be visible in subsequent draws. This callback occurs early in the
+     * document loading process, and as such you should expect that linked resources (for example,
+     * css and images) may not be available.</p>
      *
-     * <p>Please note that all the conditions and recommendations presented in
-     * {@link WebView#insertVisualStateCallback} also apply to this API.<p>
+     * <p>For more fine-grained notification of visual state updates, see {@link
+     * WebView#postVisualStateCallback}.</p>
      *
-     * @param url the url of the committed page
+     * <p>Please note that all the conditions and recommendations applicable to
+     * {@link WebView#postVisualStateCallback} also apply to this API.<p>
+     *
+     * <p>This callback is only called for main frame navigations.</p>
+     *
+     * @param view The {@link android.webkit.WebView} for which the navigation occurred.
+     * @param url  The URL corresponding to the page navigation that triggered this callback.
      */
     public void onPageCommitVisible(WebView view, String url) {
     }
@@ -229,7 +233,8 @@ public class WebViewClient {
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         if (request.isForMainFrame()) {
             onReceivedError(view,
-                    error.getErrorCode(), error.getDescription(), request.getUrl().toString());
+                    error.getErrorCode(), error.getDescription().toString(),
+                    request.getUrl().toString());
         }
     }
 
@@ -244,7 +249,7 @@ public class WebViewClient {
      * @param errorResponse Information about the error occured.
      */
     public void onReceivedHttpError(
-            WebView view, WebResourceRequest request, WebResourceResponseBase errorResponse) {
+            WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
     }
 
     /**
@@ -293,13 +298,26 @@ public class WebViewClient {
      * Notify the host application to handle a SSL client certificate
      * request. The host application is responsible for showing the UI
      * if desired and providing the keys. There are three ways to
-     * respond: proceed(), cancel() or ignore(). Webview remembers the
-     * response if proceed() or cancel() is called and does not
-     * call onReceivedClientCertRequest() again for the same host and port
-     * pair. Webview does not remember the response if ignore() is called.
+     * respond: proceed(), cancel() or ignore(). Webview stores the response
+     * in memory (for the life of the application) if proceed() or cancel() is
+     * called and does not call onReceivedClientCertRequest() again for the
+     * same host and port pair. Webview does not store the response if ignore()
+     * is called.
      *
      * This method is called on the UI thread. During the callback, the
      * connection is suspended.
+     *
+     * For most use cases, the application program should implement the
+     * {@link android.security.KeyChainAliasCallback} interface and pass it to
+     * {@link android.security.KeyChain#choosePrivateKeyAlias} to start an
+     * activity for the user to choose the proper alias. The keychain activity will
+     * provide the alias through the callback method in the implemented interface. Next
+     * the application should create an async task to call
+     * {@link android.security.KeyChain#getPrivateKey} to receive the key.
+     *
+     * An example implementation of client certificates can be seen at
+     * <A href="https://android.googlesource.com/platform/packages/apps/Browser/+/android-5.1.1_r1/src/com/android/browser/Tab.java">
+     * AOSP Browser</a>
      *
      * The default behavior is to cancel, returning no client certificate.
      *

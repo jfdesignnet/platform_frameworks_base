@@ -200,10 +200,8 @@ static void report_exception(JNIEnv* env, jthrowable excep, const char* msg)
          * that can be made while an exception is pending, so we want to
          * get the VM ptr, throw the exception, and then detach the thread.
          */
-        JavaVM* vm = jnienv_to_javavm(env);
         env->Throw(excep);
-        vm->DetachCurrentThread();
-        sleep(60);
+        env->ExceptionDescribe();
         ALOGE("Forcefully exiting");
         exit(1);
     }
@@ -360,6 +358,8 @@ public:
     void add(const sp<JavaDeathRecipient>& recipient);
     void remove(const sp<JavaDeathRecipient>& recipient);
     sp<JavaDeathRecipient> find(jobject recipient);
+
+    Mutex& lock();  // Use with care; specifically for mutual exclusion during binder death
 };
 
 // ----------------------------------------------------------------------------
@@ -394,11 +394,18 @@ public:
                         "*** Uncaught exception returned from death notification!");
             }
 
-            // Demote from strong ref to weak after binderDied() has been delivered,
-            // to allow the DeathRecipient and BinderProxy to be GC'd if no longer needed.
-            mObjectWeak = env->NewWeakGlobalRef(mObject);
-            env->DeleteGlobalRef(mObject);
-            mObject = NULL;
+            // Serialize with our containing DeathRecipientList so that we can't
+            // delete the global ref on mObject while the list is being iterated.
+            sp<DeathRecipientList> list = mList.promote();
+            if (list != NULL) {
+                AutoMutex _l(list->lock());
+
+                // Demote from strong ref to weak after binderDied() has been delivered,
+                // to allow the DeathRecipient and BinderProxy to be GC'd if no longer needed.
+                mObjectWeak = env->NewWeakGlobalRef(mObject);
+                env->DeleteGlobalRef(mObject);
+                mObject = NULL;
+            }
         }
     }
 
@@ -520,6 +527,10 @@ sp<JavaDeathRecipient> DeathRecipientList::find(jobject recipient) {
     return NULL;
 }
 
+Mutex& DeathRecipientList::lock() {
+    return mLock;
+}
+
 // ----------------------------------------------------------------------------
 
 namespace android {
@@ -624,7 +635,7 @@ void set_dalvik_blockguard_policy(JNIEnv* env, jint strict_policy)
 }
 
 void signalExceptionForError(JNIEnv* env, jobject obj, status_t err,
-        bool canThrowRemoteException)
+        bool canThrowRemoteException, int parcelSize)
 {
     switch (err) {
         case UNKNOWN_ERROR:
@@ -669,18 +680,33 @@ void signalExceptionForError(JNIEnv* env, jobject obj, status_t err,
         case UNKNOWN_TRANSACTION:
             jniThrowException(env, "java/lang/RuntimeException", "Unknown transaction code");
             break;
-        case FAILED_TRANSACTION:
-            ALOGE("!!! FAILED BINDER TRANSACTION !!!");
+        case FAILED_TRANSACTION: {
+            ALOGE("!!! FAILED BINDER TRANSACTION !!!  (parcel size = %d)", parcelSize);
+            const char* exceptionToThrow;
+            char msg[128];
             // TransactionTooLargeException is a checked exception, only throw from certain methods.
             // FIXME: Transaction too large is the most common reason for FAILED_TRANSACTION
             //        but it is not the only one.  The Binder driver can return BR_FAILED_REPLY
             //        for other reasons also, such as if the transaction is malformed or
             //        refers to an FD that has been closed.  We should change the driver
             //        to enable us to distinguish these cases in the future.
-            jniThrowException(env, canThrowRemoteException
-                    ? "android/os/TransactionTooLargeException"
-                            : "java/lang/RuntimeException", NULL);
-            break;
+            if (canThrowRemoteException && parcelSize > 200*1024) {
+                // bona fide large payload
+                exceptionToThrow = "android/os/TransactionTooLargeException";
+                snprintf(msg, sizeof(msg)-1, "data parcel size %d bytes", parcelSize);
+            } else {
+                // Heuristic: a payload smaller than this threshold "shouldn't" be too
+                // big, so it's probably some other, more subtle problem.  In practice
+                // it seems to always mean that the remote process died while the binder
+                // transaction was already in flight.
+                exceptionToThrow = (canThrowRemoteException)
+                        ? "android/os/DeadObjectException"
+                        : "java/lang/RuntimeException";
+                snprintf(msg, sizeof(msg)-1,
+                        "Transaction failed on small parcel; remote process probably died");
+            }
+            jniThrowException(env, exceptionToThrow, msg);
+        } break;
         case FDS_NOT_ALLOWED:
             jniThrowException(env, "java/lang/RuntimeException",
                     "Not allowed to write file descriptors here");
@@ -1110,7 +1136,7 @@ static jboolean android_os_BinderProxy_transact(JNIEnv* env, jobject obj,
         return JNI_FALSE;
     }
 
-    signalExceptionForError(env, obj, err, true /*canThrowRemoteException*/);
+    signalExceptionForError(env, obj, err, true /*canThrowRemoteException*/, data->dataSize());
     return JNI_FALSE;
 }
 

@@ -16,6 +16,9 @@
 
 package android.hardware.camera2;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.IntDef;
 import android.hardware.camera2.params.InputConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.hardware.camera2.params.OutputConfiguration;
@@ -23,6 +26,8 @@ import android.os.Handler;
 import android.view.Surface;
 
 import java.util.List;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * <p>The CameraDevice class is a representation of a single camera connected to an
@@ -41,7 +46,7 @@ import java.util.List;
  * provide substantially improved capabilities over the older camera
  * API. Applications that target the limited level devices will run unchanged on
  * the full-level devices; if your application requires a full-level device for
- * proper operation, declare the "android.hardware.camera2.full" feature in your
+ * proper operation, declare the "android.hardware.camera.level.full" feature in your
  * manifest.</p>
  *
  * @see CameraManager#openCamera
@@ -100,7 +105,7 @@ public abstract class CameraDevice implements AutoCloseable {
      * means maximizing image quality without compromising preview frame rate.
      * AE/AWB/AF should be on auto mode.
      * This template is guaranteed to be supported on camera devices that support the
-     * {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_OPAQUE_REPROCESSING OPAQUE_REPROCESSING}
+     * {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_PRIVATE_REPROCESSING PRIVATE_REPROCESSING}
      * capability or the
      * {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING YUV_REPROCESSING}
      * capability.
@@ -124,6 +129,17 @@ public abstract class CameraDevice implements AutoCloseable {
      */
     public static final int TEMPLATE_MANUAL = 6;
 
+     /** @hide */
+     @Retention(RetentionPolicy.SOURCE)
+     @IntDef(
+         {TEMPLATE_PREVIEW,
+          TEMPLATE_STILL_CAPTURE,
+          TEMPLATE_RECORD,
+          TEMPLATE_VIDEO_SNAPSHOT,
+          TEMPLATE_ZERO_SHUTTER_LAG,
+          TEMPLATE_MANUAL })
+     public @interface RequestTemplate {};
+
     /**
      * Get the ID of this camera device.
      *
@@ -142,6 +158,7 @@ public abstract class CameraDevice implements AutoCloseable {
      * @see CameraManager#getCameraCharacteristics
      * @see CameraManager#getCameraIdList
      */
+    @NonNull
     public abstract String getId();
 
     /**
@@ -219,13 +236,16 @@ public abstract class CameraDevice implements AutoCloseable {
      * {@link CameraCaptureSession.StateCallback}'s
      * {@link CameraCaptureSession.StateCallback#onConfigured} callback will be called.</p>
      *
-     * <p>If a prior CameraCaptureSession already exists when a new one is created, the previous
-     * session is closed. Any in-progress capture requests made on the prior session will be
-     * completed before the new session is configured and is able to start capturing its own
-     * requests. To minimize the transition time, the {@link CameraCaptureSession#abortCaptures}
-     * call can be used to discard the remaining requests for the prior capture session before a new
-     * one is created. Note that once the new session is created, the old one can no longer have its
-     * captures aborted.</p>
+     * <p>If a prior CameraCaptureSession already exists when this method is called, the previous
+     * session will no longer be able to accept new capture requests and will be closed. Any
+     * in-progress capture requests made on the prior session will be completed before it's closed.
+     * {@link CameraCaptureSession.StateListener#onConfigured} for the new session may be invoked
+     * before {@link CameraCaptureSession.StateListener#onClosed} is invoked for the prior
+     * session. Once the new session is {@link CameraCaptureSession.StateListener#onConfigured
+     * configured}, it is able to start capturing its own requests. To minimize the transition time,
+     * the {@link CameraCaptureSession#abortCaptures} call can be used to discard the remaining
+     * requests for the prior capture session before a new one is created. Note that once the new
+     * session is created, the old one can no longer have its captures aborted.</p>
      *
      * <p>Using larger resolution outputs, or more outputs, can result in slower
      * output rate from the device.</p>
@@ -391,8 +411,8 @@ public abstract class CameraDevice implements AutoCloseable {
      * @see StreamConfigurationMap#getOutputSizes(int)
      * @see StreamConfigurationMap#getOutputSizes(Class)
      */
-    public abstract void createCaptureSession(List<Surface> outputs,
-            CameraCaptureSession.StateCallback callback, Handler handler)
+    public abstract void createCaptureSession(@NonNull List<Surface> outputs,
+            @NonNull CameraCaptureSession.StateCallback callback, @Nullable Handler handler)
             throws CameraAccessException;
 
     /**
@@ -409,31 +429,34 @@ public abstract class CameraDevice implements AutoCloseable {
             CameraCaptureSession.StateCallback callback, Handler handler)
             throws CameraAccessException;
     /**
-     * Create a new reprocessible camera capture session by providing the desired reprocessing
+     * Create a new reprocessable camera capture session by providing the desired reprocessing
      * input Surface configuration and the target output set of Surfaces to the camera device.
      *
      * <p>If a camera device supports YUV reprocessing
-     * ({@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING}) or OPAQUE
+     * ({@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING}) or PRIVATE
      * reprocessing
-     * ({@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_OPAQUE_REPROCESSING}), besides
-     * the capture session created via {@link #createCaptureSession}, the application can also
-     * create a reprocessible capture session to submit reprocess capture requests in addition to
-     * regular capture requests. A reprocess capture request takes the next available buffer from
-     * the session's input Surface, and sends it through the camera device's processing pipeline
-     * again, to produce buffers for the request's target output Surfaces. No new image data is
-     * captured for a reprocess request. However the input buffer provided by
+     * ({@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_PRIVATE_REPROCESSING}), besides
+     * the capture session created via {@link #createCaptureSession createCaptureSession}, the
+     * application can also create a reprocessable capture session to submit reprocess capture
+     * requests in addition to regular capture requests. A reprocess capture request takes the next
+     * available buffer from the session's input Surface, and sends it through the camera device's
+     * processing pipeline again, to produce buffers for the request's target output Surfaces. No
+     * new image data is captured for a reprocess request. However the input buffer provided by
      * the application must be captured previously by the same camera device in the same session
      * directly (e.g. for Zero-Shutter-Lag use case) or indirectly (e.g. combining multiple output
      * images).</p>
      *
-     * <p>The active reprocessible capture session determines an input {@link Surface} and the set
+     * <p>The active reprocessable capture session determines an input {@link Surface} and the set
      * of potential output Surfaces for the camera devices for each capture request. The application
-     * can use {@link #createCaptureRequest} to create regular capture requests to capture new
-     * images from the camera device, and use {@link #createReprocessCaptureRequest} to create
-     * reprocess capture requests to process buffers from the input {@link Surface}. A request may
-     * use all or only some of the outputs. All the output Surfaces in one capture request will come
-     * from the same source, either from a new capture by the camera device, or from the input
-     * Surface depending on if the request is a reprocess capture request.</p>
+     * can use {@link #createCaptureRequest createCaptureRequest} to create regular capture requests
+     * to capture new images from the camera device, and use {@link #createReprocessCaptureRequest
+     * createReprocessCaptureRequest} to create reprocess capture requests to process buffers from
+     * the input {@link Surface}. Some combinations of output Surfaces in a session may not be used
+     * in a request simultaneously. The guaranteed combinations of output Surfaces that can be used
+     * in a request simultaneously are listed in the tables under {@link #createCaptureSession
+     * createCaptureSession}. All the output Surfaces in one capture request will come from the
+     * same source, either from a new capture by the camera device, or from the input Surface
+     * depending on if the request is a reprocess capture request.</p>
      *
      * <p>Input formats and sizes supported by the camera device can be queried via
      * {@link StreamConfigurationMap#getInputFormats} and
@@ -445,11 +468,94 @@ public abstract class CameraDevice implements AutoCloseable {
      * they cannot be used as targets for a reprocessing request.</p>
      *
      * <p>Since the application cannot access {@link android.graphics.ImageFormat#PRIVATE} images
-     * directly, an output Surface created by {@link android.media.ImageReader#newOpaqueInstance}
-     * will be considered as intended to be used for reprocessing input and thus the
-     * {@link android.media.ImageReader} size must match one of the supported input sizes for
-     * {@link android.graphics.ImageFormat#PRIVATE} format. Otherwise, creating a reprocessible
-     * capture session will fail.</p>
+     * directly, an output Surface created by {@link android.media.ImageReader#newInstance} with
+     * {@link android.graphics.ImageFormat#PRIVATE} as the format will be considered as intended to
+     * be used for reprocessing input and thus the {@link android.media.ImageReader} size must
+     * match one of the supported input sizes for {@link android.graphics.ImageFormat#PRIVATE}
+     * format. Otherwise, creating a reprocessable capture session will fail.</p>
+     *
+     * <p>The guaranteed stream configurations listed in
+     * {@link #createCaptureSession createCaptureSession} are also guaranteed to work for
+     * {@link #createReprocessableCaptureSession createReprocessableCaptureSession}. In addition,
+     * the configurations in the tables below are also guaranteed for creating a reprocessable
+     * capture session if the camera device supports YUV reprocessing or PRIVATE reprocessing.
+     * However, not all output targets used to create a reprocessable session may be used in a
+     * {@link CaptureRequest} simultaneously. For devices that support only 1 output target in a
+     * reprocess {@link CaptureRequest}, submitting a reprocess {@link CaptureRequest} with multiple
+     * output targets will result in a {@link CaptureFailure}. For devices that support multiple
+     * output targets in a reprocess {@link CaptureRequest}, the guaranteed output targets that can
+     * be included in a {@link CaptureRequest} simultaneously are listed in the tables under
+     * {@link #createCaptureSession createCaptureSession}. For example, with a FULL-capability
+     * ({@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL} {@code == }
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_FULL FULL}) device that supports PRIVATE
+     * reprocessing, an application can create a reprocessable capture session with 1 input,
+     * ({@code PRIV}, {@code MAXIMUM}), and 3 outputs, ({@code PRIV}, {@code MAXIMUM}),
+     * ({@code PRIV}, {@code PREVIEW}), and ({@code YUV}, {@code MAXIMUM}). However, it's not
+     * guaranteed that an application can submit a regular or reprocess capture with ({@code PRIV},
+     * {@code MAXIMUM}) and ({@code YUV}, {@code MAXIMUM}) outputs based on the table listed under
+     * {@link #createCaptureSession createCaptureSession}. In other words, use the tables below to
+     * determine the guaranteed stream configurations for creating a reprocessable capture session,
+     * and use the tables under {@link #createCaptureSession createCaptureSession} to determine the
+     * guaranteed output targets that can be submitted in a regular or reprocess
+     * {@link CaptureRequest} simultaneously.</p>
+     *
+     * <style scoped>
+     *  #rb { border-right-width: thick; }
+     * </style>
+     *
+     * <p>Limited-capability ({@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL}
+     * {@code == }{@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED}) devices
+     * support at least the following stream combinations for creating a reprocessable capture
+     * session in addition to those listed in {@link #createCaptureSession createCaptureSession} for
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED} devices:
+     *
+     * <table>
+     * <tr><th colspan="11">LIMITED-level additional guaranteed configurations for creating a reprocessable capture session<br>({@code PRIV} input is guaranteed only if PRIVATE reprocessing is supported. {@code YUV} input is guaranteed only if YUV reprocessing is supported)</th></tr>
+     * <tr><th colspan="2" id="rb">Input</th><th colspan="2" id="rb">Target 1</th><th colspan="2" id="rb">Target 2</th><th colspan="2" id="rb">Target 3</th><th colspan="2" id="rb">Target 4</th><th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th></tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td></td><td id="rb"></td> <td></td><td id="rb"></td> <td>No-viewfinder still image reprocessing.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td></td><td id="rb"></td> <td>ZSL(Zero-Shutter-Lag) still imaging.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td></td><td id="rb"></td> <td>ZSL still and in-app processing imaging.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>ZSL in-app processing with still capture.</td> </tr>
+     * </table><br>
+     * </p>
+     *
+     * <p>FULL-capability ({@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL}
+     * {@code == }{@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_FULL FULL}) devices
+     * support at least the following stream combinations for creating a reprocessable capture
+     * session in addition to those for
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED} devices:
+     *
+     * <table>
+     * <tr><th colspan="11">FULL-capability additional guaranteed configurations for creating a reprocessable capture session<br>({@code PRIV} input is guaranteed only if PRIVATE reprocessing is supported. {@code YUV} input is guaranteed only if YUV reprocessing is supported)</th></tr>
+     * <tr><th colspan="2" id="rb">Input</th><th colspan="2" id="rb">Target 1</th><th colspan="2" id="rb">Target 2</th><th colspan="2" id="rb">Target 3</th><th colspan="2" id="rb">Target 4</th><th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th></tr>
+     * <tr> <td>{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td></td><td id="rb"></td> <td></td><td id="rb"></td> <td>Maximum-resolution multi-frame image fusion in-app processing with regular preview.</td> </tr>
+     * <tr> <td>{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td></td><td id="rb"></td> <td></td><td id="rb"></td> <td>Maximum-resolution multi-frame image fusion two-input in-app processing.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV}</td><td id="rb">{@code RECORD}</td> <td></td><td id="rb"></td> <td>High-resolution ZSL in-app video processing with regular preview.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td></td><td id="rb"></td> <td>Maximum-resolution ZSL in-app processing with regular preview.</td> </tr>
+     * <tr> <td>{@code PRIV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td></td><td id="rb"></td> <td>Maximum-resolution two-input ZSL in-app processing.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>ZSL still capture and in-app processing.</td> </tr>
+     * </table><br>
+     * </p>
+     *
+     * <p>RAW-capability ({@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES} includes
+     * {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_RAW RAW}) devices additionally support
+     * at least the following stream combinations for creating a reprocessable capture session
+     * on both {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_FULL FULL} and
+     * {@link CameraMetadata#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED LIMITED} devices
+     *
+     * <table>
+     * <tr><th colspan="11">RAW-capability additional guaranteed configurations for creating a reprocessable capture session<br>({@code PRIV} input is guaranteed only if PRIVATE reprocessing is supported. {@code YUV} input is guaranteed only if YUV reprocessing is supported)</th></tr>
+     * <tr><th colspan="2" id="rb">Input</th><th colspan="2" id="rb">Target 1</th><th colspan="2" id="rb">Target 2</th><th colspan="2" id="rb">Target 3</th><th colspan="2" id="rb">Target 4</th><th rowspan="2">Sample use case(s)</th> </tr>
+     * <tr><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th><th>Type</th><th id="rb">Max size</th></tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW}</td><td id="rb">{@code MAXIMUM}</td> <td></td><td id="rb"></td> <td>Mutually exclusive ZSL in-app processing and DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW}</td><td id="rb">{@code MAXIMUM}</td> <td>Mutually exclusive ZSL in-app processing and preview with DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code RAW}</td><td id="rb">{@code MAXIMUM}</td> <td>Mutually exclusive ZSL two-input in-app processing and DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code PRIV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code RAW}</td><td id="rb">{@code MAXIMUM}</td> <td>Mutually exclusive ZSL still capture and preview with DNG capture.</td> </tr>
+     * <tr> <td>{@code PRIV}/{@code YUV}</td><td id="rb">{@code MAXIMUM}</td> <td>Same as input</td><td id="rb">{@code MAXIMUM}</td> <td>{@code YUV}</td><td id="rb">{@code PREVIEW}</td> <td>{@code JPEG}</td><td id="rb">{@code MAXIMUM}</td> <td>{@code RAW}</td><td id="rb">{@code MAXIMUM}</td> <td>Mutually exclusive ZSL in-app processing with still capture and DNG capture.</td> </tr>
+     * </table><br>
+     * </p>
      *
      * @param inputConfig The configuration for the input {@link Surface}
      * @param outputs The new set of Surfaces that should be made available as
@@ -466,6 +572,7 @@ public abstract class CameraDevice implements AutoCloseable {
      *                               encountered a fatal error
      * @throws IllegalStateException if the camera device has been closed
      *
+     * @see #createCaptureSession
      * @see CameraCaptureSession
      * @see StreamConfigurationMap#getInputFormats
      * @see StreamConfigurationMap#getInputSizes
@@ -474,8 +581,93 @@ public abstract class CameraDevice implements AutoCloseable {
      * @see android.media.ImageWriter
      * @see android.media.ImageReader
      */
-    public abstract void createReprocessibleCaptureSession(InputConfiguration inputConfig,
-            List<Surface> outputs, CameraCaptureSession.StateCallback callback, Handler handler)
+    public abstract void createReprocessableCaptureSession(@NonNull InputConfiguration inputConfig,
+            @NonNull List<Surface> outputs, @NonNull CameraCaptureSession.StateCallback callback,
+            @Nullable Handler handler)
+            throws CameraAccessException;
+
+    /**
+     * <p>Create a new constrained high speed capture session.</p>
+     *
+     * <p>The application can use normal capture session (created via {@link #createCaptureSession})
+     * for high speed capture if the desired high speed FPS ranges are advertised by
+     * {@link CameraCharacteristics#CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES}, in which case all API
+     * semantics associated with normal capture sessions applies.</p>
+     *
+     * <p>The method creates a specialized capture session that is only targeted at high speed
+     * video recording (>=120fps) use case if the camera device supports high speed video
+     * capability (i.e., {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES} contains
+     * {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO}).
+     * Therefore, it has special characteristics compared with a normal capture session:</p>
+     *
+     * <ul>
+     *
+     * <li>In addition to the output target Surface requirements specified by the
+     *   {@link #createCaptureSession} method, an active high speed capture session will support up
+     *   to 2 output Surfaces, though the application might choose to configure just one Surface
+     *   (e.g., preview only). All Surfaces must be either video encoder surfaces (acquired by
+     *   {@link android.media.MediaRecorder#getSurface} or
+     *   {@link android.media.MediaCodec#createInputSurface}) or preview surfaces (obtained from
+     *   {@link android.view.SurfaceView}, {@link android.graphics.SurfaceTexture} via
+     *   {@link android.view.Surface#Surface(android.graphics.SurfaceTexture)}). The Surface sizes
+     *   must be one of the sizes reported by {@link StreamConfigurationMap#getHighSpeedVideoSizes}.
+     *   When multiple Surfaces are configured, their size must be same.</li>
+     *
+     * <li>An active high speed capture session only accepts request lists created via
+     *   {@link CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}, and the
+     *   request list can only be submitted to this session via
+     *   {@link CameraCaptureSession#captureBurst captureBurst}, or
+     *   {@link CameraCaptureSession#setRepeatingBurst setRepeatingBurst}.</li>
+     *
+     * <li>The FPS ranges being requested to this session must be selected from
+     *   {@link StreamConfigurationMap#getHighSpeedVideoFpsRangesFor}. The application can still use
+     *   {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE} to control the desired FPS range.
+     *   Switching to an FPS range that has different
+     *   {@link android.util.Range#getUpper() maximum FPS} may trigger some camera device
+     *   reconfigurations, which may introduce extra latency. It is recommended that the
+     *   application avoids unnecessary maximum target FPS changes as much as possible during high
+     *   speed streaming.</li>
+     *
+     * <li>For the request lists submitted to this session, the camera device will override the
+     *   {@link CaptureRequest#CONTROL_MODE control mode}, auto-exposure (AE), auto-white balance
+     *   (AWB) and auto-focus (AF) to {@link CameraMetadata#CONTROL_MODE_AUTO},
+     *   {@link CameraMetadata#CONTROL_AE_MODE_ON}, {@link CameraMetadata#CONTROL_AWB_MODE_AUTO}
+     *   and {@link CameraMetadata#CONTROL_AF_MODE_CONTINUOUS_VIDEO}, respectively. All
+     *   post-processing block mode controls will be overridden to be FAST. Therefore, no manual
+     *   control of capture and post-processing parameters is possible. Beside these, only a subset
+     *   of controls will work, see
+     *   {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO} for
+     *   more details.</li>
+     *
+     * </ul>
+     *
+     * @param outputs The new set of Surfaces that should be made available as
+     *                targets for captured high speed image data.
+     * @param callback The callback to notify about the status of the new capture session.
+     * @param handler The handler on which the callback should be invoked, or {@code null} to use
+     *                the current thread's {@link android.os.Looper looper}.
+     *
+     * @throws IllegalArgumentException if the set of output Surfaces do not meet the requirements,
+     *                                  the callback is null, or the handler is null but the current
+     *                                  thread has no looper, or the camera device doesn't support
+     *                                  high speed video capability.
+     * @throws CameraAccessException if the camera device is no longer connected or has
+     *                               encountered a fatal error
+     * @throws IllegalStateException if the camera device has been closed
+     *
+     * @see #createCaptureSession
+     * @see CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE
+     * @see StreamConfigurationMap#getHighSpeedVideoSizes
+     * @see StreamConfigurationMap#getHighSpeedVideoFpsRangesFor
+     * @see CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES
+     * @see CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO
+     * @see CameraCaptureSession#captureBurst
+     * @see CameraCaptureSession#setRepeatingBurst
+     * @see CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList
+     */
+    public abstract void createConstrainedHighSpeedCaptureSession(@NonNull List<Surface> outputs,
+            @NonNull CameraCaptureSession.StateCallback callback,
+            @Nullable Handler handler)
             throws CameraAccessException;
 
     /**
@@ -505,7 +697,8 @@ public abstract class CameraDevice implements AutoCloseable {
      * @see #TEMPLATE_VIDEO_SNAPSHOT
      * @see #TEMPLATE_MANUAL
      */
-    public abstract CaptureRequest.Builder createCaptureRequest(int templateType)
+    @NonNull
+    public abstract CaptureRequest.Builder createCaptureRequest(@RequestTemplate int templateType)
             throws CameraAccessException;
 
     /**
@@ -516,11 +709,12 @@ public abstract class CameraDevice implements AutoCloseable {
      * {@link CameraCaptureSession}'s input {@link Surface} to all output {@link Surface Surfaces}
      * included in the reprocess capture request. The reprocess input images must be generated from
      * one or multiple output images captured from the same camera device. The application can
-     * provide input images to camera device via
-     * {{@link android.media.ImageWriter#queueInputImage ImageWriter#queueInputImage}}.
+     * provide input images to camera device via {@link android.media.ImageWriter#queueInputImage}.
      * The application must use the capture result of one of those output images to create a
      * reprocess capture request so that the camera device can use the information to achieve
-     * optimal reprocess image quality.
+     * optimal reprocess image quality. For camera devices that support only 1 output
+     * {@link Surface}, submitting a reprocess {@link CaptureRequest} with multiple
+     * output targets will result in a {@link CaptureFailure}.
      *
      * @param inputResult The capture result of the output image or one of the output images used
      *                       to generate the reprocess input image for this capture request.
@@ -532,11 +726,12 @@ public abstract class CameraDevice implements AutoCloseable {
      *
      * @see CaptureRequest.Builder
      * @see TotalCaptureResult
-     * @see CameraDevice#createReprocessibleCaptureSession
+     * @see CameraDevice#createReprocessableCaptureSession
      * @see android.media.ImageWriter
      */
+    @NonNull
     public abstract CaptureRequest.Builder createReprocessCaptureRequest(
-            TotalCaptureResult inputResult) throws CameraAccessException;
+            @NonNull TotalCaptureResult inputResult) throws CameraAccessException;
 
     /**
      * Close the connection to this camera device as quickly as possible.
@@ -580,7 +775,8 @@ public abstract class CameraDevice implements AutoCloseable {
          * indicating that the camera device is in use already.
          *
          * <p>
-         * This error can be produced when opening the camera fails.
+         * This error can be produced when opening the camera fails due to the camera
+        *  being used by a higher-priority camera API client.
          * </p>
          *
          * @see #onError
@@ -641,6 +837,16 @@ public abstract class CameraDevice implements AutoCloseable {
          */
         public static final int ERROR_CAMERA_SERVICE = 5;
 
+        /** @hide */
+        @Retention(RetentionPolicy.SOURCE)
+        @IntDef(
+            {ERROR_CAMERA_IN_USE,
+             ERROR_MAX_CAMERAS_IN_USE,
+             ERROR_CAMERA_DISABLED,
+             ERROR_CAMERA_DEVICE,
+             ERROR_CAMERA_SERVICE })
+        public @interface ErrorCode {};
+
         /**
          * The method called when a camera device has finished opening.
          *
@@ -650,7 +856,7 @@ public abstract class CameraDevice implements AutoCloseable {
          *
          * @param camera the camera device that has become opened
          */
-        public abstract void onOpened(CameraDevice camera); // Must implement
+        public abstract void onOpened(@NonNull CameraDevice camera); // Must implement
 
         /**
          * The method called when a camera device has been closed with
@@ -663,7 +869,7 @@ public abstract class CameraDevice implements AutoCloseable {
          *
          * @param camera the camera device that has become closed
          */
-        public void onClosed(CameraDevice camera) {
+        public void onClosed(@NonNull CameraDevice camera) {
             // Default empty implementation
         }
 
@@ -678,7 +884,7 @@ public abstract class CameraDevice implements AutoCloseable {
          * {@link CameraAccessException}. The disconnection could be due to a
          * change in security policy or permissions; the physical disconnection
          * of a removable camera device; or the camera being needed for a
-         * higher-priority use case.</p>
+         * higher-priority camera API client.</p>
          *
          * <p>There may still be capture callbacks that are invoked
          * after this method is called, or new image buffers that are delivered
@@ -688,13 +894,14 @@ public abstract class CameraDevice implements AutoCloseable {
          * about the disconnection.</p>
          *
          * <p>You should clean up the camera with {@link CameraDevice#close} after
-         * this happens, as it is not recoverable until opening the camera again
-         * after it becomes {@link CameraManager.AvailabilityCallback#onCameraAvailable available}.
+         * this happens, as it is not recoverable until the camera can be opened
+         * again. For most use cases, this will be when the camera again becomes
+         * {@link CameraManager.AvailabilityCallback#onCameraAvailable available}.
          * </p>
          *
          * @param camera the device that has been disconnected
          */
-        public abstract void onDisconnected(CameraDevice camera); // Must implement
+        public abstract void onDisconnected(@NonNull CameraDevice camera); // Must implement
 
         /**
          * The method called when a camera device has encountered a serious error.
@@ -718,12 +925,14 @@ public abstract class CameraDevice implements AutoCloseable {
          * @param error The error code, one of the
          *     {@code StateCallback.ERROR_*} values.
          *
+         * @see #ERROR_CAMERA_IN_USE
+         * @see #ERROR_MAX_CAMERAS_IN_USE
+         * @see #ERROR_CAMERA_DISABLED
          * @see #ERROR_CAMERA_DEVICE
          * @see #ERROR_CAMERA_SERVICE
-         * @see #ERROR_CAMERA_DISABLED
-         * @see #ERROR_CAMERA_IN_USE
          */
-        public abstract void onError(CameraDevice camera, int error); // Must implement
+        public abstract void onError(@NonNull CameraDevice camera,
+                @ErrorCode int error); // Must implement
     }
 
     /**

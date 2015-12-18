@@ -32,6 +32,7 @@ import android.net.Uri;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
+import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.provider.DocumentsContract;
@@ -64,6 +65,8 @@ public class CopyService extends IntentService {
 
     // TODO: Move it to a shared file when more operations are implemented.
     public static final int FAILURE_COPY = 1;
+
+    private PowerManager mPowerManager;
 
     private NotificationManager mNotificationManager;
     private Notification.Builder mProgressBuilder;
@@ -129,10 +132,14 @@ public class CopyService extends IntentService {
             return;
         }
 
+        final PowerManager.WakeLock wakeLock = mPowerManager
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
         final ArrayList<DocumentInfo> srcs = intent.getParcelableArrayListExtra(EXTRA_SRC_LIST);
         final DocumentStack stack = intent.getParcelableExtra(EXTRA_STACK);
 
         try {
+            wakeLock.acquire();
+
             // Acquire content providers.
             mSrcClient = DocumentsApplication.acquireUnstableProviderOrThrow(getContentResolver(),
                     srcs.get(0).authority);
@@ -151,12 +158,14 @@ public class CopyService extends IntentService {
             ContentProviderClient.releaseQuietly(mSrcClient);
             ContentProviderClient.releaseQuietly(mDstClient);
 
+            wakeLock.release();
+
             // Dismiss the ongoing copy notification when the copy is done.
             mNotificationManager.cancel(mJobId, 0);
 
             if (mFailedFiles.size() > 0) {
                 final Context context = getApplicationContext();
-                final Intent navigateIntent = new Intent(context, StandaloneActivity.class);
+                final Intent navigateIntent = new Intent(context, DocumentsActivity.class);
                 navigateIntent.putExtra(EXTRA_STACK, (Parcelable) stack);
                 navigateIntent.putExtra(EXTRA_FAILURE, FAILURE_COPY);
                 navigateIntent.putParcelableArrayListExtra(EXTRA_SRC_LIST, mFailedFiles);
@@ -173,15 +182,14 @@ public class CopyService extends IntentService {
                         .setAutoCancel(true);
                 mNotificationManager.notify(mJobId, 0, errorBuilder.build());
             }
-
-            // TODO: Display a toast if the copy was cancelled.
         }
     }
 
     @Override
     public void onCreate() {
         super.onCreate();
-        mNotificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        mPowerManager = getSystemService(PowerManager.class);
+        mNotificationManager = getSystemService(NotificationManager.class);
     }
 
     /**
@@ -200,7 +208,7 @@ public class CopyService extends IntentService {
         mIsCancelled = false;
 
         final Context context = getApplicationContext();
-        final Intent navigateIntent = new Intent(context, StandaloneActivity.class);
+        final Intent navigateIntent = new Intent(context, DocumentsActivity.class);
         navigateIntent.putExtra(EXTRA_STACK, (Parcelable) stack);
 
         mProgressBuilder = new Notification.Builder(this)
@@ -306,13 +314,15 @@ public class CopyService extends IntentService {
     private void handleCancel(Intent intent) {
         final String cancelledId = intent.getStringExtra(EXTRA_CANCEL);
         // Do nothing if the cancelled ID doesn't match the current job ID. This prevents racey
-        // cancellation requests from affecting unrelated copy jobs.
-        if (Objects.equals(mJobId, cancelledId)) {
+        // cancellation requests from affecting unrelated copy jobs.  However, if the current job ID
+        // is null, the service most likely crashed and was revived by the incoming cancel intent.
+        // In that case, always allow the cancellation to proceed.
+        if (Objects.equals(mJobId, cancelledId) || mJobId == null) {
             // Set the cancel flag. This causes the copy loops to exit.
             mIsCancelled = true;
             // Dismiss the progress notification here rather than in the copy loop. This preserves
             // interactivity for the user in case the copy loop is stalled.
-            mNotificationManager.cancel(mJobId, 0);
+            mNotificationManager.cancel(cancelledId, 0);
         }
     }
 
@@ -449,7 +459,7 @@ public class CopyService extends IntentService {
         InputStream src = null;
         OutputStream dst = null;
 
-        boolean errorOccurred = false;
+        IOException copyError = null;
         try {
             srcFile = mSrcClient.openFile(srcUri, "r", canceller);
             dstFile = mDstClient.openFile(dstUri, "w", canceller);
@@ -462,16 +472,14 @@ public class CopyService extends IntentService {
                 dst.write(buffer, 0, len);
                 makeProgress(len);
             }
+
             srcFile.checkError();
-            dstFile.checkError();
         } catch (IOException e) {
-            errorOccurred = true;
-            Log.e(TAG, "Error while copying " + srcUri.toString(), e);
+            copyError = e;
             try {
-                mFailedFiles.add(DocumentInfo.fromUri(getContentResolver(), srcUri));
-            } catch (FileNotFoundException ignore) {
-                Log.w(TAG, "Source file gone: " + srcUri, e);
-              // The source file is gone.
+                dstFile.closeWithError(copyError.getMessage());
+            } catch (IOException closeError) {
+                Log.e(TAG, "Error closing destination", closeError);
             }
         } finally {
             // This also ensures the file descriptors are closed.
@@ -479,7 +487,18 @@ public class CopyService extends IntentService {
             IoUtils.closeQuietly(dst);
         }
 
-        if (errorOccurred || mIsCancelled) {
+        if (copyError != null) {
+            // Log errors.
+            Log.e(TAG, "Error while copying " + srcUri.toString(), copyError);
+            try {
+                mFailedFiles.add(DocumentInfo.fromUri(getContentResolver(), srcUri));
+            } catch (FileNotFoundException ignore) {
+                Log.w(TAG, "Source file gone: " + srcUri, copyError);
+              // The source file is gone.
+            }
+        }
+
+        if (copyError != null || mIsCancelled) {
             // Clean up half-copied files.
             canceller.cancel();
             try {

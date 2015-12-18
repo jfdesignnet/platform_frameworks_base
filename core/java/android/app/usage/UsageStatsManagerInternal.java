@@ -54,6 +54,14 @@ public abstract class UsageStatsManagerInternal {
     public abstract void reportConfigurationChange(Configuration config, int userId);
 
     /**
+     * Reports that a content provider has been accessed by a foreground app.
+     * @param name The authority of the content provider
+     * @param pkgName The package name of the content provider
+     * @param userId The user in which the content provider was accessed.
+     */
+    public abstract void reportContentProviderUsage(String name, String pkgName, int userId);
+
+    /**
      * Prepares the UsageStatsService for shutdown.
      */
     public abstract void prepareShutdown();
@@ -63,18 +71,24 @@ public abstract class UsageStatsManagerInternal {
      * Could be hours, could be days, who knows?
      *
      * @param packageName
+     * @param uidForAppId The uid of the app, which will be used for its app id
      * @param userId
      * @return
      */
-    public abstract boolean isAppIdle(String packageName, int userId);
+    public abstract boolean isAppIdle(String packageName, int uidForAppId, int userId);
 
     /**
-     * Returns the most recent time that the specified package was active for the given user.
-     * @param packageName The package to search.
-     * @param userId The user id of the user of interest.
-     * @return The timestamp of when the package was last used, or -1 if it hasn't been used.
+     * Returns all of the uids for a given user where all packages associating with that uid
+     * are in the app idle state -- there are no associated apps that are not idle.  This means
+     * all of the returned uids can be safely considered app idle.
      */
-    public abstract long getLastPackageAccessTime(String packageName, int userId);
+    public abstract int[] getIdleUidsForUser(int userId);
+
+    /**
+     * @return True if currently app idle parole mode is on.  This means all idle apps are allow to
+     * run for a short period of time.
+     */
+    public abstract boolean isAppIdleParoleOn();
 
     /**
      * Sets up a listener for changes to packages being accessed.
@@ -90,8 +104,9 @@ public abstract class UsageStatsManagerInternal {
     public abstract void removeAppIdleStateChangeListener(
             AppIdleStateChangeListener listener);
 
-    public interface AppIdleStateChangeListener {
-        void onAppIdleStateChanged(String packageName, int userId, boolean idle);
+    public static abstract class AppIdleStateChangeListener {
+        public abstract void onAppIdleStateChanged(String packageName, int userId, boolean idle);
+        public abstract void onParoleStateChanged(boolean isParoleOn);
     }
 
 }

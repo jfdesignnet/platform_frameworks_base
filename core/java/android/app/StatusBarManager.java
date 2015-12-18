@@ -63,12 +63,20 @@ public class StatusBarManager {
             | DISABLE_SYSTEM_INFO | DISABLE_RECENT | DISABLE_HOME | DISABLE_BACK | DISABLE_CLOCK
             | DISABLE_SEARCH;
 
+    /**
+     * Flag to disable quick settings.
+     *
+     * Setting this flag disables quick settings completely, but does not disable expanding the
+     * notification shade.
+     */
+    public static final int DISABLE2_QUICK_SETTINGS = 0x00000001;
+
     public static final int DISABLE2_NONE = 0x00000000;
 
-    public static final int DISABLE2_MASK = 0x00000000;
+    public static final int DISABLE2_MASK = DISABLE2_QUICK_SETTINGS;
 
     @IntDef(flag = true,
-            value = {DISABLE2_NONE, DISABLE2_MASK})
+            value = {DISABLE2_NONE, DISABLE2_MASK, DISABLE2_QUICK_SETTINGS})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Disable2Flags {}
 
@@ -81,6 +89,9 @@ public class StatusBarManager {
     public static final int WINDOW_STATE_SHOWING = 0;
     public static final int WINDOW_STATE_HIDING = 1;
     public static final int WINDOW_STATE_HIDDEN = 2;
+
+    public static final int CAMERA_LAUNCH_SOURCE_WIGGLE = 0;
+    public static final int CAMERA_LAUNCH_SOURCE_POWER_DOUBLE_TAP = 1;
 
     private Context mContext;
     private IStatusBarService mService;

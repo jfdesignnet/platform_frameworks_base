@@ -23,6 +23,7 @@ import android.service.voice.AlwaysOnHotwordDetector;
 import android.service.voice.AlwaysOnHotwordDetector.Callback;
 import android.service.voice.AlwaysOnHotwordDetector.EventPayload;
 import android.service.voice.VoiceInteractionService;
+import android.service.voice.VoiceInteractionSession;
 import android.util.Log;
 
 import java.util.Arrays;
@@ -71,20 +72,6 @@ public class MainInteractionService extends VoiceInteractionService {
 
         mHotwordDetector = createAlwaysOnHotwordDetector(
                 "Hello There", Locale.forLanguageTag("en-US"), mHotwordCallback);
-    }
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        if (isActiveService(this, new ComponentName(this, getClass()))) {
-            Bundle args = new Bundle();
-            args.putParcelable("intent", new Intent(this, TestInteractionActivity.class));
-            args.putBundle("assist", intent.getExtras());
-            startSession(args, START_WITH_ASSIST|START_WITH_SCREENSHOT);
-        } else {
-            Log.w(TAG, "Not starting -- not current voice interaction service");
-        }
-        stopSelf(startId);
-        return START_NOT_STICKY;
     }
 
     private void hotwordAvailabilityChangeHelper(int availability) {

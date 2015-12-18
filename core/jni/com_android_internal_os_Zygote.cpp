@@ -20,9 +20,13 @@
 #include <sys/mount.h>
 #include <linux/fs.h>
 
+#include <list>
+#include <string>
+
 #include <fcntl.h>
 #include <grp.h>
 #include <inttypes.h>
+#include <mntent.h>
 #include <paths.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -66,6 +70,8 @@ static jmethodID gCallPostForkChildHooks;
 enum MountExternalKind {
   MOUNT_EXTERNAL_NONE = 0,
   MOUNT_EXTERNAL_DEFAULT = 1,
+  MOUNT_EXTERNAL_READ = 2,
+  MOUNT_EXTERNAL_WRITE = 3,
 };
 
 static void RuntimeAbort(JNIEnv* env) {
@@ -76,6 +82,14 @@ static void RuntimeAbort(JNIEnv* env) {
 static void SigChldHandler(int /*signal_number*/) {
   pid_t pid;
   int status;
+
+  // It's necessary to save and restore the errno during this function.
+  // Since errno is stored per thread, changing it here modifies the errno
+  // on the thread on which this signal handler executes. If a signal occurs
+  // between a call and an errno check, it's possible to get the errno set
+  // here.
+  // See b/23572286 for extra information.
+  int saved_errno = errno;
 
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
      // Log process-death status that we care about.  In general it is
@@ -112,6 +126,8 @@ static void SigChldHandler(int /*signal_number*/) {
   if (pid < 0 && errno != ECHILD) {
     ALOGW("Zygote SIGCHLD error in waitpid: %s", strerror(errno));
   }
+
+  errno = saved_errno;
 }
 
 // Configures the SIGCHLD handler for the zygote process. This is configured
@@ -247,40 +263,79 @@ static void SetSchedulerPolicy(JNIEnv* env) {
   }
 }
 
+static int UnmountTree(const char* path) {
+    size_t path_len = strlen(path);
+
+    FILE* fp = setmntent("/proc/mounts", "r");
+    if (fp == NULL) {
+        ALOGE("Error opening /proc/mounts: %s", strerror(errno));
+        return -errno;
+    }
+
+    // Some volumes can be stacked on each other, so force unmount in
+    // reverse order to give us the best chance of success.
+    std::list<std::string> toUnmount;
+    mntent* mentry;
+    while ((mentry = getmntent(fp)) != NULL) {
+        if (strncmp(mentry->mnt_dir, path, path_len) == 0) {
+            toUnmount.push_front(std::string(mentry->mnt_dir));
+        }
+    }
+    endmntent(fp);
+
+    for (auto path : toUnmount) {
+        if (umount2(path.c_str(), MNT_DETACH)) {
+            ALOGW("Failed to unmount %s: %s", path.c_str(), strerror(errno));
+        }
+    }
+    return 0;
+}
+
 // Create a private mount namespace and bind mount appropriate emulated
 // storage for the given user.
-static bool MountEmulatedStorage(uid_t uid, jint mount_mode, bool force_mount_namespace) {
-  if (mount_mode == MOUNT_EXTERNAL_NONE && !force_mount_namespace) {
+static bool MountEmulatedStorage(uid_t uid, jint mount_mode,
+        bool force_mount_namespace) {
+    // See storage config details at http://source.android.com/tech/storage/
+
+    // Create a second private mount namespace for our process
+    if (unshare(CLONE_NEWNS) == -1) {
+        ALOGW("Failed to unshare(): %s", strerror(errno));
+        return false;
+    }
+
+    // Unmount storage provided by root namespace and mount requested view
+    UnmountTree("/storage");
+
+    String8 storageSource;
+    if (mount_mode == MOUNT_EXTERNAL_DEFAULT) {
+        storageSource = "/mnt/runtime/default";
+    } else if (mount_mode == MOUNT_EXTERNAL_READ) {
+        storageSource = "/mnt/runtime/read";
+    } else if (mount_mode == MOUNT_EXTERNAL_WRITE) {
+        storageSource = "/mnt/runtime/write";
+    } else {
+        // Sane default of no storage visible
+        return true;
+    }
+    if (TEMP_FAILURE_RETRY(mount(storageSource.string(), "/storage",
+            NULL, MS_BIND | MS_REC | MS_SLAVE, NULL)) == -1) {
+        ALOGW("Failed to mount %s to /storage: %s", storageSource.string(), strerror(errno));
+        return false;
+    }
+
+    // Mount user-specific symlink helper into place
+    userid_t user_id = multiuser_get_user_id(uid);
+    const String8 userSource(String8::format("/mnt/user/%d", user_id));
+    if (fs_prepare_dir(userSource.string(), 0751, 0, 0) == -1) {
+        return false;
+    }
+    if (TEMP_FAILURE_RETRY(mount(userSource.string(), "/storage/self",
+            NULL, MS_BIND, NULL)) == -1) {
+        ALOGW("Failed to mount %s to /storage/self: %s", userSource.string(), strerror(errno));
+        return false;
+    }
+
     return true;
-  }
-
-  // Create a second private mount namespace for our process
-  if (unshare(CLONE_NEWNS) == -1) {
-      ALOGW("Failed to unshare(): %s", strerror(errno));
-      return false;
-  }
-
-  if (mount_mode == MOUNT_EXTERNAL_NONE) {
-    return true;
-  }
-
-  // See storage config details at http://source.android.com/tech/storage/
-  userid_t user_id = multiuser_get_user_id(uid);
-
-  // Bind mount user-specific storage into place
-  const String8 source(String8::format("/mnt/user/%d", user_id));
-  const String8 target(String8::format("/storage/self"));
-
-  if (fs_prepare_dir(source.string(), 0755, 0, 0) == -1) {
-    return false;
-  }
-
-  if (TEMP_FAILURE_RETRY(mount(source.string(), target.string(), NULL, MS_BIND, NULL)) == -1) {
-    ALOGW("Failed to mount %s to %s: %s", source.string(), target.string(), strerror(errno));
-    return false;
-  }
-
-  return true;
 }
 
 static bool NeedsNoRandomizeWorkaround() {
@@ -363,6 +418,27 @@ void SetThreadName(const char* thread_name) {
   }
 }
 
+#ifdef ENABLE_SCHED_BOOST
+static void SetForkLoad(bool boost) {
+  // set scheduler knob to boost forked processes
+  pid_t currentPid = getpid();
+  // fits at most "/proc/XXXXXXX/sched_init_task_load\0"
+  char schedPath[35];
+  snprintf(schedPath, sizeof(schedPath), "/proc/%u/sched_init_task_load", currentPid);
+  int schedBoostFile = open(schedPath, O_WRONLY);
+  if (schedBoostFile < 0) {
+    ALOGW("Unable to set zygote scheduler boost");
+    return;
+  }
+  if (boost) {
+    write(schedBoostFile, "100\0", 4);
+  } else {
+    write(schedBoostFile, "0\0", 2);
+  }
+  close(schedBoostFile);
+}
+#endif
+
 // Utility routine to fork zygote and specialize the child process.
 static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArray javaGids,
                                      jint debug_flags, jobjectArray javaRlimits,
@@ -372,6 +448,10 @@ static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArra
                                      bool is_system_server, jintArray fdsToClose,
                                      jstring instructionSet, jstring dataDir) {
   SetSigChldHandler();
+
+#ifdef ENABLE_SCHED_BOOST
+  SetForkLoad(true);
+#endif
 
   pid_t pid = fork();
 
@@ -513,6 +593,12 @@ static pid_t ForkAndSpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArra
     }
   } else if (pid > 0) {
     // the parent process
+
+#ifdef ENABLE_SCHED_BOOST
+    // unset scheduler knob
+    SetForkLoad(false);
+#endif
+
   }
   return pid;
 }
@@ -543,7 +629,7 @@ static jint com_android_internal_os_Zygote_nativeForkSystemServer(
   pid_t pid = ForkAndSpecializeCommon(env, uid, gid, gids,
                                       debug_flags, rlimits,
                                       permittedCapabilities, effectiveCapabilities,
-                                      MOUNT_EXTERNAL_NONE, NULL, NULL, true, NULL,
+                                      MOUNT_EXTERNAL_DEFAULT, NULL, NULL, true, NULL,
                                       NULL, NULL);
   if (pid > 0) {
       // The zygote process checks whether the child process has died or not.

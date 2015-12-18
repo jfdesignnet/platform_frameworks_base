@@ -320,8 +320,8 @@ public class ScaleGestureDetector {
         }
 
         final int count = event.getPointerCount();
-        final boolean isStylusButtonDown = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS)
-                && (event.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0;
+        final boolean isStylusButtonDown =
+                (event.getButtonState() & MotionEvent.BUTTON_STYLUS_PRIMARY) != 0;
 
         final boolean anchoredScaleCancelled =
                 mAnchoredScaleMode == ANCHORED_SCALE_MODE_STYLUS && !isStylusButtonDown;
@@ -516,8 +516,8 @@ public class ScaleGestureDetector {
     }
 
     /**
-     * Return whether the stylus scale gesture, in which the user uses a stylus
-     * and presses the button, should preform scaling. {@see #setButtonScaleEnabled(boolean)}.
+     * Return whether the stylus scale gesture, in which the user uses a stylus and presses the
+     * button, should perform scaling. {@see #setStylusScaleEnabled(boolean)}
      */
     public boolean isStylusScaleEnabled() {
         return mStylusScaleEnabled;

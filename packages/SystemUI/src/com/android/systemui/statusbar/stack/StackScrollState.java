@@ -149,15 +149,15 @@ public class StackScrollState {
         // apply dimming
         view.setDimmed(state.dimmed, false /* animate */);
 
-        // apply dark
-        view.setDark(state.dark, false /* animate */, 0 /* delay */);
-
         // apply hiding sensitive
         view.setHideSensitive(
                 state.hideSensitive, false /* animated */, 0 /* delay */, 0 /* duration */);
 
         // apply speed bump state
         view.setBelowSpeedBump(state.belowSpeedBump);
+
+        // apply dark
+        view.setDark(state.dark, false /* animate */, 0 /* delay */);
 
         // apply clipping
         float oldClipTopAmount = view.getClipTopAmount();
@@ -210,7 +210,10 @@ public class StackScrollState {
         int oldVisibility = view.getVisibility();
         int newVisibility = becomesInvisible ? View.INVISIBLE : View.VISIBLE;
         if (newVisibility != oldVisibility) {
-            view.setVisibility(newVisibility);
+            if (!(view instanceof ExpandableView) || !((ExpandableView) view).willBeGone()) {
+                // We don't want views to change visibility when they are animating to GONE
+                view.setVisibility(newVisibility);
+            }
         }
 
         // apply yTranslation

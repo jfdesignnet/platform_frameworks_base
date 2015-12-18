@@ -23,16 +23,26 @@ import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
 import android.os.RemoteException;
 import android.os.SystemProperties;
+import android.provider.Settings.Global;
 import android.util.Slog;
 
+import com.android.internal.app.LocalePicker;
+import com.android.internal.app.LocalePicker.LocaleInfo;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.hdmi.HdmiAnnotations.ServiceThreadOnly;
+
+import java.io.UnsupportedEncodingException;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * Represent a logical device of type Playback residing in Android system.
  */
 final class HdmiCecLocalDevicePlayback extends HdmiCecLocalDevice {
     private static final String TAG = "HdmiCecLocalDevicePlayback";
+
+    private static final boolean WAKE_ON_HOTPLUG =
+            SystemProperties.getBoolean(Constants.PROPERTY_WAKE_ON_HOTPLUG, true);
 
     private boolean mIsActiveSource = false;
 
@@ -44,8 +54,17 @@ final class HdmiCecLocalDevicePlayback extends HdmiCecLocalDevice {
     // Lazily initialized - should call getWakeLock() to get the instance.
     private ActiveWakeLock mWakeLock;
 
+    // If true, turn off TV upon standby. False by default.
+    private boolean mAutoTvOff;
+
     HdmiCecLocalDevicePlayback(HdmiControlService service) {
         super(service, HdmiDeviceInfo.DEVICE_PLAYBACK);
+
+        mAutoTvOff = mService.readBooleanSetting(Global.HDMI_CONTROL_AUTO_DEVICE_OFF_ENABLED, false);
+
+        // The option is false by default. Update settings db as well to have the right
+        // initial setting on UI.
+        mService.writeBooleanSetting(Global.HDMI_CONTROL_AUTO_DEVICE_OFF_ENABLED, mAutoTvOff);
     }
 
     @Override
@@ -130,12 +149,41 @@ final class HdmiCecLocalDevicePlayback extends HdmiCecLocalDevice {
         assertRunOnServiceThread();
         mCecMessageCache.flushAll();
         // We'll not clear mIsActiveSource on the hotplug event to pass CETC 11.2.2-2 ~ 3.
-        if (connected && mService.isPowerStandbyOrTransient()) {
+        if (WAKE_ON_HOTPLUG && connected && mService.isPowerStandbyOrTransient()) {
             mService.wakeUp();
         }
         if (!connected) {
             getWakeLock().release();
         }
+    }
+
+    @Override
+    @ServiceThreadOnly
+    protected void onStandby(boolean initiatedByCec, int standbyAction) {
+        assertRunOnServiceThread();
+        if (!mService.isControlEnabled() || initiatedByCec) {
+            return;
+        }
+        switch (standbyAction) {
+            case HdmiControlService.STANDBY_SCREEN_OFF:
+                if (mAutoTvOff) {
+                    mService.sendCecCommand(
+                            HdmiCecMessageBuilder.buildStandby(mAddress, Constants.ADDR_TV));
+                }
+                break;
+            case HdmiControlService.STANDBY_SHUTDOWN:
+                // ACTION_SHUTDOWN is taken as a signal to power off all the devices.
+                mService.sendCecCommand(
+                        HdmiCecMessageBuilder.buildStandby(mAddress, Constants.ADDR_BROADCAST));
+                break;
+        }
+    }
+
+    @Override
+    @ServiceThreadOnly
+    void setAutoDeviceOff(boolean enabled) {
+        assertRunOnServiceThread();
+        mAutoTvOff = enabled;
     }
 
     @ServiceThreadOnly
@@ -264,6 +312,42 @@ final class HdmiCecLocalDevicePlayback extends HdmiCecLocalDevice {
         return true;  // Broadcast message.
     }
 
+    @ServiceThreadOnly
+    protected boolean handleSetMenuLanguage(HdmiCecMessage message) {
+        assertRunOnServiceThread();
+
+        try {
+            String iso3Language = new String(message.getParams(), 0, 3, "US-ASCII");
+            Locale currentLocale = mService.getContext().getResources().getConfiguration().locale;
+            if (currentLocale.getISO3Language().equals(iso3Language)) {
+                // Do not switch language if the new language is the same as the current one.
+                // This helps avoid accidental country variant switching from en_US to en_AU
+                // due to the limitation of CEC. See the warning below.
+                return true;
+            }
+
+            // Don't use Locale.getAvailableLocales() since it returns a locale
+            // which is not available on Settings.
+            final List<LocaleInfo> localeInfos = LocalePicker.getAllAssetLocales(
+                    mService.getContext(), false);
+            for (LocaleInfo localeInfo : localeInfos) {
+                if (localeInfo.getLocale().getISO3Language().equals(iso3Language)) {
+                    // WARNING: CEC adopts ISO/FDIS-2 for language code, while Android requires
+                    // additional country variant to pinpoint the locale. This keeps the right
+                    // locale from being chosen. 'eng' in the CEC command, for instance,
+                    // will always be mapped to en-AU among other variants like en-US, en-GB,
+                    // an en-IN, which may not be the expected one.
+                    LocalePicker.updateLocale(localeInfo.getLocale());
+                    return true;
+                }
+            }
+            Slog.w(TAG, "Can't handle <Set Menu Language> of " + iso3Language);
+            return false;
+        } catch (UnsupportedEncodingException e) {
+            return false;
+        }
+    }
+
     @Override
     @ServiceThreadOnly
     protected void sendStandby(int deviceId) {
@@ -292,6 +376,7 @@ final class HdmiCecLocalDevicePlayback extends HdmiCecLocalDevice {
     protected void dump(final IndentingPrintWriter pw) {
         super.dump(pw);
         pw.println("mIsActiveSource: " + mIsActiveSource);
+        pw.println("mAutoTvOff:" + mAutoTvOff);
     }
 
     // Wrapper interface over PowerManager.WakeLock

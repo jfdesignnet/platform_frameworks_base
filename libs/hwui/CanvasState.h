@@ -130,6 +130,7 @@ public:
     void setClippingOutline(LinearAllocator& allocator, const Outline* outline);
     void setClippingRoundRect(LinearAllocator& allocator,
             const Rect& rect, float radius, bool highPriority = true);
+    void setProjectionPathMask(LinearAllocator& allocator, const SkPath* path);
 
     /**
      * Returns true if drawing in the rectangle (left, top, right, bottom)
@@ -154,8 +155,9 @@ public:
     inline bool currentlyIgnored() const { return currentSnapshot()->isIgnored(); }
     int getViewportWidth() const { return currentSnapshot()->getViewportWidth(); }
     int getViewportHeight() const { return currentSnapshot()->getViewportHeight(); }
-    int getWidth() { return mWidth; }
-    int getHeight() { return mHeight; }
+    int getWidth() const { return mWidth; }
+    int getHeight() const { return mHeight; }
+    bool clipIsSimple() const { return currentSnapshot()->clipIsSimple(); }
 
     inline const Snapshot* currentSnapshot() const {
         return mSnapshot != nullptr ? mSnapshot.get() : mFirstSnapshot.get();

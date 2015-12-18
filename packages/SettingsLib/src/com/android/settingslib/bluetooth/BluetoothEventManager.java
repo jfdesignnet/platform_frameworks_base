@@ -51,11 +51,13 @@ public final class BluetoothEventManager {
     private final Collection<BluetoothCallback> mCallbacks =
             new ArrayList<BluetoothCallback>();
 
+    private android.os.Handler mReceiverHandler;
+
     interface Handler {
         void onReceive(Context context, Intent intent, BluetoothDevice device);
     }
 
-    void addHandler(String action, Handler handler) {
+    private void addHandler(String action, Handler handler) {
         mHandlerMap.put(action, handler);
         mAdapterIntentFilter.addAction(action);
     }
@@ -91,6 +93,7 @@ public final class BluetoothEventManager {
         addHandler(BluetoothDevice.ACTION_FOUND, new DeviceFoundHandler());
         addHandler(BluetoothDevice.ACTION_DISAPPEARED, new DeviceDisappearedHandler());
         addHandler(BluetoothDevice.ACTION_NAME_CHANGED, new NameChangedHandler());
+        addHandler(BluetoothDevice.ACTION_ALIAS_CHANGED, new NameChangedHandler());
 
         // Pairing broadcasts
         addHandler(BluetoothDevice.ACTION_BOND_STATE_CHANGED, new BondStateChangedHandler());
@@ -103,11 +106,18 @@ public final class BluetoothEventManager {
         // Dock event broadcasts
         addHandler(Intent.ACTION_DOCK_EVENT, new DockEventHandler());
 
-        mContext.registerReceiver(mBroadcastReceiver, mAdapterIntentFilter);
+        mContext.registerReceiver(mBroadcastReceiver, mAdapterIntentFilter, null, mReceiverHandler);
     }
 
     void registerProfileIntentReceiver() {
-        mContext.registerReceiver(mBroadcastReceiver, mProfileIntentFilter);
+        mContext.registerReceiver(mBroadcastReceiver, mProfileIntentFilter, null, mReceiverHandler);
+    }
+
+    public void setReceiverHandler(android.os.Handler handler) {
+        mContext.unregisterReceiver(mBroadcastReceiver);
+        mReceiverHandler = handler;
+        mContext.registerReceiver(mBroadcastReceiver, mAdapterIntentFilter, null, mReceiverHandler);
+        registerProfileIntentReceiver();
     }
 
     /** Register to start receiving callbacks for Bluetooth events. */
@@ -339,9 +349,15 @@ public final class BluetoothEventManager {
                 Log.e(TAG, "ACTION_PAIRING_CANCEL with no EXTRA_DEVICE");
                 return;
             }
-            int errorMsg = R.string.bluetooth_pairing_error_message;
             CachedBluetoothDevice cachedDevice = mDeviceManager.findDevice(device);
-            Utils.showError(context, cachedDevice.getName(), errorMsg);
+            if (cachedDevice == null) {
+                Log.e(TAG, "ACTION_PAIRING_CANCEL with no cached device");
+                return;
+            }
+            int errorMsg = R.string.bluetooth_pairing_error_message;
+            if (context != null && cachedDevice != null) {
+                Utils.showError(context, cachedDevice.getName(), errorMsg);
+            }
         }
     }
 

@@ -16,6 +16,7 @@
 
 package android.text;
 
+import android.annotation.Nullable;
 import android.graphics.Paint;
 import android.text.style.LeadingMarginSpan;
 import android.text.style.LeadingMarginSpan.LeadingMarginSpan2;
@@ -28,6 +29,7 @@ import android.util.Pools.SynchronizedPool;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Locale;
 
@@ -46,18 +48,31 @@ public class StaticLayout extends Layout {
     static final String TAG = "StaticLayout";
 
     /**
-     * Builder for static layouts. It would be better if this were a public
-     * API (as it would offer much greater flexibility for adding new options)
-     * but for the time being it's just internal.
-     *
-     * @hide
+     * Builder for static layouts. The builder is a newer pattern for constructing
+     * StaticLayout objects and should be preferred over the constructors,
+     * particularly to access newer features. To build a static layout, first
+     * call {@link #obtain} with the required arguments (text, paint, and width),
+     * then call setters for optional parameters, and finally {@link #build}
+     * to build the StaticLayout object. Parameters not explicitly set will get
+     * default values.
      */
     public final static class Builder {
         private Builder() {
             mNativePtr = nNewBuilder();
         }
 
-        public static Builder obtain(CharSequence source, int start, int end, int width) {
+        /**
+         * Obtain a builder for constructing StaticLayout objects
+         *
+         * @param source The text to be laid out, optionally with spans
+         * @param start The index of the start of the text
+         * @param end The index + 1 of the end of the text
+         * @param paint The base paint used for layout
+         * @param width The width in pixels
+         * @return a builder object used for constructing the StaticLayout
+         */
+        public static Builder obtain(CharSequence source, int start, int end, TextPaint paint,
+                int width) {
             Builder b = sPool.acquire();
             if (b == null) {
                 b = new Builder();
@@ -67,6 +82,7 @@ public class StaticLayout extends Layout {
             b.mText = source;
             b.mStart = start;
             b.mEnd = end;
+            b.mPaint = paint;
             b.mWidth = width;
             b.mAlignment = Alignment.ALIGN_NORMAL;
             b.mTextDir = TextDirectionHeuristics.FIRSTSTRONG_LTR;
@@ -76,6 +92,8 @@ public class StaticLayout extends Layout {
             b.mEllipsizedWidth = width;
             b.mEllipsize = null;
             b.mMaxLines = Integer.MAX_VALUE;
+            b.mBreakStrategy = Layout.BREAK_STRATEGY_SIMPLE;
+            b.mHyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE;
 
             b.mMeasuredText = MeasuredText.obtain();
             return b;
@@ -85,12 +103,20 @@ public class StaticLayout extends Layout {
             b.mPaint = null;
             b.mText = null;
             MeasuredText.recycle(b.mMeasuredText);
+            b.mMeasuredText = null;
+            b.mLeftIndents = null;
+            b.mRightIndents = null;
+            nFinishBuilder(b.mNativePtr);
             sPool.release(b);
         }
 
         // release any expensive state
         /* package */ void finish() {
             nFinishBuilder(mNativePtr);
+            mText = null;
+            mPaint = null;
+            mLeftIndents = null;
+            mRightIndents = null;
             mMeasuredText.finish();
         }
 
@@ -98,6 +124,18 @@ public class StaticLayout extends Layout {
             return setText(source, 0, source.length());
         }
 
+        /**
+         * Set the text. Only useful when re-using the builder, which is done for
+         * the internal implementation of {@link DynamicLayout} but not as part
+         * of normal {@link StaticLayout} usage.
+         *
+         * @param source The text to be laid out, optionally with spans
+         * @param start The index of the start of the text
+         * @param end The index + 1 of the end of the text
+         * @return this builder, useful for chaining
+         *
+         * @hide
+         */
         public Builder setText(CharSequence source, int start, int end) {
             mText = source;
             mStart = start;
@@ -105,11 +143,27 @@ public class StaticLayout extends Layout {
             return this;
         }
 
+        /**
+         * Set the paint. Internal for reuse cases only.
+         *
+         * @param paint The base paint used for layout
+         * @return this builder, useful for chaining
+         *
+         * @hide
+         */
         public Builder setPaint(TextPaint paint) {
             mPaint = paint;
             return this;
         }
 
+        /**
+         * Set the width. Internal for reuse cases only.
+         *
+         * @param width The width in pixels
+         * @return this builder, useful for chaining
+         *
+         * @hide
+         */
         public Builder setWidth(int width) {
             mWidth = width;
             if (mEllipsize == null) {
@@ -118,54 +172,141 @@ public class StaticLayout extends Layout {
             return this;
         }
 
+        /**
+         * Set the alignment. The default is {@link Layout.Alignment#ALIGN_NORMAL}.
+         *
+         * @param alignment Alignment for the resulting {@link StaticLayout}
+         * @return this builder, useful for chaining
+         */
         public Builder setAlignment(Alignment alignment) {
             mAlignment = alignment;
             return this;
         }
 
-        public Builder setTextDir(TextDirectionHeuristic textDir) {
+        /**
+         * Set the text direction heuristic. The text direction heuristic is used to
+         * resolve text direction based per-paragraph based on the input text. The default is
+         * {@link TextDirectionHeuristics#FIRSTSTRONG_LTR}.
+         *
+         * @param textDir text direction heuristic for resolving BiDi behavior.
+         * @return this builder, useful for chaining
+         */
+        public Builder setTextDirection(TextDirectionHeuristic textDir) {
             mTextDir = textDir;
             return this;
         }
 
-        // TODO: combine the following, as they're almost always set together?
-        public Builder setSpacingMult(float spacingMult) {
+        /**
+         * Set line spacing parameters. The default is 0.0 for {@code spacingAdd}
+         * and 1.0 for {@code spacingMult}.
+         *
+         * @param spacingAdd line spacing add
+         * @param spacingMult line spacing multiplier
+         * @return this builder, useful for chaining
+         * @see android.widget.TextView#setLineSpacing
+         */
+        public Builder setLineSpacing(float spacingAdd, float spacingMult) {
+            mSpacingAdd = spacingAdd;
             mSpacingMult = spacingMult;
             return this;
         }
 
-        public Builder setSpacingAdd(float spacingAdd) {
-            mSpacingAdd = spacingAdd;
-            return this;
-        }
-
+        /**
+         * Set whether to include extra space beyond font ascent and descent (which is
+         * needed to avoid clipping in some languages, such as Arabic and Kannada). The
+         * default is {@code true}.
+         *
+         * @param includePad whether to include padding
+         * @return this builder, useful for chaining
+         * @see android.widget.TextView#setIncludeFontPadding
+         */
         public Builder setIncludePad(boolean includePad) {
             mIncludePad = includePad;
             return this;
         }
 
-        // TODO: combine the following?
+        /**
+         * Set the width as used for ellipsizing purposes, if it differs from the
+         * normal layout width. The default is the {@code width}
+         * passed to {@link #obtain}.
+         *
+         * @param ellipsizedWidth width used for ellipsizing, in pixels
+         * @return this builder, useful for chaining
+         * @see android.widget.TextView#setEllipsize
+         */
         public Builder setEllipsizedWidth(int ellipsizedWidth) {
             mEllipsizedWidth = ellipsizedWidth;
             return this;
         }
 
-        public Builder setEllipsize(TextUtils.TruncateAt ellipsize) {
+        /**
+         * Set ellipsizing on the layout. Causes words that are longer than the view
+         * is wide, or exceeding the number of lines (see #setMaxLines) in the case
+         * of {@link android.text.TextUtils.TruncateAt#END} or
+         * {@link android.text.TextUtils.TruncateAt#MARQUEE}, to be ellipsized instead
+         * of broken. The default is
+         * {@code null}, indicating no ellipsis is to be applied.
+         *
+         * @param ellipsize type of ellipsis behavior
+         * @return this builder, useful for chaining
+         * @see android.widget.TextView#setEllipsize
+         */
+        public Builder setEllipsize(@Nullable TextUtils.TruncateAt ellipsize) {
             mEllipsize = ellipsize;
             return this;
         }
 
+        /**
+         * Set maximum number of lines. This is particularly useful in the case of
+         * ellipsizing, where it changes the layout of the last line. The default is
+         * unlimited.
+         *
+         * @param maxLines maximum number of lines in the layout
+         * @return this builder, useful for chaining
+         * @see android.widget.TextView#setMaxLines
+         */
         public Builder setMaxLines(int maxLines) {
             mMaxLines = maxLines;
             return this;
         }
 
+        /**
+         * Set break strategy, useful for selecting high quality or balanced paragraph
+         * layout options. The default is {@link Layout#BREAK_STRATEGY_SIMPLE}.
+         *
+         * @param breakStrategy break strategy for paragraph layout
+         * @return this builder, useful for chaining
+         * @see android.widget.TextView#setBreakStrategy
+         */
         public Builder setBreakStrategy(@BreakStrategy int breakStrategy) {
             mBreakStrategy = breakStrategy;
             return this;
         }
 
+        /**
+         * Set hyphenation frequency, to control the amount of automatic hyphenation used. The
+         * default is {@link Layout#HYPHENATION_FREQUENCY_NONE}.
+         *
+         * @param hyphenationFrequency hyphenation frequency for the paragraph
+         * @return this builder, useful for chaining
+         * @see android.widget.TextView#setHyphenationFrequency
+         */
+        public Builder setHyphenationFrequency(@HyphenationFrequency int hyphenationFrequency) {
+            mHyphenationFrequency = hyphenationFrequency;
+            return this;
+        }
+
+        /**
+         * Set indents. Arguments are arrays holding an indent amount, one per line, measured in
+         * pixels. For lines past the last element in the array, the last element repeats.
+         *
+         * @param leftIndents array of indent values for left margin, in pixels
+         * @param rightIndents array of indent values for right margin, in pixels
+         * @return this builder, useful for chaining
+         */
         public Builder setIndents(int[] leftIndents, int[] rightIndents) {
+            mLeftIndents = leftIndents;
+            mRightIndents = rightIndents;
             int leftLen = leftIndents == null ? 0 : leftIndents.length;
             int rightLen = rightIndents == null ? 0 : rightIndents.length;
             int[] indents = new int[Math.max(leftLen, rightLen)];
@@ -183,7 +324,8 @@ public class StaticLayout extends Layout {
          * the native code is as follows.
          *
          * For each paragraph, do a nSetupParagraph, which sets paragraph text, line width, tab
-         * stops, break strategy (and possibly other parameters in the future).
+         * stops, break strategy, and hyphenation frequency (and possibly other parameters in the
+         * future).
          *
          * Then, for each run within the paragraph:
          *  - setLocale (this must be done at least for the first run, optional afterwards)
@@ -200,7 +342,8 @@ public class StaticLayout extends Layout {
 
         private void setLocale(Locale locale) {
             if (!locale.equals(mLocale)) {
-                nSetLocale(mNativePtr, locale.toLanguageTag(), Hyphenator.get(locale));
+                nSetLocale(mNativePtr, locale.toLanguageTag(),
+                        Hyphenator.get(locale).getNativePtr());
                 mLocale = locale;
             }
         }
@@ -218,6 +361,15 @@ public class StaticLayout extends Layout {
             nAddReplacementRun(mNativePtr, start, end, width);
         }
 
+        /**
+         * Build the {@link StaticLayout} after options have been set.
+         *
+         * <p>Note: the builder object must not be reused in any way after calling this
+         * method. Setting parameters after calling this method, or calling it a second
+         * time on the same builder object, will likely lead to unexpected results.
+         *
+         * @return the newly constructed {@link StaticLayout} object
+         */
         public StaticLayout build() {
             StaticLayout result = new StaticLayout(this);
             Builder.recycle(this);
@@ -249,6 +401,9 @@ public class StaticLayout extends Layout {
         TextUtils.TruncateAt mEllipsize;
         int mMaxLines;
         int mBreakStrategy;
+        int mHyphenationFrequency;
+        int[] mLeftIndents;
+        int[] mRightIndents;
 
         Paint.FontMetricsInt mFontMetricsInt = new Paint.FontMetricsInt();
 
@@ -327,12 +482,10 @@ public class StaticLayout extends Layout {
                     : new Ellipsizer(source),
               paint, outerwidth, align, textDir, spacingmult, spacingadd);
 
-        Builder b = Builder.obtain(source, bufstart, bufend, outerwidth)
-            .setPaint(paint)
+        Builder b = Builder.obtain(source, bufstart, bufend, paint, outerwidth)
             .setAlignment(align)
-            .setTextDir(textDir)
-            .setSpacingMult(spacingmult)
-            .setSpacingAdd(spacingadd)
+            .setTextDirection(textDir)
+            .setLineSpacing(spacingadd, spacingmult)
             .setIncludePad(includepad)
             .setEllipsizedWidth(ellipsizedWidth)
             .setEllipsize(ellipsize)
@@ -401,6 +554,9 @@ public class StaticLayout extends Layout {
         mLineDirections = ArrayUtils.newUnpaddedArray(Directions.class, 2 * mColumns);
         mLines = new int[mLineDirections.length];
         mMaximumVisibleLineCount = b.mMaxLines;
+
+        mLeftIndents = b.mLeftIndents;
+        mRightIndents = b.mRightIndents;
 
         generate(b, b.mIncludePad, b.mIncludePad);
     }
@@ -471,7 +627,9 @@ public class StaticLayout extends Layout {
 
                 chooseHt = getParagraphSpans(spanned, paraStart, paraEnd, LineHeightSpan.class);
 
-                if (chooseHt.length != 0) {
+                if (chooseHt.length == 0) {
+                    chooseHt = null; // So that out() would not assume it has any contents
+                } else {
                     if (chooseHtv == null ||
                         chooseHtv.length < chooseHt.length) {
                         chooseHtv = ArrayUtils.newUnpaddedIntArray(chooseHt.length);
@@ -518,7 +676,24 @@ public class StaticLayout extends Layout {
 
             nSetupParagraph(b.mNativePtr, chs, paraEnd - paraStart,
                     firstWidth, firstWidthLineCount, restWidth,
-                    variableTabStops, TAB_INCREMENT, b.mBreakStrategy);
+                    variableTabStops, TAB_INCREMENT, b.mBreakStrategy, b.mHyphenationFrequency);
+            if (mLeftIndents != null || mRightIndents != null) {
+                // TODO(raph) performance: it would be better to do this once per layout rather
+                // than once per paragraph, but that would require a change to the native
+                // interface.
+                int leftLen = mLeftIndents == null ? 0 : mLeftIndents.length;
+                int rightLen = mRightIndents == null ? 0 : mRightIndents.length;
+                int indentsLen = Math.max(1, Math.min(leftLen, rightLen) - mLineCount);
+                int[] indents = new int[indentsLen];
+                for (int i = 0; i < indentsLen; i++) {
+                    int leftMargin = mLeftIndents == null ? 0 :
+                            mLeftIndents[Math.min(i + mLineCount, leftLen - 1)];
+                    int rightMargin = mRightIndents == null ? 0 :
+                            mRightIndents[Math.min(i + mLineCount, rightLen - 1)];
+                    indents[i] = leftMargin + rightMargin;
+                }
+                nSetIndents(b.mNativePtr, indents);
+            }
 
             // measurement has to be done before performing line breaking
             // but we don't want to recompute fontmetrics or span ranges the
@@ -572,6 +747,28 @@ public class StaticLayout extends Layout {
             float[] lineWidths = lineBreaks.widths;
             int[] flags = lineBreaks.flags;
 
+            final int remainingLineCount = mMaximumVisibleLineCount - mLineCount;
+            final boolean ellipsisMayBeApplied = ellipsize != null
+                    && (ellipsize == TextUtils.TruncateAt.END
+                        || (mMaximumVisibleLineCount == 1
+                                && ellipsize != TextUtils.TruncateAt.MARQUEE));
+            if (remainingLineCount > 0 && remainingLineCount < breakCount &&
+                    ellipsisMayBeApplied) {
+                // Treat the last line and overflowed lines as a single line.
+                breaks[remainingLineCount - 1] = breaks[breakCount - 1];
+                // Calculate width and flag.
+                float width = 0;
+                int flag = 0;
+                for (int i = remainingLineCount - 1; i < breakCount; i++) {
+                    width += lineWidths[i];
+                    flag |= flags[i] & TAB_MASK;
+                }
+                lineWidths[remainingLineCount - 1] = width;
+                flags[remainingLineCount - 1] = flag;
+
+                breakCount = remainingLineCount;
+            }
+
             // here is the offset of the starting character of the line we are currently measuring
             int here = paraStart;
 
@@ -615,7 +812,7 @@ public class StaticLayout extends Layout {
 
                     v = out(source, here, endPos,
                             fmAscent, fmDescent, fmTop, fmBottom,
-                            v, spacingmult, spacingadd, chooseHt,chooseHtv, fm, flags[breakIndex],
+                            v, spacingmult, spacingadd, chooseHt, chooseHtv, fm, flags[breakIndex],
                             needMultiply, chdirs, dir, easy, bufEnd, includepad, trackpad,
                             chs, widths, paraStart, ellipsize, ellipsizedWidth,
                             lineWidths[breakIndex], paint, moreChars);
@@ -991,6 +1188,38 @@ public class StaticLayout extends Layout {
         return mLines[mColumns * line + HYPHEN] & 0xff;
     }
 
+    /**
+     * @hide
+     */
+    @Override
+    public int getIndentAdjust(int line, Alignment align) {
+        if (align == Alignment.ALIGN_LEFT) {
+            if (mLeftIndents == null) {
+                return 0;
+            } else {
+                return mLeftIndents[Math.min(line, mLeftIndents.length - 1)];
+            }
+        } else if (align == Alignment.ALIGN_RIGHT) {
+            if (mRightIndents == null) {
+                return 0;
+            } else {
+                return -mRightIndents[Math.min(line, mRightIndents.length - 1)];
+            }
+        } else if (align == Alignment.ALIGN_CENTER) {
+            int left = 0;
+            if (mLeftIndents != null) {
+                left = mLeftIndents[Math.min(line, mLeftIndents.length - 1)];
+            }
+            int right = 0;
+            if (mRightIndents != null) {
+                right = mRightIndents[Math.min(line, mRightIndents.length - 1)];
+            }
+            return (left - right) >> 1;
+        } else {
+            throw new AssertionError("unhandled alignment " + align);
+        }
+    }
+
     @Override
     public int getEllipsisCount(int line) {
         if (mColumns < COLUMNS_ELLIPSIZE) {
@@ -1018,7 +1247,7 @@ public class StaticLayout extends Layout {
     private static native void nFreeBuilder(long nativePtr);
     private static native void nFinishBuilder(long nativePtr);
 
-    /* package */ static native long nLoadHyphenator(String patternData);
+    /* package */ static native long nLoadHyphenator(ByteBuffer buf, int offset);
 
     private static native void nSetLocale(long nativePtr, String locale, long nativeHyphenator);
 
@@ -1027,7 +1256,7 @@ public class StaticLayout extends Layout {
     // Set up paragraph text and settings; done as one big method to minimize jni crossings
     private static native void nSetupParagraph(long nativePtr, char[] text, int length,
             float firstWidth, int firstWidthLineCount, float restWidth,
-            int[] variableTabStops, int defaultTabStop, int breakStrategy);
+            int[] variableTabStops, int defaultTabStop, int breakStrategy, int hyphenationFrequency);
 
     private static native float nAddStyleRun(long nativePtr, long nativePaint,
             long nativeTypeface, int start, int end, boolean isRtl);
@@ -1087,4 +1316,6 @@ public class StaticLayout extends Layout {
         // breaks, widths, and flags should all have the same length
     }
 
+    private int[] mLeftIndents;
+    private int[] mRightIndents;
 }

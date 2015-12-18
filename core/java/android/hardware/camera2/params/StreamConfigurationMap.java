@@ -20,14 +20,16 @@ import android.graphics.ImageFormat;
 import android.graphics.PixelFormat;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.utils.HashCodeHelpers;
+import android.hardware.camera2.utils.SurfaceUtils;
 import android.hardware.camera2.legacy.LegacyCameraDevice;
 import android.hardware.camera2.legacy.LegacyMetadataMapper;
-import android.hardware.camera2.legacy.LegacyExceptionUtils.BufferQueueAbandonedException;
 import android.view.Surface;
 import android.util.Range;
 import android.util.Size;
+import android.util.SparseIntArray;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -79,7 +81,8 @@ public final class StreamConfigurationMap {
      * @param stallDurations a non-{@code null} array of {@link StreamConfigurationDuration}
      * @param highSpeedVideoConfigurations an array of {@link HighSpeedVideoConfiguration}, null if
      *        camera device does not support high speed video recording
-     *
+     * @param listHighResolution a flag indicating whether the device supports BURST_CAPTURE
+     *        and thus needs a separate list of slow high-resolution output sizes
      * @throws NullPointerException if any of the arguments except highSpeedVideoConfigurations
      *         were {@code null} or any subelements were {@code null}
      *
@@ -93,10 +96,22 @@ public final class StreamConfigurationMap {
             StreamConfigurationDuration[] depthMinFrameDurations,
             StreamConfigurationDuration[] depthStallDurations,
             HighSpeedVideoConfiguration[] highSpeedVideoConfigurations,
-            ReprocessFormatsMap inputOutputFormatsMap) {
-        mConfigurations = checkArrayElementsNotNull(configurations, "configurations");
-        mMinFrameDurations = checkArrayElementsNotNull(minFrameDurations, "minFrameDurations");
-        mStallDurations = checkArrayElementsNotNull(stallDurations, "stallDurations");
+            ReprocessFormatsMap inputOutputFormatsMap,
+            boolean listHighResolution) {
+
+        if (configurations == null) {
+            // If no color configurations exist, ensure depth ones do
+            checkArrayElementsNotNull(depthConfigurations, "depthConfigurations");
+            mConfigurations = new StreamConfiguration[0];
+            mMinFrameDurations = new StreamConfigurationDuration[0];
+            mStallDurations = new StreamConfigurationDuration[0];
+        } else {
+            mConfigurations = checkArrayElementsNotNull(configurations, "configurations");
+            mMinFrameDurations = checkArrayElementsNotNull(minFrameDurations, "minFrameDurations");
+            mStallDurations = checkArrayElementsNotNull(stallDurations, "stallDurations");
+        }
+
+        mListHighResolution = listHighResolution;
 
         if (depthConfigurations == null) {
             mDepthConfigurations = new StreamConfiguration[0];
@@ -119,16 +134,28 @@ public final class StreamConfigurationMap {
         }
 
         // For each format, track how many sizes there are available to configure
-        for (StreamConfiguration config : configurations) {
-            HashMap<Integer, Integer> map = config.isOutput() ? mOutputFormats : mInputFormats;
-
-            Integer count = map.get(config.getFormat());
-
-            if (count == null) {
-                count = 0;
+        for (StreamConfiguration config : mConfigurations) {
+            int fmt = config.getFormat();
+            SparseIntArray map = null;
+            if (config.isOutput()) {
+                mAllOutputFormats.put(fmt, mAllOutputFormats.get(fmt) + 1);
+                long duration = 0;
+                if (mListHighResolution) {
+                    for (StreamConfigurationDuration configurationDuration : mMinFrameDurations) {
+                        if (configurationDuration.getFormat() == fmt &&
+                                configurationDuration.getWidth() == config.getSize().getWidth() &&
+                                configurationDuration.getHeight() == config.getSize().getHeight()) {
+                            duration = configurationDuration.getDuration();
+                            break;
+                        }
+                    }
+                }
+                map = duration <= DURATION_20FPS_NS ?
+                        mOutputFormats : mHighResOutputFormats;
+            } else {
+                map = mInputFormats;
             }
-
-            map.put(config.getFormat(), count + 1);
+            map.put(fmt, map.get(fmt) + 1);
         }
 
         // For each depth format, track how many sizes there are available to configure
@@ -138,16 +165,12 @@ public final class StreamConfigurationMap {
                 continue;
             }
 
-            Integer count = mDepthOutputFormats.get(config.getFormat());
-
-            if (count == null) {
-                count = 0;
-            }
-
-            mDepthOutputFormats.put(config.getFormat(), count + 1);
+            mDepthOutputFormats.put(config.getFormat(),
+                    mDepthOutputFormats.get(config.getFormat()) + 1);
         }
 
-        if (!mOutputFormats.containsKey(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)) {
+        if (configurations != null &&
+                mOutputFormats.indexOfKey(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) < 0) {
             throw new AssertionError(
                     "At least one stream configuration for IMPLEMENTATION_DEFINED must exist");
         }
@@ -241,7 +264,7 @@ public final class StreamConfigurationMap {
      * @return a non-empty array of sizes, or {@code null} if the format was not available.
      */
     public Size[] getInputSizes(final int format) {
-        return getPublicFormatSizes(format, /*output*/false);
+        return getPublicFormatSizes(format, /*output*/false, /*highRes*/false);
     }
 
     /**
@@ -274,9 +297,9 @@ public final class StreamConfigurationMap {
         int internalFormat = imageFormatToInternal(format);
         int dataspace = imageFormatToDataspace(format);
         if (dataspace == HAL_DATASPACE_DEPTH) {
-            return mDepthOutputFormats.containsKey(internalFormat);
+            return mDepthOutputFormats.indexOfKey(internalFormat) >= 0;
         } else {
-            return getFormatsMap(/*output*/true).containsKey(internalFormat);
+            return getFormatsMap(/*output*/true).indexOfKey(internalFormat) >= 0;
         }
     }
 
@@ -378,27 +401,24 @@ public final class StreamConfigurationMap {
     public boolean isOutputSupportedFor(Surface surface) {
         checkNotNull(surface, "surface must not be null");
 
-        Size surfaceSize;
-        int surfaceFormat = -1;
-        try {
-            surfaceSize = LegacyCameraDevice.getSurfaceSize(surface);
-            surfaceFormat = LegacyCameraDevice.detectSurfaceType(surface);
-        } catch(BufferQueueAbandonedException e) {
-            throw new IllegalArgumentException("Abandoned surface", e);
-        }
+        Size surfaceSize = SurfaceUtils.getSurfaceSize(surface);
+        int surfaceFormat = SurfaceUtils.getSurfaceFormat(surface);
+        int surfaceDataspace = SurfaceUtils.getSurfaceDataspace(surface);
 
         // See if consumer is flexible.
-        boolean isFlexible = LegacyCameraDevice.isFlexibleConsumer(surface);
+        boolean isFlexible = SurfaceUtils.isFlexibleConsumer(surface);
 
         // Override RGB formats to IMPLEMENTATION_DEFINED, b/9487482
         if ((surfaceFormat >= LegacyMetadataMapper.HAL_PIXEL_FORMAT_RGBA_8888 &&
                         surfaceFormat <= LegacyMetadataMapper.HAL_PIXEL_FORMAT_BGRA_8888)) {
-            surfaceFormat = LegacyMetadataMapper.HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
+            surfaceFormat = HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
         }
 
-        for (StreamConfiguration config : mConfigurations) {
+        StreamConfiguration[] configs =
+                surfaceDataspace != HAL_DATASPACE_DEPTH ? mConfigurations : mDepthConfigurations;
+        for (StreamConfiguration config : configs) {
             if (config.getFormat() == surfaceFormat && config.isOutput()) {
-                // Mathing format, either need exact size match, or a flexible consumer
+                // Matching format, either need exact size match, or a flexible consumer
                 // and a size no bigger than MAX_DIMEN_FOR_ROUNDING
                 if (config.getSize().equals(surfaceSize)) {
                     return true;
@@ -414,12 +434,12 @@ public final class StreamConfigurationMap {
     /**
      * Get a list of sizes compatible with {@code klass} to use as an output.
      *
-     * <p>Since some of the supported classes may support additional formats beyond
+     * <p>Some of the supported classes may support additional formats beyond
      * {@link ImageFormat#PRIVATE}; this function only returns
      * sizes for {@link ImageFormat#PRIVATE}. For example, {@link android.media.ImageReader}
      * supports {@link ImageFormat#YUV_420_888} and {@link ImageFormat#PRIVATE}, this method will
      * only return the sizes for {@link ImageFormat#PRIVATE} for {@link android.media.ImageReader}
-     * class .</p>
+     * class.</p>
      *
      * <p>If a well-defined format such as {@code NV21} is required, use
      * {@link #getOutputSizes(int)} instead.</p>
@@ -444,7 +464,7 @@ public final class StreamConfigurationMap {
         }
 
         return getInternalFormatSizes(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
-                HAL_DATASPACE_UNKNOWN,/*output*/true);
+                HAL_DATASPACE_UNKNOWN,/*output*/true, /*highRes*/false);
     }
 
     /**
@@ -452,6 +472,14 @@ public final class StreamConfigurationMap {
      *
      * <p>The {@code format} should be a supported format (one of the formats returned by
      * {@link #getOutputFormats}).</p>
+     *
+     * As of API level 23, the {@link #getHighResolutionOutputSizes} method can be used on devices
+     * that support the
+     * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE BURST_CAPTURE}
+     * capability to get a list of high-resolution output sizes that cannot operate at the preferred
+     * 20fps rate. This means that for some supported formats, this method will return an empty
+     * list, if all the supported resolutions operate at below 20fps.  For devices that do not
+     * support the BURST_CAPTURE capability, all output resolutions are listed through this method.
      *
      * @param format an image format from {@link ImageFormat} or {@link PixelFormat}
      * @return
@@ -463,36 +491,42 @@ public final class StreamConfigurationMap {
      * @see #getOutputFormats
      */
     public Size[] getOutputSizes(int format) {
-        return getPublicFormatSizes(format, /*output*/true);
+        return getPublicFormatSizes(format, /*output*/true, /*highRes*/ false);
     }
 
     /**
      * Get a list of supported high speed video recording sizes.
-     *
-     * <p> When HIGH_SPEED_VIDEO is supported in
-     * {@link CameraCharacteristics#CONTROL_AVAILABLE_SCENE_MODES available scene modes}, this
-     * method will list the supported high speed video size configurations. All the sizes listed
-     * will be a subset of the sizes reported by {@link #getOutputSizes} for processed non-stalling
-     * formats (typically ImageFormat#YUV_420_888, ImageFormat#NV21, ImageFormat#YV12)</p>
-     *
-     * <p> To enable high speed video recording, application must set
-     * {@link CaptureRequest#CONTROL_SCENE_MODE} to
-     * {@link CaptureRequest#CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO HIGH_SPEED_VIDEO} in capture
-     * requests and select the video size from this method and
+     * <p>
+     * When {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO} is
+     * supported in {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES}, this method will
+     * list the supported high speed video size configurations. All the sizes listed will be a
+     * subset of the sizes reported by {@link #getOutputSizes} for processed non-stalling formats
+     * (typically {@link ImageFormat#PRIVATE} {@link ImageFormat#YUV_420_888}, etc.)
+     * </p>
+     * <p>
+     * To enable high speed video recording, application must create a constrained create high speed
+     * capture session via {@link CameraDevice#createConstrainedHighSpeedCaptureSession}, and submit
+     * a CaptureRequest list created by
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}
+     * to this session. The application must select the video size from this method and
      * {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE FPS range} from
-     * {@link #getHighSpeedVideoFpsRangesFor} to configure the recording and preview streams and
-     * setup the recording requests. For example, if the application intends to do high speed
-     * recording, it can select the maximum size reported by this method to configure output
-     * streams. Note that for the use case of multiple output streams, application must select one
-     * unique size from this method to use. Otherwise a request error might occur. Once the size is
+     * {@link #getHighSpeedVideoFpsRangesFor} to configure the constrained high speed session and
+     * generate the high speed request list. For example, if the application intends to do high
+     * speed recording, it can select the maximum size reported by this method to create high speed
+     * capture session. Note that for the use case of multiple output streams, application must
+     * select one unique size from this method to use (e.g., preview and recording streams must have
+     * the same size). Otherwise, the high speed session creation will fail. Once the size is
      * selected, application can get the supported FPS ranges by
      * {@link #getHighSpeedVideoFpsRangesFor}, and use these FPS ranges to setup the recording
-     * requests.</p>
+     * request lists via
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}.
+     * </p>
      *
-     * @return
-     *          an array of supported high speed video recording sizes
-     *
+     * @return an array of supported high speed video recording sizes
      * @see #getHighSpeedVideoFpsRangesFor(Size)
+     * @see CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO
+     * @see CameraDevice#createConstrainedHighSpeedCaptureSession
+     * @see android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList
      */
     public Size[] getHighSpeedVideoSizes() {
         Set<Size> keySet = mHighSpeedVideoSizeMap.keySet();
@@ -501,26 +535,25 @@ public final class StreamConfigurationMap {
 
     /**
      * Get the frame per second ranges (fpsMin, fpsMax) for input high speed video size.
-     *
-     * <p> See {@link #getHighSpeedVideoSizes} for how to enable high speed recording.</p>
-     *
-     * <p> For normal video recording use case, where some application will NOT set
-     * {@link CaptureRequest#CONTROL_SCENE_MODE} to
-     * {@link CaptureRequest#CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO HIGH_SPEED_VIDEO} in capture
-     * requests, the {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE FPS ranges} reported in
-     * this method must not be used to setup capture requests, or it will cause request error.</p>
+     * <p>
+     * See {@link #getHighSpeedVideoFpsRanges} for how to enable high speed recording.
+     * </p>
+     * <p>
+     * The {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE FPS ranges} reported in this method
+     * must not be used to setup capture requests that are submitted to unconstrained capture
+     * sessions, or it will result in {@link IllegalArgumentException IllegalArgumentExceptions}.
+     * </p>
+     * <p>
+     * See {@link #getHighSpeedVideoFpsRanges} for the characteristics of the returned FPS ranges.
+     * </p>
      *
      * @param size one of the sizes returned by {@link #getHighSpeedVideoSizes()}
-     * @return
-     *          An array of FPS range to use with
-     *          {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE TARGET_FPS_RANGE} when using
-     *          {@link CaptureRequest#CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO HIGH_SPEED_VIDEO} scene
-     *          mode.
-     *          The upper bound of returned ranges is guaranteed to be larger or equal to 60.
-     *
+     * @return an array of supported high speed video recording FPS ranges The upper bound of
+     *         returned ranges is guaranteed to be greater than or equal to 120.
      * @throws IllegalArgumentException if input size does not exist in the return value of
-     *         getHighSpeedVideoSizes
+     *             getHighSpeedVideoSizes
      * @see #getHighSpeedVideoSizes()
+     * @see #getHighSpeedVideoFpsRanges()
      */
     public Range<Integer>[] getHighSpeedVideoFpsRangesFor(Size size) {
         Integer fpsRangeCount = mHighSpeedVideoSizeMap.get(size);
@@ -542,34 +575,47 @@ public final class StreamConfigurationMap {
 
     /**
      * Get a list of supported high speed video recording FPS ranges.
-     *
-     * <p> When HIGH_SPEED_VIDEO is supported in
-     * {@link CameraCharacteristics#CONTROL_AVAILABLE_SCENE_MODES available scene modes}, this
-     * method will list the supported high speed video FPS range configurations. Application can
-     * then use {@link #getHighSpeedVideoSizesFor} to query available sizes for one of returned
-     * FPS range.</p>
-     *
-     * <p> To enable high speed video recording, application must set
-     * {@link CaptureRequest#CONTROL_SCENE_MODE} to
-     * {@link CaptureRequest#CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO HIGH_SPEED_VIDEO} in capture
-     * requests and select the video size from {@link #getHighSpeedVideoSizesFor} and
+     * <p>
+     * When {@link CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO} is
+     * supported in {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES}, this method will
+     * list the supported high speed video FPS range configurations. Application can then use
+     * {@link #getHighSpeedVideoSizesFor} to query available sizes for one of returned FPS range.
+     * </p>
+     * <p>
+     * To enable high speed video recording, application must create a constrained create high speed
+     * capture session via {@link CameraDevice#createConstrainedHighSpeedCaptureSession}, and submit
+     * a CaptureRequest list created by
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}
+     * to this session. The application must select the video size from this method and
      * {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE FPS range} from
-     * this method to configure the recording and preview streams and setup the recording requests.
-     * For example, if the application intends to do high speed recording, it can select one FPS
-     * range reported by this method, query the video sizes corresponding to this FPS range  by
-     * {@link #getHighSpeedVideoSizesFor} and select one of reported sizes to configure output
-     * streams. Note that for the use case of multiple output streams, application must select one
-     * unique size from {@link #getHighSpeedVideoSizesFor}, and use it for all output streams.
-     * Otherwise a request error might occur when attempting to enable
-     * {@link CaptureRequest#CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO HIGH_SPEED_VIDEO}.
-     * Once the stream is configured, application can set the FPS range in the recording requests.
+     * {@link #getHighSpeedVideoFpsRangesFor} to configure the constrained high speed session and
+     * generate the high speed request list. For example, if the application intends to do high
+     * speed recording, it can select one FPS range reported by this method, query the video sizes
+     * corresponding to this FPS range by {@link #getHighSpeedVideoSizesFor} and use one of reported
+     * sizes to create a high speed capture session. Note that for the use case of multiple output
+     * streams, application must select one unique size from this method to use (e.g., preview and
+     * recording streams must have the same size). Otherwise, the high speed session creation will
+     * fail. Once the high speed capture session is created, the application can set the FPS range
+     * in the recording request lists via
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}.
+     * </p>
+     * <p>
+     * The FPS ranges reported by this method will have below characteristics:
+     * <li>The fpsMin and fpsMax will be a multiple 30fps.</li>
+     * <li>The fpsMin will be no less than 30fps, the fpsMax will be no less than 120fps.</li>
+     * <li>At least one range will be a fixed FPS range where fpsMin == fpsMax.</li>
+     * <li>For each fixed FPS range, there will be one corresponding variable FPS range [30,
+     * fps_max]. These kinds of FPS ranges are suitable for preview-only use cases where the
+     * application doesn't want the camera device always produce higher frame rate than the display
+     * refresh rate.</li>
      * </p>
      *
-     * @return
-     *          an array of supported high speed video recording FPS ranges
-     *          The upper bound of returned ranges is guaranteed to be larger or equal to 60.
-     *
+     * @return an array of supported high speed video recording FPS ranges The upper bound of
+     *         returned ranges is guaranteed to be larger or equal to 120.
      * @see #getHighSpeedVideoSizesFor
+     * @see CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO
+     * @see CameraDevice#createConstrainedHighSpeedCaptureSession
+     * @see CameraDevice#createHighSpeedRequestList
      */
     @SuppressWarnings("unchecked")
     public Range<Integer>[] getHighSpeedVideoFpsRanges() {
@@ -578,21 +624,13 @@ public final class StreamConfigurationMap {
     }
 
     /**
-     * Get the supported video sizes for input FPS range.
+     * Get the supported video sizes for an input high speed FPS range.
      *
-     * <p> See {@link #getHighSpeedVideoFpsRanges} for how to enable high speed recording.</p>
-     *
-     * <p> For normal video recording use case, where the application will NOT set
-     * {@link CaptureRequest#CONTROL_SCENE_MODE} to
-     * {@link CaptureRequest#CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO HIGH_SPEED_VIDEO} in capture
-     * requests, the {@link CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE FPS ranges} reported in
-     * this method must not be used to setup capture requests, or it will cause request error.</p>
+     * <p> See {@link #getHighSpeedVideoSizes} for how to enable high speed recording.</p>
      *
      * @param fpsRange one of the FPS range returned by {@link #getHighSpeedVideoFpsRanges()}
-     * @return
-     *          An array of video sizes to configure output stream when using
-     *          {@link CaptureRequest#CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO HIGH_SPEED_VIDEO} scene
-     *          mode.
+     * @return An array of video sizes to create high speed capture sessions for high speed streaming
+     *         use cases.
      *
      * @throws IllegalArgumentException if input FPS range does not exist in the return value of
      *         getHighSpeedVideoFpsRanges
@@ -613,6 +651,32 @@ public final class StreamConfigurationMap {
             }
         }
         return sizes;
+    }
+
+    /**
+     * Get a list of supported high resolution sizes, which cannot operate at full BURST_CAPTURE
+     * rate.
+     *
+     * <p>This includes all output sizes that cannot meet the 20 fps frame rate requirements for the
+     * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE BURST_CAPTURE}
+     * capability.  This does not include the stall duration, so for example, a JPEG or RAW16 output
+     * resolution with a large stall duration but a minimum frame duration that's above 20 fps will
+     * still be listed in the regular {@link #getOutputSizes} list. All the sizes on this list are
+     * still guaranteed to operate at a rate of at least 10 fps, not including stall duration.</p>
+     *
+     * <p>For a device that does not support the BURST_CAPTURE capability, this list will be
+     * {@code null}, since resolutions in the {@link #getOutputSizes} list are already not
+     * guaranteed to meet &gt;= 20 fps rate requirements. For a device that does support the
+     * BURST_CAPTURE capability, this list may be empty, if all supported resolutions meet the 20
+     * fps requirement.</p>
+     *
+     * @return an array of supported slower high-resolution sizes, or {@code null} if the
+     *         BURST_CAPTURE capability is not supported
+     */
+    public Size[] getHighResolutionOutputSizes(int format) {
+        if (!mListHighResolution) return null;
+
+        return getPublicFormatSizes(format, /*output*/true, /*highRes*/ true);
     }
 
     /**
@@ -867,6 +931,7 @@ public final class StreamConfigurationMap {
             return Arrays.equals(mConfigurations, other.mConfigurations) &&
                     Arrays.equals(mMinFrameDurations, other.mMinFrameDurations) &&
                     Arrays.equals(mStallDurations, other.mStallDurations) &&
+                    Arrays.equals(mDepthConfigurations, other.mDepthConfigurations) &&
                     Arrays.equals(mHighSpeedVideoConfigurations,
                             other.mHighSpeedVideoConfigurations);
         }
@@ -879,18 +944,31 @@ public final class StreamConfigurationMap {
     @Override
     public int hashCode() {
         // XX: do we care about order?
-        return HashCodeHelpers.hashCode(
+        return HashCodeHelpers.hashCodeGeneric(
                 mConfigurations, mMinFrameDurations,
-                mStallDurations, mHighSpeedVideoConfigurations);
+                mStallDurations,
+                mDepthConfigurations, mHighSpeedVideoConfigurations);
     }
 
     // Check that the argument is supported by #getOutputFormats or #getInputFormats
     private int checkArgumentFormatSupported(int format, boolean output) {
         checkArgumentFormat(format);
 
-        int[] formats = output ? getOutputFormats() : getInputFormats();
-        for (int i = 0; i < formats.length; ++i) {
-            if (format == formats[i]) {
+        int internalFormat = imageFormatToInternal(format);
+        int internalDataspace = imageFormatToDataspace(format);
+
+        if (output) {
+            if (internalDataspace == HAL_DATASPACE_DEPTH) {
+                if (mDepthOutputFormats.indexOfKey(internalFormat) >= 0) {
+                    return format;
+                }
+            } else {
+                if (mAllOutputFormats.indexOfKey(internalFormat) >= 0) {
+                    return format;
+                }
+            }
+        } else {
+            if (mInputFormats.indexOfKey(internalFormat) >= 0) {
                 return format;
             }
         }
@@ -1175,7 +1253,7 @@ public final class StreamConfigurationMap {
         return formats;
     }
 
-    private Size[] getPublicFormatSizes(int format, boolean output) {
+    private Size[] getPublicFormatSizes(int format, boolean output, boolean highRes) {
         try {
             checkArgumentFormatSupported(format, output);
         } catch (IllegalArgumentException e) {
@@ -1185,36 +1263,57 @@ public final class StreamConfigurationMap {
         int internalFormat = imageFormatToInternal(format);
         int dataspace = imageFormatToDataspace(format);
 
-        return getInternalFormatSizes(internalFormat, dataspace, output);
+        return getInternalFormatSizes(internalFormat, dataspace, output, highRes);
     }
 
-    private Size[] getInternalFormatSizes(int format, int dataspace, boolean output) {
+    private Size[] getInternalFormatSizes(int format, int dataspace,
+            boolean output, boolean highRes) {
+        SparseIntArray formatsMap =
+                !output ? mInputFormats :
+                dataspace == HAL_DATASPACE_DEPTH ? mDepthOutputFormats :
+                highRes ? mHighResOutputFormats :
+                mOutputFormats;
 
-        HashMap<Integer, Integer> formatsMap =
-                (dataspace == HAL_DATASPACE_DEPTH) ? mDepthOutputFormats : getFormatsMap(output);
-
-        Integer sizesCount = formatsMap.get(format);
-        if (sizesCount == null) {
+        int sizesCount = formatsMap.get(format);
+        if ( ((!output || dataspace == HAL_DATASPACE_DEPTH) && sizesCount == 0) ||
+                (output && dataspace != HAL_DATASPACE_DEPTH && mAllOutputFormats.get(format) == 0)) {
+            // Only throw if this is really not supported at all
             throw new IllegalArgumentException("format not available");
         }
 
-        int len = sizesCount;
-        Size[] sizes = new Size[len];
+        Size[] sizes = new Size[sizesCount];
         int sizeIndex = 0;
 
         StreamConfiguration[] configurations =
                 (dataspace == HAL_DATASPACE_DEPTH) ? mDepthConfigurations : mConfigurations;
 
-
         for (StreamConfiguration config : configurations) {
-            if (config.getFormat() == format && config.isOutput() == output) {
+            int fmt = config.getFormat();
+            if (fmt == format && config.isOutput() == output) {
+                if (output && mListHighResolution) {
+                    // Filter slow high-res output formats; include for
+                    // highRes, remove for !highRes
+                    long duration = 0;
+                    for (int i = 0; i < mMinFrameDurations.length; i++) {
+                        StreamConfigurationDuration d = mMinFrameDurations[i];
+                        if (d.getFormat() == fmt &&
+                                d.getWidth() == config.getSize().getWidth() &&
+                                d.getHeight() == config.getSize().getHeight()) {
+                            duration = d.getDuration();
+                            break;
+                        }
+                    }
+                    if (highRes != (duration > DURATION_20FPS_NS)) {
+                        continue;
+                    }
+                }
                 sizes[sizeIndex++] = config.getSize();
             }
         }
 
-        if (sizeIndex != len) {
+        if (sizeIndex != sizesCount) {
             throw new AssertionError(
-                    "Too few sizes (expected " + len + ", actual " + sizeIndex + ")");
+                    "Too few sizes (expected " + sizesCount + ", actual " + sizeIndex + ")");
         }
 
         return sizes;
@@ -1226,14 +1325,16 @@ public final class StreamConfigurationMap {
 
         int i = 0;
 
-        for (int format : getFormatsMap(output).keySet()) {
+        SparseIntArray map = getFormatsMap(output);
+        for (int j = 0; j < map.size(); j++) {
+            int format = map.keyAt(j);
             if (format != HAL_PIXEL_FORMAT_RAW_OPAQUE) {
                 formats[i++] = imageFormatToPublic(format);
             }
         }
         if (output) {
-            for (int format : mDepthOutputFormats.keySet()) {
-                formats[i++] = depthFormatToPublic(format);
+            for (int j = 0; j < mDepthOutputFormats.size(); j++) {
+                formats[i++] = depthFormatToPublic(mDepthOutputFormats.keyAt(j));
             }
         }
         if (formats.length != i) {
@@ -1244,14 +1345,14 @@ public final class StreamConfigurationMap {
     }
 
     /** Get the format -> size count map for either output or input formats */
-    private HashMap<Integer, Integer> getFormatsMap(boolean output) {
-        return output ? mOutputFormats : mInputFormats;
+    private SparseIntArray getFormatsMap(boolean output) {
+        return output ? mAllOutputFormats : mInputFormats;
     }
 
     private long getInternalFormatDuration(int format, int dataspace, Size size, int duration) {
         // assume format is already checked, since its internal
 
-        if (!arrayContains(getInternalFormatSizes(format, dataspace, /*output*/true), size)) {
+        if (!isSupportedInternalConfiguration(format, dataspace, size)) {
             throw new IllegalArgumentException("size was not supported");
         }
 
@@ -1289,10 +1390,9 @@ public final class StreamConfigurationMap {
 
     /** Count the number of publicly-visible output formats */
     private int getPublicFormatCount(boolean output) {
-        HashMap<Integer, Integer> formatsMap = getFormatsMap(output);
-
+        SparseIntArray formatsMap = getFormatsMap(output);
         int size = formatsMap.size();
-        if (formatsMap.containsKey(HAL_PIXEL_FORMAT_RAW_OPAQUE)) {
+        if (formatsMap.indexOfKey(HAL_PIXEL_FORMAT_RAW_OPAQUE) >= 0) {
             size -= 1;
         }
         if (output) {
@@ -1316,16 +1416,222 @@ public final class StreamConfigurationMap {
         return false;
     }
 
+    private boolean isSupportedInternalConfiguration(int format, int dataspace,
+            Size size) {
+        StreamConfiguration[] configurations =
+                (dataspace == HAL_DATASPACE_DEPTH) ? mDepthConfigurations : mConfigurations;
+
+        for (int i = 0; i < configurations.length; i++) {
+            if (configurations[i].getFormat() == format &&
+                    configurations[i].getSize().equals(size)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Return this {@link StreamConfigurationMap} as a string representation.
+     *
+     * <p>{@code "StreamConfigurationMap(Outputs([w:%d, h:%d, format:%s(%d), min_duration:%d,
+     * stall:%d], ... [w:%d, h:%d, format:%s(%d), min_duration:%d, stall:%d]), Inputs([w:%d, h:%d,
+     * format:%s(%d)], ... [w:%d, h:%d, format:%s(%d)]), ValidOutputFormatsForInput(
+     * [in:%d, out:%d, ... %d], ... [in:%d, out:%d, ... %d]), HighSpeedVideoConfigurations(
+     * [w:%d, h:%d, min_fps:%d, max_fps:%d], ... [w:%d, h:%d, min_fps:%d, max_fps:%d]))"}.</p>
+     *
+     * <p>{@code Outputs([w:%d, h:%d, format:%s(%d), min_duration:%d, stall:%d], ...
+     * [w:%d, h:%d, format:%s(%d), min_duration:%d, stall:%d])}, where
+     * {@code [w:%d, h:%d, format:%s(%d), min_duration:%d, stall:%d]} represents an output
+     * configuration's width, height, format, minimal frame duration in nanoseconds, and stall
+     * duration in nanoseconds.</p>
+     *
+     * <p>{@code Inputs([w:%d, h:%d, format:%s(%d)], ... [w:%d, h:%d, format:%s(%d)])}, where
+     * {@code [w:%d, h:%d, format:%s(%d)]} represents an input configuration's width, height, and
+     * format.</p>
+     *
+     * <p>{@code ValidOutputFormatsForInput([in:%s(%d), out:%s(%d), ... %s(%d)],
+     * ... [in:%s(%d), out:%s(%d), ... %s(%d)])}, where {@code [in:%s(%d), out:%s(%d), ... %s(%d)]}
+     * represents an input fomat and its valid output formats.</p>
+     *
+     * <p>{@code HighSpeedVideoConfigurations([w:%d, h:%d, min_fps:%d, max_fps:%d],
+     * ... [w:%d, h:%d, min_fps:%d, max_fps:%d])}, where
+     * {@code [w:%d, h:%d, min_fps:%d, max_fps:%d]} represents a high speed video output
+     * configuration's width, height, minimal frame rate, and maximal frame rate.</p>
+     *
+     * @return string representation of {@link StreamConfigurationMap}
+     */
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("StreamConfiguration(");
+        appendOutputsString(sb);
+        sb.append(", ");
+        appendHighResOutputsString(sb);
+        sb.append(", ");
+        appendInputsString(sb);
+        sb.append(", ");
+        appendValidOutputFormatsForInputString(sb);
+        sb.append(", ");
+        appendHighSpeedVideoConfigurationsString(sb);
+        sb.append(")");
+
+        return sb.toString();
+    }
+
+    private void appendOutputsString(StringBuilder sb) {
+        sb.append("Outputs(");
+        int[] formats = getOutputFormats();
+        for (int format : formats) {
+            Size[] sizes = getOutputSizes(format);
+            for (Size size : sizes) {
+                long minFrameDuration = getOutputMinFrameDuration(format, size);
+                long stallDuration = getOutputStallDuration(format, size);
+                sb.append(String.format("[w:%d, h:%d, format:%s(%d), min_duration:%d, " +
+                        "stall:%d], ", size.getWidth(), size.getHeight(), formatToString(format),
+                        format, minFrameDuration, stallDuration));
+            }
+        }
+        // Remove the pending ", "
+        if (sb.charAt(sb.length() - 1) == ' ') {
+            sb.delete(sb.length() - 2, sb.length());
+        }
+        sb.append(")");
+    }
+
+    private void appendHighResOutputsString(StringBuilder sb) {
+        sb.append("HighResolutionOutputs(");
+        int[] formats = getOutputFormats();
+        for (int format : formats) {
+            Size[] sizes = getHighResolutionOutputSizes(format);
+            if (sizes == null) continue;
+            for (Size size : sizes) {
+                long minFrameDuration = getOutputMinFrameDuration(format, size);
+                long stallDuration = getOutputStallDuration(format, size);
+                sb.append(String.format("[w:%d, h:%d, format:%s(%d), min_duration:%d, " +
+                        "stall:%d], ", size.getWidth(), size.getHeight(), formatToString(format),
+                        format, minFrameDuration, stallDuration));
+            }
+        }
+        // Remove the pending ", "
+        if (sb.charAt(sb.length() - 1) == ' ') {
+            sb.delete(sb.length() - 2, sb.length());
+        }
+        sb.append(")");
+    }
+
+    private void appendInputsString(StringBuilder sb) {
+        sb.append("Inputs(");
+        int[] formats = getInputFormats();
+        for (int format : formats) {
+            Size[] sizes = getInputSizes(format);
+            for (Size size : sizes) {
+                sb.append(String.format("[w:%d, h:%d, format:%s(%d)], ", size.getWidth(),
+                        size.getHeight(), formatToString(format), format));
+            }
+        }
+        // Remove the pending ", "
+        if (sb.charAt(sb.length() - 1) == ' ') {
+            sb.delete(sb.length() - 2, sb.length());
+        }
+        sb.append(")");
+    }
+
+    private void appendValidOutputFormatsForInputString(StringBuilder sb) {
+        sb.append("ValidOutputFormatsForInput(");
+        int[] inputFormats = getInputFormats();
+        for (int inputFormat : inputFormats) {
+            sb.append(String.format("[in:%s(%d), out:", formatToString(inputFormat), inputFormat));
+            int[] outputFormats = getValidOutputFormatsForInput(inputFormat);
+            for (int i = 0; i < outputFormats.length; i++) {
+                sb.append(String.format("%s(%d)", formatToString(outputFormats[i]),
+                        outputFormats[i]));
+                if (i < outputFormats.length - 1) {
+                    sb.append(", ");
+                }
+            }
+            sb.append("], ");
+        }
+        // Remove the pending ", "
+        if (sb.charAt(sb.length() - 1) == ' ') {
+            sb.delete(sb.length() - 2, sb.length());
+        }
+        sb.append(")");
+    }
+
+    private void appendHighSpeedVideoConfigurationsString(StringBuilder sb) {
+        sb.append("HighSpeedVideoConfigurations(");
+        Size[] sizes = getHighSpeedVideoSizes();
+        for (Size size : sizes) {
+            Range<Integer>[] ranges = getHighSpeedVideoFpsRangesFor(size);
+            for (Range<Integer> range : ranges) {
+                sb.append(String.format("[w:%d, h:%d, min_fps:%d, max_fps:%d], ", size.getWidth(),
+                        size.getHeight(), range.getLower(), range.getUpper()));
+            }
+        }
+        // Remove the pending ", "
+        if (sb.charAt(sb.length() - 1) == ' ') {
+            sb.delete(sb.length() - 2, sb.length());
+        }
+        sb.append(")");
+    }
+
+    private String formatToString(int format) {
+        switch (format) {
+            case ImageFormat.YV12:
+                return "YV12";
+            case ImageFormat.YUV_420_888:
+                return "YUV_420_888";
+            case ImageFormat.NV21:
+                return "NV21";
+            case ImageFormat.NV16:
+                return "NV16";
+            case PixelFormat.RGB_565:
+                return "RGB_565";
+            case PixelFormat.RGBA_8888:
+                return "RGBA_8888";
+            case PixelFormat.RGBX_8888:
+                return "RGBX_8888";
+            case PixelFormat.RGB_888:
+                return "RGB_888";
+            case ImageFormat.JPEG:
+                return "JPEG";
+            case ImageFormat.YUY2:
+                return "YUY2";
+            case ImageFormat.Y8:
+                return "Y8";
+            case ImageFormat.Y16:
+                return "Y16";
+            case ImageFormat.RAW_SENSOR:
+                return "RAW_SENSOR";
+            case ImageFormat.RAW10:
+                return "RAW10";
+            case ImageFormat.DEPTH16:
+                return "DEPTH16";
+            case ImageFormat.DEPTH_POINT_CLOUD:
+                return "DEPTH_POINT_CLOUD";
+            case ImageFormat.PRIVATE:
+                return "PRIVATE";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
     // from system/core/include/system/graphics.h
+    private static final int HAL_PIXEL_FORMAT_RAW16 = 0x20;
     private static final int HAL_PIXEL_FORMAT_BLOB = 0x21;
     private static final int HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED = 0x22;
+    private static final int HAL_PIXEL_FORMAT_YCbCr_420_888 = 0x23;
     private static final int HAL_PIXEL_FORMAT_RAW_OPAQUE = 0x24;
+    private static final int HAL_PIXEL_FORMAT_RAW10 = 0x25;
+    private static final int HAL_PIXEL_FORMAT_RAW12 = 0x26;
     private static final int HAL_PIXEL_FORMAT_Y16 = 0x20363159;
+
 
     private static final int HAL_DATASPACE_UNKNOWN = 0x0;
     private static final int HAL_DATASPACE_JFIF = 0x101;
     private static final int HAL_DATASPACE_DEPTH = 0x1000;
 
+    private static final long DURATION_20FPS_NS = 50000000L;
     /**
      * @see #getDurations(int, int)
      */
@@ -1343,15 +1649,20 @@ public final class StreamConfigurationMap {
     private final HighSpeedVideoConfiguration[] mHighSpeedVideoConfigurations;
     private final ReprocessFormatsMap mInputOutputFormatsMap;
 
-    /** ImageFormat -> num output sizes mapping */
-    private final HashMap</*ImageFormat*/Integer, /*Count*/Integer> mOutputFormats =
-            new HashMap<Integer, Integer>();
-    /** ImageFormat -> num input sizes mapping */
-    private final HashMap</*ImageFormat*/Integer, /*Count*/Integer> mInputFormats =
-            new HashMap<Integer, Integer>();
-    /** ImageFormat -> num depth output sizes mapping */
-    private final HashMap</*ImageFormat*/Integer, /*Count*/Integer> mDepthOutputFormats =
-            new HashMap<Integer, Integer>();
+    private final boolean mListHighResolution;
+
+    /** internal format -> num output sizes mapping, not including slow high-res sizes, for
+     * non-depth dataspaces */
+    private final SparseIntArray mOutputFormats = new SparseIntArray();
+    /** internal format -> num output sizes mapping for slow high-res sizes, for non-depth
+     * dataspaces */
+    private final SparseIntArray mHighResOutputFormats = new SparseIntArray();
+    /** internal format -> num output sizes mapping for all non-depth dataspaces */
+    private final SparseIntArray mAllOutputFormats = new SparseIntArray();
+    /** internal format -> num input sizes mapping, for input reprocessing formats */
+    private final SparseIntArray mInputFormats = new SparseIntArray();
+    /** internal format -> num depth output sizes mapping, for HAL_DATASPACE_DEPTH */
+    private final SparseIntArray mDepthOutputFormats = new SparseIntArray();
     /** High speed video Size -> FPS range count mapping*/
     private final HashMap</*HighSpeedVideoSize*/Size, /*Count*/Integer> mHighSpeedVideoSizeMap =
             new HashMap<Size, Integer>();
@@ -1360,4 +1671,3 @@ public final class StreamConfigurationMap {
             mHighSpeedVideoFpsRangeMap = new HashMap<Range<Integer>, Integer>();
 
 }
-

@@ -41,7 +41,7 @@
     </style>
     <style name="widget_big_thin">
         <item name="android:textSize">@dimen/widget_big_font_size</item>
-        <item name="android:fontFamily">sans-serif-thin</item>
+        <item name="android:fontFamily">sans-serif-light</item>
     </style>
 
     <style name="BouncerSecurityContainer">
@@ -52,4 +52,8 @@
         <item name="android:colorControlNormal">#80ffffff</item>
         <item name="android:colorControlActivated">#80ffffff</item>
     </style>
+
+    <style name="keyguard_presentation_theme" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+    </style>
+
 </resources>

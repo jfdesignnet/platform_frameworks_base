@@ -91,13 +91,13 @@ void PathCache::computePathBounds(const SkPath* path, const SkPaint* paint,
 
 void PathCache::computeBounds(const SkRect& bounds, const SkPaint* paint,
         float& left, float& top, float& offset, uint32_t& width, uint32_t& height) {
-    const float pathWidth = fmax(bounds.width(), 1.0f);
-    const float pathHeight = fmax(bounds.height(), 1.0f);
+    const float pathWidth = std::max(bounds.width(), 1.0f);
+    const float pathHeight = std::max(bounds.height(), 1.0f);
 
     left = bounds.fLeft;
     top = bounds.fTop;
 
-    offset = (int) floorf(fmax(paint->getStrokeWidth(), 1.0f) * 1.5f + 0.5f);
+    offset = (int) floorf(std::max(paint->getStrokeWidth(), 1.0f) * 1.5f + 0.5f);
 
     width = uint32_t(pathWidth + offset * 2.0 + 0.5);
     height = uint32_t(pathHeight + offset * 2.0 + 0.5);
@@ -142,7 +142,7 @@ PathCache::PathCache():
     char property[PROPERTY_VALUE_MAX];
     if (property_get(PROPERTY_PATH_CACHE_SIZE, property, nullptr) > 0) {
         INIT_LOGD("  Setting %s cache size to %sMB", name, property);
-        setMaxSize(MB(atof(property)));
+        mMaxSize = MB(atof(property));
     } else {
         INIT_LOGD("  Using default %s cache size of %.2fMB", name, DEFAULT_PATH_CACHE_SIZE);
     }
@@ -153,7 +153,7 @@ PathCache::PathCache():
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
     mMaxTextureSize = maxTextureSize;
 
-    mDebugEnabled = readDebugLevel() & kDebugCaches;
+    mDebugEnabled = Properties::debugLevel & kDebugCaches;
 }
 
 PathCache::~PathCache() {
@@ -170,13 +170,6 @@ uint32_t PathCache::getSize() {
 
 uint32_t PathCache::getMaxSize() {
     return mMaxSize;
-}
-
-void PathCache::setMaxSize(uint32_t maxSize) {
-    mMaxSize = maxSize;
-    while (mSize > mMaxSize) {
-        mCache.removeOldest();
-    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -267,24 +260,18 @@ void PathCache::generateTexture(const PathDescription& entry, SkBitmap* bitmap,
         PathTexture* texture, bool addToCache) {
     generateTexture(*bitmap, texture);
 
+    // Note here that we upload to a texture even if it's bigger than mMaxSize.
+    // Such an entry in mCache will only be temporary, since it will be evicted
+    // immediately on trim, or on any other Path entering the cache.
     uint32_t size = texture->width * texture->height;
-    if (size < mMaxSize) {
-        mSize += size;
-        PATH_LOGD("PathCache::get/create: name, size, mSize = %d, %d, %d",
-                texture->id, size, mSize);
-        if (mDebugEnabled) {
-            ALOGD("Shape created, size = %d", size);
-        }
-        if (addToCache) {
-            mCache.put(entry, texture);
-        }
-    } else {
-        // It's okay to add a texture that's bigger than the cache since
-        // we'll trim the cache later when addToCache is set to false
-        if (!addToCache) {
-            mSize += size;
-        }
-        texture->cleanup = true;
+    mSize += size;
+    PATH_LOGD("PathCache::get/create: name, size, mSize = %d, %d, %d",
+            texture->id, size, mSize);
+    if (mDebugEnabled) {
+        ALOGD("Shape created, size = %d", size);
+    }
+    if (addToCache) {
+        mCache.put(entry, texture);
     }
 }
 
@@ -293,6 +280,7 @@ void PathCache::clear() {
 }
 
 void PathCache::generateTexture(SkBitmap& bitmap, Texture* texture) {
+    ATRACE_NAME("Upload Path Texture");
     SkAutoLockPixels alp(bitmap);
     if (!bitmap.readyToDraw()) {
         ALOGE("Cannot generate texture from bitmap");

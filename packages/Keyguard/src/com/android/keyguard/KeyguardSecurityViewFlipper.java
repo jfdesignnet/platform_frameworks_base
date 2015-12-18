@@ -16,6 +16,7 @@
 
 package com.android.keyguard;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
@@ -25,11 +26,14 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
+import android.view.ViewHierarchyEncoder;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ViewFlipper;
 
 import com.android.internal.widget.LockPatternUtils;
+
+import java.lang.Override;
 
 /**
  * Subclass of the current view flipper that allows us to overload dispatchTouchEvent() so
@@ -127,6 +131,22 @@ public class KeyguardSecurityViewFlipper extends ViewFlipper implements Keyguard
     }
 
     @Override
+    public void showPromptReason(int reason) {
+        KeyguardSecurityView ksv = getSecurityView();
+        if (ksv != null) {
+            ksv.showPromptReason(reason);
+        }
+    }
+
+    @Override
+    public void showMessage(String message, int color) {
+        KeyguardSecurityView ksv = getSecurityView();
+        if (ksv != null) {
+            ksv.showMessage(message, color);
+        }
+    }
+
+    @Override
     public void showUsabilityHint() {
         KeyguardSecurityView ksv = getSecurityView();
         if (ksv != null) {
@@ -199,8 +219,8 @@ public class KeyguardSecurityViewFlipper extends ViewFlipper implements Keyguard
 
         final int wPadding = getPaddingLeft() + getPaddingRight();
         final int hPadding = getPaddingTop() + getPaddingBottom();
-        maxWidth -= wPadding;
-        maxHeight -= hPadding;
+        maxWidth = Math.max(0, maxWidth - wPadding);
+        maxHeight = Math.max(0, maxHeight - hPadding);
 
         int width = widthMode == MeasureSpec.EXACTLY ? widthSize : 0;
         int height = heightMode == MeasureSpec.EXACTLY ? heightSize : 0;
@@ -267,6 +287,15 @@ public class KeyguardSecurityViewFlipper extends ViewFlipper implements Keyguard
             maxHeight = a.getDimensionPixelSize(
                     R.styleable.KeyguardSecurityViewFlipper_Layout_layout_maxHeight, 0);
             a.recycle();
+        }
+
+        /** @hide */
+        @Override
+        protected void encodeProperties(@NonNull ViewHierarchyEncoder encoder) {
+            super.encodeProperties(encoder);
+
+            encoder.addProperty("layout:maxWidth", maxWidth);
+            encoder.addProperty("layout:maxHeight", maxHeight);
         }
     }
 }

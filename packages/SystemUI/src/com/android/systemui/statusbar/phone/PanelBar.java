@@ -25,9 +25,11 @@ import android.widget.FrameLayout;
 
 import java.util.ArrayList;
 
-public class PanelBar extends FrameLayout {
+public abstract class PanelBar extends FrameLayout {
     public static final boolean DEBUG = false;
     public static final String TAG = PanelBar.class.getSimpleName();
+    private static final boolean SPEW = false;
+
     public static final void LOG(String fmt, Object... args) {
         if (!DEBUG) return;
         Log.v(TAG, String.format(fmt, args));
@@ -77,6 +79,17 @@ public class PanelBar extends FrameLayout {
             if (v != null && v instanceof PanelView) {
                 addPanel((PanelView) v);
             }
+        }
+    }
+
+    public void setBouncerShowing(boolean showing) {
+        int important = showing ? IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                : IMPORTANT_FOR_ACCESSIBILITY_AUTO;
+
+        setImportantForAccessibility(important);
+
+        if (mPanelHolder != null) {
+            mPanelHolder.setImportantForAccessibility(important);
         }
     }
 
@@ -145,6 +158,8 @@ public class PanelBar extends FrameLayout {
         }
     }
 
+    public abstract void panelScrimMinFractionChanged(float minFraction);
+
     /**
      * @param panel the panel which changed its expansion state
      * @param frac the fraction from the expansion in [0, 1]
@@ -154,7 +169,7 @@ public class PanelBar extends FrameLayout {
     public void panelExpansionChanged(PanelView panel, float frac, boolean expanded) {
         boolean fullyClosed = true;
         PanelView fullyOpenedPanel = null;
-        if (DEBUG) LOG("panelExpansionChanged: start state=%d panel=%s", mState, panel.getName());
+        if (SPEW) LOG("panelExpansionChanged: start state=%d panel=%s", mState, panel.getName());
         mPanelExpandedFractionSum = 0f;
         for (PanelView pv : mPanels) {
             pv.setVisibility(expanded ? View.VISIBLE : View.INVISIBLE);
@@ -167,7 +182,7 @@ public class PanelBar extends FrameLayout {
                 fullyClosed = false;
                 final float thisFrac = pv.getExpandedFraction();
                 mPanelExpandedFractionSum += thisFrac;
-                if (DEBUG) LOG("panelExpansionChanged:  -> %s: f=%.1f", pv.getName(), thisFrac);
+                if (SPEW) LOG("panelExpansionChanged:  -> %s: f=%.1f", pv.getName(), thisFrac);
                 if (panel == pv) {
                     if (thisFrac == 1f) fullyOpenedPanel = panel;
                 }
@@ -182,7 +197,7 @@ public class PanelBar extends FrameLayout {
             onAllPanelsCollapsed();
         }
 
-        if (DEBUG) LOG("panelExpansionChanged: end state=%d [%s%s ]", mState,
+        if (SPEW) LOG("panelExpansionChanged: end state=%d [%s%s ]", mState,
                 (fullyOpenedPanel!=null)?" fullyOpened":"", fullyClosed?" fullyClosed":"");
     }
 
@@ -221,10 +236,6 @@ public class PanelBar extends FrameLayout {
 
     public void onTrackingStarted(PanelView panel) {
         mTracking = true;
-        if (DEBUG && panel != mTouchingPanel) {
-            LOG("shouldn't happen: onTrackingStarted(%s) != mTouchingPanel(%s)",
-                    panel, mTouchingPanel);
-        }
     }
 
     public void onTrackingStopped(PanelView panel, boolean expand) {
@@ -232,7 +243,7 @@ public class PanelBar extends FrameLayout {
     }
 
     public void onExpandingFinished() {
-
+        if (DEBUG) LOG("onExpandingFinished");
     }
 
     public void onClosingFinished() {

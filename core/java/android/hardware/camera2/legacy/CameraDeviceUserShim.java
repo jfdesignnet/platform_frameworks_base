@@ -61,7 +61,7 @@ import java.util.List;
 public class CameraDeviceUserShim implements ICameraDeviceUser {
     private static final String TAG = "CameraDeviceUserShim";
 
-    private static final boolean DEBUG = Log.isLoggable(LegacyCameraDevice.DEBUG_PROP, Log.DEBUG);
+    private static final boolean DEBUG = false;
     private static final int OPEN_CAMERA_TIMEOUT_MS = 5000; // 5 sec (same as api1 cts timeout)
 
     private final LegacyCameraDevice mLegacyDevice;
@@ -86,15 +86,6 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         mCameraCallbacks = cameraCallbacks;
 
         mSurfaceIdCounter = 0;
-    }
-
-    private static int translateErrorsFromCamera1(int errorCode) {
-        switch (errorCode) {
-            case CameraBinderDecorator.EACCES:
-                return CameraBinderDecorator.PERMISSION_DENIED;
-            default:
-                return errorCode;
-        }
     }
 
     /**
@@ -140,7 +131,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
             // Save the looper so that we can terminate this thread
             // after we are done with it.
             mLooper = Looper.myLooper();
-            mInitErrors = translateErrorsFromCamera1(mCamera.cameraInitUnspecified(mCameraId));
+            mInitErrors = mCamera.cameraInitUnspecified(mCameraId);
             mStartDone.open();
             Looper.loop();  // Blocks forever until #close is called.
         }
@@ -202,6 +193,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         private static final int CAMERA_IDLE = 1;
         private static final int CAPTURE_STARTED = 2;
         private static final int RESULT_RECEIVED = 3;
+        private static final int PREPARED = 4;
 
         private final HandlerThread mHandlerThread;
         private Handler mHandler;
@@ -253,7 +245,9 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
 
         @Override
         public void onPrepared(int streamId) {
-            // TODO
+            Message msg = getHandler().obtainMessage(PREPARED,
+                    /*arg1*/ streamId, /*arg2*/ 0);
+            getHandler().sendMessage(msg);
         }
 
         @Override
@@ -299,6 +293,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
                             CameraMetadataNative result = (CameraMetadataNative) resultArray[0];
                             CaptureResultExtras resultExtras = (CaptureResultExtras) resultArray[1];
                             mCallbacks.onResultReceived(result, resultExtras);
+                            break;
+                        }
+                        case PREPARED: {
+                            int streamId = msg.arg1;
+                            mCallbacks.onPrepared(streamId);
                             break;
                         }
                         default:
@@ -457,7 +456,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     @Override
-    public int endConfigure() {
+    public int endConfigure(boolean isConstrainedHighSpeed) {
         if (DEBUG) {
             Log.d(TAG, "endConfigure called.");
         }
@@ -631,7 +630,28 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
             return CameraBinderDecorator.ENODEV;
         }
 
-        // TODO: Implement and fire callback
+        // LEGACY doesn't support actual prepare, just signal success right away
+        mCameraCallbacks.onPrepared(streamId);
+
+        return CameraBinderDecorator.NO_ERROR;
+    }
+
+    public int prepare2(int maxCount, int streamId) {
+        // We don't support this in LEGACY mode.
+        return prepare(streamId);
+    }
+
+    public int tearDown(int streamId) {
+        if (DEBUG) {
+            Log.d(TAG, "tearDown called.");
+        }
+        if (mLegacyDevice.isClosed()) {
+            Log.e(TAG, "Cannot tear down stream, device has been closed.");
+            return CameraBinderDecorator.ENODEV;
+        }
+
+        // LEGACY doesn't support actual teardown, so just a no-op
+
         return CameraBinderDecorator.NO_ERROR;
     }
 

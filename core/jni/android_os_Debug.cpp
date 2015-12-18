@@ -270,49 +270,10 @@ static void read_mapinfo(FILE *fp, stats_t* stats)
 
             if ((strstr(name, "[heap]") == name)) {
                 whichHeap = HEAP_NATIVE;
-            } else if (strncmp(name, "/dev/ashmem", 11) == 0) {
-                if (strncmp(name, "/dev/ashmem/dalvik-", 19) == 0) {
-                    whichHeap = HEAP_DALVIK_OTHER;
-                    if (strstr(name, "/dev/ashmem/dalvik-LinearAlloc") == name) {
-                        subHeap = HEAP_DALVIK_LINEARALLOC;
-                    } else if ((strstr(name, "/dev/ashmem/dalvik-alloc space") == name) ||
-                               (strstr(name, "/dev/ashmem/dalvik-main space") == name)) {
-                        // This is the regular Dalvik heap.
-                        whichHeap = HEAP_DALVIK;
-                        subHeap = HEAP_DALVIK_NORMAL;
-                    } else if (strstr(name, "/dev/ashmem/dalvik-large object space") == name) {
-                        whichHeap = HEAP_DALVIK;
-                        subHeap = HEAP_DALVIK_LARGE;
-                    } else if (strstr(name, "/dev/ashmem/dalvik-non moving space") == name) {
-                        whichHeap = HEAP_DALVIK;
-                        subHeap = HEAP_DALVIK_NON_MOVING;
-                    } else if (strstr(name, "/dev/ashmem/dalvik-zygote space") == name) {
-                        whichHeap = HEAP_DALVIK;
-                        subHeap = HEAP_DALVIK_ZYGOTE;
-                    } else if (strstr(name, "/dev/ashmem/dalvik-indirect ref") == name) {
-                        subHeap = HEAP_DALVIK_INDIRECT_REFERENCE_TABLE;
-                    } else if (strstr(name, "/dev/ashmem/dalvik-jit-code-cache") == name) {
-                        subHeap = HEAP_DALVIK_CODE_CACHE;
-                    } else {
-                        subHeap = HEAP_DALVIK_ACCOUNTING;  // Default to accounting.
-                    }
-                } else if (strncmp(name, "/dev/ashmem/CursorWindow", 24) == 0) {
-                    whichHeap = HEAP_CURSOR;
-                } else if (strncmp(name, "/dev/ashmem/libc malloc", 23) == 0) {
-                    whichHeap = HEAP_NATIVE;
-                } else {
-                    whichHeap = HEAP_ASHMEM;
-                }
             } else if (strncmp(name, "[anon:libc_malloc]", 18) == 0) {
                 whichHeap = HEAP_NATIVE;
             } else if (strncmp(name, "[stack", 6) == 0) {
                 whichHeap = HEAP_STACK;
-            } else if (strncmp(name, "/dev/", 5) == 0) {
-                if (strncmp(name, "/dev/kgsl-3d0", 13) == 0) {
-                    whichHeap = HEAP_GL_DEV;
-                } else {
-                    whichHeap = HEAP_UNKNOWN_DEV;
-                }
             } else if (nameLen > 3 && strcmp(name+nameLen-3, ".so") == 0) {
                 whichHeap = HEAP_SO;
                 is_swappable = true;
@@ -325,7 +286,7 @@ static void read_mapinfo(FILE *fp, stats_t* stats)
             } else if (nameLen > 4 && strcmp(name+nameLen-4, ".ttf") == 0) {
                 whichHeap = HEAP_TTF;
                 is_swappable = true;
-            } else if ((nameLen > 4 && strcmp(name+nameLen-4, ".dex") == 0) ||
+            } else if ((nameLen > 4 && strstr(name, ".dex") != NULL) ||
                        (nameLen > 5 && strcmp(name+nameLen-5, ".odex") == 0)) {
                 whichHeap = HEAP_DEX;
                 is_swappable = true;
@@ -335,6 +296,47 @@ static void read_mapinfo(FILE *fp, stats_t* stats)
             } else if (nameLen > 4 && strcmp(name+nameLen-4, ".art") == 0) {
                 whichHeap = HEAP_ART;
                 is_swappable = true;
+            } else if (strncmp(name, "/dev/", 5) == 0) {
+                if (strncmp(name, "/dev/kgsl-3d0", 13) == 0) {
+                    whichHeap = HEAP_GL_DEV;
+                } else if (strncmp(name, "/dev/ashmem", 11) == 0) {
+                    if (strncmp(name, "/dev/ashmem/dalvik-", 19) == 0) {
+                        whichHeap = HEAP_DALVIK_OTHER;
+                        if (strstr(name, "/dev/ashmem/dalvik-LinearAlloc") == name) {
+                            subHeap = HEAP_DALVIK_LINEARALLOC;
+                        } else if ((strstr(name, "/dev/ashmem/dalvik-alloc space") == name) ||
+                                   (strstr(name, "/dev/ashmem/dalvik-main space") == name)) {
+                            // This is the regular Dalvik heap.
+                            whichHeap = HEAP_DALVIK;
+                            subHeap = HEAP_DALVIK_NORMAL;
+                        } else if (strstr(name, "/dev/ashmem/dalvik-large object space") == name ||
+                                   strstr(name, "/dev/ashmem/dalvik-free list large object space")
+                                       == name) {
+                            whichHeap = HEAP_DALVIK;
+                            subHeap = HEAP_DALVIK_LARGE;
+                        } else if (strstr(name, "/dev/ashmem/dalvik-non moving space") == name) {
+                            whichHeap = HEAP_DALVIK;
+                            subHeap = HEAP_DALVIK_NON_MOVING;
+                        } else if (strstr(name, "/dev/ashmem/dalvik-zygote space") == name) {
+                            whichHeap = HEAP_DALVIK;
+                            subHeap = HEAP_DALVIK_ZYGOTE;
+                        } else if (strstr(name, "/dev/ashmem/dalvik-indirect ref") == name) {
+                            subHeap = HEAP_DALVIK_INDIRECT_REFERENCE_TABLE;
+                        } else if (strstr(name, "/dev/ashmem/dalvik-jit-code-cache") == name) {
+                            subHeap = HEAP_DALVIK_CODE_CACHE;
+                        } else {
+                            subHeap = HEAP_DALVIK_ACCOUNTING;  // Default to accounting.
+                        }
+                    } else if (strncmp(name, "/dev/ashmem/CursorWindow", 24) == 0) {
+                        whichHeap = HEAP_CURSOR;
+                    } else if (strncmp(name, "/dev/ashmem/libc malloc", 23) == 0) {
+                        whichHeap = HEAP_NATIVE;
+                    } else {
+                        whichHeap = HEAP_ASHMEM;
+                    }
+                } else {
+                    whichHeap = HEAP_UNKNOWN_DEV;
+                }
             } else if (strncmp(name, "[anon:", 6) == 0) {
                 whichHeap = HEAP_UNKNOWN;
             } else if (nameLen > 0) {
@@ -568,6 +570,29 @@ static jlong android_os_Debug_getPss(JNIEnv *env, jobject clazz)
     return android_os_Debug_getPssPid(env, clazz, getpid(), NULL, NULL);
 }
 
+static long get_allocated_vmalloc_memory() {
+    char line[1024];
+    long size, vmalloc_allocated_size = 0;
+    FILE* fp = fopen("/proc/vmallocinfo", "r");
+    if (fp == NULL) {
+        return 0;
+    }
+    while (true) {
+        if (fgets(line, 1024, fp) == NULL) {
+            break;
+        }
+
+        if (!strstr(line, "ioremap") && !strstr(line, "map_lowmem")) {
+            // Ignore ioremap and map_lowmem regions, since they don't actually consume memory
+            if (sscanf(line, "%*x-%*x %ld", &size) == 1) {
+                vmalloc_allocated_size += size;
+            }
+        }
+    }
+    fclose(fp);
+    return vmalloc_allocated_size;
+}
+
 enum {
     MEMINFO_TOTAL,
     MEMINFO_FREE,
@@ -588,7 +613,7 @@ enum {
 static void android_os_Debug_getMemInfo(JNIEnv *env, jobject clazz, jlongArray out)
 {
     char buffer[1024];
-    int numFound = 0;
+    size_t numFound = 0;
 
     if (out == NULL) {
         jniThrowNullPointerException(env, "out == null");
@@ -646,7 +671,7 @@ static void android_os_Debug_getMemInfo(JNIEnv *env, jobject clazz, jlongArray o
     long mem[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
     char* p = buffer;
-    while (*p && numFound < 13) {
+    while (*p && numFound < (sizeof(tagsLen) / sizeof(tagsLen[0]))) {
         int i = 0;
         while (tags[i]) {
             if (strncmp(p, tags[i], tagsLen[i]) == 0) {
@@ -679,6 +704,9 @@ static void android_os_Debug_getMemInfo(JNIEnv *env, jobject clazz, jlongArray o
             mem[MEMINFO_ZRAM_TOTAL] = atoll(buffer)/1024;
         }
     }
+    // Recompute Vmalloc Used since the value in meminfo
+    // doesn't account for I/O remapping which doesn't use RAM.
+    mem[MEMINFO_VMALLOC_USED] = get_allocated_vmalloc_memory() / 1024;
 
     int maxNum = env->GetArrayLength(out);
     if (maxNum > MEMINFO_COUNT) {
@@ -692,6 +720,7 @@ static void android_os_Debug_getMemInfo(JNIEnv *env, jobject clazz, jlongArray o
     }
     env->ReleaseLongArrayElements(out, outArray, 0);
 }
+
 
 static jint read_binder_stat(const char* stat)
 {

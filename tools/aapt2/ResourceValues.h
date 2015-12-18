@@ -206,18 +206,6 @@ struct BinaryPrimitive : public BaseItem<BinaryPrimitive> {
     void print(std::ostream& out) const override;
 };
 
-/**
- * Sentinel value that should be ignored in the final output.
- * Mainly used as a placeholder for public entries with no
- * values defined yet.
- */
-struct Sentinel : public BaseItem<Sentinel> {
-    bool isWeak() const override;
-    bool flatten(android::Res_value& outValue) const override;
-    Sentinel* clone(StringPool* newPool) const override;
-    void print(std::ostream& out) const override;
-};
-
 struct Attribute : public BaseValue<Attribute> {
     struct Symbol {
         Reference symbol;
@@ -234,6 +222,7 @@ struct Attribute : public BaseValue<Attribute> {
 
     bool isWeak() const override;
     virtual Attribute* clone(StringPool* newPool) const override;
+    void printMask(std::ostream& out) const;
     virtual void print(std::ostream& out) const override;
 };
 
@@ -243,12 +232,16 @@ struct Style : public BaseValue<Style> {
         std::unique_ptr<Item> value;
     };
 
-    bool weak;
     Reference parent;
+
+    /**
+     * If set to true, the parent was auto inferred from the
+     * style's name.
+     */
+    bool parentInferred = false;
+
     std::vector<Entry> entries;
 
-    Style(bool weak);
-    bool isWeak() const override;
     Style* clone(StringPool* newPool) const override;
     void print(std::ostream& out) const override;
 };
@@ -292,6 +285,10 @@ inline ::std::ostream& operator<<(::std::ostream& out, const Value& value) {
     return out;
 }
 
+inline ::std::ostream& operator<<(::std::ostream& out, const Attribute::Symbol& s) {
+    return out << s.symbol.name.entry << "=" << s.value;
+}
+
 /**
  * The argument object that gets passed through the value
  * back to the ValueVisitor. Subclasses of ValueVisitor should
@@ -330,10 +327,6 @@ struct ValueVisitor {
 
     virtual void visit(BinaryPrimitive& primitive, ValueVisitorArgs& args) {
         visitItem(primitive, args);
-    }
-
-    virtual void visit(Sentinel& sentinel, ValueVisitorArgs& args) {
-        visitItem(sentinel, args);
     }
 
     virtual void visit(Attribute& attr, ValueVisitorArgs& args) {}
@@ -375,10 +368,6 @@ struct ConstValueVisitor {
 
     virtual void visit(const BinaryPrimitive& primitive, ValueVisitorArgs& args) {
         visitItem(primitive, args);
-    }
-
-    virtual void visit(const Sentinel& sentinel, ValueVisitorArgs& args) {
-        visitItem(sentinel, args);
     }
 
     virtual void visit(const Attribute& attr, ValueVisitorArgs& args) {}

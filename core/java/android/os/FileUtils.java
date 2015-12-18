@@ -16,6 +16,7 @@
 
 package android.os;
 
+import android.annotation.NonNull;
 import android.provider.DocumentsContract.Document;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -23,6 +24,8 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.Slog;
 import android.webkit.MimeTypeMap;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -34,6 +37,7 @@ import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Objects;
@@ -65,6 +69,8 @@ public class FileUtils {
 
     /** Regular expression for safe filenames: no spaces or metacharacters */
     private static final Pattern SAFE_FILENAME_PATTERN = Pattern.compile("[\\w%+,./=_-]+");
+
+    private static final File[] EMPTY = new File[0];
 
     /**
      * Set owner and mode of of given {@link File}.
@@ -390,7 +396,7 @@ public class FileUtils {
      * attacks.
      */
     public static boolean contains(File dir, File file) {
-        if (file == null) return false;
+        if (dir == null || file == null) return false;
 
         String dirPath = dir.getAbsolutePath();
         String filePath = file.getAbsolutePath();
@@ -456,6 +462,7 @@ public class FileUtils {
                 res.append('_');
             }
         }
+        trimFilename(res, 255);
         return res.toString();
     }
 
@@ -504,7 +511,29 @@ public class FileUtils {
                 res.append('_');
             }
         }
+        // Even though vfat allows 255 UCS-2 chars, we might eventually write to
+        // ext4 through a FUSE layer, so use that limit.
+        trimFilename(res, 255);
         return res.toString();
+    }
+
+    @VisibleForTesting
+    public static String trimFilename(String str, int maxBytes) {
+        final StringBuilder res = new StringBuilder(str);
+        trimFilename(res, maxBytes);
+        return res.toString();
+    }
+
+    private static void trimFilename(StringBuilder res, int maxBytes) {
+        byte[] raw = res.toString().getBytes(StandardCharsets.UTF_8);
+        if (raw.length > maxBytes) {
+            maxBytes -= 3;
+            while (raw.length > maxBytes) {
+                res.deleteCharAt(res.length() / 2);
+                raw = res.toString().getBytes(StandardCharsets.UTF_8);
+            }
+            res.insert(res.length() / 2, "...");
+        }
     }
 
     public static String rewriteAfterRename(File beforeDir, File afterDir, String path) {
@@ -528,7 +557,7 @@ public class FileUtils {
      * {@code /after/foo/bar.txt}.
      */
     public static File rewriteAfterRename(File beforeDir, File afterDir, File file) {
-        if (file == null) return null;
+        if (file == null || beforeDir == null || afterDir == null) return null;
         if (contains(beforeDir, file)) {
             final String splice = file.getAbsolutePath().substring(
                     beforeDir.getAbsolutePath().length());
@@ -606,6 +635,15 @@ public class FileUtils {
             return new File(parent, name);
         } else {
             return new File(parent, name + "." + ext);
+        }
+    }
+
+    public static @NonNull File[] listFilesOrEmpty(File dir) {
+        File[] res = dir.listFiles();
+        if (res != null) {
+            return res;
+        } else {
+            return EMPTY;
         }
     }
 }

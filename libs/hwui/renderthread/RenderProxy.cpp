@@ -52,11 +52,12 @@ namespace renderthread {
     MethodInvokeRenderTask* task = new MethodInvokeRenderTask((RunnableMethod) Bridge_ ## method); \
     ARGS(method) *args = (ARGS(method) *) task->payload()
 
-enum class DumpFlags {
-        kFrameStats = 1 << 0,
-        kReset      = 1 << 1,
+namespace DumpFlags {
+    enum {
+        FrameStats = 1 << 0,
+        Reset      = 1 << 1,
+    };
 };
-MAKE_FLAGS_ENUM(DumpFlags)
 
 CREATE_BRIDGE4(createContext, RenderThread* thread, bool translucent,
         RenderNode* rootRenderNode, IContextFactory* contextFactory) {
@@ -112,9 +113,9 @@ void RenderProxy::setSwapBehavior(SwapBehavior swapBehavior) {
 CREATE_BRIDGE1(loadSystemProperties, CanvasContext* context) {
     bool needsRedraw = false;
     if (Caches::hasInstance()) {
-        needsRedraw = Caches::getInstance().initProperties();
+        needsRedraw = Properties::load();
     }
-    if (args->context->profiler().loadSystemProperties()) {
+    if (args->context->profiler().consumeProperties()) {
         needsRedraw = true;
     }
     return (void*) needsRedraw;
@@ -135,7 +136,7 @@ void RenderProxy::setName(const char* name) {
     SETUP_TASK(setName);
     args->context = mContext;
     args->name = name;
-    post(task);
+    postAndWait(task); // block since name/value pointers owned by caller
 }
 
 CREATE_BRIDGE2(initialize, CanvasContext* context, ANativeWindow* window) {
@@ -172,24 +173,34 @@ bool RenderProxy::pauseSurface(const sp<ANativeWindow>& window) {
     return (bool) postAndWait(task);
 }
 
-CREATE_BRIDGE7(setup, CanvasContext* context, int width, int height,
-        Vector3 lightCenter, float lightRadius,
-        uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha) {
-    args->context->setup(args->width, args->height, args->lightCenter, args->lightRadius,
+CREATE_BRIDGE6(setup, CanvasContext* context, int width, int height,
+        float lightRadius, uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha) {
+    args->context->setup(args->width, args->height, args->lightRadius,
             args->ambientShadowAlpha, args->spotShadowAlpha);
     return nullptr;
 }
 
-void RenderProxy::setup(int width, int height, const Vector3& lightCenter, float lightRadius,
+void RenderProxy::setup(int width, int height, float lightRadius,
         uint8_t ambientShadowAlpha, uint8_t spotShadowAlpha) {
     SETUP_TASK(setup);
     args->context = mContext;
     args->width = width;
     args->height = height;
-    args->lightCenter = lightCenter;
     args->lightRadius = lightRadius;
     args->ambientShadowAlpha = ambientShadowAlpha;
     args->spotShadowAlpha = spotShadowAlpha;
+    post(task);
+}
+
+CREATE_BRIDGE2(setLightCenter, CanvasContext* context, Vector3 lightCenter) {
+    args->context->setLightCenter(args->lightCenter);
+    return nullptr;
+}
+
+void RenderProxy::setLightCenter(const Vector3& lightCenter) {
+    SETUP_TASK(setLightCenter);
+    args->context = mContext;
+    args->lightCenter = lightCenter;
     post(task);
 }
 
@@ -293,11 +304,11 @@ CREATE_BRIDGE3(copyLayerInto, CanvasContext* context, DeferredLayerUpdater* laye
     return (void*) success;
 }
 
-bool RenderProxy::copyLayerInto(DeferredLayerUpdater* layer, SkBitmap* bitmap) {
+bool RenderProxy::copyLayerInto(DeferredLayerUpdater* layer, SkBitmap& bitmap) {
     SETUP_TASK(copyLayerInto);
     args->context = mContext;
     args->layer = layer;
-    args->bitmap = bitmap;
+    args->bitmap = &bitmap;
     return (bool) postAndWait(task);
 }
 
@@ -331,7 +342,7 @@ void RenderProxy::destroyHardwareResources() {
     post(task);
 }
 
-CREATE_BRIDGE2(timMemory, RenderThread* thread, int level) {
+CREATE_BRIDGE2(trimMemory, RenderThread* thread, int level) {
     CanvasContext::trimMemory(*args->thread, args->level);
     return nullptr;
 }
@@ -340,11 +351,23 @@ void RenderProxy::trimMemory(int level) {
     // Avoid creating a RenderThread to do a trimMemory.
     if (RenderThread::hasInstance()) {
         RenderThread& thread = RenderThread::getInstance();
-        SETUP_TASK(timMemory);
+        SETUP_TASK(trimMemory);
         args->thread = &thread;
         args->level = level;
         thread.queue(task);
     }
+}
+
+CREATE_BRIDGE2(overrideProperty, const char* name, const char* value) {
+    Properties::overrideProperty(args->name, args->value);
+    return nullptr;
+}
+
+void RenderProxy::overrideProperty(const char* name, const char* value) {
+    SETUP_TASK(overrideProperty);
+    args->name = name;
+    args->value = value;
+    staticPostAndWait(task); // expensive, but block here since name/value pointers owned by caller
 }
 
 CREATE_BRIDGE0(fence) {
@@ -383,12 +406,14 @@ void RenderProxy::notifyFramePending() {
     mRenderThread.queueAtFront(task);
 }
 
-CREATE_BRIDGE3(dumpProfileInfo, CanvasContext* context, int fd, int dumpFlags) {
+CREATE_BRIDGE4(dumpProfileInfo, CanvasContext* context, RenderThread* thread,
+        int fd, int dumpFlags) {
     args->context->profiler().dumpData(args->fd);
-    if (args->dumpFlags & DumpFlags::kFrameStats) {
+    args->thread->jankTracker().dump(args->fd);
+    if (args->dumpFlags & DumpFlags::FrameStats) {
         args->context->dumpFrames(args->fd);
     }
-    if (args->dumpFlags & DumpFlags::kReset) {
+    if (args->dumpFlags & DumpFlags::Reset) {
         args->context->resetFrameStats();
     }
     return nullptr;
@@ -397,8 +422,20 @@ CREATE_BRIDGE3(dumpProfileInfo, CanvasContext* context, int fd, int dumpFlags) {
 void RenderProxy::dumpProfileInfo(int fd, int dumpFlags) {
     SETUP_TASK(dumpProfileInfo);
     args->context = mContext;
+    args->thread = &mRenderThread;
     args->fd = fd;
     args->dumpFlags = dumpFlags;
+    postAndWait(task);
+}
+
+CREATE_BRIDGE1(resetProfileInfo, CanvasContext* context) {
+    args->context->resetFrameStats();
+    return nullptr;
+}
+
+void RenderProxy::resetProfileInfo() {
+    SETUP_TASK(resetProfileInfo);
+    args->context = mContext;
     postAndWait(task);
 }
 

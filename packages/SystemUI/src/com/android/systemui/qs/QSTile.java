@@ -16,6 +16,7 @@
 
 package com.android.systemui.qs;
 
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Animatable;
@@ -33,12 +34,12 @@ import com.android.systemui.qs.QSTile.State;
 import com.android.systemui.statusbar.policy.BluetoothController;
 import com.android.systemui.statusbar.policy.CastController;
 import com.android.systemui.statusbar.policy.FlashlightController;
+import com.android.systemui.statusbar.policy.HotspotController;
 import com.android.systemui.statusbar.policy.KeyguardMonitor;
 import com.android.systemui.statusbar.policy.Listenable;
 import com.android.systemui.statusbar.policy.LocationController;
 import com.android.systemui.statusbar.policy.NetworkController;
 import com.android.systemui.statusbar.policy.RotationLockController;
-import com.android.systemui.statusbar.policy.HotspotController;
 import com.android.systemui.statusbar.policy.ZenModeController;
 
 import java.util.Collection;
@@ -61,13 +62,22 @@ public abstract class QSTile<TState extends State> implements Listenable {
     protected final Handler mUiHandler = new Handler(Looper.getMainLooper());
 
     private Callback mCallback;
-    protected final TState mState = newTileState();
-    private final TState mTmpState = newTileState();
+    protected TState mState = newTileState();
+    private TState mTmpState = newTileState();
     private boolean mAnnounceNextStateChange;
 
     abstract protected TState newTileState();
     abstract protected void handleClick();
     abstract protected void handleUpdateState(TState state, Object arg);
+
+    /**
+     * Declare the category of this tile.
+     *
+     * Categories are defined in {@link com.android.internal.logging.MetricsLogger}
+     * or if there is no relevant existing category you may define one in
+     * {@link com.android.systemui.qs.QSTile}.
+     */
+    abstract public int getMetricsCategory();
 
     protected QSTile(Host host) {
         mHost = host;
@@ -97,6 +107,7 @@ public abstract class QSTile<TState extends State> implements Listenable {
         View createDetailView(Context context, View convertView, ViewGroup parent);
         Intent getSettingsIntent();
         void setToggleState(boolean state);
+        int getMetricsCategory();
     }
 
     // safe to call from any thread
@@ -127,6 +138,10 @@ public abstract class QSTile<TState extends State> implements Listenable {
 
     protected final void refreshState(Object arg) {
         mHandler.obtainMessage(H.REFRESH_STATE, arg).sendToTarget();
+    }
+
+    public final void clearState() {
+        mHandler.sendEmptyMessage(H.CLEAR_STATE);
     }
 
     public void userSwitch(int newUserId) {
@@ -166,6 +181,11 @@ public abstract class QSTile<TState extends State> implements Listenable {
 
     protected void handleLongClick() {
         // optional
+    }
+
+    protected void handleClearState() {
+        mTmpState = newTileState();
+        mState = newTileState();
     }
 
     protected void handleRefreshState(Object arg) {
@@ -236,6 +256,7 @@ public abstract class QSTile<TState extends State> implements Listenable {
         private static final int TOGGLE_STATE_CHANGED = 8;
         private static final int SCAN_STATE_CHANGED = 9;
         private static final int DESTROY = 10;
+        private static final int CLEAR_STATE = 11;
 
         private H(Looper looper) {
             super(looper);
@@ -276,6 +297,9 @@ public abstract class QSTile<TState extends State> implements Listenable {
                 } else if (msg.what == DESTROY) {
                     name = "handleDestroy";
                     handleDestroy();
+                } else if (msg.what == CLEAR_STATE) {
+                    name = "handleClearState";
+                    handleClearState();
                 } else {
                     throw new IllegalArgumentException("Unknown msg: " + msg.what);
                 }
@@ -296,7 +320,8 @@ public abstract class QSTile<TState extends State> implements Listenable {
     }
 
     public interface Host {
-        void startSettingsActivity(Intent intent);
+        void startActivityDismissingKeyguard(Intent intent);
+        void startActivityDismissingKeyguard(PendingIntent intent);
         void warn(String message, Throwable t);
         void collapsePanels();
         Looper getLooper();

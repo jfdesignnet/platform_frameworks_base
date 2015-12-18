@@ -17,6 +17,7 @@
 package com.android.server.devicepolicy;
 
 import android.app.AppGlobals;
+import android.app.admin.SystemUpdatePolicy;
 import android.content.ComponentName;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -41,6 +42,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -78,7 +80,7 @@ class DeviceOwner {
     private final HashMap<Integer, OwnerInfo> mProfileOwners = new HashMap<Integer, OwnerInfo>();
 
     // Local system update policy controllable by device owner.
-    private PersistableBundle mSystemUpdatePolicy;
+    private SystemUpdatePolicy mSystemUpdatePolicy;
 
     // Private default constructor.
     private DeviceOwner() {
@@ -115,9 +117,9 @@ class DeviceOwner {
     /**
      * Creates an instance of the device owner object with the device initializer set.
      */
-    static DeviceOwner createWithDeviceInitializer(ComponentName admin, String ownerName) {
+    static DeviceOwner createWithDeviceInitializer(ComponentName admin) {
         DeviceOwner owner = new DeviceOwner();
-        owner.mDeviceInitializer = new OwnerInfo(ownerName, admin);
+        owner.mDeviceInitializer = new OwnerInfo(null, admin);
         return owner;
     }
 
@@ -154,12 +156,8 @@ class DeviceOwner {
         return mDeviceInitializer != null ? mDeviceInitializer.packageName : null;
     }
 
-    String getDeviceInitializerName() {
-        return mDeviceInitializer != null ? mDeviceInitializer.name : null;
-    }
-
-    void setDeviceInitializer(ComponentName admin, String ownerName) {
-        mDeviceInitializer = new OwnerInfo(ownerName, admin);
+    void setDeviceInitializer(ComponentName admin) {
+        mDeviceInitializer = new OwnerInfo(null, admin);
     }
 
     void clearDeviceInitializer() {
@@ -192,11 +190,11 @@ class DeviceOwner {
         return mProfileOwners.keySet();
     }
 
-    PersistableBundle getSystemUpdatePolicy() {
+    SystemUpdatePolicy getSystemUpdatePolicy() {
         return mSystemUpdatePolicy;
     }
 
-    void setSystemUpdatePolicy(PersistableBundle systemUpdatePolicy) {
+    void setSystemUpdatePolicy(SystemUpdatePolicy systemUpdatePolicy) {
         mSystemUpdatePolicy = systemUpdatePolicy;
     }
 
@@ -241,7 +239,7 @@ class DeviceOwner {
         try {
             InputStream input = openRead();
             XmlPullParser parser = Xml.newPullParser();
-            parser.setInput(input, null);
+            parser.setInput(input, StandardCharsets.UTF_8.name());
             int type;
             while ((type=parser.next()) != XmlPullParser.END_DOCUMENT) {
                 if (type!=XmlPullParser.START_TAG) {
@@ -254,16 +252,15 @@ class DeviceOwner {
                     String packageName = parser.getAttributeValue(null, ATTR_PACKAGE);
                     mDeviceOwner = new OwnerInfo(name, packageName);
                 } else if (tag.equals(TAG_DEVICE_INITIALIZER)) {
-                    String name = parser.getAttributeValue(null, ATTR_NAME);
                     String packageName = parser.getAttributeValue(null, ATTR_PACKAGE);
                     String initializerComponentStr =
                             parser.getAttributeValue(null, ATTR_COMPONENT_NAME);
                     ComponentName admin =
                             ComponentName.unflattenFromString(initializerComponentStr);
                     if (admin != null) {
-                        mDeviceInitializer = new OwnerInfo(name, admin);
+                        mDeviceInitializer = new OwnerInfo(null, admin);
                     } else {
-                        mDeviceInitializer = new OwnerInfo(name, packageName);
+                        mDeviceInitializer = new OwnerInfo(null, packageName);
                         Slog.e(TAG, "Error parsing device-owner file. Bad component name " +
                                 initializerComponentStr);
                     }
@@ -291,7 +288,7 @@ class DeviceOwner {
                     }
                     mProfileOwners.put(userId, profileOwnerInfo);
                 } else if (TAG_SYSTEM_UPDATE_POLICY.equals(tag)) {
-                    mSystemUpdatePolicy = PersistableBundle.restoreFromXml(parser);
+                    mSystemUpdatePolicy = SystemUpdatePolicy.restoreFromXml(parser);
                 } else {
                     throw new XmlPullParserException(
                             "Unexpected tag in device owner file: " + tag);
@@ -316,7 +313,7 @@ class DeviceOwner {
         try {
             OutputStream outputStream = startWrite();
             XmlSerializer out = new FastXmlSerializer();
-            out.setOutput(outputStream, "utf-8");
+            out.setOutput(outputStream, StandardCharsets.UTF_8.name());
             out.startDocument(null, true);
 
             // Write device owner tag
@@ -333,9 +330,6 @@ class DeviceOwner {
             if (mDeviceInitializer != null) {
                 out.startTag(null, TAG_DEVICE_INITIALIZER);
                 out.attribute(null, ATTR_PACKAGE, mDeviceInitializer.packageName);
-                if (mDeviceInitializer.name != null) {
-                    out.attribute(null, ATTR_NAME, mDeviceInitializer.name);
-                }
                 if (mDeviceInitializer.admin != null) {
                     out.attribute(
                             null, ATTR_COMPONENT_NAME, mDeviceInitializer.admin.flattenToString());
@@ -361,11 +355,7 @@ class DeviceOwner {
             // Write system update policy tag
             if (mSystemUpdatePolicy != null) {
                 out.startTag(null, TAG_SYSTEM_UPDATE_POLICY);
-                try {
-                    mSystemUpdatePolicy.saveToXml(out);
-                } catch (XmlPullParserException e) {
-                    Slog.e(TAG, "Failed to save system update policy", e);
-                }
+                mSystemUpdatePolicy.saveToXml(out);
                 out.endTag(null, TAG_SYSTEM_UPDATE_POLICY);
             }
             out.endDocument();

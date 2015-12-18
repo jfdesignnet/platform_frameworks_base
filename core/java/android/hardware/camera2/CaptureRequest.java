@@ -16,6 +16,8 @@
 
 package android.hardware.camera2;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.impl.PublicKey;
 import android.hardware.camera2.impl.SyntheticKey;
@@ -58,9 +60,17 @@ import java.util.Objects;
  * high-resolution still capture would also include a Surface from a ImageReader
  * configured for high-resolution JPEG images.</p>
  *
- * @see CameraDevice#capture
- * @see CameraDevice#setRepeatingRequest
+ * <p>A reprocess capture request allows a previously-captured image from the camera device to be
+ * sent back to the device for further processing. It can be created with
+ * {@link CameraDevice#createReprocessCaptureRequest}, and used with a reprocessable capture session
+ * created with {@link CameraDevice#createReprocessableCaptureSession}.</p>
+ *
+ * @see CameraCaptureSession#capture
+ * @see CameraCaptureSession#setRepeatingRequest
+ * @see CameraCaptureSession#captureBurst
+ * @see CameraCaptureSession#setRepeatingBurst
  * @see CameraDevice#createCaptureRequest
+ * @see CameraDevice#createReprocessCaptureRequest
  */
 public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
         implements Parcelable {
@@ -117,6 +127,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          *
          * @return String representation of the key name
          */
+        @NonNull
         public String getName() {
             return mKey.getName();
         }
@@ -139,6 +150,20 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
         }
 
         /**
+         * Return this {@link Key} as a string representation.
+         *
+         * <p>{@code "CaptureRequest.Key(%s)"}, where {@code %s} represents
+         * the name of this key as returned by {@link #getName}.</p>
+         *
+         * @return string representation of {@link Key}
+         */
+        @NonNull
+        @Override
+        public String toString() {
+            return String.format("CaptureRequest.Key(%s)", mKey.getName());
+        }
+
+        /**
          * Visible for CameraMetadataNative implementation only; do not use.
          *
          * TODO: Make this private or remove it altogether.
@@ -158,9 +183,12 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
     private final HashSet<Surface> mSurfaceSet;
     private final CameraMetadataNative mSettings;
     private boolean mIsReprocess;
-    // Each reprocess request must be tied to a reprocessible session ID.
+    // If this request is part of constrained high speed request list that was created by
+    // {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}
+    private boolean mIsPartOfCHSRequestList = false;
+    // Each reprocess request must be tied to a reprocessable session ID.
     // Valid only for reprocess requests (mIsReprocess == true).
-    private int mReprocessibleSessionId;
+    private int mReprocessableSessionId;
 
     private Object mUserTag;
 
@@ -173,7 +201,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
         mSettings = new CameraMetadataNative();
         mSurfaceSet = new HashSet<Surface>();
         mIsReprocess = false;
-        mReprocessibleSessionId = CameraCaptureSession.SESSION_ID_NONE;
+        mReprocessableSessionId = CameraCaptureSession.SESSION_ID_NONE;
     }
 
     /**
@@ -186,7 +214,8 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
         mSettings = new CameraMetadataNative(source.mSettings);
         mSurfaceSet = (HashSet<Surface>) source.mSurfaceSet.clone();
         mIsReprocess = source.mIsReprocess;
-        mReprocessibleSessionId = source.mReprocessibleSessionId;
+        mIsPartOfCHSRequestList = source.mIsPartOfCHSRequestList;
+        mReprocessableSessionId = source.mReprocessableSessionId;
         mUserTag = source.mUserTag;
     }
 
@@ -199,30 +228,30 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * @param isReprocess Indicates whether to create a reprocess capture request. {@code true}
      *                    to create a reprocess capture request. {@code false} to create a regular
      *                    capture request.
-     * @param reprocessibleSessionId The ID of the camera capture session this capture is created
+     * @param reprocessableSessionId The ID of the camera capture session this capture is created
      *                               for. This is used to validate if the application submits a
      *                               reprocess capture request to the same session where
      *                               the {@link TotalCaptureResult}, used to create the reprocess
      *                               capture, came from.
      *
      * @throws IllegalArgumentException If creating a reprocess capture request with an invalid
-     *                                  reprocessibleSessionId.
+     *                                  reprocessableSessionId.
      *
      * @see CameraDevice#createReprocessCaptureRequest
      */
     private CaptureRequest(CameraMetadataNative settings, boolean isReprocess,
-            int reprocessibleSessionId) {
+            int reprocessableSessionId) {
         mSettings = CameraMetadataNative.move(settings);
         mSurfaceSet = new HashSet<Surface>();
         mIsReprocess = isReprocess;
         if (isReprocess) {
-            if (reprocessibleSessionId == CameraCaptureSession.SESSION_ID_NONE) {
+            if (reprocessableSessionId == CameraCaptureSession.SESSION_ID_NONE) {
                 throw new IllegalArgumentException("Create a reprocess capture request with an " +
-                        "invalid session ID: " + reprocessibleSessionId);
+                        "invalid session ID: " + reprocessableSessionId);
             }
-            mReprocessibleSessionId = reprocessibleSessionId;
+            mReprocessableSessionId = reprocessableSessionId;
         } else {
-            mReprocessibleSessionId = CameraCaptureSession.SESSION_ID_NONE;
+            mReprocessableSessionId = CameraCaptureSession.SESSION_ID_NONE;
         }
     }
 
@@ -239,6 +268,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * @param key The result field to read.
      * @return The value of that key, or {@code null} if the field is not set.
      */
+    @Nullable
     public <T> T get(Key<T> key) {
         return mSettings.get(key);
     }
@@ -268,6 +298,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * {@inheritDoc}
      */
     @Override
+    @NonNull
     public List<Key<?>> getKeys() {
         // Force the javadoc for this function to show up on the CaptureRequest page
         return super.getKeys();
@@ -286,6 +317,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      *     no tag has been set.
      * @see Builder#setTag
      */
+    @Nullable
     public Object getTag() {
         return mUserTag;
     }
@@ -307,20 +339,49 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
     }
 
     /**
-     * Get the reprocessible session ID this reprocess capture request is associated with.
+     * <p>Determine if this request is part of a constrained high speed request list that was
+     * created by
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}.
+     * A constrained high speed request list contains some constrained high speed capture requests
+     * with certain interleaved pattern that is suitable for high speed preview/video streaming. An
+     * active constrained high speed capture session only accepts constrained high speed request
+     * lists.  This method can be used to do the sanity check when a constrained high speed capture
+     * session receives a request list via {@link CameraCaptureSession#setRepeatingBurst} or
+     * {@link CameraCaptureSession#captureBurst}.  </p>
      *
-     * @return the reprocessible session ID this reprocess capture request is associated with
+     *
+     * @return {@code true} if this request is part of a constrained high speed request list,
+     * {@code false} otherwise.
+     *
+     * @hide
+     */
+    public boolean isPartOfCRequestList() {
+        return mIsPartOfCHSRequestList;
+    }
+
+    /**
+     * Returns a copy of the underlying {@link CameraMetadataNative}.
+     * @hide
+     */
+    public CameraMetadataNative getNativeCopy() {
+        return new CameraMetadataNative(mSettings);
+    }
+
+    /**
+     * Get the reprocessable session ID this reprocess capture request is associated with.
+     *
+     * @return the reprocessable session ID this reprocess capture request is associated with
      *
      * @throws IllegalStateException if this capture request is not a reprocess capture request.
      * @hide
      */
-    public int getReprocessibleSessionId() {
+    public int getReprocessableSessionId() {
         if (mIsReprocess == false ||
-                mReprocessibleSessionId == CameraCaptureSession.SESSION_ID_NONE) {
-            throw new IllegalStateException("Getting the reprocessible session ID for a "+
+                mReprocessableSessionId == CameraCaptureSession.SESSION_ID_NONE) {
+            throw new IllegalStateException("Getting the reprocessable session ID for a "+
                     "non-reprocess capture request is illegal.");
         }
-        return mReprocessibleSessionId;
+        return mReprocessableSessionId;
     }
 
     /**
@@ -346,12 +407,12 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
                 && mSurfaceSet.equals(other.mSurfaceSet)
                 && mSettings.equals(other.mSettings)
                 && mIsReprocess == other.mIsReprocess
-                && mReprocessibleSessionId == other.mReprocessibleSessionId;
+                && mReprocessableSessionId == other.mReprocessableSessionId;
     }
 
     @Override
     public int hashCode() {
-        return HashCodeHelpers.hashCode(mSettings, mSurfaceSet, mUserTag);
+        return HashCodeHelpers.hashCodeGeneric(mSettings, mSurfaceSet, mUserTag);
     }
 
     public static final Parcelable.Creator<CaptureRequest> CREATOR =
@@ -395,7 +456,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
         }
 
         mIsReprocess = (in.readInt() == 0) ? false : true;
-        mReprocessibleSessionId = CameraCaptureSession.SESSION_ID_NONE;
+        mReprocessableSessionId = CameraCaptureSession.SESSION_ID_NONE;
     }
 
     @Override
@@ -450,19 +511,19 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          * @param reprocess Indicates whether to create a reprocess capture request. {@code true}
          *                  to create a reprocess capture request. {@code false} to create a regular
          *                  capture request.
-         * @param reprocessibleSessionId The ID of the camera capture session this capture is
+         * @param reprocessableSessionId The ID of the camera capture session this capture is
          *                               created for. This is used to validate if the application
          *                               submits a reprocess capture request to the same session
          *                               where the {@link TotalCaptureResult}, used to create the
          *                               reprocess capture, came from.
          *
          * @throws IllegalArgumentException If creating a reprocess capture request with an invalid
-         *                                  reprocessibleSessionId.
+         *                                  reprocessableSessionId.
          * @hide
          */
         public Builder(CameraMetadataNative template, boolean reprocess,
-                int reprocessibleSessionId) {
-            mRequest = new CaptureRequest(template, reprocess, reprocessibleSessionId);
+                int reprocessableSessionId) {
+            mRequest = new CaptureRequest(template, reprocess, reprocessableSessionId);
         }
 
         /**
@@ -476,7 +537,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          *
          * @param outputTarget Surface to use as an output target for this request
          */
-        public void addTarget(Surface outputTarget) {
+        public void addTarget(@NonNull Surface outputTarget) {
             mRequest.mSurfaceSet.add(outputTarget);
         }
 
@@ -487,7 +548,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          *
          * @param outputTarget Surface to use as an output target for this request
          */
-        public void removeTarget(Surface outputTarget) {
+        public void removeTarget(@NonNull Surface outputTarget) {
             mRequest.mSurfaceSet.remove(outputTarget);
         }
 
@@ -499,7 +560,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          * @param value The value to set the field to, which must be of a matching
          * type to the key.
          */
-        public <T> void set(Key<T> key, T value) {
+        public <T> void set(@NonNull Key<T> key, T value) {
             mRequest.mSettings.set(key, value);
         }
 
@@ -512,6 +573,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          * @param key The metadata field to read.
          * @return The value of that key, or {@code null} if the field is not set.
          */
+        @Nullable
         public <T> T get(Key<T> key) {
             return mRequest.mSettings.get(key);
         }
@@ -527,8 +589,21 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          * @param tag an arbitrary Object to store with this request
          * @see CaptureRequest#getTag
          */
-        public void setTag(Object tag) {
+        public void setTag(@Nullable Object tag) {
             mRequest.mUserTag = tag;
+        }
+
+        /**
+         * <p>Mark this request as part of a constrained high speed request list created by
+         * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession#createHighSpeedRequestList}.
+         * A constrained high speed request list contains some constrained high speed capture
+         * requests with certain interleaved pattern that is suitable for high speed preview/video
+         * streaming.</p>
+         *
+         * @hide
+         */
+        public void setPartOfCHSRequestList(boolean partOfCHSList) {
+            mRequest.mIsPartOfCHSRequestList = partOfCHSList;
         }
 
         /**
@@ -543,10 +618,10 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
          * @return A new capture request instance, ready for submission to the
          * camera device.
          */
+        @NonNull
         public CaptureRequest build() {
             return new CaptureRequest(mRequest);
         }
-
 
         /**
          * @hide
@@ -1002,6 +1077,15 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * capturing a high-resolution JPEG image will automatically trigger a
      * precapture sequence before the high-resolution capture, including
      * potentially firing a pre-capture flash.</p>
+     * <p>Using the precapture trigger and the auto-focus trigger {@link CaptureRequest#CONTROL_AF_TRIGGER android.control.afTrigger}
+     * simultaneously is allowed. However, since these triggers often require cooperation between
+     * the auto-focus and auto-exposure routines (for example, the may need to be enabled for a
+     * focus sweep), the camera device may delay acting on a later trigger until the previous
+     * trigger has been fully handled. This may lead to longer intervals between the trigger and
+     * changes to {@link CaptureResult#CONTROL_AE_STATE android.control.aeState} indicating the start of the precapture sequence, for
+     * example.</p>
+     * <p>If both the precapture and the auto-focus trigger are activated on the same request, then
+     * the camera device will complete them in the optimal order for that device.</p>
      * <p><b>Possible values:</b>
      * <ul>
      *   <li>{@link #CONTROL_AE_PRECAPTURE_TRIGGER_IDLE IDLE}</li>
@@ -1015,6 +1099,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      *
      * @see CaptureRequest#CONTROL_AE_LOCK
      * @see CaptureResult#CONTROL_AE_STATE
+     * @see CaptureRequest#CONTROL_AF_TRIGGER
      * @see CaptureRequest#CONTROL_CAPTURE_INTENT
      * @see CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL
      * @see #CONTROL_AE_PRECAPTURE_TRIGGER_IDLE
@@ -1119,6 +1204,12 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * START for multiple captures in a row means restarting the AF operation over
      * and over again.</p>
      * <p>See {@link CaptureResult#CONTROL_AF_STATE android.control.afState} for what the trigger means for each AF mode.</p>
+     * <p>Using the autofocus trigger and the precapture trigger {@link CaptureRequest#CONTROL_AE_PRECAPTURE_TRIGGER android.control.aePrecaptureTrigger}
+     * simultaneously is allowed. However, since these triggers often require cooperation between
+     * the auto-focus and auto-exposure routines (for example, the may need to be enabled for a
+     * focus sweep), the camera device may delay acting on a later trigger until the previous
+     * trigger has been fully handled. This may lead to longer intervals between the trigger and
+     * changes to {@link CaptureResult#CONTROL_AF_STATE android.control.afState}, for example.</p>
      * <p><b>Possible values:</b>
      * <ul>
      *   <li>{@link #CONTROL_AF_TRIGGER_IDLE IDLE}</li>
@@ -1127,6 +1218,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * </ul></p>
      * <p>This key is available on all devices.</p>
      *
+     * @see CaptureRequest#CONTROL_AE_PRECAPTURE_TRIGGER
      * @see CaptureResult#CONTROL_AF_STATE
      * @see #CONTROL_AF_TRIGGER_IDLE
      * @see #CONTROL_AF_TRIGGER_START
@@ -1275,8 +1367,9 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * <p>This control (except for MANUAL) is only effective if
      * <code>{@link CaptureRequest#CONTROL_MODE android.control.mode} != OFF</code> and any 3A routine is active.</p>
      * <p>ZERO_SHUTTER_LAG will be supported if {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities}
-     * contains OPAQUE_REPROCESSING. MANUAL will be supported if {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities}
-     * contains MANUAL_SENSOR. Other intent values are always supported.</p>
+     * contains PRIVATE_REPROCESSING or YUV_REPROCESSING. MANUAL will be supported if
+     * {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} contains MANUAL_SENSOR. Other intent values are
+     * always supported.</p>
      * <p><b>Possible values:</b>
      * <ul>
      *   <li>{@link #CONTROL_CAPTURE_INTENT_CUSTOM CUSTOM}</li>
@@ -1354,7 +1447,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * android.control.* are mostly disabled, and the camera device implements
      * one of the scene mode settings (such as ACTION, SUNSET, or PARTY)
      * as it wishes. The camera device scene mode 3A settings are provided by
-     * android.control.sceneModeOverrides.</p>
+     * {@link android.hardware.camera2.CaptureResult capture results}.</p>
      * <p>When set to OFF_KEEP_STATE, it is similar to OFF mode, the only difference
      * is that this frame will not be used by camera device background 3A statistics
      * update, as if this frame is never captured. This mode can be used in the scenario
@@ -1387,9 +1480,9 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * <p>Scene modes are custom camera modes optimized for a certain set of conditions and
      * capture settings.</p>
      * <p>This is the mode that that is active when
-     * <code>{@link CaptureRequest#CONTROL_MODE android.control.mode} == USE_SCENE_MODE</code>. Aside from FACE_PRIORITY,
-     * these modes will disable {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode},
-     * {@link CaptureRequest#CONTROL_AWB_MODE android.control.awbMode}, and {@link CaptureRequest#CONTROL_AF_MODE android.control.afMode} while in use.</p>
+     * <code>{@link CaptureRequest#CONTROL_MODE android.control.mode} == USE_SCENE_MODE</code>. Aside from FACE_PRIORITY, these modes will
+     * disable {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode}, {@link CaptureRequest#CONTROL_AWB_MODE android.control.awbMode}, and {@link CaptureRequest#CONTROL_AF_MODE android.control.afMode}
+     * while in use.</p>
      * <p>The interpretation and implementation of these scene modes is left
      * to the implementor of the camera device. Their behavior will not be
      * consistent across all devices, and any given device may only implement
@@ -1452,7 +1545,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
     /**
      * <p>Whether video stabilization is
      * active.</p>
-     * <p>Video stabilization automatically translates and scales images from
+     * <p>Video stabilization automatically warps images from
      * the camera in order to stabilize motion between consecutive frames.</p>
      * <p>If enabled, video stabilization can modify the
      * {@link CaptureRequest#SCALER_CROP_REGION android.scaler.cropRegion} to keep the video stream stabilized.</p>
@@ -1462,6 +1555,15 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * the video stabilization modes in the first several capture results may
      * still be "OFF", and it will become "ON" when the initialization is
      * done.</p>
+     * <p>In addition, not all recording sizes or frame rates may be supported for
+     * stabilization by a device that reports stabilization support. It is guaranteed
+     * that an output targeting a MediaRecorder or MediaCodec will be stabilized if
+     * the recording resolution is less than or equal to 1920 x 1080 (width less than
+     * or equal to 1920, height less than or equal to 1080), and the recording
+     * frame rate is less than or equal to 30fps.  At other sizes, the CaptureResult
+     * {@link CaptureRequest#CONTROL_VIDEO_STABILIZATION_MODE android.control.videoStabilizationMode} field will return
+     * OFF if the recording output is not stabilized, or if there are no output
+     * Surface types that can be stabilized.</p>
      * <p>If a camera device supports both this mode and OIS
      * ({@link CaptureRequest#LENS_OPTICAL_STABILIZATION_MODE android.lens.opticalStabilizationMode}), turning both modes on may
      * produce undesirable interaction, so it is recommended not to enable
@@ -1473,6 +1575,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * </ul></p>
      * <p>This key is available on all devices.</p>
      *
+     * @see CaptureRequest#CONTROL_VIDEO_STABILIZATION_MODE
      * @see CaptureRequest#LENS_OPTICAL_STABILIZATION_MODE
      * @see CaptureRequest#SCALER_CROP_REGION
      * @see #CONTROL_VIDEO_STABILIZATION_MODE_OFF
@@ -1491,16 +1594,25 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * will be applied. HIGH_QUALITY mode indicates that the
      * camera device will use the highest-quality enhancement algorithms,
      * even if it slows down capture rate. FAST means the camera device will
-     * not slow down capture rate when applying edge enhancement.</p>
+     * not slow down capture rate when applying edge enhancement. FAST may be the same as OFF if
+     * edge enhancement will slow down capture rate. Every output stream will have a similar
+     * amount of enhancement applied.</p>
+     * <p>ZERO_SHUTTER_LAG is meant to be used by applications that maintain a continuous circular
+     * buffer of high-resolution images during preview and reprocess image(s) from that buffer
+     * into a final capture when triggered by the user. In this mode, the camera device applies
+     * edge enhancement to low-resolution streams (below maximum recording resolution) to
+     * maximize preview quality, but does not apply edge enhancement to high-resolution streams,
+     * since those will be reprocessed later if necessary.</p>
      * <p>For YUV_REPROCESSING, these FAST/HIGH_QUALITY modes both mean that the camera
      * device will apply FAST/HIGH_QUALITY YUV-domain edge enhancement, respectively.
-     * The camera device may adjust its internal noise reduction parameters for best
+     * The camera device may adjust its internal edge enhancement parameters for best
      * image quality based on the {@link CaptureRequest#REPROCESS_EFFECTIVE_EXPOSURE_FACTOR android.reprocess.effectiveExposureFactor}, if it is set.</p>
      * <p><b>Possible values:</b>
      * <ul>
      *   <li>{@link #EDGE_MODE_OFF OFF}</li>
      *   <li>{@link #EDGE_MODE_FAST FAST}</li>
      *   <li>{@link #EDGE_MODE_HIGH_QUALITY HIGH_QUALITY}</li>
+     *   <li>{@link #EDGE_MODE_ZERO_SHUTTER_LAG ZERO_SHUTTER_LAG}</li>
      * </ul></p>
      * <p><b>Available values for this device:</b><br>
      * {@link CameraCharacteristics#EDGE_AVAILABLE_EDGE_MODES android.edge.availableEdgeModes}</p>
@@ -1515,6 +1627,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * @see #EDGE_MODE_OFF
      * @see #EDGE_MODE_FAST
      * @see #EDGE_MODE_HIGH_QUALITY
+     * @see #EDGE_MODE_ZERO_SHUTTER_LAG
      */
     @PublicKey
     public static final Key<Integer> EDGE_MODE =
@@ -1698,11 +1811,24 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * 16:9 aspect ratio, the primary image will be cropped vertically (letterbox) to
      * generate the thumbnail image. The thumbnail image will always have a smaller Field
      * Of View (FOV) than the primary image when aspect ratios differ.</p>
+     * <p>When an {@link CaptureRequest#JPEG_ORIENTATION android.jpeg.orientation} of non-zero degree is requested,
+     * the camera device will handle thumbnail rotation in one of the following ways:</p>
+     * <ul>
+     * <li>Set the {@link android.media.ExifInterface#TAG_ORIENTATION EXIF orientation flag}
+     *   and keep jpeg and thumbnail image data unrotated.</li>
+     * <li>Rotate the jpeg and thumbnail image data and not set
+     *   {@link android.media.ExifInterface#TAG_ORIENTATION EXIF orientation flag}. In this
+     *   case, LIMITED or FULL hardware level devices will report rotated thumnail size in
+     *   capture result, so the width and height will be interchanged if 90 or 270 degree
+     *   orientation is requested. LEGACY device will always report unrotated thumbnail
+     *   size.</li>
+     * </ul>
      * <p><b>Range of valid values:</b><br>
      * {@link CameraCharacteristics#JPEG_AVAILABLE_THUMBNAIL_SIZES android.jpeg.availableThumbnailSizes}</p>
      * <p>This key is available on all devices.</p>
      *
      * @see CameraCharacteristics#JPEG_AVAILABLE_THUMBNAIL_SIZES
+     * @see CaptureRequest#JPEG_ORIENTATION
      */
     @PublicKey
     public static final Key<android.util.Size> JPEG_THUMBNAIL_SIZE =
@@ -1888,7 +2014,15 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * will be applied. HIGH_QUALITY mode indicates that the camera device
      * will use the highest-quality noise filtering algorithms,
      * even if it slows down capture rate. FAST means the camera device will not
-     * slow down capture rate when applying noise filtering.</p>
+     * slow down capture rate when applying noise filtering. FAST may be the same as MINIMAL if
+     * MINIMAL is listed, or the same as OFF if any noise filtering will slow down capture rate.
+     * Every output stream will have a similar amount of enhancement applied.</p>
+     * <p>ZERO_SHUTTER_LAG is meant to be used by applications that maintain a continuous circular
+     * buffer of high-resolution images during preview and reprocess image(s) from that buffer
+     * into a final capture when triggered by the user. In this mode, the camera device applies
+     * noise reduction to low-resolution streams (below maximum recording resolution) to maximize
+     * preview quality, but does not apply noise reduction to high-resolution streams, since
+     * those will be reprocessed later if necessary.</p>
      * <p>For YUV_REPROCESSING, these FAST/HIGH_QUALITY modes both mean that the camera device
      * will apply FAST/HIGH_QUALITY YUV domain noise reduction, respectively. The camera device
      * may adjust the noise reduction parameters for best image quality based on the
@@ -1899,6 +2033,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      *   <li>{@link #NOISE_REDUCTION_MODE_FAST FAST}</li>
      *   <li>{@link #NOISE_REDUCTION_MODE_HIGH_QUALITY HIGH_QUALITY}</li>
      *   <li>{@link #NOISE_REDUCTION_MODE_MINIMAL MINIMAL}</li>
+     *   <li>{@link #NOISE_REDUCTION_MODE_ZERO_SHUTTER_LAG ZERO_SHUTTER_LAG}</li>
      * </ul></p>
      * <p><b>Available values for this device:</b><br>
      * {@link CameraCharacteristics#NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES android.noiseReduction.availableNoiseReductionModes}</p>
@@ -1914,6 +2049,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * @see #NOISE_REDUCTION_MODE_FAST
      * @see #NOISE_REDUCTION_MODE_HIGH_QUALITY
      * @see #NOISE_REDUCTION_MODE_MINIMAL
+     * @see #NOISE_REDUCTION_MODE_ZERO_SHUTTER_LAG
      */
     @PublicKey
     public static final Key<Integer> NOISE_REDUCTION_MODE =
@@ -2039,8 +2175,8 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * cannot process more than 1 capture at a time.</li>
      * </ul>
      * <p>The necessary information for the application, given the model above,
-     * is provided via the {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap} field
-     * using StreamConfigurationMap#getOutputMinFrameDuration(int, Size).
+     * is provided via the {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap} field using
+     * {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputMinFrameDuration }.
      * These are used to determine the maximum frame rate / minimum frame
      * duration that is possible for a given stream configuration.</p>
      * <p>Specifically, the application can use the following rules to
@@ -2049,21 +2185,19 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * <ol>
      * <li>Let the set of currently configured input/output streams
      * be called <code>S</code>.</li>
-     * <li>Find the minimum frame durations for each stream in <code>S</code>, by
-     * looking it up in {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap} using
-     * StreamConfigurationMap#getOutputMinFrameDuration(int, Size) (with
-     * its respective size/format). Let this set of frame durations be called
-     * <code>F</code>.</li>
+     * <li>Find the minimum frame durations for each stream in <code>S</code>, by looking
+     * it up in {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap} using {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputMinFrameDuration }
+     * (with its respective size/format). Let this set of frame durations be
+     * called <code>F</code>.</li>
      * <li>For any given request <code>R</code>, the minimum frame duration allowed
      * for <code>R</code> is the maximum out of all values in <code>F</code>. Let the streams
      * used in <code>R</code> be called <code>S_r</code>.</li>
      * </ol>
-     * <p>If none of the streams in <code>S_r</code> have a stall time (listed in
-     * StreamConfigurationMap#getOutputStallDuration(int,Size) using its
-     * respective size/format), then the frame duration in
-     * <code>F</code> determines the steady state frame rate that the application will
-     * get if it uses <code>R</code> as a repeating request. Let this special kind
-     * of request be called <code>Rsimple</code>.</p>
+     * <p>If none of the streams in <code>S_r</code> have a stall time (listed in {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputStallDuration }
+     * using its respective size/format), then the frame duration in <code>F</code>
+     * determines the steady state frame rate that the application will get
+     * if it uses <code>R</code> as a repeating request. Let this special kind of
+     * request be called <code>Rsimple</code>.</p>
      * <p>A repeating request <code>Rsimple</code> can be <em>occasionally</em> interleaved
      * by a single capture of a new request <code>Rstall</code> (which has at least
      * one in-use stream with a non-0 stall time) and if <code>Rstall</code> has the
@@ -2071,7 +2205,7 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * if all buffers from the previous <code>Rstall</code> have already been
      * delivered.</p>
      * <p>For more details about stalling, see
-     * StreamConfigurationMap#getOutputStallDuration(int,Size).</p>
+     * {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputStallDuration }.</p>
      * <p>This control is only effective if {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode} or {@link CaptureRequest#CONTROL_MODE android.control.mode} is set to
      * OFF; otherwise the auto-exposure algorithm will override this value.</p>
      * <p><b>Units</b>: Nanoseconds</p>
@@ -2647,8 +2781,12 @@ public final class CaptureRequest extends CameraMetadata<CaptureRequest.Key<?>>
      * <p><b>Range of valid values:</b><br>
      * &gt;= 1.0</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
+     * <p><b>Limited capability</b> -
+     * Present on all camera devices that report being at least {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED HARDWARE_LEVEL_LIMITED} devices in the
+     * {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL android.info.supportedHardwareLevel} key</p>
      *
      * @see CaptureRequest#EDGE_MODE
+     * @see CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL
      * @see CaptureRequest#NOISE_REDUCTION_MODE
      * @see CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES
      */

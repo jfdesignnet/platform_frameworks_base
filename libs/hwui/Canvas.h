@@ -47,6 +47,10 @@ public:
      *  It is useful for testing and clients (e.g. Picture/Movie) that expect to
      *  draw their contents into an SkCanvas.
      *
+     *  The SkCanvas returned is *only* valid until another Canvas call is made
+     *  that would change state (e.g. matrix or clip). Clients of asSkCanvas()
+     *  are responsible for *not* persisting this pointer.
+     *
      *  Further, the returned SkCanvas should NOT be unref'd and is valid until
      *  this canvas is destroyed or a new bitmap is set.
      */
@@ -75,6 +79,10 @@ public:
     // Matrix
     virtual void getMatrix(SkMatrix* outMatrix) const = 0;
     virtual void setMatrix(const SkMatrix& matrix) = 0;
+
+    /// Like setMatrix(), but to be translated into local / view-relative coordinates
+    /// rather than executed in global / device coordinates at rendering time.
+    virtual void setLocalMatrix(const SkMatrix& matrix) = 0;
 
     virtual void concat(const SkMatrix& matrix) = 0;
     virtual void rotate(float degrees) = 0;

@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.MANAGE_DOCUMENTS" />
     <uses-permission android:name="android.permission.REMOVE_TASKS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".DocumentsApplication"
@@ -44,17 +45,6 @@
                 <action android:name="android.provider.action.BROWSE_DOCUMENT_ROOT" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="vnd.android.document/root" />
-            </intent-filter>
-        </activity>
-
-        <activity
-            android:name=".StandaloneActivity"
-            android:theme="@style/StandaloneTheme"
-            android:icon="@drawable/ic_doc_text"
-            android:enabled="false">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 

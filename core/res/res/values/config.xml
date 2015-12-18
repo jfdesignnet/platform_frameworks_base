@@ -157,6 +157,15 @@
          ActivityManager based on screen size. -->
     <integer name="config_extraFreeKbytesAdjust">0</integer>
 
+    <!-- Set this to true to enable the platform's auto-power-save modes like doze and
+         app standby.  These are not enabled by default because they require a standard
+         cloud-to-device messaging service for apps to interact correctly with the modes
+         (such as to be able to deliver an instant message to the device even when it is
+         dozing).  This should be enabled if you have such services and expect apps to
+         correctly use them when installed on your device.  Otherwise, keep this disabled
+         so that applications can still use their own mechanisms. -->
+    <bool name="config_enableAutoPowerModes">false</bool>
+
     <!-- The duration (in milliseconds) that the radio will scan for a signal
          when there's no network connection. If the scan doesn't timeout, use zero -->
     <integer name="config_radioScanningTimeout">0</integer>
@@ -359,6 +368,9 @@
     <!-- Boolean indicating whether the wifi chipset has dual frequency band support -->
     <bool translatable="false" name="config_wifi_dual_band_support">false</bool>
 
+    <!-- Boolean indicating whether Hotspot 2.0/Passpoint and ANQP queries is enabled -->
+    <bool translatable="false" name="config_wifi_hotspot2_enabled">false</bool>
+
     <!-- Device type information conforming to Annex B format in WiFi Direct specification.
          The default represents a dual-mode smartphone -->
     <string translatable="false" name="config_wifi_p2p_device_type">10-0050F204-5</string>
@@ -374,6 +386,13 @@
 
     <!-- Boolean indicating autojoin will prefer 5GHz and choose 5GHz BSSIDs -->
     <bool translatable="true" name="config_wifi_enable_5GHz_preference">true</bool>
+
+    <!-- Boolean indicating whether or not to revert to default country code when cellular
+         radio is unable to find any MCC information to infer wifi country code from -->
+    <bool translatable="false" name="config_wifi_revert_country_code_on_cellular_loss">false</bool>
+
+    <!-- Boolean indicating whether or not wifi firmware debugging is enabled -->
+    <bool translatable="false" name="config_wifi_enable_wifi_firmware_debugging">false</bool>
 
     <!-- Integer specifying the basic autojoin parameters -->
     <integer translatable="false" name="config_wifi_framework_5GHz_preference_boost_threshold">-65</integer>
@@ -396,6 +415,7 @@
     <integer translatable="false" name="config_wifi_framework_wifi_score_good_link_speed_24">24</integer>
     <integer translatable="false" name="config_wifi_framework_wifi_score_good_link_speed_5">36</integer>
     <string  translatable="false" name="config_wifi_random_mac_oui">DA-A1-19</string>
+    <string  translatable="false" name="config_wifi_framework_sap_2G_channel_list">1,6,11</string>
 
     <bool translatable="false" name="config_wifi_framework_cellular_handover_enable_user_triggered_adjustment">true</bool>
 
@@ -423,11 +443,20 @@
          point on the move. A value of 0 means no periodic scans will be used in the framework. -->
     <integer translatable="false" name="config_wifi_framework_scan_interval">300000</integer>
 
-    <!-- Integer indicating disconnect mode scan interval in milliseconds -->
-    <integer translatable="false" name="config_wifi_disconnected_scan_interval">15000</integer>
+    <!-- Integer indicating the framework no networks periodic scan interval in milliseconds. -->
+    <integer translatable="false" name="config_wifi_no_network_periodic_scan_interval">300000</integer>
 
-    <!-- Integer indicating associated partial scan interval in milliseconds -->
-    <integer translatable="false" name="config_wifi_framework_associated_scan_interval">20000</integer>
+    <!-- Integer indicating disconnect mode short scan interval in milliseconds -->
+    <integer translatable="false" name="config_wifi_disconnected_short_scan_interval">15000</integer>
+
+    <!-- Integer indicating disconnect mode long scan interval in milliseconds -->
+    <integer translatable="false" name="config_wifi_disconnected_long_scan_interval">120000</integer>
+
+    <!-- Integer indicating associated partial scan short interval in milliseconds -->
+    <integer translatable="false" name="config_wifi_associated_short_scan_interval">20000</integer>
+
+    <!-- Integer indicating associated partial scan long interval in milliseconds -->
+    <integer translatable="false" name="config_wifi_associated_long_scan_interval">180000</integer>
 
     <!-- Integer indicating associated full scan backoff, representing a fraction: xx/8 -->
     <integer translatable="false" name="config_wifi_framework_associated_full_scan_backoff">12</integer>
@@ -459,9 +488,6 @@
     <!-- Integer indicating how to handle beacons with uninitialized RSSI value of 0 -->
     <integer translatable="false" name="config_wifi_framework_scan_result_rssi_level_patchup_value">-85</integer>
 
-    <!-- Boolean indicating associated scan are allowed -->
-    <bool translatable="false" name="config_wifi_framework_enable_associated_autojoin_scan">true</bool>
-
     <!-- Boolean indicating associated network selection is allowed -->
     <bool translatable="false" name="config_wifi_framework_enable_associated_network_selection">true</bool>
 
@@ -478,17 +504,20 @@
     <!-- Wifi HAL supported PNO -->
     <bool translatable="false" name="config_wifi_hal_pno_enable">false</bool>
 
+    <!-- Wifi SSID white list (can't be enabled if config_wifi_hal_pno_enable is not) -->
+    <bool translatable="false" name="config_wifi_ssid_white_list_enable">true</bool>
+
     <!-- Idle Receive current for wifi radio. 0 by default-->
-    <integer translatable="false" name="config_wifi_idle_receive_cur_ma">1</integer>
+    <integer translatable="false" name="config_wifi_idle_receive_cur_ma">0</integer>
 
     <!-- Rx current for wifi radio. 0 by default-->
-    <integer translatable="false" name="config_wifi_active_rx_cur_ma">2</integer>
+    <integer translatable="false" name="config_wifi_active_rx_cur_ma">0</integer>
 
     <!-- Tx current for wifi radio. 0 by default-->
-    <integer translatable="false" name="config_wifi_tx_cur_ma">3</integer>
+    <integer translatable="false" name="config_wifi_tx_cur_ma">0</integer>
 
     <!-- Operating volatage for wifi radio. 0 by default-->
-    <integer translatable="false" name="config_wifi_operating_voltage_mv">4</integer>
+    <integer translatable="false" name="config_wifi_operating_voltage_mv">0</integer>
 
     <!-- Flag indicating whether the we should enable the automatic brightness in Settings.
          Software implementation will be used if config_hardware_auto_brightness_available is not set -->
@@ -559,6 +588,54 @@
          app requesting portrait will cause a counter-clockwise rotation.  Setting
          true here reverses that logic. -->
     <bool name="config_reverseDefaultRotation">false</bool>
+
+    <!-- Sets the minimum and maximum tilt tolerance for each possible rotation.
+         This array consists of 4 pairs of values which specify the minimum and maximum
+         tilt angle at which the device will transition into each rotation.
+
+         The tilt angle represents the direction in which the plane of the screen is facing;
+         it is also known as the angle of elevation.
+
+           -90 degree tilt means that the screen is facing straight down
+                           (the device is being held overhead upside-down)
+             0 degree tilt means that the screen is facing outwards
+                           (the device is being held vertically)
+            90 degree tilt means that the screen is facing straight up
+                           (the device is resting on a flat table)
+
+        The default tolerances are set conservatively such that the device is more
+        likely to remain in its natural orientation than rotate into a counterclockwise,
+        clockwise, or reversed posture (with an especially strong bias against the latter)
+        to prevent accidental rotation while carrying the device in hand.
+
+        These thresholds may need to be tuned when the device is intended to be
+        mounted into a dock with a particularly shallow profile wherein rotation
+        would ordinarily have been suppressed.
+
+        It is helpful to consider the desired behavior both when the device is being
+        held at a positive tilt (typical case) vs. a negative tilt (reading overhead in
+        bed) since they are quite different.  In the overhead case, we typically want
+        the device to more strongly prefer to retain its current configuration (in absence
+        of a clear indication that a rotation is desired) since the user's head and neck may
+        be held at an unusual angle.
+    -->
+    <integer-array name="config_autoRotationTiltTolerance">
+        <!-- rotation:   0 (natural)    --> <item>-25</item> <item>70</item>
+        <!-- rotation:  90 (rotate CCW) --> <item>-25</item> <item>65</item>
+        <!-- rotation: 180 (reverse)    --> <item>-25</item> <item>60</item>
+        <!-- rotation: 270 (rotate CW)  --> <item>-25</item> <item>65</item>
+    </integer-array>
+
+    <!-- Indicate the name of the window orientation sensor type if present. A
+         window orientation sensor produces values to be used in lieu of the
+         typical, accelerometer based sensor. It must only produce integral
+         values between 0 and 3, inclusive, with each one corresponding to a
+         given rotation:
+            0: 0 degrees of rotation (natural)
+            1: 90 degrees of rotation (rotate CCW)
+            2: 180 degrees of rotation (reverse)
+            3: 270 degrees of rotation (rotate CW) -->
+    <string name="config_orientationSensorType" translatable="false">@null</string>
 
     <!-- Lid switch behavior -->
 
@@ -769,6 +846,14 @@
         <item>15</item>
         <item>10</item>
         <item>10</item>
+    </integer-array>
+
+    <!-- Vibrator pattern for feedback about a context click -->
+    <integer-array name="config_contextClickVibePattern">
+        <item>0</item>
+        <item>1</item>
+        <item>20</item>
+        <item>21</item>
     </integer-array>
 
     <bool name="config_use_strict_phone_number_comparation">false</bool>
@@ -1193,11 +1278,22 @@
     <bool name="config_sms_capable">true</bool>
 
     <!-- Default SMS Application. This will be the default SMS application when
-         the phone first boots. The user can then change the default app to oe
+         the phone first boots. The user can then change the default app to one
          of their choosing.
          This can be overridden for devices where a different default SMS
-         application is desired. -->
-    <string name="default_sms_application" translatable="false">com.android.mms</string>
+         application is desired.
+
+         If this string is empty or the specified package does not exist, then
+         the platform will search for an SMS app and use that (if there is one)-->
+    <string name="default_sms_application" translatable="false">com.android.messaging</string>
+
+    <!-- Default web browser.  This is the package name of the application that will
+         be the default browser when the device first boots.  Afterwards the user
+         can select whatever browser app they wish to use as the default.
+
+         If this string is empty or the specified package does not exist, then
+         the behavior will be as though no app was named as an explicit default. -->
+    <string name="default_browser" translatable="false"></string>
 
     <!-- Enable/disable default bluetooth profiles:
         HSP_AG, ObexObjectPush, Audio, NAP -->
@@ -1213,11 +1309,6 @@
     <!-- The default mobile provisioning url. Empty by default, maybe overridden by
          an mcc/mnc specific config.xml -->
     <string name="mobile_provisioning_url" translatable="false"></string>
-
-    <!-- This url is used as the default url when redirection is detected. Any
-         should work as all url's get redirected. But maybe overridden by
-         if needed. -->
-    <string name="mobile_redirected_provisioning_url" translatable="false">http://google.com</string>
 
     <!-- The default character set for GsmAlphabet -->
     <!-- Empty string means MBCS is not considered -->
@@ -1402,7 +1493,7 @@
     <!-- Remote server that can provide NTP responses. -->
     <string translatable="false" name="config_ntpServer">2.android.pool.ntp.org</string>
     <!-- Normal polling frequency in milliseconds -->
-    <integer name="config_ntpPollingInterval">864000000</integer>
+    <integer name="config_ntpPollingInterval">86400000</integer>
     <!-- Try-again polling interval in milliseconds, in case the network request failed -->
     <integer name="config_ntpPollingIntervalShorter">60000</integer>
     <!-- Number of times to try again with the shorter interval, before backing
@@ -1652,6 +1743,28 @@
     -->
     <bool name="config_enableWifiDisplay">false</bool>
 
+    <!-- The color transform values that correspond to each respective configuration mode for the
+         built-in display, or -1 if the mode is unsupported by the device. The possible
+         configuration modes are:
+            1. Wide-gamut ("Vibrant")
+            2. Adobe RGB ("Natural")
+            3. sRGB ("Standard")
+
+        For example, if a device had Wide-gamut as color transform mode 1, sRGB mode as color
+        transform mode 7, and did not support Adobe RGB at all this would look like:
+
+            <integer-array name="config_colorTransforms">
+                <item>1</item>
+                <item>-1</item>
+                <item>7</item>
+            </integer-array>
+    -->
+    <integer-array name="config_colorTransforms">
+        <item>-1</item>
+        <item>-1</item>
+        <item>-1</item>
+    </integer-array>
+
     <!-- When true use the linux /dev/input/event subsystem to detect the switch changes
          on the headphone/microphone jack. When false use the older uevent framework. -->
     <bool name="config_useDevInputEventForAudioJack">false</bool>
@@ -1746,6 +1859,12 @@
     <string name="config_customAdbPublicKeyConfirmationComponent"
             >com.android.systemui/com.android.systemui.usb.UsbDebuggingActivity</string>
 
+    <!-- Name of the activity that prompts the secondary user to acknowledge she/he needs to
+         switch to the primary user to enable USB debugging.
+         Can be customized for other product types -->
+    <string name="config_customAdbPublicKeyConfirmationSecondaryUserComponent"
+            >com.android.systemui/com.android.systemui.usb.UsbDebuggingSecondaryUserActivity</string>
+
     <!-- Name of the CustomDialog that is used for VPN -->
     <string name="config_customVpnConfirmDialogComponent"
             >com.android.vpndialogs/com.android.vpndialogs.ConfirmDialog</string>
@@ -1772,6 +1891,19 @@
     <string-array name="config_disabledUntilUsedPreinstalledImes" translatable="false">
         <item>com.android.inputmethod.latin</item>
     </string-array>
+
+    <!-- The list of carrier applications which should be disabled until used.
+         This function suppresses update notifications for these pre-installed apps.
+         In SubscriptionInfoUpdater, the listed applications are disabled until used when all of the
+         following conditions are met.
+         1. Not currently carrier-privileged according to the inserted SIM
+         2. Pre-installed
+         3. In the default state (enabled but not explicitly)
+         And SubscriptionInfoUpdater undoes this and marks the app enabled when a SIM is inserted
+         that marks the app as carrier privileged. It also grants the app default permissions
+         for Phone and Location. As such, apps MUST only ever be added to this list if they
+         obtain user consent to access their location through other means. -->
+    <string-array name="config_disabledUntilUsedPreinstalledCarrierApps" translatable="false" />
 
     <!-- The list of classes that should be added to the notification ranking pipline.
      See {@link com.android.server.notification.NotificationSignalExtractor} -->
@@ -1846,6 +1978,11 @@
 
     <!-- default window inset isRound property -->
     <bool name="config_windowIsRound">false</bool>
+
+    <!-- Override this value if the device has a chin, i.e. area that is not actual part of the
+         screen but you would like to be treated as a real display. The value is the height of the
+         chin. -->
+    <integer name="config_windowOutsetBottom">0</integer>
 
     <!-- Package name for default network scorer app; overridden by product overlays. -->
     <string name="config_defaultNetworkScorerPackageName"></string>
@@ -1968,10 +2105,8 @@
         string that's stored in 8-bit unpacked format) characters.-->
     <bool translatable="false" name="config_sms_decode_gsm_8bit_data">false</bool>
 
-    <!-- List of package names (ordered by preference) providing WebView implementations. -->
-    <string-array name="config_webViewPackageNames" translatable="false">
-      <item>com.android.webview</item>
-    </string-array>
+    <!-- Package name providing WebView implementation. -->
+    <string name="config_webViewPackageName" translatable="false">com.android.webview</string>
 
     <!-- If EMS is not supported, framework breaks down EMS into single segment SMS
          and adds page info " x/y". This config is used to set which carrier doesn't
@@ -2054,6 +2189,7 @@
     <string-array translatable="false" name="config_system_condition_providers">
         <item>countdown</item>
         <item>schedule</item>
+        <item>event</item>
     </string-array>
 
     <!-- Priority repeat caller threshold, in minutes -->
@@ -2127,6 +2263,67 @@
     <!-- Keyguard component -->
     <string name="config_keyguardComponent" translatable="false">com.android.systemui/com.android.systemui.keyguard.KeyguardService</string>
 
-    <!-- This config is used to force VoiceInteractionService to start on certain low ram devices. -->
-    <bool name="config_forceEnableVoiceInteractionService">false</bool>
+    <!-- For performance and storage reasons, limit the number of fingerprints per user -->
+    <integer name="config_fingerprintMaxTemplatesPerUser">5</integer>
+
+    <!-- This config is used to force VoiceInteractionService to start on certain low ram devices.
+         It declares the package name of VoiceInteractionService that should be started. -->
+    <string translatable="false" name="config_forceVoiceInteractionServicePackage"></string>
+
+    <!-- This config is ued to determine whether animations are allowed in low power mode. -->
+    <bool name="config_allowAnimationsInLowPowerMode">false</bool>
+
+    <!-- Whether device supports double tap to wake -->
+    <bool name="config_supportDoubleTapWake">false</bool>
+
+    <!-- The RadioAccessFamilies supported by the device.
+         Empty is viewed as "all".  Only used on devices which
+         don't support RIL_REQUEST_GET_RADIO_CAPABILITY
+         format is UMTS|LTE|... -->
+    <string translatable="false" name="config_radio_access_family"></string>
+
+    <!-- Whether the main built-in display is round. This will affect
+         Configuration.screenLayout's SCREENLAYOUT_ROUND_MASK flags for Configurations on the
+         main built-in display. Change this in device-specific overlays.
+         Defaults to the older, deprecated config_windowIsRound already used in
+         some existing device-specific resource overlays. -->
+    <bool name="config_mainBuiltInDisplayIsRound">@bool/config_windowIsRound</bool>
+
+    <!-- Ultrasound support for Mic/speaker path -->
+    <!-- Whether the default microphone audio source supports near-ultrasound frequencies
+         (range of 18 - 21 kHz). -->
+    <bool name="config_supportMicNearUltrasound">true</bool>
+    <!-- Whether the default speaker audio output path supports near-ultrasound frequencies
+         (range of 18 - 21 kHz). -->
+    <bool name="config_supportSpeakerNearUltrasound">true</bool>
+
+    <!-- Flag indicating device support for EAP SIM, AKA, AKA' -->
+    <bool name="config_eap_sim_based_auth_supported">true</bool>
+ 
+    <!-- How long history of previous vibrations should be kept for the dumpsys. -->
+    <integer name="config_previousVibrationsDumpLimit">20</integer>
+
+    <!-- Number of retries Cell Data should attempt for a given error code before
+         restarting the modem.
+         Error codes not listed will not lead to modem restarts.
+         Array of "code#,retry#"  -->
+    <string-array name="config_cell_retries_per_error_code">
+    </string-array>
+
+    <!-- Set initial MaxRetry value for operators -->
+    <integer name="config_mdc_initial_max_retry">1</integer>
+
+    <!-- The OEM specified sensor type for the gesture to launch the camear app. -->
+    <integer name="config_cameraLaunchGestureSensorType">-1</integer>
+    <!-- The OEM specified sensor string type for the gesture to launch camera app, this value
+         must match the value of config_cameraLaunchGestureSensorType in OEM's HAL -->
+    <string translatable="false" name="config_cameraLaunchGestureSensorStringType"></string>
+
+    <!-- Allow the gesture to double tap the power button twice to start the camera while the device
+         is non-interactive. -->
+    <bool name="config_cameraDoubleTapPowerGestureEnabled">true</bool>
+
+    <!-- The BT name of the keyboard packaged with the device. If this is defined, SystemUI will
+         automatically try to pair with it when the device exits tablet mode. -->
+    <string translatable="false" name="config_packagedKeyboardName"></string>
 </resources>

@@ -86,24 +86,6 @@ static void android_view_DisplayListCanvas_finish(JNIEnv* env, jobject clazz,
     renderer->finish();
 }
 
-static void android_view_DisplayListCanvas_setProperty(JNIEnv* env,
-        jobject clazz, jstring name, jstring value) {
-    if (!Caches::hasInstance()) {
-        ALOGW("can't set property, no Caches instance");
-        return;
-    }
-
-    if (name == NULL || value == NULL) {
-        ALOGW("can't set prop, null passed");
-    }
-
-    const char* nameCharArray = env->GetStringUTFChars(name, NULL);
-    const char* valueCharArray = env->GetStringUTFChars(value, NULL);
-    Caches::getInstance().setTempProperty(nameCharArray, valueCharArray);
-    env->ReleaseStringUTFChars(name, nameCharArray);
-    env->ReleaseStringUTFChars(name, valueCharArray);
-}
-
 // ----------------------------------------------------------------------------
 // Functor
 // ----------------------------------------------------------------------------
@@ -112,8 +94,7 @@ static void android_view_DisplayListCanvas_callDrawGLFunction(JNIEnv* env, jobje
         jlong rendererPtr, jlong functorPtr) {
     DisplayListCanvas* renderer = reinterpret_cast<DisplayListCanvas*>(rendererPtr);
     Functor* functor = reinterpret_cast<Functor*>(functorPtr);
-    android::uirenderer::Rect dirty;
-    renderer->callDrawGLFunction(functor, dirty);
+    renderer->callDrawGLFunction(functor);
 }
 
 // ----------------------------------------------------------------------------
@@ -133,10 +114,10 @@ static jint android_view_DisplayListCanvas_getMaxTextureHeight(JNIEnv* env, jobj
 // ----------------------------------------------------------------------------
 
 static void android_view_DisplayListCanvas_drawPatch(JNIEnv* env, jobject clazz,
-        jlong rendererPtr, jlong bitmapPtr, jlong patchPtr,
+        jlong rendererPtr, jobject jbitmap, jlong patchPtr,
         float left, float top, float right, float bottom, jlong paintPtr) {
-    SkBitmap* bitmap = reinterpret_cast<SkBitmap*>(bitmapPtr);
-
+    SkBitmap bitmap;
+    GraphicsJNI::getSkBitmap(env, jbitmap, &bitmap);
     DisplayListCanvas* renderer = reinterpret_cast<DisplayListCanvas*>(rendererPtr);
     Res_png_9patch* patch = reinterpret_cast<Res_png_9patch*>(patchPtr);
     Paint* paint = reinterpret_cast<Paint*>(paintPtr);
@@ -212,12 +193,10 @@ static jlong android_view_DisplayListCanvas_createDisplayListCanvas(JNIEnv* env,
 }
 
 static void android_view_DisplayListCanvas_drawRenderNode(JNIEnv* env,
-        jobject clazz, jlong rendererPtr, jlong renderNodePtr,
-        jint flags) {
+        jobject clazz, jlong rendererPtr, jlong renderNodePtr) {
     DisplayListCanvas* renderer = reinterpret_cast<DisplayListCanvas*>(rendererPtr);
     RenderNode* renderNode = reinterpret_cast<RenderNode*>(renderNodePtr);
-    android::uirenderer::Rect bounds;
-    renderer->drawRenderNode(renderNode, bounds, flags);
+    renderer->drawRenderNode(renderNode);
 }
 
 // ----------------------------------------------------------------------------
@@ -271,19 +250,17 @@ static JNINativeMethod gMethods[] = {
     { "nPrepare",           "(J)V",            (void*) android_view_DisplayListCanvas_prepare },
     { "nPrepareDirty",      "(JIIII)V",        (void*) android_view_DisplayListCanvas_prepareDirty },
     { "nFinish",            "(J)V",            (void*) android_view_DisplayListCanvas_finish },
-    { "nSetProperty",       "(Ljava/lang/String;Ljava/lang/String;)V",
-            (void*) android_view_DisplayListCanvas_setProperty },
 
     { "nCallDrawGLFunction", "(JJ)V",          (void*) android_view_DisplayListCanvas_callDrawGLFunction },
 
-    { "nDrawPatch",         "(JJJFFFFJ)V",     (void*) android_view_DisplayListCanvas_drawPatch },
+    { "nDrawPatch",         "(JLandroid/graphics/Bitmap;JFFFFJ)V",     (void*) android_view_DisplayListCanvas_drawPatch },
 
     { "nDrawRects",         "(JJJ)V",          (void*) android_view_DisplayListCanvas_drawRegionAsRects },
     { "nDrawRoundRect",     "(JJJJJJJJ)V",     (void*) android_view_DisplayListCanvas_drawRoundRectProps },
     { "nDrawCircle",        "(JJJJJ)V",        (void*) android_view_DisplayListCanvas_drawCircleProps },
 
     { "nFinishRecording",   "(J)J",            (void*) android_view_DisplayListCanvas_finishRecording },
-    { "nDrawRenderNode",    "(JJI)V",          (void*) android_view_DisplayListCanvas_drawRenderNode },
+    { "nDrawRenderNode",    "(JJ)V",           (void*) android_view_DisplayListCanvas_drawRenderNode },
 
     { "nCreateDisplayListCanvas", "()J",     (void*) android_view_DisplayListCanvas_createDisplayListCanvas },
 

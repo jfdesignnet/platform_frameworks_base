@@ -24,10 +24,11 @@ import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
-import android.media.midi.MidiReceiver;
-import android.media.midi.MidiManager;
-import android.media.midi.MidiDeviceServer;
 import android.media.midi.MidiDeviceInfo;
+import android.media.midi.MidiDeviceServer;
+import android.media.midi.MidiDeviceStatus;
+import android.media.midi.MidiManager;
+import android.media.midi.MidiReceiver;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
@@ -47,6 +48,7 @@ import java.util.UUID;
 public final class BluetoothMidiDevice {
 
     private static final String TAG = "BluetoothMidiDevice";
+    private static final boolean DEBUG = false;
 
     private static final int MAX_PACKET_SIZE = 20;
 
@@ -80,6 +82,18 @@ public final class BluetoothMidiDevice {
     private final BluetoothPacketDecoder mPacketDecoder
             = new BluetoothPacketDecoder(MAX_PACKET_SIZE);
 
+    private final MidiDeviceServer.Callback mDeviceServerCallback
+            = new MidiDeviceServer.Callback() {
+        @Override
+        public void onDeviceStatusChanged(MidiDeviceServer server, MidiDeviceStatus status) {
+        }
+
+        @Override
+        public void onClose() {
+            close();
+        }
+    };
+
     private final BluetoothGattCallback mGattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status,
@@ -91,7 +105,6 @@ public final class BluetoothMidiDevice {
                         mBluetoothGatt.discoverServices());
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server.");
-                // FIXME synchronize?
                 close();
             }
         }
@@ -120,8 +133,8 @@ public final class BluetoothMidiDevice {
                     }
                 }
             } else {
-                Log.w(TAG, "onServicesDiscovered received: " + status);
-                // FIXME - report error back to client?
+                Log.e(TAG, "onServicesDiscovered received: " + status);
+                close();
             }
         }
 
@@ -134,11 +147,22 @@ public final class BluetoothMidiDevice {
             // switch to receiving notifications after initial characteristic read
             mBluetoothGatt.setCharacteristicNotification(characteristic, true);
 
+            // Use writeType that requests acknowledgement.
+            // This improves compatibility with various BLE-MIDI devices.
+            int originalWriteType = characteristic.getWriteType();
+            characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+
             BluetoothGattDescriptor descriptor = characteristic.getDescriptor(
                     CLIENT_CHARACTERISTIC_CONFIG);
-            // FIXME null check
-            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-            mBluetoothGatt.writeDescriptor(descriptor);
+            if (descriptor != null) {
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                boolean result = mBluetoothGatt.writeDescriptor(descriptor);
+                Log.d(TAG, "writeDescriptor returned " + result);
+            } else {
+                Log.e(TAG, "No CLIENT_CHARACTERISTIC_CONFIG for device " + mBluetoothDevice);
+            }
+
+            characteristic.setWriteType(originalWriteType);
         }
 
         @Override
@@ -152,8 +176,10 @@ public final class BluetoothMidiDevice {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt,
                                             BluetoothGattCharacteristic characteristic) {
-//            logByteArray("Received ", characteristic.getValue(), 0,
-//                    characteristic.getValue().length);
+            if (DEBUG) {
+                logByteArray("Received ", characteristic.getValue(), 0,
+                        characteristic.getValue().length);
+            }
             mPacketDecoder.decodePacket(characteristic.getValue(), mOutputReceiver);
         }
     };
@@ -182,8 +208,10 @@ public final class BluetoothMidiDevice {
             byte[] writeBuffer = mWriteBuffers[count];
             System.arraycopy(buffer, 0, writeBuffer, 0, count);
             mCharacteristic.setValue(writeBuffer);
-//            logByteArray("Sent ", mCharacteristic.getValue(), 0,
-//                    mCharacteristic.getValue().length);
+            if (DEBUG) {
+                logByteArray("Sent ", mCharacteristic.getValue(), 0,
+                       mCharacteristic.getValue().length);
+            }
             mBluetoothGatt.writeCharacteristic(mCharacteristic);
         }
     }
@@ -206,7 +234,7 @@ public final class BluetoothMidiDevice {
         inputPortReceivers[0] = mEventScheduler.getReceiver();
 
         mDeviceServer = mMidiManager.createDeviceServer(inputPortReceivers, 1,
-                null, null, properties, MidiDeviceInfo.TYPE_BLUETOOTH, null);
+                null, null, properties, MidiDeviceInfo.TYPE_BLUETOOTH, mDeviceServerCallback);
 
         mOutputReceiver = mDeviceServer.getOutputPortReceivers()[0];
 
@@ -227,10 +255,10 @@ public final class BluetoothMidiDevice {
                         break;
                     }
                     try {
-                        mPacketEncoder.sendWithTimestamp(event.data, 0, event.count,
+                        mPacketEncoder.send(event.data, 0, event.count,
                                 event.getTimestamp());
                     } catch (IOException e) {
-                        Log.e(TAG, "mPacketAccumulator.sendWithTimestamp failed", e);
+                        Log.e(TAG, "mPacketAccumulator.send failed", e);
                     }
                     mEventScheduler.addEventToPool(event);
                 }
@@ -239,16 +267,19 @@ public final class BluetoothMidiDevice {
         }.start();
     }
 
-    void close() {
-        mEventScheduler.close();
-        if (mDeviceServer != null) {
-            IoUtils.closeQuietly(mDeviceServer);
-            mDeviceServer = null;
+    private void close() {
+        synchronized (mBluetoothDevice) {
+            mEventScheduler.close();
             mService.deviceClosed(mBluetoothDevice);
-        }
-        if (mBluetoothGatt != null) {
-            mBluetoothGatt.close();
-            mBluetoothGatt = null;
+
+            if (mDeviceServer != null) {
+                IoUtils.closeQuietly(mDeviceServer);
+                mDeviceServer = null;
+            }
+            if (mBluetoothGatt != null) {
+                mBluetoothGatt.close();
+                mBluetoothGatt = null;
+            }
         }
     }
 
@@ -259,14 +290,7 @@ public final class BluetoothMidiDevice {
     private static void logByteArray(String prefix, byte[] value, int offset, int count) {
         StringBuilder builder = new StringBuilder(prefix);
         for (int i = offset; i < count; i++) {
-            String hex = Integer.toHexString(value[i]);
-            int length = hex.length();
-            if (length == 1) {
-                hex = "0x" + hex;
-            } else {
-                hex = hex.substring(length - 2, length);
-            }
-            builder.append(hex);
+            builder.append(String.format("0x%02X", value[i]));
             if (i != value.length - 1) {
                 builder.append(", ");
             }

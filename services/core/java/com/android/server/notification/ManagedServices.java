@@ -189,6 +189,10 @@ abstract public class ManagedServices {
         }
     }
 
+    public boolean isComponentEnabledForPackage(String pkg) {
+        return mEnabledServicesPackageNames.contains(pkg);
+    }
+
     public void onPackagesChanged(boolean queryReplace, String[] pkgList) {
         if (DEBUG) Slog.d(TAG, "onPackagesChanged queryReplace=" + queryReplace
                 + " pkgList=" + (pkgList == null ? null : Arrays.asList(pkgList))
@@ -212,8 +216,8 @@ abstract public class ManagedServices {
         }
     }
 
-    public void onUserSwitched() {
-        if (DEBUG) Slog.d(TAG, "onUserSwitched");
+    public void onUserSwitched(int user) {
+        if (DEBUG) Slog.d(TAG, "onUserSwitched u=" + user);
         if (Arrays.equals(mLastSeenProfileIds, mUserProfiles.getCurrentProfileIds())) {
             if (DEBUG) Slog.d(TAG, "Current profile IDs didn't change, skipping rebindServices().");
             return;
@@ -495,7 +499,7 @@ abstract public class ManagedServices {
                                 Slog.v(TAG, getCaption() + " connection lost: " + name);
                             }
                         },
-                        Context.BIND_AUTO_CREATE,
+                        Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE,
                         new UserHandle(userid)))
                 {
                     mServicesBinding.remove(servicesBindingTag);

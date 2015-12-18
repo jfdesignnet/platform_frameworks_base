@@ -48,6 +48,8 @@
     <string name="wifi_security_psk_generic">@string/wifi_security_wpa_wpa2</string>
     <!-- Do not translate.  Concise terminology for wifi with 802.1x EAP security -->
     <string name="wifi_security_eap">802.1x EAP</string>
+    <!-- Do not translate.  Concise terminology for Passpoint network -->
+    <string name="wifi_security_passpoint">Passpoint</string>
 
     <!-- Summary for the remembered network. -->
     <string name="wifi_remembered">Saved</string>
@@ -64,9 +66,22 @@
     <string name="wifi_not_in_range">Not in range</string>
     <!-- Summary for the remembered network but no internet connection was detected. -->
     <string name="wifi_no_internet">No Internet Access Detected, won\'t automatically reconnect.</string>
+    <!-- Summary for saved networks -->
+    <string name="saved_network">Saved by <xliff:g id="name">%1$s</xliff:g></string>
 
     <!-- Status message of Wi-Fi when it is connected by a Wi-Fi assistant application. [CHAR LIMIT=NONE] -->
     <string name="connected_via_wfa">Connected via Wi\u2011Fi assistant</string>
+    <!-- Status message of Wi-Fi when it is connected by Passpoint configuration. [CHAR LIMIT=NONE] -->
+    <string name="connected_via_passpoint">Connected via %1$s</string>
+    <!-- Status message of Wi-Fi when network has matching passpoint credentials. [CHAR LIMIT=NONE] -->
+    <string name="available_via_passpoint">Available via %1$s</string>
+    <!-- Package name for Settings app-->
+    <string name="settings_package" translatable="false">com.android.settings</string>
+    <!-- Package name for Certinstaller app-->
+    <string name="certinstaller_package" translatable="false">com.android.certinstaller</string>
+
+    <!-- Summary for Connected wifi network without internet -->
+    <string name="wifi_connected_no_internet">Connected, no Internet</string>
 
     <!-- Bluetooth settings.  Message when a device is disconnected -->
     <string name="bluetooth_disconnected">Disconnected</string>
@@ -104,8 +119,10 @@
     <string name="bluetooth_profile_pbap_summary">Use for contact sharing</string>
     <!-- Bluetooth settings. The user-visible string that is used whenever referring to the PAN profile (sharing this device's Internet connection). [CHAR LIMIT=40] -->
     <string name="bluetooth_profile_pan_nap">Internet connection sharing</string>
-    <!-- Bluetooth settings.  The user-visible string that is used whenever referring to the map profile. -->
+    <!-- Bluetooth settings. The user-visible string that is used whenever referring to the map profile. -->
     <string name="bluetooth_profile_map">Message Access</string>
+    <!-- Bluetooth settings. The user-visible string that is used whenever referring to the SAP profile (sharing SIM card). -->
+    <string name="bluetooth_profile_sap">SIM Access</string>
 
     <!-- Bluetooth settings.  Connection options screen.  The summary for the A2DP checkbox preference when A2DP is connected. -->
     <string name="bluetooth_a2dp_profile_summary_connected">Connected to media audio</string>
@@ -115,6 +132,8 @@
     <string name="bluetooth_opp_profile_summary_connected">Connected to file transfer server</string>
     <!-- Bluetooth settings.  Connection options screen.  The summary for the map checkbox preference when map is connected. -->
     <string name="bluetooth_map_profile_summary_connected">Connected to map</string>
+    <!-- Bluetooth settings.  Connection options screen.  The summary for the sap checkbox preference when SAP is connected. -->
+    <string name="bluetooth_sap_profile_summary_connected">Connected to SAP</string>
     <!-- Bluetooth settings.  Connection options screen.  The summary for the OPP checkbox preference when OPP is not connected. -->
     <string name="bluetooth_opp_profile_summary_not_connected">Not connected to file transfer server</string>
     <!-- Bluetooth settings. Connection options screen. The summary for the HID checkbox preference when HID is connected. -->
@@ -130,6 +149,8 @@
     <string name="bluetooth_pan_profile_summary_use_for">Use for Internet access</string>
     <!-- Bluetooth settings. Connection options screen.  The summary for the map checkbox preference that describes how checking it will set the map profile as preferred. -->
     <string name="bluetooth_map_profile_summary_use_for">Use for map</string>
+    <!-- Bluetooth settings.  Connection options screen.  The summary for the sap checkbox preference that describes how checking it will set the sap profile as preferred. -->
+    <string name="bluetooth_sap_profile_summary_use_for">Use for SIM access</string>
     <!-- Bluetooth settings.  Connection options screen.  The summary for the A2DP checkbox preference that describes how checking it will set the A2DP profile as preferred. -->
     <string name="bluetooth_a2dp_profile_summary_use_for">Use for media audio</string>
     <!-- Bluetooth settings.  Connection options screen.  The summary for the headset checkbox preference that describes how checking it will set the headset profile as preferred. -->
@@ -160,5 +181,18 @@
     <string name="bluetooth_pairing_device_down_error_message">Can\'t communicate with <xliff:g id="device_name">%1$s</xliff:g>.</string>
     <!-- Message for the error dialog when BT pairing fails because the other device rejected the pairing. -->
     <string name="bluetooth_pairing_rejected_error_message">Pairing rejected by <xliff:g id="device_name">%1$s</xliff:g>.</string>
+
+    <!-- Content description of the WIFI signal when WIFI is disabled for accessibility (not shown on the screen). [CHAR LIMIT=NONE] -->
+    <string name="accessibility_wifi_off">Wifi off.</string>
+    <!-- Content description of the WIFI signal when no signal for accessibility (not shown on the screen). [CHAR LIMIT=NONE] -->
+    <string name="accessibility_no_wifi">Wifi disconnected.</string>
+    <!-- Content description of the WIFI signal when it is one bar for accessibility (not shown on the screen). [CHAR LIMIT=NONE] -->
+    <string name="accessibility_wifi_one_bar">Wifi one bar.</string>
+    <!-- Content description of the WIFI signal when it is two bars for accessibility (not shown on the screen). [CHAR LIMIT=NONE] -->
+    <string name="accessibility_wifi_two_bars">Wifi two bars.</string>
+    <!-- Content description of the WIFI signal when it is three bars for accessibility (not shown on the screen). [CHAR LIMIT=NONE] -->
+    <string name="accessibility_wifi_three_bars">Wifi three bars.</string>
+    <!-- Content description of the WIFI signal when it is full for accessibility (not shown on the screen). [CHAR LIMIT=NONE] -->
+    <string name="accessibility_wifi_signal_full">Wifi signal full.</string>
 
 </resources>

@@ -27,6 +27,7 @@ import android.net.LocalSocket;
 import android.os.Process;
 import android.os.SELinux;
 import android.os.SystemProperties;
+import android.os.Trace;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
@@ -321,7 +322,7 @@ class ZygoteConnection {
 
         /**
          * From --enable-debugger, --enable-checkjni, --enable-assert,
-         * --enable-safemode, --enable-jit, and --enable-jni-logging.
+         * --enable-safemode, --enable-jit, --generate-debug-info and --enable-jni-logging.
          */
         int debugFlags;
 
@@ -433,6 +434,8 @@ class ZygoteConnection {
                     debugFlags |= Zygote.DEBUG_ENABLE_CHECKJNI;
                 } else if (arg.equals("--enable-jit")) {
                     debugFlags |= Zygote.DEBUG_ENABLE_JIT;
+                } else if (arg.equals("--generate-debug-info")) {
+                    debugFlags |= Zygote.DEBUG_GENERATE_DEBUG_INFO;
                 } else if (arg.equals("--enable-jni-logging")) {
                     debugFlags |= Zygote.DEBUG_ENABLE_JNI_LOGGING;
                 } else if (arg.equals("--enable-assert")) {
@@ -516,6 +519,10 @@ class ZygoteConnection {
                     niceName = arg.substring(arg.indexOf('=') + 1);
                 } else if (arg.equals("--mount-external-default")) {
                     mountExternal = Zygote.MOUNT_EXTERNAL_DEFAULT;
+                } else if (arg.equals("--mount-external-read")) {
+                    mountExternal = Zygote.MOUNT_EXTERNAL_READ;
+                } else if (arg.equals("--mount-external-write")) {
+                    mountExternal = Zygote.MOUNT_EXTERNAL_WRITE;
                 } else if (arg.equals("--query-abi-list")) {
                     abiListQuery = true;
                 } else if (arg.startsWith("--instruction-set=")) {
@@ -709,7 +716,6 @@ class ZygoteConnection {
     private void handleChildProc(Arguments parsedArgs,
             FileDescriptor[] descriptors, FileDescriptor pipeFd, PrintStream newStderr)
             throws ZygoteInit.MethodAndArgsCaller {
-
         /**
          * By the time we get here, the native code has closed the two actual Zygote
          * socket connections, and substituted /dev/null in their place.  The LocalSocket
@@ -738,6 +744,8 @@ class ZygoteConnection {
             Process.setArgV0(parsedArgs.niceName);
         }
 
+        // End of the postFork event.
+        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
         if (parsedArgs.invokeWith != null) {
             WrapperInit.execApplication(parsedArgs.invokeWith,
                     parsedArgs.niceName, parsedArgs.targetSdkVersion,

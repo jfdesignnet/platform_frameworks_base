@@ -16,6 +16,9 @@
 
 package android.hardware.camera2;
 
+import android.annotation.RequiresPermission;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.Context;
 import android.hardware.ICameraService;
 import android.hardware.ICameraServiceListener;
@@ -53,13 +56,16 @@ import java.util.ArrayList;
 public final class CameraManager {
 
     private static final String TAG = "CameraManager";
-    private final boolean DEBUG;
+    private final boolean DEBUG = false;
 
     private static final int USE_CALLING_UID = -1;
 
     @SuppressWarnings("unused")
     private static final int API_VERSION_1 = 1;
     private static final int API_VERSION_2 = 2;
+
+    private static final int CAMERA_TYPE_BACKWARD_COMPATIBLE = 0;
+    private static final int CAMERA_TYPE_ALL = 1;
 
     private ArrayList<String> mDeviceIdList;
 
@@ -70,15 +76,14 @@ public final class CameraManager {
      * @hide
      */
     public CameraManager(Context context) {
-        DEBUG = Log.isLoggable(TAG, Log.DEBUG);
         synchronized(mLock) {
             mContext = context;
         }
     }
 
     /**
-     * Return the list of currently connected camera devices by
-     * identifier.
+     * Return the list of currently connected camera devices by identifier, including
+     * cameras that may be in use by other camera API clients.
      *
      * <p>Non-removable cameras use integers starting at 0 for their
      * identifiers, while removable cameras have a unique identifier for each
@@ -86,6 +91,7 @@ public final class CameraManager {
      *
      * @return The list of currently connected camera devices.
      */
+    @NonNull
     public String[] getCameraIdList() throws CameraAccessException {
         synchronized (mLock) {
             // ID list creation handles various known failures in device enumeration, so only
@@ -103,6 +109,11 @@ public final class CameraManager {
      * <p>The first time a callback is registered, it is immediately called
      * with the availability status of all currently known camera devices.</p>
      *
+     * <p>{@link AvailabilityCallback#onCameraUnavailable(String)} will be called whenever a camera
+     * device is opened by any camera API client. As of API level 23, other camera API clients may
+     * still be able to open such a camera device, evicting the existing client if they have higher
+     * priority than the existing client of a camera device. See open() for more details.</p>
+     *
      * <p>Since this callback will be registered with the camera service, remember to unregister it
      * once it is no longer needed; otherwise the callback will continue to receive events
      * indefinitely and it may prevent other resources from being released. Specifically, the
@@ -116,7 +127,8 @@ public final class CameraManager {
      * @throws IllegalArgumentException if the handler is {@code null} but the current thread has
      *             no looper.
      */
-    public void registerAvailabilityCallback(AvailabilityCallback callback, Handler handler) {
+    public void registerAvailabilityCallback(@NonNull AvailabilityCallback callback,
+            @Nullable Handler handler) {
         if (handler == null) {
             Looper looper = Looper.myLooper();
             if (looper == null) {
@@ -137,7 +149,7 @@ public final class CameraManager {
      *
      * @param callback The callback to remove from the notification list
      */
-    public void unregisterAvailabilityCallback(AvailabilityCallback callback) {
+    public void unregisterAvailabilityCallback(@NonNull AvailabilityCallback callback) {
         CameraManagerGlobal.get().unregisterAvailabilityCallback(callback);
     }
 
@@ -163,7 +175,7 @@ public final class CameraManager {
      * @throws IllegalArgumentException if the handler is {@code null} but the current thread has
      *             no looper.
      */
-    public void registerTorchCallback(TorchCallback callback, Handler handler) {
+    public void registerTorchCallback(@NonNull TorchCallback callback, @Nullable Handler handler) {
         if (handler == null) {
             Looper looper = Looper.myLooper();
             if (looper == null) {
@@ -183,7 +195,7 @@ public final class CameraManager {
      *
      * @param callback The callback to remove from the notification list
      */
-    public void unregisterTorchCallback(TorchCallback callback) {
+    public void unregisterTorchCallback(@NonNull TorchCallback callback) {
         CameraManagerGlobal.get().unregisterTorchCallback(callback);
     }
 
@@ -196,15 +208,13 @@ public final class CameraManager {
      *
      * @throws IllegalArgumentException if the cameraId does not match any
      *         known camera device.
-     * @throws CameraAccessException if the camera is disabled by device policy, or
-     *         the camera device has been disconnected.
-     * @throws SecurityException if the application does not have permission to
-     *         access the camera
+     * @throws CameraAccessException if the camera device has been disconnected.
      *
      * @see #getCameraIdList
      * @see android.app.admin.DevicePolicyManager#setCameraDisabled
      */
-    public CameraCharacteristics getCameraCharacteristics(String cameraId)
+    @NonNull
+    public CameraCharacteristics getCameraCharacteristics(@NonNull String cameraId)
             throws CameraAccessException {
         CameraCharacteristics characteristics = null;
 
@@ -259,14 +269,14 @@ public final class CameraManager {
     }
 
     /**
-     * Helper for openning a connection to a camera with the given ID.
+     * Helper for opening a connection to a camera with the given ID.
      *
      * @param cameraId The unique identifier of the camera device to open
      * @param callback The callback for the camera. Must not be null.
      * @param handler  The handler to invoke the callback on. Must not be null.
      *
      * @throws CameraAccessException if the camera is disabled by device policy,
-     * or too many camera devices are already open, or the cameraId does not match
+     * too many camera devices are already open, or the cameraId does not match
      * any currently available camera device.
      *
      * @throws SecurityException if the application does not have permission to
@@ -309,7 +319,7 @@ public final class CameraManager {
                                 "Camera service is currently unavailable");
                         }
                         cameraService.connectDevice(callbacks, id,
-                                mContext.getPackageName(), USE_CALLING_UID, holder);
+                                mContext.getOpPackageName(), USE_CALLING_UID, holder);
                         cameraUser = ICameraDeviceUser.Stub.asInterface(holder.getBinder());
                     } else {
                         // Use legacy camera implementation for HAL1 devices
@@ -330,7 +340,8 @@ public final class CameraManager {
                         deviceImpl.setRemoteFailure(e);
 
                         if (e.getReason() == CameraAccessException.CAMERA_DISABLED ||
-                                e.getReason() == CameraAccessException.CAMERA_DISCONNECTED) {
+                                e.getReason() == CameraAccessException.CAMERA_DISCONNECTED ||
+                                e.getReason() == CameraAccessException.CAMERA_IN_USE) {
                             // Per API docs, these failures call onError and throw
                             throw e.asChecked();
                         }
@@ -369,7 +380,19 @@ public final class CameraManager {
      * <p>Use {@link #getCameraIdList} to get the list of available camera
      * devices. Note that even if an id is listed, open may fail if the device
      * is disconnected between the calls to {@link #getCameraIdList} and
-     * {@link #openCamera}.</p>
+     * {@link #openCamera}, or if a higher-priority camera API client begins using the
+     * camera device.</p>
+     *
+     * <p>As of API level 23, devices for which the
+     * {@link AvailabilityCallback#onCameraUnavailable(String)} callback has been called due to the
+     * device being in use by a lower-priority, background camera API client can still potentially
+     * be opened by calling this method when the calling camera API client has a higher priority
+     * than the current camera API client using this device.  In general, if the top, foreground
+     * activity is running within your application process, your process will be given the highest
+     * priority when accessing the camera, and this method will succeed even if the camera device is
+     * in use by another camera API client. Any lower-priority application that loses control of the
+     * camera in this way will receive an
+     * {@link android.hardware.camera2.CameraDevice.StateCallback#onDisconnected} callback.</p>
      *
      * <p>Once the camera is successfully opened, {@link CameraDevice.StateCallback#onOpened} will
      * be invoked with the newly opened {@link CameraDevice}. The camera device can then be set up
@@ -401,7 +424,7 @@ public final class CameraManager {
      *             {@code null} to use the current thread's {@link android.os.Looper looper}.
      *
      * @throws CameraAccessException if the camera is disabled by device policy,
-     * or the camera has become or was disconnected.
+     * has been disconnected, or is being used by a higher-priority camera API client.
      *
      * @throws IllegalArgumentException if cameraId or the callback was null,
      * or the cameraId does not match any currently or previously available
@@ -413,8 +436,9 @@ public final class CameraManager {
      * @see #getCameraIdList
      * @see android.app.admin.DevicePolicyManager#setCameraDisabled
      */
-    public void openCamera(String cameraId, final CameraDevice.StateCallback callback,
-            Handler handler)
+    @RequiresPermission(android.Manifest.permission.CAMERA)
+    public void openCamera(@NonNull String cameraId,
+            @NonNull final CameraDevice.StateCallback callback, @Nullable Handler handler)
             throws CameraAccessException {
 
         if (cameraId == null) {
@@ -426,7 +450,7 @@ public final class CameraManager {
                 handler = new Handler();
             } else {
                 throw new IllegalArgumentException(
-                        "Looper doesn't exist in the calling thread");
+                        "Handler argument is null, but no looper exists in the calling thread");
             }
         }
 
@@ -472,13 +496,13 @@ public final class CameraManager {
      *             or previously available camera device, or the camera device doesn't have a
      *             flash unit.
      */
-    public void setTorchMode(String cameraId, boolean enabled) throws CameraAccessException {
+    public void setTorchMode(@NonNull String cameraId, boolean enabled)
+            throws CameraAccessException {
         CameraManagerGlobal.get().setTorchMode(cameraId, enabled);
     }
 
     /**
-     * A callback for camera devices becoming available or
-     * unavailable to open.
+     * A callback for camera devices becoming available or unavailable to open.
      *
      * <p>Cameras become available when they are no longer in use, or when a new
      * removable camera is connected. They become unavailable when some
@@ -500,7 +524,7 @@ public final class CameraManager {
          *
          * @param cameraId The unique identifier of the new camera.
          */
-        public void onCameraAvailable(String cameraId) {
+        public void onCameraAvailable(@NonNull String cameraId) {
             // default empty implementation
         }
 
@@ -515,7 +539,7 @@ public final class CameraManager {
          *
          * @param cameraId The unique identifier of the disconnected camera.
          */
-        public void onCameraUnavailable(String cameraId) {
+        public void onCameraUnavailable(@NonNull String cameraId) {
             // default empty implementation
         }
     }
@@ -539,7 +563,7 @@ public final class CameraManager {
      * {@link CameraManager#registerTorchCallback} to be notified of such status changes.
      * </p>
      *
-     * @see registerTorchCallback
+     * @see #registerTorchCallback
      */
     public static abstract class TorchCallback {
         /**
@@ -555,7 +579,7 @@ public final class CameraManager {
          * @param cameraId The unique identifier of the camera whose torch mode has become
          *                 unavailable.
          */
-        public void onTorchModeUnavailable(String cameraId) {
+        public void onTorchModeUnavailable(@NonNull String cameraId) {
             // default empty implementation
         }
 
@@ -572,7 +596,7 @@ public final class CameraManager {
          *                off. {@code false} when the torch mode has becomes off and available to
          *                be turned on.
          */
-        public void onTorchModeChanged(String cameraId, boolean enabled) {
+        public void onTorchModeChanged(@NonNull String cameraId, boolean enabled) {
             // default empty implementation
         }
     }
@@ -594,7 +618,7 @@ public final class CameraManager {
             }
 
             try {
-                numCameras = cameraService.getNumberOfCameras();
+                numCameras = cameraService.getNumberOfCameras(CAMERA_TYPE_ALL);
             } catch(CameraRuntimeException e) {
                 throw e.asChecked();
             } catch (RemoteException e) {
@@ -700,7 +724,9 @@ public final class CameraManager {
             implements IBinder.DeathRecipient {
 
         private static final String TAG = "CameraManagerGlobal";
-        private final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+        private final boolean DEBUG = false;
+
+        private final int CAMERA_SERVICE_RECONNECT_DELAY_MS = 1000;
 
         // Singleton instance
         private static final CameraManagerGlobal gCameraManager =
@@ -781,12 +807,9 @@ public final class CameraManager {
          */
         public ICameraService getCameraService() {
             synchronized(mLock) {
+                connectCameraServiceLocked();
                 if (mCameraService == null) {
-                    Log.i(TAG, "getCameraService: Reconnecting to camera service");
-                    connectCameraServiceLocked();
-                    if (mCameraService == null) {
-                        Log.e(TAG, "Camera service is unavailable");
-                    }
+                    Log.e(TAG, "Camera service is unavailable");
                 }
                 return mCameraService;
             }
@@ -794,11 +817,16 @@ public final class CameraManager {
 
         /**
          * Connect to the camera service if it's available, and set up listeners.
+         * If the service is already connected, do nothing.
          *
          * <p>Sets mCameraService to a valid pointer or null if the connection does not succeed.</p>
          */
         private void connectCameraServiceLocked() {
-            mCameraService = null;
+            // Only reconnect if necessary
+            if (mCameraService != null) return;
+
+            Log.i(TAG, "Connecting to camera service");
+
             IBinder cameraServiceBinder = ServiceManager.getService(CAMERA_SERVICE_BINDER_NAME);
             if (cameraServiceBinder == null) {
                 // Camera service is now down, leave mCameraService as null
@@ -1077,6 +1105,8 @@ public final class CameraManager {
          */
         public void registerAvailabilityCallback(AvailabilityCallback callback, Handler handler) {
             synchronized (mLock) {
+                connectCameraServiceLocked();
+
                 Handler oldHandler = mCallbackMap.put(callback, handler);
                 // For new callbacks, provide initial availability information
                 if (oldHandler == null) {
@@ -1099,6 +1129,8 @@ public final class CameraManager {
 
         public void registerTorchCallback(TorchCallback callback, Handler handler) {
             synchronized(mLock) {
+                connectCameraServiceLocked();
+
                 Handler oldHandler = mTorchCallbackMap.put(callback, handler);
                 // For new callbacks, provide initial torch information
                 if (oldHandler == null) {
@@ -1131,6 +1163,45 @@ public final class CameraManager {
         }
 
         /**
+         * Try to connect to camera service after some delay if any client registered camera
+         * availability callback or torch status callback.
+         */
+        private void scheduleCameraServiceReconnectionLocked() {
+            final Handler handler;
+
+            if (mCallbackMap.size() > 0) {
+                handler = mCallbackMap.valueAt(0);
+            } else if (mTorchCallbackMap.size() > 0) {
+                handler = mTorchCallbackMap.valueAt(0);
+            } else {
+                // Not necessary to reconnect camera service if no client registers a callback.
+                return;
+            }
+
+            if (DEBUG) {
+                Log.v(TAG, "Reconnecting Camera Service in " + CAMERA_SERVICE_RECONNECT_DELAY_MS +
+                        " ms");
+            }
+
+            handler.postDelayed(
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            ICameraService cameraService = getCameraService();
+                            if (cameraService == null) {
+                                synchronized(mLock) {
+                                    if (DEBUG) {
+                                        Log.v(TAG, "Reconnecting Camera Service failed.");
+                                    }
+                                    scheduleCameraServiceReconnectionLocked();
+                                }
+                            }
+                        }
+                    },
+                    CAMERA_SERVICE_RECONNECT_DELAY_MS);
+        }
+
+        /**
          * Listener for camera service death.
          *
          * <p>The camera service isn't supposed to die under any normal circumstances, but can be
@@ -1144,21 +1215,19 @@ public final class CameraManager {
 
                 mCameraService = null;
 
-                // Tell listeners that the cameras and torch modes are _available_, because any
-                // existing clients will have gotten disconnected. This is optimistic under the
-                // assumption that the service will be back shortly.
-                //
-                // Without this, a camera service crash while a camera is open will never signal
-                // to listeners that previously in-use cameras are now available.
+                // Tell listeners that the cameras and torch modes are unavailable and schedule a
+                // reconnection to camera service. When camera service is reconnected, the camera
+                // and torch statuses will be updated.
                 for (int i = 0; i < mDeviceStatus.size(); i++) {
                     String cameraId = mDeviceStatus.keyAt(i);
-                    onStatusChangedLocked(STATUS_PRESENT, cameraId);
+                    onStatusChangedLocked(STATUS_NOT_PRESENT, cameraId);
                 }
                 for (int i = 0; i < mTorchStatus.size(); i++) {
                     String cameraId = mTorchStatus.keyAt(i);
-                    onTorchStatusChangedLocked(TORCH_STATUS_AVAILABLE_OFF, cameraId);
+                    onTorchStatusChangedLocked(TORCH_STATUS_NOT_AVAILABLE, cameraId);
                 }
 
+                scheduleCameraServiceReconnectionLocked();
             }
         }
 

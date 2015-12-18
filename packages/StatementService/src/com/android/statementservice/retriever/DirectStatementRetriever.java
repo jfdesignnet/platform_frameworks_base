@@ -36,9 +36,11 @@ import java.util.List;
 
     private static final long DO_NOT_CACHE_RESULT = 0L;
     private static final int HTTP_CONNECTION_TIMEOUT_MILLIS = 5000;
+    private static final int HTTP_CONNECTION_BACKOFF_MILLIS = 3000;
+    private static final int HTTP_CONNECTION_RETRY = 3;
     private static final long HTTP_CONTENT_SIZE_LIMIT_IN_BYTES = 1024 * 1024;
     private static final int MAX_INCLUDE_LEVEL = 1;
-    private static final String WELL_KNOWN_STATEMENT_PATH = "/.well-known/associations.json";
+    private static final String WELL_KNOWN_STATEMENT_PATH = "/.well-known/assetlinks.json";
 
     private final URLFetcher mUrlFetcher;
     private final AndroidPackageInfoFetcher mAndroidFetcher;
@@ -136,7 +138,8 @@ import java.util.List;
         }
     }
 
-    private Result retrieveStatementFromUrl(String url, int maxIncludeLevel, AbstractAsset source)
+    private Result retrieveStatementFromUrl(String urlString, int maxIncludeLevel,
+                                            AbstractAsset source)
             throws AssociationServiceException {
         List<Statement> statements = new ArrayList<Statement>();
         if (maxIncludeLevel < 0) {
@@ -145,9 +148,15 @@ import java.util.List;
 
         WebContent webContent;
         try {
-            webContent = mUrlFetcher.getWebContentFromUrl(new URL(url),
-                    HTTP_CONTENT_SIZE_LIMIT_IN_BYTES, HTTP_CONNECTION_TIMEOUT_MILLIS);
-        } catch (IOException e) {
+            URL url = new URL(urlString);
+            if (!source.followInsecureInclude()
+                    && !url.getProtocol().toLowerCase().equals("https")) {
+                return Result.create(statements, DO_NOT_CACHE_RESULT);
+            }
+            webContent = mUrlFetcher.getWebContentFromUrlWithRetry(url,
+                    HTTP_CONTENT_SIZE_LIMIT_IN_BYTES, HTTP_CONNECTION_TIMEOUT_MILLIS,
+                    HTTP_CONNECTION_BACKOFF_MILLIS, HTTP_CONNECTION_RETRY);
+        } catch (IOException | InterruptedException e) {
             return Result.create(statements, DO_NOT_CACHE_RESULT);
         }
 
@@ -161,7 +170,7 @@ import java.util.List;
                                 .getStatements());
             }
             return Result.create(statements, webContent.getExpireTimeMillis());
-        } catch (JSONException e) {
+        } catch (JSONException | IOException e) {
             return Result.create(statements, DO_NOT_CACHE_RESULT);
         }
     }
@@ -196,7 +205,7 @@ import java.util.List;
             }
 
             return Result.create(statements, DO_NOT_CACHE_RESULT);
-        } catch (JSONException | NameNotFoundException e) {
+        } catch (JSONException | IOException | NameNotFoundException e) {
             Log.w(DirectStatementRetriever.class.getSimpleName(), e);
             return Result.create(Collections.<Statement>emptyList(), DO_NOT_CACHE_RESULT);
         }

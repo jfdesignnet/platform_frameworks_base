@@ -49,6 +49,7 @@ public final class MidiDeviceInfo implements Parcelable {
 
     /**
      * Bundle key for the device's user visible name property.
+     * The value for this property is of type {@link java.lang.String}.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}.
      * For USB devices, this is a concatenation of the manufacturer and product names.
      */
@@ -56,6 +57,7 @@ public final class MidiDeviceInfo implements Parcelable {
 
     /**
      * Bundle key for the device's manufacturer name property.
+     * The value for this property is of type {@link java.lang.String}.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}.
      * Matches the USB device manufacturer name string for USB MIDI devices.
      */
@@ -63,27 +65,39 @@ public final class MidiDeviceInfo implements Parcelable {
 
     /**
      * Bundle key for the device's product name property.
+     * The value for this property is of type {@link java.lang.String}.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
      * Matches the USB device product name string for USB MIDI devices.
      */
     public static final String PROPERTY_PRODUCT = "product";
 
     /**
+     * Bundle key for the device's version property.
+     * The value for this property is of type {@link java.lang.String}.
+     * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
+     * Matches the USB device version number for USB MIDI devices.
+     */
+    public static final String PROPERTY_VERSION = "version";
+
+    /**
      * Bundle key for the device's serial number property.
+     * The value for this property is of type {@link java.lang.String}.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
      * Matches the USB device serial number for USB MIDI devices.
      */
     public static final String PROPERTY_SERIAL_NUMBER = "serial_number";
 
     /**
-     * Bundle key for the device's {@link android.hardware.usb.UsbDevice}.
+     * Bundle key for the device's corresponding USB device.
+     * The value for this property is of type {@link android.hardware.usb.UsbDevice}.
      * Only set for USB MIDI devices.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
      */
     public static final String PROPERTY_USB_DEVICE = "usb_device";
 
     /**
-     * Bundle key for the device's {@link android.bluetooth.BluetoothDevice}.
+     * Bundle key for the device's corresponding Bluetooth device.
+     * The value for this property is of type {@link android.bluetooth.BluetoothDevice}.
      * Only set for Bluetooth MIDI devices.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
      */
@@ -91,6 +105,7 @@ public final class MidiDeviceInfo implements Parcelable {
 
     /**
      * Bundle key for the device's ALSA card number.
+     * The value for this property is an integer.
      * Only set for USB MIDI devices.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
      *
@@ -100,6 +115,7 @@ public final class MidiDeviceInfo implements Parcelable {
 
     /**
      * Bundle key for the device's ALSA device number.
+     * The value for this property is an integer.
      * Only set for USB MIDI devices.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
      *
@@ -108,7 +124,8 @@ public final class MidiDeviceInfo implements Parcelable {
     public static final String PROPERTY_ALSA_DEVICE = "alsa_device";
 
     /**
-     * {@link android.content.pm.ServiceInfo} for the service hosting the device implementation.
+     * ServiceInfo for the service hosting the device implementation.
+     * The value for this property is of type {@link android.content.pm.ServiceInfo}.
      * Only set for Virtual MIDI devices.
      * Used with the {@link android.os.Bundle} returned by {@link #getProperties}
      *
@@ -242,18 +259,18 @@ public final class MidiDeviceInfo implements Parcelable {
      *
      * @return array of {@link PortInfo}
      */
-    public PortInfo[] getPortList() {
-        PortInfo[] portInfoList = new PortInfo[mInputPortCount + mOutputPortCount];
+    public PortInfo[] getPorts() {
+        PortInfo[] ports = new PortInfo[mInputPortCount + mOutputPortCount];
 
         int index = 0;
         for (int i = 0; i < mInputPortCount; i++) {
-            portInfoList[index++] = new PortInfo(PortInfo.TYPE_INPUT, i, mInputPortNames[i]);
+            ports[index++] = new PortInfo(PortInfo.TYPE_INPUT, i, mInputPortNames[i]);
         }
         for (int i = 0; i < mOutputPortCount; i++) {
-            portInfoList[index++] = new PortInfo(PortInfo.TYPE_OUTPUT, i, mOutputPortNames[i]);
+            ports[index++] = new PortInfo(PortInfo.TYPE_OUTPUT, i, mOutputPortNames[i]);
         }
 
-        return portInfoList;
+        return ports;
     }
 
     /**
@@ -291,6 +308,9 @@ public final class MidiDeviceInfo implements Parcelable {
 
     @Override
     public String toString() {
+        // This is a hack to force the mProperties Bundle to unparcel so we can
+        // print all the names and values.
+        mProperties.getString(PROPERTY_NAME);
         return ("MidiDeviceInfo[mType=" + mType +
                 ",mInputPortCount=" + mInputPortCount +
                 ",mOutputPortCount=" + mOutputPortCount +

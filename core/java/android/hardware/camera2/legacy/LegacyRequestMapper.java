@@ -42,7 +42,7 @@ import static android.hardware.camera2.CaptureRequest.*;
 @SuppressWarnings("deprecation")
 public class LegacyRequestMapper {
     private static final String TAG = "LegacyRequestMapper";
-    private static final boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
+    private static final boolean DEBUG = false;
 
     /** Default quality for android.jpeg.quality, android.jpeg.thumbnailQuality */
     private static final byte DEFAULT_JPEG_QUALITY = 85;
@@ -75,7 +75,7 @@ public class LegacyRequestMapper {
 
             if (params.isZoomSupported()) {
                 params.setZoom(zoomData.zoomIndex);
-            } else if (VERBOSE) {
+            } else if (DEBUG) {
                 Log.v(TAG, "convertRequestToMetadata - zoom is not supported");
             }
         }
@@ -162,17 +162,19 @@ public class LegacyRequestMapper {
         if (aeFpsRange != null) {
             int[] legacyFps = convertAeFpsRangeToLegacy(aeFpsRange);
 
-            // TODO - Should we enforce that all HAL1 devices must include (30, 30) FPS range?
-            boolean supported = false;
+            int[] rangeToApply = null;
             for(int[] range : params.getSupportedPreviewFpsRange()) {
-                if (legacyFps[0] == range[0] && legacyFps[1] == range[1]) {
-                    supported = true;
+                // Round range up/down to integer FPS value
+                int intRangeLow = (int) Math.floor(range[0] / 1000.0) * 1000;
+                int intRangeHigh = (int) Math.ceil(range[1] / 1000.0) * 1000;
+                if (legacyFps[0] == intRangeLow && legacyFps[1] == intRangeHigh) {
+                    rangeToApply = range;
                     break;
                 }
             }
-            if (supported) {
-                params.setPreviewFpsRange(legacyFps[Camera.Parameters.PREVIEW_FPS_MIN_INDEX],
-                        legacyFps[Camera.Parameters.PREVIEW_FPS_MAX_INDEX]);
+            if (rangeToApply != null) {
+                params.setPreviewFpsRange(rangeToApply[Camera.Parameters.PREVIEW_FPS_MIN_INDEX],
+                        rangeToApply[Camera.Parameters.PREVIEW_FPS_MAX_INDEX]);
             } else {
                 Log.w(TAG, "Unsupported FPS range set [" + legacyFps[0] + "," + legacyFps[1] + "]");
             }
@@ -210,7 +212,7 @@ public class LegacyRequestMapper {
                 params.setAutoExposureLock(aeLock);
             }
 
-            if (VERBOSE) {
+            if (DEBUG) {
                 Log.v(TAG, "convertRequestToMetadata - control.aeLock set to " + aeLock);
             }
 
@@ -231,7 +233,7 @@ public class LegacyRequestMapper {
                 params.setFocusMode(focusMode);
             }
 
-            if (VERBOSE) {
+            if (DEBUG) {
                 Log.v(TAG, "convertRequestToMetadata - control.afMode "
                         + afMode + " mapped to " + focusMode);
             }
@@ -250,7 +252,7 @@ public class LegacyRequestMapper {
                 params.setWhiteBalance(whiteBalanceMode);
             }
 
-            if (VERBOSE) {
+            if (DEBUG) {
                 Log.v(TAG, "convertRequestToMetadata - control.awbMode "
                         + awbMode + " mapped to " + whiteBalanceMode);
             }
@@ -520,7 +522,7 @@ public class LegacyRequestMapper {
                             " regions, ignoring all beyond the first " + maxNumMeteringAreas);
         }
 
-        if (VERBOSE) {
+        if (DEBUG) {
             Log.v(TAG, "convertMeteringRegionsToLegacy - " + regionName + " areas = "
                     + ParameterUtils.stringFromAreaList(meteringAreaList));
         }
@@ -593,7 +595,7 @@ public class LegacyRequestMapper {
             p.setFlashMode(flashModeSetting);
         }
 
-        if (VERBOSE) {
+        if (DEBUG) {
                 Log.v(TAG,
                         "mapAeAndFlashMode - set flash.mode (api1) to " + flashModeSetting
                         + ", requested (api2) " + flashMode
@@ -626,8 +628,8 @@ public class LegacyRequestMapper {
 
     private static int[] convertAeFpsRangeToLegacy(Range<Integer> fpsRange) {
         int[] legacyFps = new int[2];
-        legacyFps[Parameters.PREVIEW_FPS_MIN_INDEX] = fpsRange.getLower();
-        legacyFps[Parameters.PREVIEW_FPS_MAX_INDEX] = fpsRange.getUpper();
+        legacyFps[Parameters.PREVIEW_FPS_MIN_INDEX] = fpsRange.getLower() * 1000;
+        legacyFps[Parameters.PREVIEW_FPS_MAX_INDEX] = fpsRange.getUpper() * 1000;
         return legacyFps;
     }
 

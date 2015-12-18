@@ -17,19 +17,13 @@ package com.android.systemui.volume;
 
 import android.animation.LayoutTransition;
 import android.animation.ValueAnimator;
-import android.app.ActivityManager;
 import android.content.Context;
-import android.content.res.Resources;
 import android.provider.Settings.Global;
 import android.service.notification.ZenModeConfig;
 import android.util.AttributeSet;
-import android.util.Log;
-import android.util.TypedValue;
 import android.view.View;
-import android.widget.CompoundButton;
-import android.widget.CompoundButton.OnCheckedChangeListener;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import com.android.systemui.R;
@@ -38,70 +32,45 @@ import com.android.systemui.statusbar.policy.ZenModeController;
 import java.util.Objects;
 
 /**
- * Switch bar + zen mode panel (conditions) attached to the bottom of the volume dialog.
+ * Zen mode information (and end button) attached to the bottom of the volume dialog.
  */
 public class ZenFooter extends LinearLayout {
     private static final String TAG = Util.logTag(ZenFooter.class);
 
     private final Context mContext;
-    private final float mSecondaryAlpha;
-    private final LayoutTransition mLayoutTransition;
+    private final SpTexts mSpTexts;
 
-    private ZenModeController mController;
-    private Switch mSwitch;
-    private ZenModePanel mZenModePanel;
-    private View mZenModePanelButtons;
-    private View mZenModePanelMoreButton;
-    private View mZenModePanelDoneButton;
-    private View mSwitchBar;
-    private View mSwitchBarIcon;
-    private View mSummary;
+    private ImageView mIcon;
     private TextView mSummaryLine1;
     private TextView mSummaryLine2;
-    private boolean mFooterExpanded;
+    private TextView mEndNowButton;
     private int mZen = -1;
     private ZenModeConfig mConfig;
-    private Callback mCallback;
+    private ZenModeController mController;
 
     public ZenFooter(Context context, AttributeSet attrs) {
         super(context, attrs);
         mContext = context;
-        mSecondaryAlpha = getFloat(context.getResources(), R.dimen.volume_secondary_alpha);
-        mLayoutTransition = new LayoutTransition();
-        mLayoutTransition.setDuration(new ValueAnimator().getDuration() / 2);
-        mLayoutTransition.disableTransitionType(LayoutTransition.DISAPPEARING);
-        mLayoutTransition.disableTransitionType(LayoutTransition.CHANGE_DISAPPEARING);
-    }
-
-    private static float getFloat(Resources r, int resId) {
-        final TypedValue tv = new TypedValue();
-        r.getValue(resId, tv, true);
-        return tv.getFloat();
+        mSpTexts = new SpTexts(mContext);
+        final LayoutTransition layoutTransition = new LayoutTransition();
+        layoutTransition.setDuration(new ValueAnimator().getDuration() / 2);
+        setLayoutTransition(layoutTransition);
     }
 
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mSwitchBar = findViewById(R.id.volume_zen_switch_bar);
-        mSwitchBarIcon = findViewById(R.id.volume_zen_switch_bar_icon);
-        mSwitch = (Switch) findViewById(R.id.volume_zen_switch);
-        mZenModePanel = (ZenModePanel) findViewById(R.id.zen_mode_panel);
-        mZenModePanelButtons = findViewById(R.id.volume_zen_mode_panel_buttons);
-        mZenModePanelMoreButton = findViewById(R.id.volume_zen_mode_panel_more);
-        mZenModePanelDoneButton = findViewById(R.id.volume_zen_mode_panel_done);
-        mSummary = findViewById(R.id.volume_zen_panel_summary);
-        mSummaryLine1 = (TextView) findViewById(R.id.volume_zen_panel_summary_line_1);
-        mSummaryLine2 = (TextView) findViewById(R.id.volume_zen_panel_summary_line_2);
+        mIcon = (ImageView) findViewById(R.id.volume_zen_icon);
+        mSummaryLine1 = (TextView) findViewById(R.id.volume_zen_summary_line_1);
+        mSummaryLine2 = (TextView) findViewById(R.id.volume_zen_summary_line_2);
+        mEndNowButton = (TextView) findViewById(R.id.volume_zen_end_now);
+        mSpTexts.add(mSummaryLine1);
+        mSpTexts.add(mSummaryLine2);
+        mSpTexts.add(mEndNowButton);
     }
 
-    public void init(ZenModeController controller, Callback callback) {
-        mCallback = callback;
-        mController = controller;
-        mZenModePanel.init(controller);
-        mZenModePanel.setEmbedded(true);
-        mZenModePanel.setCallback(mZenModePanelCallback);
-        mSwitch.setOnCheckedChangeListener(mCheckedListener);
-        mController.addCallback(new ZenModeController.Callback() {
+    public void init(final ZenModeController controller) {
+        controller.addCallback(new ZenModeController.Callback() {
             @Override
             public void onZenChanged(int zen) {
                 setZen(zen);
@@ -111,30 +80,15 @@ public class ZenFooter extends LinearLayout {
                 setConfig(config);
             }
         });
-        mSwitchBar.setOnClickListener(new OnClickListener() {
+        mEndNowButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                mSwitch.setChecked(!mSwitch.isChecked());
+                controller.setZen(Global.ZEN_MODE_OFF, null, TAG);
             }
         });
-        mZenModePanelMoreButton.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (mCallback != null) {
-                    mCallback.onSettingsClicked();
-                }
-            }
-        });
-        mZenModePanelDoneButton.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (mCallback != null) {
-                    mCallback.onDoneClicked();
-                }
-            }
-        });
-        mZen = mController.getZen();
-        mConfig = mController.getConfig();
+        mZen = controller.getZen();
+        mConfig = controller.getConfig();
+        mController = controller;
         update();
     }
 
@@ -166,96 +120,26 @@ public class ZenFooter extends LinearLayout {
         return mZen == Global.ZEN_MODE_NO_INTERRUPTIONS;
     }
 
-    @Override
-    protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-        setLayoutTransition(null);
-        setFooterExpanded(false);
-    }
-
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        setLayoutTransition(mLayoutTransition);
-    }
-
-    private boolean setFooterExpanded(boolean expanded) {
-        if (mFooterExpanded == expanded) return false;
-        mFooterExpanded = expanded;
-        update();
-        if (mCallback != null) {
-            mCallback.onFooterExpanded();
-        }
-        return true;
-    }
-
-    public boolean isFooterExpanded() {
-        return mFooterExpanded;
-    }
-
     public void update() {
-        final boolean isZen = isZen();
-        mSwitch.setOnCheckedChangeListener(null);
-        mSwitch.setChecked(isZen);
-        mSwitch.setOnCheckedChangeListener(mCheckedListener);
-        Util.setVisOrGone(mZenModePanel, isZen && mFooterExpanded);
-        Util.setVisOrGone(mZenModePanelButtons, isZen && mFooterExpanded);
-        Util.setVisOrGone(mSummary, isZen && !mFooterExpanded);
-        mSwitchBarIcon.setAlpha(isZen ? 1 : mSecondaryAlpha);
+        mIcon.setImageResource(isZenNone() ? R.drawable.ic_dnd_total_silence : R.drawable.ic_dnd);
         final String line1 =
                 isZenPriority() ? mContext.getString(R.string.interruption_level_priority)
                 : isZenAlarms() ? mContext.getString(R.string.interruption_level_alarms)
                 : isZenNone() ? mContext.getString(R.string.interruption_level_none)
                 : null;
         Util.setText(mSummaryLine1, line1);
-        final String line2 = ZenModeConfig.getConditionSummary(mContext, mConfig,
-                ActivityManager.getCurrentUser());
+
+        final boolean isForever = mConfig != null && mConfig.manualRule != null
+                && mConfig.manualRule.conditionId == null;
+        final String line2 =
+                isForever ? mContext.getString(com.android.internal.R.string.zen_mode_forever_dnd)
+                : ZenModeConfig.getConditionSummary(mContext, mConfig, mController.getCurrentUser(),
+                        true /*shortVersion*/);
         Util.setText(mSummaryLine2, line2);
     }
 
-    private final ZenModePanel.Callback mZenModePanelCallback = new ZenModePanel.Callback() {
-        @Override
-        public void onMoreSettings() {
-            if (mCallback != null) {
-                mCallback.onSettingsClicked();
-            }
-        }
-
-        @Override
-        public void onPrioritySettings() {
-            if (mCallback != null) {
-                mCallback.onPrioritySettingsClicked();
-            }
-        }
-
-        @Override
-        public void onInteraction() {
-            // noop
-        }
-
-        @Override
-        public void onExpanded(boolean expanded) {
-            // noop
-        }
-    };
-
-    private final OnCheckedChangeListener mCheckedListener = new OnCheckedChangeListener() {
-        @Override
-        public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-            if (D.BUG) Log.d(TAG, "onCheckedChanged " + isChecked);
-            if (isChecked != isZen()) {
-                final int newZen = isChecked ? Global.ZEN_MODE_ALARMS : Global.ZEN_MODE_OFF;
-                mZen = newZen;  // this one's optimistic
-                setFooterExpanded(isChecked);
-                mController.setZen(newZen, null, TAG);
-            }
-        }
-    };
-
-    public interface Callback {
-        void onFooterExpanded();
-        void onSettingsClicked();
-        void onDoneClicked();
-        void onPrioritySettingsClicked();
+    public void onConfigurationChanged() {
+        mSpTexts.update();
     }
+
 }

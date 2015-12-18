@@ -20,6 +20,7 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.wifi.WifiManager.ActionListener;
+import android.os.Looper;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.Settings;
@@ -44,7 +45,7 @@ public class AccessPointControllerImpl
     private static final String EXTRA_START_CONNECT_SSID = "wifi_start_connect_ssid";
 
     private static final int[] ICONS = {
-        R.drawable.ic_qs_wifi_0,
+        R.drawable.ic_qs_wifi_full_0,
         R.drawable.ic_qs_wifi_full_1,
         R.drawable.ic_qs_wifi_full_2,
         R.drawable.ic_qs_wifi_full_3,
@@ -58,10 +59,10 @@ public class AccessPointControllerImpl
 
     private int mCurrentUser;
 
-    public AccessPointControllerImpl(Context context) {
+    public AccessPointControllerImpl(Context context, Looper bgLooper) {
         mContext = context;
         mUserManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
-        mWifiTracker = new WifiTracker(context, this, false, true);
+        mWifiTracker = new WifiTracker(context, this, bgLooper, false, true);
         mCurrentUser = ActivityManager.getCurrentUser();
     }
 
@@ -115,7 +116,7 @@ public class AccessPointControllerImpl
             // Unknown network, need to add it.
             if (ap.getSecurity() != AccessPoint.SECURITY_NONE) {
                 Intent intent = new Intent(Settings.ACTION_WIFI_SETTINGS);
-                intent.putExtra(EXTRA_START_CONNECT_SSID, ap.getSsid());
+                intent.putExtra(EXTRA_START_CONNECT_SSID, ap.getSsidStr());
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 fireSettingsIntentCallback(intent);
                 return true;

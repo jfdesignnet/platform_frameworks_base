@@ -21,13 +21,13 @@ import android.app.ActivityThread;
 import android.app.IAlarmManager;
 import android.app.INotificationManager;
 import android.app.usage.UsageStatsManagerInternal;
-import android.bluetooth.BluetoothAdapter;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.content.res.Resources.Theme;
 import android.os.Build;
 import android.os.Environment;
 import android.os.FactoryTest;
@@ -76,7 +76,6 @@ import com.android.server.pm.Installer;
 import com.android.server.pm.LauncherAppsService;
 import com.android.server.pm.PackageManagerService;
 import com.android.server.pm.UserManagerService;
-import com.android.server.power.DeviceIdleController;
 import com.android.server.power.PowerManagerService;
 import com.android.server.power.ShutdownThread;
 import com.android.server.restrictions.RestrictionsManagerService;
@@ -96,6 +95,7 @@ import com.android.server.wm.WindowManagerService;
 import dalvik.system.VMRuntime;
 
 import java.io.File;
+import java.util.Locale;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -157,9 +157,9 @@ public final class SystemServer {
     private boolean mFirstBoot;
 
     /**
-     * Called to initialize native system services.
+     * Start the sensor service.
      */
-    private static native void nativeInit();
+    private static native void startSensorService();
 
     /**
      * The main entry point from zygote.
@@ -181,6 +181,23 @@ public final class SystemServer {
         if (System.currentTimeMillis() < EARLIEST_SUPPORTED_TIME) {
             Slog.w(TAG, "System clock is before 1970; setting to 1970.");
             SystemClock.setCurrentTimeMillis(EARLIEST_SUPPORTED_TIME);
+        }
+
+        // If the system has "persist.sys.language" and friends set, replace them with
+        // "persist.sys.locale". Note that the default locale at this point is calculated
+        // using the "-Duser.locale" command line flag. That flag is usually populated by
+        // AndroidRuntime using the same set of system properties, but only the system_server
+        // and system apps are allowed to set them.
+        //
+        // NOTE: Most changes made here will need an equivalent change to
+        // core/jni/AndroidRuntime.cpp
+        if (!SystemProperties.get("persist.sys.language").isEmpty()) {
+            final String languageTag = Locale.getDefault().toLanguageTag();
+
+            SystemProperties.set("persist.sys.locale", languageTag);
+            SystemProperties.set("persist.sys.language", "");
+            SystemProperties.set("persist.sys.country", "");
+            SystemProperties.set("persist.sys.localevar", "");
         }
 
         // Here we go!
@@ -234,7 +251,6 @@ public final class SystemServer {
 
         // Initialize native services.
         System.loadLibrary("android_servers");
-        nativeInit();
 
         // Check whether we failed to shut down last time we tried.
         // This call may not return.
@@ -286,7 +302,7 @@ public final class SystemServer {
                 reason = null;
             }
 
-            ShutdownThread.rebootOrShutdown(reboot, reason);
+            ShutdownThread.rebootOrShutdown(null, reboot, reason);
         }
     }
 
@@ -360,6 +376,10 @@ public final class SystemServer {
 
         // Set up the Application instance for the system process and get started.
         mActivityManagerService.setSystemProcess();
+
+        // The sensor service needs access to package manager service, app ops
+        // service, and permissions service, therefore we start it after them.
+        startSensorService();
     }
 
     /**
@@ -398,7 +418,6 @@ public final class SystemServer {
         NetworkScoreService networkScore = null;
         NsdService serviceDiscovery= null;
         WindowManagerService wm = null;
-        BluetoothManagerService bluetooth = null;
         UsbService usb = null;
         SerialService serial = null;
         NetworkTimeUpdateService networkTimeUpdater = null;
@@ -505,9 +524,8 @@ public final class SystemServer {
             } else if (disableBluetooth) {
                 Slog.i(TAG, "Bluetooth Service disabled by config");
             } else {
-                Slog.i(TAG, "Bluetooth Manager Service");
-                bluetooth = new BluetoothManagerService(context);
-                ServiceManager.addService(BluetoothAdapter.BLUETOOTH_MANAGER_SERVICE, bluetooth);
+                Slog.i(TAG, "Bluetooth Service");
+                mSystemServiceManager.startService(BluetoothService.class);
             }
         } catch (RuntimeException e) {
             Slog.e("System", "******************************************");
@@ -598,6 +616,8 @@ public final class SystemServer {
                 if (!SystemProperties.get(PERSISTENT_DATA_BLOCK_PROP).equals("")) {
                     mSystemServiceManager.startService(PersistentDataBlockService.class);
                 }
+
+                mSystemServiceManager.startService(DeviceIdleController.class);
 
                 // Always start the Device Policy Manager, so that the API is compatible with
                 // API8.
@@ -855,6 +875,11 @@ public final class SystemServer {
                 if (mPackageManager.hasSystemFeature(PackageManager.FEATURE_VOICE_RECOGNIZERS)) {
                     mSystemServiceManager.startService(VOICE_RECOGNITION_MANAGER_SERVICE_CLASS);
                 }
+
+                if (GestureLauncherService.isGestureLauncherEnabled(context.getResources())) {
+                    Slog.i(TAG, "Gesture Launcher Service");
+                    mSystemServiceManager.startService(GestureLauncherService.class);
+                }
             }
 
             try {
@@ -953,7 +978,7 @@ public final class SystemServer {
 
                 try {
                     Slog.i(TAG, "BackgroundDexOptService");
-                    BackgroundDexOptService.schedule(context);
+                    BackgroundDexOptService.schedule(context, 0);
                 } catch (Throwable e) {
                     reportWtf("starting BackgroundDexOptService", e);
                 }
@@ -965,7 +990,6 @@ public final class SystemServer {
 
         if (!disableNonCoreServices) {
             mSystemServiceManager.startService(MediaProjectionManagerService.class);
-            mSystemServiceManager.startService(DeviceIdleController.class);
         }
 
         // Before things start rolling, be sure we have decided whether

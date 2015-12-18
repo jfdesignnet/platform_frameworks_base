@@ -81,25 +81,30 @@ static std::u16string transform(const StringPiece16& symbol) {
 }
 
 struct GenArgs : ValueVisitorArgs {
-    GenArgs(std::ostream* o, std::u16string* e) : out(o), entryName(e) {
+    GenArgs(std::ostream* o, const std::u16string* p, std::u16string* e) :
+            out(o), package(p), entryName(e) {
     }
 
     std::ostream* out;
+    const std::u16string* package;
     std::u16string* entryName;
 };
 
 void JavaClassGenerator::visit(const Styleable& styleable, ValueVisitorArgs& a) {
     const StringPiece finalModifier = mOptions.useFinal ? " final" : "";
     std::ostream* out = static_cast<GenArgs&>(a).out;
+    const std::u16string* package = static_cast<GenArgs&>(a).package;
     std::u16string* entryName = static_cast<GenArgs&>(a).entryName;
 
     // This must be sorted by resource ID.
-    std::vector<std::pair<ResourceId, StringPiece16>> sortedAttributes;
+    std::vector<std::pair<ResourceId, ResourceNameRef>> sortedAttributes;
     sortedAttributes.reserve(styleable.entries.size());
     for (const auto& attr : styleable.entries) {
-        assert(attr.id.isValid() && "no ID set for Styleable entry");
+        // If we are not encoding final attributes, the styleable entry may have no ID
+        // if we are building a static library.
+        assert((!mOptions.useFinal || attr.id.isValid()) && "no ID set for Styleable entry");
         assert(attr.name.isValid() && "no name set for Styleable entry");
-        sortedAttributes.emplace_back(attr.id, attr.name.entry);
+        sortedAttributes.emplace_back(attr.id, attr.name);
     }
     std::sort(sortedAttributes.begin(), sortedAttributes.end());
 
@@ -124,8 +129,15 @@ void JavaClassGenerator::visit(const Styleable& styleable, ValueVisitorArgs& a) 
     for (size_t i = 0; i < attrCount; i++) {
         *out << "        "
              << "public static" << finalModifier
-             << " int " << transform(*entryName) << "_" << transform(sortedAttributes[i].second)
-             << " = " << i << ";" << std::endl;
+             << " int " << transform(*entryName);
+
+        // We may reference IDs from other packages, so prefix the entry name with
+        // the package.
+        const ResourceNameRef& itemName = sortedAttributes[i].second;
+        if (itemName.package != *package) {
+            *out << "_" << transform(itemName.package);
+        }
+        *out << "_" << transform(itemName.entry) << " = " << i << ";" << std::endl;
     }
 }
 
@@ -165,7 +177,7 @@ bool JavaClassGenerator::generateType(const std::u16string& package, size_t pack
 
         if (type.type == ResourceType::kStyleable) {
             assert(!entry->values.empty());
-            entry->values.front().value->accept(*this, GenArgs{ &out, &unmangledName });
+            entry->values.front().value->accept(*this, GenArgs{ &out, &package, &unmangledName });
         } else {
             out << "        " << "public static" << finalModifier
                 << " int " << transform(unmangledName) << " = " << id << ";" << std::endl;

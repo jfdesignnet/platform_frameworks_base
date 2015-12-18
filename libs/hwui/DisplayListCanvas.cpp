@@ -88,8 +88,7 @@ void DisplayListCanvas::interrupt() {
 void DisplayListCanvas::resume() {
 }
 
-void DisplayListCanvas::callDrawGLFunction(Functor *functor, Rect& dirty) {
-    // Ignore dirty during recording, it matters only when we replay
+void DisplayListCanvas::callDrawGLFunction(Functor *functor) {
     addDrawOp(new (alloc()) DrawFunctorOp(functor));
     mDisplayListData->functors.add(functor);
 }
@@ -100,6 +99,14 @@ SkCanvas* DisplayListCanvas::asSkCanvas() {
     if (!mSkiaCanvasProxy) {
         mSkiaCanvasProxy.reset(new SkiaCanvasProxy(this));
     }
+
+    // SkCanvas instances default to identity transform, but should inherit
+    // the state of this Canvas; if this code was in the SkiaCanvasProxy
+    // constructor, we couldn't cache mSkiaCanvasProxy.
+    SkMatrix parentTransform;
+    getMatrix(&parentTransform);
+    mSkiaCanvasProxy.get()->setMatrix(parentTransform);
+
     return mSkiaCanvasProxy.get();
 }
 
@@ -136,6 +143,8 @@ int DisplayListCanvas::saveLayer(float left, float top, float right, float botto
 }
 
 void DisplayListCanvas::translate(float dx, float dy) {
+    if (dx == 0.0f && dy == 0.0f) return;
+
     mHasDeferredTranslate = true;
     mTranslateX += dx;
     mTranslateY += dy;
@@ -144,11 +153,15 @@ void DisplayListCanvas::translate(float dx, float dy) {
 }
 
 void DisplayListCanvas::rotate(float degrees) {
+    if (degrees == 0.0f) return;
+
     addStateOp(new (alloc()) RotateOp(degrees));
     mState.rotate(degrees);
 }
 
 void DisplayListCanvas::scale(float sx, float sy) {
+    if (sx == 1.0f && sy == 1.0f) return;
+
     addStateOp(new (alloc()) ScaleOp(sx, sy));
     mState.scale(sx, sy);
 }
@@ -160,6 +173,11 @@ void DisplayListCanvas::skew(float sx, float sy) {
 
 void DisplayListCanvas::setMatrix(const SkMatrix& matrix) {
     addStateOp(new (alloc()) SetMatrixOp(matrix));
+    mState.setMatrix(matrix);
+}
+
+void DisplayListCanvas::setLocalMatrix(const SkMatrix& matrix) {
+    addStateOp(new (alloc()) SetLocalMatrixOp(matrix));
     mState.setMatrix(matrix);
 }
 
@@ -202,12 +220,12 @@ bool DisplayListCanvas::clipRegion(const SkRegion* region, SkRegion::Op op) {
     return mState.clipRegion(region, op);
 }
 
-void DisplayListCanvas::drawRenderNode(RenderNode* renderNode, Rect& dirty, int32_t flags) {
+void DisplayListCanvas::drawRenderNode(RenderNode* renderNode) {
     LOG_ALWAYS_FATAL_IF(!renderNode, "missing rendernode");
-
-    // dirty is an out parameter and should not be recorded,
-    // it matters only when replaying the display list
-    DrawRenderNodeOp* op = new (alloc()) DrawRenderNodeOp(renderNode, flags, *mState.currentTransform());
+    DrawRenderNodeOp* op = new (alloc()) DrawRenderNodeOp(
+            renderNode,
+            *mState.currentTransform(),
+            mState.clipIsSimple());
     addRenderNodeOp(op);
 }
 
@@ -219,7 +237,7 @@ void DisplayListCanvas::drawLayer(DeferredLayerUpdater* layerHandle, float x, fl
 }
 
 void DisplayListCanvas::drawBitmap(const SkBitmap* bitmap, const SkPaint* paint) {
-    bitmap = refBitmap(bitmap);
+    bitmap = refBitmap(*bitmap);
     paint = refPaint(paint);
 
     addDrawOp(new (alloc()) DrawBitmapOp(bitmap, paint));
@@ -237,7 +255,9 @@ void DisplayListCanvas::drawBitmap(const SkBitmap& bitmap, const SkMatrix& matri
         const SkPaint* paint) {
     if (matrix.isIdentity()) {
         drawBitmap(&bitmap, paint);
-    } else if (!(matrix.getType() & ~(SkMatrix::kScale_Mask | SkMatrix::kTranslate_Mask))) {
+    } else if (!(matrix.getType() & ~(SkMatrix::kScale_Mask | SkMatrix::kTranslate_Mask))
+            && MathUtils::isPositive(matrix.getScaleX())
+            && MathUtils::isPositive(matrix.getScaleY())) {
         // SkMatrix::isScaleTranslate() not available in L
         SkRect src;
         SkRect dst;
@@ -285,7 +305,7 @@ void DisplayListCanvas::drawBitmap(const SkBitmap& bitmap, float srcLeft, float 
                 dstRight = srcRight - srcLeft;
                 dstBottom = srcBottom - srcTop;
 
-                addDrawOp(new (alloc()) DrawBitmapRectOp(refBitmap(&bitmap),
+                addDrawOp(new (alloc()) DrawBitmapRectOp(refBitmap(bitmap),
                         srcLeft, srcTop, srcRight, srcBottom,
                         dstLeft, dstTop, dstRight, dstBottom, paint));
                 restore();
@@ -293,7 +313,7 @@ void DisplayListCanvas::drawBitmap(const SkBitmap& bitmap, float srcLeft, float 
             }
         }
 
-        addDrawOp(new (alloc()) DrawBitmapRectOp(refBitmap(&bitmap),
+        addDrawOp(new (alloc()) DrawBitmapRectOp(refBitmap(bitmap),
                 srcLeft, srcTop, srcRight, srcBottom,
                 dstLeft, dstTop, dstRight, dstBottom, paint));
     }
@@ -306,17 +326,17 @@ void DisplayListCanvas::drawBitmapMesh(const SkBitmap& bitmap, int meshWidth, in
     paint = refPaint(paint);
     colors = refBuffer<int>(colors, vertexCount); // 1 color per vertex
 
-    addDrawOp(new (alloc()) DrawBitmapMeshOp(refBitmap(&bitmap), meshWidth, meshHeight,
+    addDrawOp(new (alloc()) DrawBitmapMeshOp(refBitmap(bitmap), meshWidth, meshHeight,
            vertices, colors, paint));
 }
 
-void DisplayListCanvas::drawPatch(const SkBitmap* bitmap, const Res_png_9patch* patch,
+void DisplayListCanvas::drawPatch(const SkBitmap& bitmap, const Res_png_9patch* patch,
         float left, float top, float right, float bottom, const SkPaint* paint) {
-    bitmap = refBitmap(bitmap);
+    const SkBitmap* bitmapPtr = refBitmap(bitmap);
     patch = refPatch(patch);
     paint = refPaint(paint);
 
-    addDrawOp(new (alloc()) DrawPatchOp(bitmap, patch, left, top, right, bottom, paint));
+    addDrawOp(new (alloc()) DrawPatchOp(bitmapPtr, patch, left, top, right, bottom, paint));
 }
 
 void DisplayListCanvas::drawColor(int color, SkXfermode::Mode mode) {
@@ -353,6 +373,7 @@ void DisplayListCanvas::drawRoundRect(
     mDisplayListData->ref(rx);
     mDisplayListData->ref(ry);
     mDisplayListData->ref(paint);
+    refBitmapsInShader(paint->value.getShader());
     addDrawOp(new (alloc()) DrawRoundRectPropsOp(&left->value, &top->value,
             &right->value, &bottom->value, &rx->value, &ry->value, &paint->value));
 }
@@ -367,6 +388,7 @@ void DisplayListCanvas::drawCircle(CanvasPropertyPrimitive* x, CanvasPropertyPri
     mDisplayListData->ref(y);
     mDisplayListData->ref(radius);
     mDisplayListData->ref(paint);
+    refBitmapsInShader(paint->value.getShader());
     addDrawOp(new (alloc()) DrawCirclePropsOp(&x->value, &y->value,
             &radius->value, &paint->value));
 }
@@ -564,6 +586,25 @@ size_t DisplayListCanvas::addRenderNodeOp(DrawRenderNodeOp* op) {
         mDisplayListData->projectionReceiveIndex = opIndex;
     }
     return opIndex;
+}
+
+void DisplayListCanvas::refBitmapsInShader(const SkShader* shader) {
+    if (!shader) return;
+
+    // If this paint has an SkShader that has an SkBitmap add
+    // it to the bitmap pile
+    SkBitmap bitmap;
+    SkShader::TileMode xy[2];
+    if (shader->asABitmap(&bitmap, nullptr, xy) == SkShader::kDefault_BitmapType) {
+        refBitmap(bitmap);
+        return;
+    }
+    SkShader::ComposeRec rec;
+    if (shader->asACompose(&rec)) {
+        refBitmapsInShader(rec.fShaderA);
+        refBitmapsInShader(rec.fShaderB);
+        return;
+    }
 }
 
 }; // namespace uirenderer

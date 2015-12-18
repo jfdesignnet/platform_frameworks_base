@@ -18,6 +18,7 @@
 #define AAPT_UTIL_H
 
 #include "BigBuffer.h"
+#include "Maybe.h"
 #include "StringPiece.h"
 
 #include <androidfw/ResourceTypes.h>
@@ -75,6 +76,23 @@ inline bool isspace16(char16_t c) {
  */
 StringPiece16::const_iterator findNonAlphaNumericAndNotInSet(const StringPiece16& str,
         const StringPiece16& allowedChars);
+
+/**
+ * Tests that the string is a valid Java class name.
+ */
+bool isJavaClassName(const StringPiece16& str);
+
+/**
+ * Converts the class name to a fully qualified class name from the given `package`. Ex:
+ *
+ * asdf         --> package.asdf
+ * .asdf        --> package.asdf
+ * .a.b         --> package.a.b
+ * asdf.adsf    --> asdf.adsf
+ */
+Maybe<std::u16string> getFullyQualifiedClassName(const StringPiece16& package,
+                                                 const StringPiece16& className);
+
 
 /**
  * Makes a std::unique_ptr<> with the template parameter inferred by the compiler.
@@ -276,6 +294,15 @@ inline Tokenizer<Char>::Tokenizer(BasicStringPiece<Char> str, Char sep) :
         mBegin(++iterator(str, sep, BasicStringPiece<Char>(str.begin() - 1, 0))),
         mEnd(str, sep, BasicStringPiece<Char>(str.end(), 0)) {
 }
+
+/**
+ * Returns a package name if the namespace URI is of the form:
+ * http://schemas.android.com/apk/res/<package>
+ *
+ * Special case: if namespaceUri is http://schemas.android.com/apk/res-auto,
+ * returns an empty package name.
+ */
+Maybe<std::u16string> extractPackageFromNamespace(const std::u16string& namespaceUri);
 
 } // namespace util
 

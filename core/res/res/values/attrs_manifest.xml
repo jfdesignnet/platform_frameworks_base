@@ -200,7 +200,7 @@
              together. -->
         <flag name="signatureOrSystem" value="3" />
         <!-- Additional flag from base permission type: this permission can also
-             be granted to any applications installed on the system image.
+             be granted to any applications installed as privileged apps on the system image.
              Please avoid using this option, as the
              signature protection level should be sufficient for most needs and
              works regardless of exactly where applications are installed.  This
@@ -208,6 +208,8 @@
              vendors have applications built in to a system image which need
              to share specific features explicitly because they are being built
              together. -->
+        <flag name="privileged" value="0x10" />
+        <!-- Old synonym for "privileged". -->
         <flag name="system" value="0x10" />
         <!-- Additional flag from base permission type: this permission can also
              (optionally) be granted to development applications. -->
@@ -215,6 +217,21 @@
         <!-- Additional flag from base permission type: this permission is closely
              associated with an app op for controlling access. -->
         <flag name="appop" value="0x40" />
+        <!-- Additional flag from base permission type: this permission can be automatically
+             granted to apps that target API levels below
+             {@link android.os.Build.VERSION_CODES#M} (before runtime permissions
+             were introduced). -->
+        <flag name="pre23" value="0x80" />
+        <!-- Additional flag from base permission type: this permission can be automatically
+            granted to system apps that install packages. -->
+        <flag name="installer" value="0x100" />
+        <!-- Additional flag from base permission type: this permission can be automatically
+            granted to system apps that verify packages. -->
+        <flag name="verifier" value="0x200" />
+        <!-- Additional flag from base permission type: this permission can be automatically
+            granted any application pre-installed on the system image (not just privileged
+            apps). -->
+        <flag name="preinstalled" value="0x400" />
     </attr>
 
     <!-- Flags indicating more context for a permission group. -->
@@ -231,6 +248,9 @@
              may cost the user money.  Such permissions may be highlighted
              when shown to the user with this additional information.  -->
         <flag name="costsMoney" value="0x0001" />
+        <!-- Additional flag from base permission type: this permission is hidden
+             and should not show in the UI. -->
+        <flag name="hidden" value="0x2" />
     </attr>
 
     <!-- Specified the name of a group that this permission is associated
@@ -842,6 +862,11 @@
          via adb.  The default value of this attribute is <code>true</code>. -->
     <attr name="allowBackup" format="boolean" />
 
+    <!-- Applications will set this in their manifest to opt-in to or out of full app data back-up
+         and restore. Alternatively they can set it to an xml resource within their app that will
+         be parsed by the BackupAgent to selectively backup files indicated within that xml. -->
+    <attr name="fullBackupContent" format="reference|boolean" />
+
     <!-- Indicates that even though the application provides a <code>BackupAgent</code>,
          only full-data streaming backup operations are to be performed to save the app's
          data.  This lets the app rely on full-data backups while still participating in
@@ -1034,7 +1059,7 @@
          at the same time.
 
          <p>The default value is <code>false</code> for applications with
-         <code>targetSdkVersion</code> lesser than {@link android.os.Build.VERSION_CODES#MNC} and
+         <code>targetSdkVersion</code> lesser than {@link android.os.Build.VERSION_CODES#M} and
          <code>true</code> otherwise.
 
          <p>NOTE: A task's root activity value is applied to all additional activities launched in
@@ -1044,7 +1069,8 @@
 
          <p>NOTE: The value of {@link android.R.attr#screenOrientation} will be ignored for
          resizeable activities as the system doesn't support fixed orientation on a resizeable
-         activity. -->
+         activity.
+         @hide -->
     <attr name="resizeableActivity" format="boolean" />
 
     <!-- This value indicates how tasks rooted at this activity will behave in lockTask mode.
@@ -1052,41 +1078,44 @@
          lockTask mode is disabled.
          <p>While in lockTask mode with multiple permitted tasks running, each launched task is
          permitted to finish, transitioning to the previous locked task, until there is only one
-         task remaining. At that point the last task running is not permitted to finish. -->
+         task remaining. At that point the last task running is not permitted to finish, unless it
+         uses the value always. -->
     <attr name="lockTaskMode">
         <!-- This is the default value. Tasks will not launch into lockTask mode but can be
              placed there by calling {@link android.app.Activity#startLockTask}. If a task with
              this mode has been whitelisted using {@link
-             android.app.admin.DevicePolicyManager#setLockTaskPackages} then calling startLockTask
-             will enter lockTask mode immediately, otherwise the user will be presented with a
-             dialog to approve entering lockTask mode.
+             android.app.admin.DevicePolicyManager#setLockTaskPackages} then calling
+             {@link android.app.Activity#startLockTask} will enter lockTask mode immediately,
+             otherwise the user will be presented with a dialog to approve entering pinned mode.
              <p>If the system is already in lockTask mode when a new task rooted at this activity
              is launched that task will or will not start depending on whether the package of this
              activity has been whitelisted.
-             <p>Tasks rooted at this activity can only exit lockTask mode using stopLockTask(). -->
-        <enum name="lockTaskModeDefault" value="0"/>
+             <p>Tasks rooted at this activity can only exit lockTask mode using
+             {@link android.app.Activity#stopLockTask}. -->
+        <enum name="normal" value="0"/>
         <!-- Tasks will not launch into lockTask mode and cannot be placed there using
              {@link android.app.Activity#startLockTask} or be pinned from the Overview screen.
              If the system is already in lockTask mode when a new task rooted at this activity is
              launched that task will not be started.
              <p>Note: This mode is only available to system and privileged applications.
-             Non-privileged apps with this value will be treated as lockTaskModeDefault.
+             Non-privileged apps with this value will be treated as normal.
              -->
-        <enum name="lockTaskModeNever" value="1"/>
+        <enum name="never" value="1"/>
         <!-- Tasks rooted at this activity will always launch into lockTask mode. If the system is
              already in lockTask mode when this task is launched then the new task will be launched
              on top of the current task. Tasks launched in this mode are capable of exiting
-             lockTask mode using finish(), whereas tasks entering lockTask mode using
-             startLockTask() must use stopLockTask() to exit.
+             lockTask mode using {@link android.app.Activity#finish()}.
              <p>Note: This mode is only available to system and privileged applications.
-             Non-privileged apps with this value will be treated as lockTaskModeDefault.
+             Non-privileged apps with this value will be treated as normal.
              -->
-        <enum name="lockTaskModeAlways" value="2"/>
+        <enum name="always" value="2"/>
         <!-- If the DevicePolicyManager (DPM) authorizes this package ({@link
              android.app.admin.DevicePolicyManager#setLockTaskPackages}) then this mode is
-             identical to lockTaskModeAlways. If the DPM does not authorize this package then this
-             mode is identical to lockTaskModeDefault. -->
-        <enum name="lockTaskModeIfWhitelisted" value="3"/>
+             identical to always, except that the activity needs to call
+             {@link android.app.Activity#stopLockTask} before being able to finish if it is the last
+             locked task.
+             If the DPM does not authorize this package then this mode is identical to normal. -->
+        <enum name="if_whitelisted" value="3"/>
     </attr>
     <!-- When set installer will extract native libraries. If set to false
          libraries in the apk must be stored and page-aligned.  -->
@@ -1099,7 +1128,7 @@
          intern filter data scheme is set to "http" or "https". When set to true, the intent filter
          will need to use its data tag for getting the URIs to verify with.
 
-         For each URI, an HTTPS network request will be done to <code>/.well-known/associations.json</code>
+         For each URI, an HTTPS network request will be done to <code>/.well-known/statements.json</code>
          host to verify that the web site is okay with the app intercepting the URI.
          -->
     <attr name="autoVerify" format="boolean" />
@@ -1188,6 +1217,7 @@
         <attr name="backupAgent" />
         <attr name="allowBackup" />
         <attr name="fullBackupOnly" />
+        <attr name="fullBackupContent" />
         <attr name="killAfterRestore" />
         <attr name="restoreNeedsApplication" />
         <attr name="restoreAnyVersion" />
@@ -1796,6 +1826,7 @@
         <attr name="autoRemoveFromRecents" />
         <attr name="relinquishTaskIdentity" />
         <attr name="resumeWhilePausing" />
+        <!-- @hide -->
         <attr name="resizeableActivity" />
         <attr name="lockTaskMode" />
         <attr name="showForAllUsers" />
@@ -2064,6 +2095,10 @@
             <enum name="hdpi" value="240" />
             <!-- An extra high density screen, approximately 320dpi. -->
             <enum name="xhdpi" value="320" />
+            <!-- An extra extra high density screen, approximately 480dpi. -->
+            <enum name="xxhdpi" value="480" />
+            <!-- An extra extra extra high density screen, approximately 640dpi. -->
+            <enum name="xxxhdpi" value="640" />
         </attr>
     </declare-styleable>
 

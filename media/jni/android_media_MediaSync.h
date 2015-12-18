@@ -18,30 +18,38 @@
 #define _ANDROID_MEDIA_MEDIASYNC_H_
 
 #include <media/stagefright/foundation/ABase.h>
+#include <media/stagefright/MediaSync.h>
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 
 namespace android {
 
+struct AudioPlaybackRate;
 class AudioTrack;
-struct IGraphicBufferProducer;
+class IGraphicBufferProducer;
 struct MediaClock;
 class MediaSync;
 
 struct JMediaSync : public RefBase {
     JMediaSync();
 
-    status_t configureSurface(const sp<IGraphicBufferProducer> &bufferProducer);
-    status_t configureAudioTrack(
-            const sp<AudioTrack> &audioTrack, int32_t nativeSampleRateInHz);
+    status_t setSurface(const sp<IGraphicBufferProducer> &bufferProducer);
+    status_t setAudioTrack(const sp<AudioTrack> &audioTrack);
 
     status_t createInputSurface(sp<IGraphicBufferProducer>* bufferProducer);
 
     status_t updateQueuedAudioData(int sizeInBytes, int64_t presentationTimeUs);
 
-    status_t setPlaybackRate(float rate);
-
     status_t getPlayTimeForPendingAudioFrames(int64_t *outTimeUs);
+
+    status_t setPlaybackParams(const AudioPlaybackRate& rate);
+    void getPlaybackParams(AudioPlaybackRate* rate /* nonnull */);
+    status_t setSyncParams(const AVSyncSettings& syncParams);
+    void getSyncParams(AVSyncSettings* syncParams /* nonnull */);
+    status_t setVideoFrameRateHint(float rate);
+    float getVideoFrameRate();
+
+    void flush();
 
     sp<const MediaClock> getMediaClock();
 

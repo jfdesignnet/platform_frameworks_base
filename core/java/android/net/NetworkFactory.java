@@ -24,7 +24,12 @@ import android.os.Messenger;
 import android.util.Log;
 import android.util.SparseArray;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Protocol;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /**
  * A NetworkFactory is an entity that creates NetworkAgent objects.
@@ -157,9 +162,15 @@ public class NetworkFactory extends Handler {
             this.score = score;
             this.requested = false;
         }
+
+        @Override
+        public String toString() {
+            return "{" + request + ", score=" + score + ", requested=" + requested + "}";
+        }
     }
 
-    private void handleAddRequest(NetworkRequest request, int score) {
+    @VisibleForTesting
+    protected void handleAddRequest(NetworkRequest request, int score) {
         NetworkRequestInfo n = mNetworkRequests.get(request.requestId);
         if (n == null) {
             if (DBG) log("got request " + request + " with score " + score);
@@ -174,11 +185,12 @@ public class NetworkFactory extends Handler {
         evalRequest(n);
     }
 
-    private void handleRemoveRequest(NetworkRequest request) {
+    @VisibleForTesting
+    protected void handleRemoveRequest(NetworkRequest request) {
         NetworkRequestInfo n = mNetworkRequests.get(request.requestId);
-        if (n != null && n.requested) {
+        if (n != null) {
             mNetworkRequests.remove(request.requestId);
-            releaseNetworkFor(n.request);
+            if (n.requested) releaseNetworkFor(n.request);
         }
     }
 
@@ -273,15 +285,31 @@ public class NetworkFactory extends Handler {
         sendMessage(obtainMessage(CMD_SET_FILTER, new NetworkCapabilities(netCap)));
     }
 
+    @VisibleForTesting
+    protected int getRequestCount() {
+        return mNetworkRequests.size();
+    }
+
     protected void log(String s) {
         Log.d(LOG_TAG, s);
+    }
+
+    public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
+        final IndentingPrintWriter pw = new IndentingPrintWriter(writer, "  ");
+        pw.println(toString());
+        pw.increaseIndent();
+        for (int i = 0; i < mNetworkRequests.size(); i++) {
+            pw.println(mNetworkRequests.valueAt(i));
+        }
+        pw.decreaseIndent();
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("{").append(LOG_TAG).append(" - ScoreFilter=").
                 append(mScore).append(", Filter=").append(mCapabilityFilter).append(", requests=").
-                append(mNetworkRequests.size()).append("}");
+                append(mNetworkRequests.size()).append(", refCount=").append(mRefCount).
+                append("}");
         return sb.toString();
     }
 }

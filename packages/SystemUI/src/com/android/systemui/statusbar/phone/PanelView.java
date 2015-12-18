@@ -46,17 +46,19 @@ import java.io.PrintWriter;
 public abstract class PanelView extends FrameLayout {
     public static final boolean DEBUG = PanelBar.DEBUG;
     public static final String TAG = PanelView.class.getSimpleName();
-    protected HeadsUpManager mHeadsUpManager;
 
     private final void logf(String fmt, Object... args) {
         Log.v(TAG, (mViewName != null ? (mViewName + ": ") : "") + String.format(fmt, args));
     }
 
     protected PhoneStatusBar mStatusBar;
+    protected HeadsUpManager mHeadsUpManager;
+
     private float mPeekHeight;
     private float mHintDistance;
     private int mEdgeTapAreaWidth;
     private float mInitialOffsetOnTouch;
+    private boolean mCollapsedAndHeadsUpOnDown;
     private float mExpandedFraction = 0;
     protected float mExpandedHeight = 0;
     private boolean mPanelClosedOnDown;
@@ -77,6 +79,7 @@ public abstract class PanelView extends FrameLayout {
     private boolean mTouchStartedInEmptyArea;
     private boolean mMotionAborted;
     private boolean mUpwardsWhenTresholdReached;
+    private boolean mAnimatingOnDown;
 
     private ValueAnimator mHeightAnimator;
     private ObjectAnimator mPeekAnimator;
@@ -108,7 +111,7 @@ public abstract class PanelView extends FrameLayout {
      */
     private float mNextCollapseSpeedUpFactor = 1.0f;
 
-    private boolean mExpanding;
+    protected boolean mExpanding;
     private boolean mGestureWaitForTouchSlop;
     private boolean mIgnoreXTouchSlop;
     private Runnable mPeekRunnable = new Runnable() {
@@ -120,7 +123,6 @@ public abstract class PanelView extends FrameLayout {
     };
 
     protected void onExpandingFinished() {
-        endClosing();
         mBar.onExpandingFinished();
     }
 
@@ -134,7 +136,8 @@ public abstract class PanelView extends FrameLayout {
         }
     }
 
-    private void notifyExpandingFinished() {
+    protected final void notifyExpandingFinished() {
+        endClosing();
         if (mExpanding) {
             mExpanding = false;
             onExpandingFinished();
@@ -169,12 +172,7 @@ public abstract class PanelView extends FrameLayout {
             public void onAnimationEnd(Animator animation) {
                 mPeekAnimator = null;
                 if (mCollapseAfterPeek && !mCancelled) {
-                    postOnAnimation(new Runnable() {
-                        @Override
-                        public void run() {
-                            collapse(false /* delayed */, 1.0f /* speedUpFactor */);
-                        }
-                    });
+                    postOnAnimation(mPostCollapseRunnable);
                 }
                 mCollapseAfterPeek = false;
             }
@@ -242,20 +240,22 @@ public abstract class PanelView extends FrameLayout {
         final float y = event.getY(pointerIndex);
 
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-            mGestureWaitForTouchSlop = isShadeCollapsed() || hasConflictingGestures();
-            mIgnoreXTouchSlop = isShadeCollapsed() || shouldGestureIgnoreXTouchSlop(x, y);
+            mGestureWaitForTouchSlop = isFullyCollapsed() || hasConflictingGestures();
+            mIgnoreXTouchSlop = isFullyCollapsed() || shouldGestureIgnoreXTouchSlop(x, y);
         }
 
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 startExpandMotion(x, y, false /* startTracking */, mExpandedHeight);
                 mJustPeeked = false;
-                mPanelClosedOnDown = isShadeCollapsed();
+                mPanelClosedOnDown = isFullyCollapsed();
                 mHasLayoutedSinceDown = false;
                 mUpdateFlingOnLayout = false;
                 mMotionAborted = false;
                 mPeekTouching = mPanelClosedOnDown;
                 mTouchAboveFalsingThreshold = false;
+                mCollapsedAndHeadsUpOnDown = isFullyCollapsed()
+                        && mHeadsUpManager.hasPinnedHeadsUp();
                 if (mVelocityTracker == null) {
                     initVelocityTracker();
                 }
@@ -268,7 +268,7 @@ public abstract class PanelView extends FrameLayout {
                             || mPeekPending || mPeekAnimator != null;
                     onTrackingStarted();
                 }
-                if (isShadeCollapsed()) {
+                if (isFullyCollapsed() && !mHeadsUpManager.hasPinnedHeadsUp()) {
                     schedulePeek();
                 }
                 break;
@@ -300,7 +300,7 @@ public abstract class PanelView extends FrameLayout {
                         && (Math.abs(h) > Math.abs(x - mInitialTouchX)
                                 || mIgnoreXTouchSlop)) {
                     mTouchSlopExceeded = true;
-                    if (mGestureWaitForTouchSlop && !mTracking) {
+                    if (mGestureWaitForTouchSlop && !mTracking && !mCollapsedAndHeadsUpOnDown) {
                         if (!mJustPeeked && mInitialOffsetOnTouch != 0f) {
                             startExpandMotion(x, y, false /* startTracking */, mExpandedHeight);
                             h = 0;
@@ -380,10 +380,9 @@ public abstract class PanelView extends FrameLayout {
             boolean expand = flingExpands(vel, vectorVel, x, y)
                     || event.getActionMasked() == MotionEvent.ACTION_CANCEL
                     || forceCancel;
-            onTrackingStopped(expand);
             DozeLog.traceFling(expand, mTouchAboveFalsingThreshold,
                     mStatusBar.isFalsingThresholdNeeded(),
-                    mStatusBar.isScreenOnComingFromTouch());
+                    mStatusBar.isWakeUpComingFromTouch());
                     // Log collapse gesture if on lock screen.
                     if (!expand && mStatusBar.getBarState() == StatusBarState.KEYGUARD) {
                         float displayDensity = mStatusBar.getDisplayDensity();
@@ -394,6 +393,7 @@ public abstract class PanelView extends FrameLayout {
                                 heightDp, velocityDp);
                     }
             fling(vel, expand, isFalseTouch(x, y));
+            onTrackingStopped(expand);
             mUpdateFlingOnLayout = expand && mPanelClosedOnDown && !mHasLayoutedSinceDown;
             if (mUpdateFlingOnLayout) {
                 mUpdateFlingVelocity = vel;
@@ -411,7 +411,7 @@ public abstract class PanelView extends FrameLayout {
     }
 
     private int getFalsingThreshold() {
-        float factor = mStatusBar.isScreenOnComingFromTouch() ? 1.5f : 1.0f;
+        float factor = mStatusBar.isWakeUpComingFromTouch() ? 1.5f : 1.0f;
         return (int) (mUnlockFalsingThreshold * factor);
     }
 
@@ -422,6 +422,7 @@ public abstract class PanelView extends FrameLayout {
     protected void onTrackingStopped(boolean expand) {
         mTracking = false;
         mBar.onTrackingStopped(PanelView.this, expand);
+        notifyBarPanelExpansionChanged();
     }
 
     protected void onTrackingStarted() {
@@ -430,6 +431,7 @@ public abstract class PanelView extends FrameLayout {
         mCollapseAfterPeek = false;
         mBar.onTrackingStarted(PanelView.this);
         notifyExpandingStarted();
+        notifyBarPanelExpansionChanged();
     }
 
     @Override
@@ -459,8 +461,8 @@ public abstract class PanelView extends FrameLayout {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 mStatusBar.userActivity();
-                if (mHeightAnimator != null && !mHintAnimationRunning ||
-                        mPeekPending || mPeekAnimator != null) {
+                mAnimatingOnDown = mHeightAnimator != null;
+                if (mAnimatingOnDown && mClosing && !mHintAnimationRunning || mPeekPending || mPeekAnimator != null) {
                     cancelHeightAnimator();
                     cancelPeek();
                     mTouchSlopExceeded = true;
@@ -472,7 +474,8 @@ public abstract class PanelView extends FrameLayout {
                 mTouchSlopExceeded = false;
                 mJustPeeked = false;
                 mMotionAborted = false;
-                mPanelClosedOnDown = isShadeCollapsed();
+                mPanelClosedOnDown = isFullyCollapsed();
+                mCollapsedAndHeadsUpOnDown = false;
                 mHasLayoutedSinceDown = false;
                 mUpdateFlingOnLayout = false;
                 mTouchAboveFalsingThreshold = false;
@@ -501,8 +504,10 @@ public abstract class PanelView extends FrameLayout {
             case MotionEvent.ACTION_MOVE:
                 final float h = y - mInitialTouchY;
                 trackMovement(event);
-                if (scrolledToBottom || mTouchStartedInEmptyArea) {
-                    if (h < -mTouchSlop && h < -Math.abs(x - mInitialTouchX)) {
+                if (scrolledToBottom || mTouchStartedInEmptyArea || mAnimatingOnDown) {
+                    float hAbs = Math.abs(h);
+                    if ((h < -mTouchSlop || (mAnimatingOnDown && hAbs > mTouchSlop))
+                            && hAbs > Math.abs(x - mInitialTouchX)) {
                         cancelHeightAnimator();
                         startExpandMotion(x, y, true /* startTracking */, mExpandedHeight);
                         return true;
@@ -525,7 +530,7 @@ public abstract class PanelView extends FrameLayout {
      */
     protected abstract boolean isInContentBounds(float x, float y);
 
-    private void cancelHeightAnimator() {
+    protected void cancelHeightAnimator() {
         if (mHeightAnimator != null) {
             mHeightAnimator.cancel();
         }
@@ -612,6 +617,9 @@ public abstract class PanelView extends FrameLayout {
             boolean expandBecauseOfFalsing) {
         cancelPeek();
         float target = expand ? getMaxPanelHeight() : 0.0f;
+        if (!expand) {
+            mClosing = true;
+        }
         flingToHeight(vel, expand, target, collapseSpeedUpFactor, expandBecauseOfFalsing);
     }
 
@@ -668,6 +676,7 @@ public abstract class PanelView extends FrameLayout {
                 if (!mCancelled) {
                     notifyExpandingFinished();
                 }
+                notifyBarPanelExpansionChanged();
             }
         });
         mHeightAnimator = animator;
@@ -707,7 +716,7 @@ public abstract class PanelView extends FrameLayout {
         // If the user isn't actively poking us, let's update the height
         if ((!mTracking || isTrackingBlocked())
                 && mHeightAnimator == null
-                && !isShadeCollapsed()
+                && !isFullyCollapsed()
                 && currentMaxPanelHeight != mExpandedHeight
                 && !mPeekPending
                 && mPeekAnimator == null
@@ -806,8 +815,10 @@ public abstract class PanelView extends FrameLayout {
             }
         } else if (!isFullyCollapsed() && !mTracking && !mClosing) {
             cancelHeightAnimator();
-            mClosing = true;
             notifyExpandingStarted();
+
+            // Set after notifyExpandingStarted, as notifyExpandingStarted resets the closing state.
+            mClosing = true;
             if (delayed) {
                 mNextCollapseSpeedUpFactor = speedUpFactor;
                 postDelayed(mFlingCollapseRunnable, 120);
@@ -978,6 +989,7 @@ public abstract class PanelView extends FrameLayout {
             public void onAnimationEnd(Animator animation) {
                 mHeightAnimator = null;
                 onAnimationFinished.run();
+                notifyBarPanelExpansionChanged();
             }
         });
         animator.start();
@@ -997,8 +1009,11 @@ public abstract class PanelView extends FrameLayout {
 
     protected void notifyBarPanelExpansionChanged() {
         mBar.panelExpansionChanged(this, mExpandedFraction, mExpandedFraction > 0f || mPeekPending
-                || mPeekAnimator != null || mInstantExpanding || mHeadsUpManager.hasPinnedHeadsUp());
+                || mPeekAnimator != null || mInstantExpanding || isPanelVisibleBecauseOfHeadsUp()
+                || mTracking || mHeightAnimator != null);
     }
+
+    protected abstract boolean isPanelVisibleBecauseOfHeadsUp();
 
     /**
      * Gets called when the user performs a click anywhere in the empty area of the panel.
@@ -1056,8 +1071,6 @@ public abstract class PanelView extends FrameLayout {
      * @return the height of the clear all button, in pixels
      */
     protected abstract int getClearAllHeight();
-
-    protected abstract boolean isShadeCollapsed();
 
     public void setHeadsUpManager(HeadsUpManager headsUpManager) {
         mHeadsUpManager = headsUpManager;

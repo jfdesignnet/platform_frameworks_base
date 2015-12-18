@@ -130,22 +130,29 @@ getInternedString(JNIEnv *env, const String8* string) {
         internedStrings.insert(std::make_pair(string, internedString));
         env->DeleteLocalRef(localString);
     }
-
     return internedString;
 }
 
-static jint
-nativeGetNextSensor(JNIEnv *env, jclass clazz, jobject sensor, jint next)
+static jlong
+nativeCreate
+(JNIEnv *env, jclass clazz, jstring opPackageName)
 {
-    SensorManager& mgr(SensorManager::getInstance());
+    ScopedUtfChars opPackageNameUtf(env, opPackageName);
+    return (jlong) &SensorManager::getInstanceForPackage(String16(opPackageNameUtf.c_str()));
+}
+
+static jboolean
+nativeGetSensorAtIndex(JNIEnv *env, jclass clazz, jlong sensorManager, jobject sensor, jint index)
+{
+    SensorManager* mgr = reinterpret_cast<SensorManager*>(sensorManager);
 
     Sensor const* const* sensorList;
-    size_t count = mgr.getSensorList(&sensorList);
-    if (size_t(next) >= count) {
-        return -1;
+    size_t count = mgr->getSensorList(&sensorList);
+    if (size_t(index) >= count) {
+        return false;
     }
 
-    Sensor const* const list = sensorList[next];
+    Sensor const* const list = sensorList[index];
     const SensorOffsets& sensorOffsets(gSensorOffsets);
     jstring name = getInternedString(env, &list->getName());
     jstring vendor = getInternedString(env, &list->getVendor());
@@ -170,13 +177,12 @@ nativeGetNextSensor(JNIEnv *env, jclass clazz, jobject sensor, jint next)
         jstring stringType = getInternedString(env, &list->getStringType());
         env->SetObjectField(sensor, sensorOffsets.stringType, stringType);
     }
-    next++;
-    return size_t(next) < count ? next : 0;
+    return true;
 }
 
-static int nativeEnableDataInjection(JNIEnv *_env, jclass _this, jboolean enable) {
-     SensorManager& mgr(SensorManager::getInstance());
-     return mgr.enableDataInjection(enable);
+static jboolean nativeIsDataInjectionEnabled(JNIEnv *_env, jclass _this, jlong sensorManager) {
+    SensorManager* mgr = reinterpret_cast<SensorManager*>(sensorManager);
+    return mgr->isDataInjectionEnabled();
 }
 
 //----------------------------------------------------------------------------
@@ -248,6 +254,8 @@ private:
                     case SENSOR_TYPE_MAGNETIC_FIELD:
                     case SENSOR_TYPE_ACCELEROMETER:
                     case SENSOR_TYPE_GYROSCOPE:
+                    case SENSOR_TYPE_GRAVITY:
+                    case SENSOR_TYPE_LINEAR_ACCELERATION:
                         status = buffer[i].vector.status;
                         break;
                     case SENSOR_TYPE_HEART_RATE:
@@ -281,12 +289,12 @@ private:
     }
 };
 
-static jlong nativeInitSensorEventQueue(JNIEnv *env, jclass clazz, jobject eventQWeak, jobject msgQ,
-        jfloatArray scratch, jstring packageName, jint mode) {
-    SensorManager& mgr(SensorManager::getInstance());
+static jlong nativeInitSensorEventQueue(JNIEnv *env, jclass clazz, jlong sensorManager,
+        jobject eventQWeak, jobject msgQ, jfloatArray scratch, jstring packageName, jint mode) {
+    SensorManager* mgr = reinterpret_cast<SensorManager*>(sensorManager);
     ScopedUtfChars packageUtf(env, packageName);
     String8 clientName(packageUtf.c_str());
-    sp<SensorEventQueue> queue(mgr.createEventQueue(clientName, mode));
+    sp<SensorEventQueue> queue(mgr->createEventQueue(clientName, mode));
 
     sp<MessageQueue> messageQueue = android_os_MessageQueue_getMessageQueue(env, msgQ);
     if (messageQueue == NULL) {
@@ -339,20 +347,23 @@ static JNINativeMethod gSystemSensorManagerMethods[] = {
     {"nativeClassInit",
             "()V",
             (void*)nativeClassInit },
+    {"nativeCreate",
+             "(Ljava/lang/String;)J",
+             (void*)nativeCreate },
 
-    {"nativeGetNextSensor",
-            "(Landroid/hardware/Sensor;I)I",
-            (void*)nativeGetNextSensor },
+    {"nativeGetSensorAtIndex",
+            "(JLandroid/hardware/Sensor;I)Z",
+            (void*)nativeGetSensorAtIndex },
 
-    {"nativeEnableDataInjection",
-            "(Z)I",
-            (void*)nativeEnableDataInjection },
+    {"nativeIsDataInjectionEnabled",
+            "(J)Z",
+            (void*)nativeIsDataInjectionEnabled},
 };
 
 static JNINativeMethod gBaseEventQueueMethods[] = {
     {"nativeInitBaseEventQueue",
-     "(Ljava/lang/ref/WeakReference;Landroid/os/MessageQueue;[FLjava/lang/String;I)J",
-     (void*)nativeInitSensorEventQueue },
+             "(JLjava/lang/ref/WeakReference;Landroid/os/MessageQueue;[FLjava/lang/String;ILjava/lang/String;)J",
+             (void*)nativeInitSensorEventQueue },
 
     {"nativeEnableSensor",
             "(JIII)I",

@@ -42,12 +42,17 @@ uint8_t Stencil::getStencilSize() {
     return STENCIL_BUFFER_SIZE;
 }
 
-GLenum Stencil::getSmallestStencilFormat() {
+/**
+ * This method will return either GL_STENCIL_INDEX4_OES if supported,
+ * GL_STENCIL_INDEX8 if not.
+ *
+ * Layers can't use a single bit stencil because multi-rect ClipArea needs a high enough
+ * stencil resolution to represent the summation of multiple intersecting rect geometries.
+ */
+GLenum Stencil::getLayerStencilFormat() {
 #if !DEBUG_STENCIL
     const Extensions& extensions = Caches::getInstance().extensions();
-    if (extensions.has1BitStencil()) {
-        return GL_STENCIL_INDEX1_OES;
-    } else if (extensions.has4BitStencil()) {
+    if (extensions.has4BitStencil()) {
         return GL_STENCIL_INDEX4_OES;
     }
 #endif
@@ -55,8 +60,14 @@ GLenum Stencil::getSmallestStencilFormat() {
 }
 
 void Stencil::clear() {
+    glStencilMask(0xff);
     glClearStencil(0);
     glClear(GL_STENCIL_BUFFER_BIT);
+
+    if (mState == kTest) {
+        // reset to test state, with immutable stencil
+        glStencilMask(0);
+    }
 }
 
 void Stencil::enableTest(int incrementThreshold) {
@@ -99,17 +110,17 @@ void Stencil::enableDebugTest(GLint value, bool greater) {
     // We only want to test, let's keep everything
     glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
     mState = kTest;
+    glStencilMask(0);
 }
 
 void Stencil::enableDebugWrite() {
-    if (mState != kWrite) {
-        enable();
-        glStencilFunc(GL_ALWAYS, 0x1, 0xffffffff);
-        // The test always passes so the first two values are meaningless
-        glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        mState = kWrite;
-    }
+    enable();
+    glStencilFunc(GL_ALWAYS, 0x1, 0xffffffff);
+    // The test always passes so the first two values are meaningless
+    glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    mState = kWrite;
+    glStencilMask(0xff);
 }
 
 void Stencil::enable() {

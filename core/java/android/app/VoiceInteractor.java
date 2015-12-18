@@ -16,6 +16,8 @@
 
 package android.app;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -25,6 +27,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
 import android.util.ArrayMap;
+import android.util.DebugUtils;
 import android.util.Log;
 import com.android.internal.app.IVoiceInteractor;
 import com.android.internal.app.IVoiceInteractorCallback;
@@ -32,6 +35,8 @@ import com.android.internal.app.IVoiceInteractorRequest;
 import com.android.internal.os.HandlerCaller;
 import com.android.internal.os.SomeArgs;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 
 /**
@@ -56,14 +61,17 @@ import java.util.ArrayList;
  * request, rather than holding on to the activity instance yourself, either explicitly
  * or implicitly through a non-static inner class.
  */
-public class VoiceInteractor {
+public final class VoiceInteractor {
     static final String TAG = "VoiceInteractor";
-    static final boolean DEBUG = true;
+    static final boolean DEBUG = false;
+
+    static final Request[] NO_REQUESTS = new Request[0];
 
     final IVoiceInteractor mInteractor;
 
     Context mContext;
     Activity mActivity;
+    boolean mRetaining;
 
     final HandlerCaller mHandlerCaller;
     final HandlerCaller.Callback mHandlerCallerCallback = new HandlerCaller.Callback() {
@@ -187,7 +195,7 @@ public class VoiceInteractor {
         }
     };
 
-    final ArrayMap<IBinder, Request> mActiveRequests = new ArrayMap<IBinder, Request>();
+    final ArrayMap<IBinder, Request> mActiveRequests = new ArrayMap<>();
 
     static final int MSG_CONFIRMATION_RESULT = 1;
     static final int MSG_PICK_OPTION_RESULT = 2;
@@ -204,11 +212,26 @@ public class VoiceInteractor {
         IVoiceInteractorRequest mRequestInterface;
         Context mContext;
         Activity mActivity;
+        String mName;
 
         Request() {
         }
 
+        /**
+         * Return the name this request was submitted through
+         * {@link #submitRequest(android.app.VoiceInteractor.Request, String)}.
+         */
+        public String getName() {
+            return mName;
+        }
+
+        /**
+         * Cancel this active request.
+         */
         public void cancel() {
+            if (mRequestInterface == null) {
+                throw new IllegalStateException("Request " + this + " is no longer active");
+            }
             try {
                 mRequestInterface.cancel();
             } catch (RemoteException e) {
@@ -216,27 +239,71 @@ public class VoiceInteractor {
             }
         }
 
+        /**
+         * Return the current {@link Context} this request is associated with.  May change
+         * if the activity hosting it goes through a configuration change.
+         */
         public Context getContext() {
             return mContext;
         }
 
+        /**
+         * Return the current {@link Activity} this request is associated with.  Will change
+         * if the activity is restarted such as through a configuration change.
+         */
         public Activity getActivity() {
             return mActivity;
         }
 
+        /**
+         * Report from voice interaction service: this operation has been canceled, typically
+         * as a completion of a previous call to {@link #cancel} or when the user explicitly
+         * cancelled.
+         */
         public void onCancel() {
         }
 
+        /**
+         * The request is now attached to an activity, or being re-attached to a new activity
+         * after a configuration change.
+         */
         public void onAttached(Activity activity) {
         }
 
+        /**
+         * The request is being detached from an activity.
+         */
         public void onDetached() {
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder(128);
+            DebugUtils.buildShortClassTag(this, sb);
+            sb.append(" ");
+            sb.append(getRequestTypeName());
+            sb.append(" name=");
+            sb.append(mName);
+            sb.append('}');
+            return sb.toString();
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            writer.print(prefix); writer.print("mRequestInterface=");
+            writer.println(mRequestInterface.asBinder());
+            writer.print(prefix); writer.print("mActivity="); writer.println(mActivity);
+            writer.print(prefix); writer.print("mName="); writer.println(mName);
+        }
+
+        String getRequestTypeName() {
+            return "Request";
         }
 
         void clear() {
             mRequestInterface = null;
             mContext = null;
             mActivity = null;
+            mName = null;
         }
 
         abstract IVoiceInteractorRequest submit(IVoiceInteractor interactor,
@@ -249,7 +316,8 @@ public class VoiceInteractor {
      * would require the user to touch the screen when voice interaction mode is not enabled.
      * The result of the confirmation will be returned through an asynchronous call to
      * either {@link #onConfirmationResult(boolean, android.os.Bundle)} or
-     * {@link #onCancel()}.
+     * {@link #onCancel()} - these methods should be overridden to define the application specific
+     *  behavior.
      *
      * <p>In some cases this may be a simple yes / no confirmation or the confirmation could
      * include context information about how the action will be completed
@@ -257,21 +325,51 @@ public class VoiceInteractor {
      * so the user can give a confirmation.
      */
     public static class ConfirmationRequest extends Request {
-        final CharSequence mPrompt;
+        final Prompt mPrompt;
         final Bundle mExtras;
 
         /**
          * Create a new confirmation request.
-         * @param prompt Optional confirmation text to read to the user as the action being
-         * confirmed.
-         * @param extras Additional optional information.
+         * @param prompt Optional confirmation to speak to the user or null if nothing
+         *     should be spoken.
+         * @param extras Additional optional information or null.
          */
-        public ConfirmationRequest(CharSequence prompt, Bundle extras) {
+        public ConfirmationRequest(@Nullable Prompt prompt, @Nullable Bundle extras) {
             mPrompt = prompt;
             mExtras = extras;
         }
 
+        /**
+         * Create a new confirmation request.
+         * @param prompt Optional confirmation to speak to the user or null if nothing
+         *     should be spoken.
+         * @param extras Additional optional information or null.
+         * @hide
+         */
+        public ConfirmationRequest(CharSequence prompt, Bundle extras) {
+            mPrompt = (prompt != null ? new Prompt(prompt) : null);
+            mExtras = extras;
+        }
+
+        /**
+         * Handle the confirmation result. Override this method to define
+         * the behavior when the user confirms or rejects the operation.
+         * @param confirmed Whether the user confirmed or rejected the operation.
+         * @param result Additional result information or null.
+         */
         public void onConfirmationResult(boolean confirmed, Bundle result) {
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt="); writer.println(mPrompt);
+            if (mExtras != null) {
+                writer.print(prefix); writer.print("mExtras="); writer.println(mExtras);
+            }
+        }
+
+        String getRequestTypeName() {
+            return "Confirmation";
         }
 
         IVoiceInteractorRequest submit(IVoiceInteractor interactor, String packageName,
@@ -285,15 +383,18 @@ public class VoiceInteractor {
      * VoiceInteractionService. Typically, the application would present this visually as
      * a list view to allow selecting the option by touch.
      * The result of the confirmation will be returned through an asynchronous call to
-     * either {@link #onPickOptionResult} or {@link #onCancel()}.
+     * either {@link #onPickOptionResult} or {@link #onCancel()} - these methods should
+     * be overridden to define the application specific behavior.
      */
     public static class PickOptionRequest extends Request {
-        final CharSequence mPrompt;
+        final Prompt mPrompt;
         final Option[] mOptions;
         final Bundle mExtras;
 
         /**
-         * Represents a single option that the user may select using their voice.
+         * Represents a single option that the user may select using their voice. The 
+         * {@link #getIndex()} method should be used as a unique ID to identify the option
+         * when it is returned from the voice interactor.
          */
         public static final class Option implements Parcelable {
             final CharSequence mLabel;
@@ -305,7 +406,8 @@ public class VoiceInteractor {
              * Creates an option that a user can select with their voice by matching the label
              * or one of several synonyms.
              * @param label The label that will both be matched against what the user speaks
-             * and displayed visually.
+             *     and displayed visually.
+             * @hide
              */
             public Option(CharSequence label) {
                 mLabel = label;
@@ -316,10 +418,10 @@ public class VoiceInteractor {
              * Creates an option that a user can select with their voice by matching the label
              * or one of several synonyms.
              * @param label The label that will both be matched against what the user speaks
-             * and displayed visually.
+             *     and displayed visually.
              * @param index The location of this option within the overall set of options.
-             * Can be used to help identify the option when it is returned from the
-             * voice interactor.
+             *     Can be used to help identify the option when it is returned from the
+             *     voice interactor.
              */
             public Option(CharSequence label, int index) {
                 mLabel = label;
@@ -330,7 +432,7 @@ public class VoiceInteractor {
              * Add a synonym term to the option to indicate an alternative way the content
              * may be matched.
              * @param synonym The synonym that will be matched against what the user speaks,
-             * but not displayed.
+             *     but not displayed.
              */
             public Option addSynonym(CharSequence synonym) {
                 if (mSynonyms == null) {
@@ -412,26 +514,76 @@ public class VoiceInteractor {
 
         /**
          * Create a new pick option request.
-         * @param prompt Optional question to be spoken to the user via text to speech.
+         * @param prompt Optional question to be asked of the user when the options are
+         *     presented or null if nothing should be asked.
          * @param options The set of {@link Option}s the user is selecting from.
-         * @param extras Additional optional information.
+         * @param extras Additional optional information or null.
          */
-        public PickOptionRequest(CharSequence prompt, Option[] options, Bundle extras) {
+        public PickOptionRequest(@Nullable Prompt prompt, Option[] options,
+                @Nullable Bundle extras) {
             mPrompt = prompt;
             mOptions = options;
             mExtras = extras;
         }
 
         /**
-         * Called when a single option is confirmed or narrowed to one of several options.
+         * Create a new pick option request.
+         * @param prompt Optional question to be asked of the user when the options are
+         *     presented or null if nothing should be asked.
+         * @param options The set of {@link Option}s the user is selecting from.
+         * @param extras Additional optional information or null.
+         * @hide
+         */
+        public PickOptionRequest(CharSequence prompt, Option[] options, Bundle extras) {
+            mPrompt = (prompt != null ? new Prompt(prompt) : null);
+            mOptions = options;
+            mExtras = extras;
+        }
+
+        /**
+         * Called when a single option is confirmed or narrowed to one of several options. Override
+         * this method to define the behavior when the user selects an option or narrows down the
+         * set of options.
          * @param finished True if the voice interaction has finished making a selection, in
-         * which case {@code selections} contains the final result.  If false, this request is
-         * still active and you will continue to get calls on it.
+         *     which case {@code selections} contains the final result.  If false, this request is
+         *     still active and you will continue to get calls on it.
          * @param selections Either a single {@link Option} or one of several {@link Option}s the
-         * user has narrowed the choices down to.
+         *     user has narrowed the choices down to.
          * @param result Additional optional information.
          */
         public void onPickOptionResult(boolean finished, Option[] selections, Bundle result) {
+        }
+
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt="); writer.println(mPrompt);
+            if (mOptions != null) {
+                writer.print(prefix); writer.println("Options:");
+                for (int i=0; i<mOptions.length; i++) {
+                    Option op = mOptions[i];
+                    writer.print(prefix); writer.print("  #"); writer.print(i); writer.println(":");
+                    writer.print(prefix); writer.print("    mLabel="); writer.println(op.mLabel);
+                    writer.print(prefix); writer.print("    mIndex="); writer.println(op.mIndex);
+                    if (op.mSynonyms != null && op.mSynonyms.size() > 0) {
+                        writer.print(prefix); writer.println("    Synonyms:");
+                        for (int j=0; j<op.mSynonyms.size(); j++) {
+                            writer.print(prefix); writer.print("      #"); writer.print(j);
+                            writer.print(": "); writer.println(op.mSynonyms.get(j));
+                        }
+                    }
+                    if (op.mExtras != null) {
+                        writer.print(prefix); writer.print("    mExtras=");
+                        writer.println(op.mExtras);
+                    }
+                }
+            }
+            if (mExtras != null) {
+                writer.print(prefix); writer.print("mExtras="); writer.println(mExtras);
+            }
+        }
+
+        String getRequestTypeName() {
+            return "PickOption";
         }
 
         IVoiceInteractorRequest submit(IVoiceInteractor interactor, String packageName,
@@ -450,25 +602,50 @@ public class VoiceInteractor {
      * interaction task.
      */
     public static class CompleteVoiceRequest extends Request {
-        final CharSequence mMessage;
+        final Prompt mPrompt;
         final Bundle mExtras;
 
         /**
          * Create a new completed voice interaction request.
-         * @param message Optional message to tell user about the completion status of the task.
-         * @param extras Additional optional information.
+         * @param prompt Optional message to speak to the user about the completion status of
+         *     the task or null if nothing should be spoken.
+         * @param extras Additional optional information or null.
+         */
+        public CompleteVoiceRequest(@Nullable Prompt prompt, @Nullable Bundle extras) {
+            mPrompt = prompt;
+            mExtras = extras;
+        }
+
+        /**
+         * Create a new completed voice interaction request.
+         * @param message Optional message to speak to the user about the completion status of
+         *     the task or null if nothing should be spoken.
+         * @param extras Additional optional information or null.
+         * @hide
          */
         public CompleteVoiceRequest(CharSequence message, Bundle extras) {
-            mMessage = message;
+            mPrompt = (message != null ? new Prompt(message) : null);
             mExtras = extras;
         }
 
         public void onCompleteResult(Bundle result) {
         }
 
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt="); writer.println(mPrompt);
+            if (mExtras != null) {
+                writer.print(prefix); writer.print("mExtras="); writer.println(mExtras);
+            }
+        }
+
+        String getRequestTypeName() {
+            return "CompleteVoice";
+        }
+
         IVoiceInteractorRequest submit(IVoiceInteractor interactor, String packageName,
                 IVoiceInteractorCallback callback) throws RemoteException {
-            return interactor.startCompleteVoice(packageName, callback, mMessage, mExtras);
+            return interactor.startCompleteVoice(packageName, callback, mPrompt, mExtras);
         }
     }
 
@@ -484,31 +661,55 @@ public class VoiceInteractor {
      * interaction task.
      */
     public static class AbortVoiceRequest extends Request {
-        final CharSequence mMessage;
+        final Prompt mPrompt;
         final Bundle mExtras;
 
         /**
          * Create a new voice abort request.
-         * @param message Optional message to tell user about not being able to complete
-         * the interaction with voice.
-         * @param extras Additional optional information.
+         * @param prompt Optional message to speak to the user indicating why the task could
+         *     not be completed by voice or null if nothing should be spoken.
+         * @param extras Additional optional information or null.
+         */
+        public AbortVoiceRequest(@Nullable Prompt prompt, @Nullable Bundle extras) {
+            mPrompt = prompt;
+            mExtras = extras;
+        }
+
+        /**
+         * Create a new voice abort request.
+         * @param message Optional message to speak to the user indicating why the task could
+         *     not be completed by voice or null if nothing should be spoken.
+         * @param extras Additional optional information or null.
+         * @hide
          */
         public AbortVoiceRequest(CharSequence message, Bundle extras) {
-            mMessage = message;
+            mPrompt = (message != null ? new Prompt(message) : null);
             mExtras = extras;
         }
 
         public void onAbortResult(Bundle result) {
         }
 
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mPrompt="); writer.println(mPrompt);
+            if (mExtras != null) {
+                writer.print(prefix); writer.print("mExtras="); writer.println(mExtras);
+            }
+        }
+
+        String getRequestTypeName() {
+            return "AbortVoice";
+        }
+
         IVoiceInteractorRequest submit(IVoiceInteractor interactor, String packageName,
                 IVoiceInteractorCallback callback) throws RemoteException {
-            return interactor.startAbortVoice(packageName, callback, mMessage, mExtras);
+            return interactor.startAbortVoice(packageName, callback, mPrompt, mExtras);
         }
     }
 
     /**
-     * Execute an extended command using the trusted system VoiceInteractionService.
+     * Execute a vendor-specific command using the trusted system VoiceInteractionService.
      * This allows an Activity to request additional information from the user needed to
      * complete an action (e.g. booking a table might have several possible times that the
      * user could select from or an app might need the user to agree to a terms of service).
@@ -544,11 +745,141 @@ public class VoiceInteractor {
         public void onCommandResult(boolean isCompleted, Bundle result) {
         }
 
+        void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+            super.dump(prefix, fd, writer, args);
+            writer.print(prefix); writer.print("mCommand="); writer.println(mCommand);
+            if (mArgs != null) {
+                writer.print(prefix); writer.print("mArgs="); writer.println(mArgs);
+            }
+        }
+
+        String getRequestTypeName() {
+            return "Command";
+        }
+
         IVoiceInteractorRequest submit(IVoiceInteractor interactor, String packageName,
                 IVoiceInteractorCallback callback) throws RemoteException {
             return interactor.startCommand(packageName, callback, mCommand, mArgs);
         }
-   }
+    }
+
+    /**
+     * A set of voice prompts to use with the voice interaction system to confirm an action, select
+     * an option, or do similar operations. Multiple voice prompts may be provided for variety. A
+     * visual prompt must be provided, which might not match the spoken version. For example, the
+     * confirmation "Are you sure you want to purchase this item?" might use a visual label like
+     * "Purchase item".
+     */
+    public static class Prompt implements Parcelable {
+        // Mandatory voice prompt. Must contain at least one item, which must not be null.
+        private final CharSequence[] mVoicePrompts;
+
+        // Mandatory visual prompt.
+        private final CharSequence mVisualPrompt;
+
+        /**
+         * Constructs a prompt set.
+         * @param voicePrompts An array of one or more voice prompts. Must not be empty or null.
+         * @param visualPrompt A prompt to display on the screen. Must not be null.
+         */
+        public Prompt(@NonNull CharSequence[] voicePrompts, @NonNull CharSequence visualPrompt) {
+            if (voicePrompts == null) {
+                throw new NullPointerException("voicePrompts must not be null");
+            }
+            if (voicePrompts.length == 0) {
+                throw new IllegalArgumentException("voicePrompts must not be empty");
+            }
+            if (visualPrompt == null) {
+                throw new NullPointerException("visualPrompt must not be null");
+            }
+            this.mVoicePrompts = voicePrompts;
+            this.mVisualPrompt = visualPrompt;
+        }
+
+        /**
+         * Constructs a prompt set with single prompt used for all interactions. This is most useful
+         * in test apps. Non-trivial apps should prefer the detailed constructor.
+         */
+        public Prompt(@NonNull CharSequence prompt) {
+            this.mVoicePrompts = new CharSequence[] { prompt };
+            this.mVisualPrompt = prompt;
+        }
+
+        /**
+         * Returns a prompt to use for voice interactions.
+         */
+        @NonNull
+        public CharSequence getVoicePromptAt(int index) {
+            return mVoicePrompts[index];
+        }
+
+        /**
+         * Returns the number of different voice prompts.
+         */
+        public int countVoicePrompts() {
+            return mVoicePrompts.length;
+        }
+
+        /**
+         * Returns the prompt to use for visual display.
+         */
+        @NonNull
+        public CharSequence getVisualPrompt() {
+            return mVisualPrompt;
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder(128);
+            DebugUtils.buildShortClassTag(this, sb);
+            if (mVisualPrompt != null && mVoicePrompts != null && mVoicePrompts.length == 1
+                && mVisualPrompt.equals(mVoicePrompts[0])) {
+                sb.append(" ");
+                sb.append(mVisualPrompt);
+            } else {
+                if (mVisualPrompt != null) {
+                    sb.append(" visual="); sb.append(mVisualPrompt);
+                }
+                if (mVoicePrompts != null) {
+                    sb.append(", voice=");
+                    for (int i=0; i<mVoicePrompts.length; i++) {
+                        if (i > 0) sb.append(" | ");
+                        sb.append(mVoicePrompts[i]);
+                    }
+                }
+            }
+            sb.append('}');
+            return sb.toString();
+        }
+
+        /** Constructor to support Parcelable behavior. */
+        Prompt(Parcel in) {
+            mVoicePrompts = in.readCharSequenceArray();
+            mVisualPrompt = in.readCharSequence();
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeCharSequenceArray(mVoicePrompts);
+            dest.writeCharSequence(mVisualPrompt);
+        }
+
+        public static final Creator<Prompt> CREATOR
+                = new Creator<Prompt>() {
+            public Prompt createFromParcel(Parcel in) {
+                return new Prompt(in);
+            }
+
+            public Prompt[] newArray(int size) {
+                return new Prompt[size];
+            }
+        };
+    }
 
     VoiceInteractor(IVoiceInteractor interactor, Context context, Activity activity,
             Looper looper) {
@@ -573,7 +904,7 @@ public class VoiceInteractor {
         if (N < 1) {
             return null;
         }
-        ArrayList<Request> list = new ArrayList<Request>(N);
+        ArrayList<Request> list = new ArrayList<>(N);
         for (int i=0; i<N; i++) {
             list.add(mActiveRequests.valueAt(i));
         }
@@ -581,6 +912,7 @@ public class VoiceInteractor {
     }
 
     void attachActivity(Activity activity) {
+        mRetaining = false;
         if (mActivity == activity) {
             return;
         }
@@ -597,6 +929,10 @@ public class VoiceInteractor {
         }
     }
 
+    void retainInstance() {
+        mRetaining = true;
+    }
+
     void detachActivity() {
         ArrayList<Request> reqs = makeRequestList();
         if (reqs != null) {
@@ -607,17 +943,46 @@ public class VoiceInteractor {
                 req.mContext = null;
             }
         }
+        if (!mRetaining) {
+            reqs = makeRequestList();
+            if (reqs != null) {
+                for (int i=0; i<reqs.size(); i++) {
+                    Request req = reqs.get(i);
+                    req.cancel();
+                }
+            }
+            mActiveRequests.clear();
+        }
         mContext = null;
         mActivity = null;
     }
 
     public boolean submitRequest(Request request) {
+        return submitRequest(request, null);
+    }
+
+    /**
+     * Submit a new {@link Request} to the voice interaction service.  The request must be
+     * one of the available subclasses -- {@link ConfirmationRequest}, {@link PickOptionRequest},
+     * {@link CompleteVoiceRequest}, {@link AbortVoiceRequest}, or {@link CommandRequest}.
+     *
+     * @param request The desired request to submit.
+     * @param name An optional name for this request, or null. This can be used later with
+     * {@link #getActiveRequests} and {@link #getActiveRequest} to find the request.
+     *
+     * @return Returns true of the request was successfully submitted, else false.
+     */
+    public boolean submitRequest(Request request, String name) {
         try {
+            if (request.mRequestInterface != null) {
+                throw new IllegalStateException("Given " + request + " is already active");
+            }
             IVoiceInteractorRequest ireq = request.submit(mInteractor,
                     mContext.getOpPackageName(), mCallback);
             request.mRequestInterface = ireq;
             request.mContext = mContext;
             request.mActivity = mActivity;
+            request.mName = name;
             synchronized (mActiveRequests) {
                 mActiveRequests.put(ireq.asBinder(), request);
             }
@@ -629,12 +994,50 @@ public class VoiceInteractor {
     }
 
     /**
-     * Queries the supported commands available from the VoiceinteractionService.
-     * The command is a string that describes the generic operation to be performed.
-     * An example might be "com.google.voice.commands.REQUEST_NUMBER_BAGS" to request the number
-     * of bags as part of airline check-in.  (This is not an actual working example.)
+     * Return all currently active requests.
+     */
+    public Request[] getActiveRequests() {
+        synchronized (mActiveRequests) {
+            final int N = mActiveRequests.size();
+            if (N <= 0) {
+                return NO_REQUESTS;
+            }
+            Request[] requests = new Request[N];
+            for (int i=0; i<N; i++) {
+                requests[i] = mActiveRequests.valueAt(i);
+            }
+            return requests;
+        }
+    }
+
+    /**
+     * Return any currently active request that was submitted with the given name.
      *
-     * @param commands
+     * @param name The name used to submit the request, as per
+     * {@link #submitRequest(android.app.VoiceInteractor.Request, String)}.
+     * @return Returns the active request with that name, or null if there was none.
+     */
+    public Request getActiveRequest(String name) {
+        synchronized (mActiveRequests) {
+            final int N = mActiveRequests.size();
+            for (int i=0; i<N; i++) {
+                Request req = mActiveRequests.valueAt(i);
+                if (name == req.getName() || (name != null && name.equals(req.getName()))) {
+                    return req;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Queries the supported commands available from the VoiceInteractionService.
+     * The command is a string that describes the generic operation to be performed.
+     * An example might be "org.example.commands.PICK_DATE" to ask the user to pick
+     * a date.  (Note: This is not an actual working example.)
+     *
+     * @param commands The array of commands to query for support.
+     * @return Array of booleans indicating whether each command is supported or not.
      */
     public boolean[] supportsCommands(String[] commands) {
         try {
@@ -644,5 +1047,23 @@ public class VoiceInteractor {
         } catch (RemoteException e) {
             throw new RuntimeException("Voice interactor has died", e);
         }
+    }
+
+    void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
+        String innerPrefix = prefix + "    ";
+        if (mActiveRequests.size() > 0) {
+            writer.print(prefix); writer.println("Active voice requests:");
+            for (int i=0; i<mActiveRequests.size(); i++) {
+                Request req = mActiveRequests.valueAt(i);
+                writer.print(prefix); writer.print("  #"); writer.print(i);
+                writer.print(": ");
+                writer.println(req);
+                req.dump(innerPrefix, fd, writer, args);
+            }
+        }
+        writer.print(prefix); writer.println("VoiceInteractor misc state:");
+        writer.print(prefix); writer.print("  mInteractor=");
+        writer.println(mInteractor.asBinder());
+        writer.print(prefix); writer.print("  mActivity="); writer.println(mActivity);
     }
 }
