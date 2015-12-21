@@ -3320,6 +3320,30 @@ public final class Settings {
         public static final String STATUS_BAR_AM_PM = "status_bar_am_pm";
 
         /**
+         * Shows custom date before clock time
+         * 0 - No Date
+         * 1 - Small Date
+         * 2 - Normal Date
+         * @hide
+         */
+        public static final String STATUS_BAR_CLOCK_DATE_DISPLAY = "statusbar_clock_date_display";
+
+        /**
+         * Sets the date string style
+         * 0 - Regular style
+         * 1 - Lowercase
+         * 2 - Uppercase
+         * @hide
+         */
+        public static final String STATUS_BAR_CLOCK_DATE_STYLE = "statusbar_clock_date_style";
+
+        /**
+         * Stores the java DateFormat string for the date
+         * @hide
+         */
+        public static final String STATUS_BAR_CLOCK_DATE_FORMAT = "statusbar_clock_date_format";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
@@ -3374,7 +3398,10 @@ public final class Settings {
             STATUS_BAR_BATTERY_STYLE,
             STATUS_BAR_SHOW_BATTERY_PERCENT,
             STATUS_BAR_CLOCK,
-            STATUS_BAR_AM_PM
+            STATUS_BAR_AM_PM,
+            STATUS_BAR_CLOCK_DATE_DISPLAY,
+            STATUS_BAR_CLOCK_DATE_STYLE,
+            STATUS_BAR_CLOCK_DATE_FORMAT
         };
 
         /**
