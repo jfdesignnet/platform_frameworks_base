@@ -29,6 +29,8 @@ public class ClockController {
 
     private int mClockLocation;
     private int mAmPmStyle;
+    private int mClockDateStyle;
+    private int mClockDateDisplay;
     private int mIconTint = Color.WHITE;
 
     class SettingsObserver extends ContentObserver {
@@ -42,6 +44,12 @@ public class ClockController {
                     Settings.System.STATUS_BAR_AM_PM), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.STATUS_BAR_CLOCK), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.STATUS_BAR_CLOCK_DATE_DISPLAY), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.STATUS_BAR_CLOCK_DATE_STYLE), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.STATUS_BAR_CLOCK_DATE_FORMAT), false, this);
             updateSettings();
         }
 
@@ -94,6 +102,8 @@ public class ClockController {
         mActiveClock = getClockForCurrentLocation();
         mActiveClock.setVisibility(View.VISIBLE);
         mActiveClock.setAmPmStyle(mAmPmStyle);
+        mActiveClock.setClockDateDisplay(mClockDateDisplay);
+        mActiveClock.setClockDateStyle(mClockDateStyle);
 
         setClockAndDateStatus();
         setTextColor(mIconTint);
@@ -106,6 +116,10 @@ public class ClockController {
                 Settings.System.STATUS_BAR_AM_PM, Clock.AM_PM_STYLE_GONE);
         mClockLocation = Settings.System.getInt(
                 resolver, Settings.System.STATUS_BAR_CLOCK, STYLE_CLOCK_RIGHT);
+        mClockDateDisplay = Settings.System.getInt(resolver,
+                Settings.System.STATUS_BAR_CLOCK_DATE_DISPLAY, Clock.CLOCK_DATE_DISPLAY_GONE);
+        mClockDateStyle = Settings.System.getInt(resolver,
+                Settings.System.STATUS_BAR_CLOCK_DATE_STYLE, Clock.CLOCK_DATE_STYLE_REGULAR);
         updateActiveClock();
     }
 
