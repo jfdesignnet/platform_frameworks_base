@@ -122,7 +122,7 @@ class Rules {
 
         // Technically, we could approve and use the overlay, but the target
         // hasn't granted every resource it touches. Let's not approve it.
-        return STATE_NOT_APPROVED_DANGEROUS_OVERLAY;
+        return STATE_APPROVED_ENABLED;
     }
 
     /**
