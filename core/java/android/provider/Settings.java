@@ -3356,7 +3356,15 @@ public final class Settings {
             VIBRATE_WHEN_RINGING,
             RINGTONE,
             LOCK_TO_APP_ENABLED,
-            NOTIFICATION_SOUND
+            NOTIFICATION_SOUND,
+            STATUS_BAR_BATTERY_STYLE,
+            STATUS_BAR_SHOW_BATTERY_PERCENT,
+            STATUS_BAR_CLOCK,
+            STATUS_BAR_AM_PM,
+            STATUS_BAR_CLOCK_DATE_DISPLAY,
+            STATUS_BAR_CLOCK_DATE_STYLE,
+            STATUS_BAR_CLOCK_DATE_FORMAT,
+            POWER_MENU_ANIMATIONS
         };
 
         /**
