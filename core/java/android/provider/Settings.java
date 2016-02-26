@@ -3319,6 +3319,12 @@ public final class Settings {
          */
         public static final String STATUSBAR_BATTERY_BAR_ANIMATE = "statusbar_battery_bar_animate";
 
+         /**
+         * Whether to show switches for wifi/cell/bt in the settings dashboard
+         * @hide
+         */
+        public static final String DASHBOARD_SWITCHES = "dashboard_switches";
+
         /**
          * Whether navigation bar is placed on the left side in landscape mode
          * @hide
