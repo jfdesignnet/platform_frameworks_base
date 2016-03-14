@@ -3386,6 +3386,12 @@ public final class Settings {
          */
         public static final String STATUS_BAR_CLOCK_DATE_FORMAT = "statusbar_clock_date_format";
 
+         /**
+         * Volume rocker wake
+         * @hide
+         */
+        public static final String VOLUME_ROCKER_WAKE = "volume_rocker_wake";
+
        /**
         * USB Data automatic unlock
         */
