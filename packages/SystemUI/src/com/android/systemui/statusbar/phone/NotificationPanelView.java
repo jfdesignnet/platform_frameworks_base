@@ -32,6 +32,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.os.PowerManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.provider.Settings;
@@ -241,7 +242,7 @@ public class NotificationPanelView extends PanelView implements
                     pm.goToSleep(e.getEventTime());
                 return true;
             }
-        })
+        });
     }
 
     public void setStatusBar(PhoneStatusBar bar) {
