@@ -26,6 +26,7 @@
     <style name="BatteryMeterViewDrawable.Portrait"/>
     <style name="BatteryMeterViewDrawable.Landscape"/>
     <style name="BatteryMeterViewDrawable.Circle">
+        <item name="android:gravity">bottom|center_horizontal</item>
         <item name="blendMode">overlay</item>
     </style>
 

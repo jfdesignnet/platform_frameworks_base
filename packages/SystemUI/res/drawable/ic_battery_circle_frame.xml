@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Copyright (C) 2016 The CyanogenMod Project
+    Copyright (C) 2016 Clark Scheff
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -20,12 +20,13 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- Path will be tinted based on light/dark modes -->
     <path
         android:name="frame"
-        android:strokeColor="#000000"
+        android:strokeColor="@color/batterymeter_frame_color"
         android:strokeLineJoin="round"
-        android:strokeWidth="3"
-        android:pathData="@string/battery_circle_path"/>
+        android:strokeWidth="2"
+        android:pathData="M2.87572,20.1689 A10.722670778756811,10.722670778756811,0,0,1,5.02853,6.3911
+A10.722670778756811,10.722670778756811,0,0,1,18.9736,6.3912
+A10.722670778756811,10.722670778756811,0,0,1,21.1254,20.1693"/>
 
 </vector>

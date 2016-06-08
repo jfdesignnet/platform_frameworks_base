@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Copyright (C) 2016 The CyanogenMod Project
+    Copyright (C) 2016 Clark Scheff
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -20,11 +20,47 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- Path will be tinted based on battery level -->
+    <!-- outer dial -->
     <path
-        android:name="battery_level"
         android:strokeColor="#000000"
         android:strokeLineJoin="round"
-        android:strokeWidth="3"
-        android:pathData="@string/battery_circle_path" />
+        android:strokeWidth="2"
+        android:pathData="M2.87572,20.1689 A10.722670778756811,10.722670778756811,0,0,1,5.02853,6.3911
+A10.722670778756811,10.722670778756811,0,0,1,18.9736,6.3912
+A10.722670778756811,10.722670778756811,0,0,1,21.1254,20.1693"/>
+
+    <group android:name="needle"
+        android:pivotX="12"
+        android:pivotY="14"
+        android:rotation="-120">
+
+        <path
+            android:name="arm"
+            android:fillColor="#000000"
+            android:strokeColor="#000000"
+            android:strokeLineJoin="round"
+            android:strokeWidth="1.5"
+            android:pathData="M11.9987,14.4578 L11.9323,6.78784" />
+
+        <path
+            android:name="pointer"
+            android:fillColor="#000000"
+            android:strokeColor="#000000"
+            android:strokeLineJoin="round"
+            android:strokeWidth="1.5"
+            android:pathData="M13.3278,7.46992 L12.0004,7.34861 L10.6726,7.47157 L11.4424,6.38346
+L11.9991,5.1717 L12.5578,6.38314 Z" />
+
+    </group>
+
+    <!-- needle center -->
+    <path
+        android:fillColor="#000000"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round"
+        android:pathData="M12,12.7053 C12.715,12.7053,13.2946,13.285,13.2946,14
+C13.2946,14.7151,12.715,15.2947,12,15.2947
+C11.285,15.2947,10.7054,14.7151,10.7054,14
+C10.7054,13.285,11.285,12.7053,12,12.7053 Z" />
 </vector>

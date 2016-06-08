@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Copyright (C) 2016 The CyanogenMod Project
+    Copyright (C) 2016 Clark Scheff
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Note the use of @*com.android.systemui:id, this is necessary if you want systemui to
+         load your battery, otherwise the stock battery will be loaded -->
     <item
         android:id="@+id/battery_frame"
         android:drawable="@drawable/ic_battery_circle_frame"/>
@@ -24,8 +26,15 @@
         android:id="@+id/battery_fill"
         android:drawable="@drawable/ic_battery_circle_avd"/>
 
+    <!-- Note we are using the stock bolt by using @*com.android.systemui:drawable/ic_battery_bolt
+    -->
     <item
-        android:id="@+id/battery_charge_indicator"
-        android:drawable="@drawable/ic_battery_bolt"/>
+        android:id="@+id/battery_charge_indicator">
+        <!-- inset the drawable so it's in the lower left corner -->
+        <inset
+            android:insetTop="8dp"
+            android:insetRight="6dp"
+            android:drawable="@drawable/ic_battery_bolt"/>
+    </item>
 
 </layer-list>
